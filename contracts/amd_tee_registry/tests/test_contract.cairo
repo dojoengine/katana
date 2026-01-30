@@ -42,6 +42,9 @@ fn deploy_contract() -> ContractAddress {
     calldata.append(root_cert.low.into());
     calldata.append(root_cert.high.into());
 
+    // storage_commitment_proxy (0 = disabled)
+    calldata.append(0);
+
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
 }

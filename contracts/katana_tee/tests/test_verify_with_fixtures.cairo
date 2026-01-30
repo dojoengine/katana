@@ -46,7 +46,8 @@ fn deploy_amd_registry_live_mode() -> ContractAddress {
     let certs = load_root_certs();
 
     // Constructor: verifier_class_hash, sp1_program_id (u256), max_time_diff,
-    //              trusted_certs (array), processor_models (array), root_certs (array)
+    //              trusted_certs (array), processor_models (array), root_certs (array),
+    //              storage_commitment_proxy (0 = disabled)
     let mut calldata: Array<felt252> = array![
         GARAGA_CLASS_HASH, SP1_PROGRAM_ID_LOW, SP1_PROGRAM_ID_HIGH,
         MAX_TIME_DIFF.into(), // trusted_certs array - EMPTY for live mode
@@ -54,7 +55,7 @@ fn deploy_amd_registry_live_mode() -> ContractAddress {
         1, 1, // ProcessorType::Genoa
         // root_certs array (Genoa root cert hash)
         1,
-        certs.genoa_ark_hash_low, certs.genoa_ark_hash_high,
+        certs.genoa_ark_hash_low, certs.genoa_ark_hash_high, 0 // storage_commitment_proxy
     ];
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();

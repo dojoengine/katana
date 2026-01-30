@@ -180,9 +180,10 @@ build_amd_registry_calldata() {
     read -r genoa_low genoa_high <<< "$(split_u256 "$genoa_root")"
 
     # Constructor: verifier_class_hash, sp1_program_id (u256), max_time_diff,
-    # trusted_certs (array), processor_models (array), root_certs (array)
+    # trusted_certs (array), processor_models (array), root_certs (array),
+    # storage_commitment_proxy (0 = disabled)
     # trusted_certs is empty (length 0)
-    echo "$GARAGA_CLASS_HASH $sp1_low $sp1_high $MAX_TIME_DIFF 0 2 0 1 2 $milan_low $milan_high $genoa_low $genoa_high"
+    echo "$GARAGA_CLASS_HASH $sp1_low $sp1_high $MAX_TIME_DIFF 0 2 0 1 2 $milan_low $milan_high $genoa_low $genoa_high 0"
 }
 
 # Save deployment info to JSON

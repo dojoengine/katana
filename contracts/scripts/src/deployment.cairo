@@ -53,6 +53,8 @@ fn main() {
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan, ProcessorType::Genoa];
     let root_certs: Array<u256> = array![milan_root, genoa_root];
 
+    let storage_commitment_proxy: ContractAddress = 0.try_into().unwrap();
+
     let mut amd_tee_calldata: Array<felt252> = array![];
     Serde::serialize(@verifier_class_hash, ref amd_tee_calldata);
     Serde::serialize(@sp1_program_id, ref amd_tee_calldata);
@@ -60,6 +62,7 @@ fn main() {
     Serde::serialize(@trusted_certs, ref amd_tee_calldata);
     Serde::serialize(@processor_models, ref amd_tee_calldata);
     Serde::serialize(@root_certs, ref amd_tee_calldata);
+    Serde::serialize(@storage_commitment_proxy, ref amd_tee_calldata);
 
     let amd_tee_registry_address = declare_and_deploy_contract("AMDTEERegistry", amd_tee_calldata);
 

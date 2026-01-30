@@ -1,5 +1,6 @@
 //! Helper for contracts that receive calldata (abi.encode(keys, values)) and verify
-//! it matches the ZK journal's storage_commitment: keccak256(calldata) == journal.storage_commitment.
+//! it matches the ZK journal's storage_commitment: keccak256(calldata) ==
+//! journal.storage_commitment.
 //! Matches Solidity StorageCommitmentChecker.checkCommitment.
 
 use core::keccak::compute_keccak_byte_array;

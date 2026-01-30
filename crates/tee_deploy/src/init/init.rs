@@ -1,8 +1,11 @@
 //! Declare and deploy AMDTeeRegistry and KatanaTee on Starknet.
 //!
-//! Run `scarb build` in contracts/amd_tee_registry and contracts/katana_tee first.
-//! Default contract class paths are relative to repo root.
+//! Run `scarb build` from repo root first. Before deploy, SP1 program ID is computed
+//! via `cargo run -p snp-attest-cli --release -- program-id --sp1` in the SDK dir
+//! (unless overridden with --sp1-program-id or --no-fetch-sp1-program-id).
 
+use std::path::Path;
+use std::process::Command;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -19,12 +22,12 @@ use starknet_rust::{
     providers::{jsonrpc::HttpTransport, JsonRpcClient, Provider, Url},
     signers::{LocalWallet, SigningKey},
 };
-use tracing::info;
+use tracing::{info, warn};
 
-// Constructor constants (match deploy_sncast.sh)
 const GARAGA_CLASS_HASH: &str = "0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22";
-const SP1_LOW: &str = "0xac855e58a251a65e5b78d64866896bd0";
-const SP1_HIGH: &str = "0x00b7734894ae5b8056221d5d53c67f4b";
+/// Fallback SP1 program ID (low/high) when snp-attest-cli is not runnable.
+const SP1_LOW_FALLBACK: &str = "0xac855e58a251a65e5b78d64866896bd0";
+const SP1_HIGH_FALLBACK: &str = "0x00b7734894ae5b8056221d5d53c67f4b";
 const MAX_TIME_DIFF: u64 = 86400;
 const MILAN_LOW: &str = "326103188097639633505521426987620764621";
 const MILAN_HIGH: &str = "140650959549381881311165088169387222174";
@@ -62,6 +65,18 @@ pub struct InitArgs {
         default_value = "target/dev/katana_tee_KatanaTee.contract_class.json"
     )]
     pub katana_contract_class_path: String,
+
+    /// SP1 program ID (onchain bytes32) as hex; if unset, computed via snp-attest-cli in SDK dir
+    #[arg(long)]
+    pub sp1_program_id: Option<String>,
+
+    /// Do not run snp-attest-cli to fetch SP1 program ID; use fallback (requires --sp1-program-id or fallback constants)
+    #[arg(long)]
+    pub no_fetch_sp1_program_id: bool,
+
+    /// Path to amd-sev-snp-attestation-sdk (for `cargo run -p snp-attest-cli -- program-id --sp1`). Default: ./crates/amd-sev-snp-attestation-sdk
+    #[arg(long)]
+    pub sdk_path: Option<String>,
 }
 
 pub async fn run_init(args: InitArgs) -> Result<()> {
@@ -125,13 +140,20 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     };
     info!("Using salt for deployment: {:#064x}", salt);
 
+    let (sp1_low, sp1_high) = resolve_sp1_program_id(&args)?;
+    info!(
+        "SP1 program ID: low {:#064x}, high {:#064x}",
+        sp1_low, sp1_high
+    );
+
     // AMDTeeRegistry constructor calldata:
     // verifier_class_hash, sp1_program_id (low, high), max_time_diff,
-    // trusted_certs (len 0), processor_models (len 2: Milan=0, Genoa=1), root_certs (len 2: milan u256, genoa u256)
+    // trusted_certs (len 0), processor_models (len 2: Milan=0, Genoa=1), root_certs (len 2: milan u256, genoa u256),
+    // storage_commitment_proxy (0 = disabled)
     let amd_calldata = vec![
         Felt::from_hex(GARAGA_CLASS_HASH).unwrap(),
-        Felt::from_hex(SP1_LOW).unwrap(),
-        Felt::from_hex(SP1_HIGH).unwrap(),
+        sp1_low,
+        sp1_high,
         Felt::from(MAX_TIME_DIFF),
         Felt::ZERO,       // trusted_certs len
         Felt::from(2u64), // processor_models len
@@ -142,6 +164,7 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         Felt::from_dec_str(MILAN_HIGH).unwrap(),
         Felt::from_dec_str(GENOA_LOW).unwrap(),
         Felt::from_dec_str(GENOA_HIGH).unwrap(),
+        Felt::ZERO, // storage_commitment_proxy
     ];
 
     let (maybe_tx, amd_address) =
@@ -206,4 +229,83 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         info!("  - Deployment block: {}", block);
     }
     Ok(())
+}
+
+/// Resolve SP1 program ID: from --sp1-program-id, or by running snp-attest-cli, or fallback constants.
+/// Returns (low, high) as u256 for constructor calldata (low = last 16 bytes, high = first 16 bytes).
+fn resolve_sp1_program_id(args: &InitArgs) -> Result<(Felt, Felt)> {
+    if let Some(ref hex_id) = args.sp1_program_id {
+        return parse_program_id_hex(hex_id).context("invalid --sp1-program-id hex");
+    }
+    if !args.no_fetch_sp1_program_id {
+        if let Ok((low, high)) = fetch_sp1_program_id_from_cli(args.sdk_path.as_deref()) {
+            return Ok((low, high));
+        }
+        warn!("Could not run snp-attest-cli to get SP1 program ID, using fallback. Pass --no-fetch-sp1-program-id to silence.");
+    }
+    Ok((
+        Felt::from_hex(SP1_LOW_FALLBACK).context("fallback SP1 low")?,
+        Felt::from_hex(SP1_HIGH_FALLBACK).context("fallback SP1 high")?,
+    ))
+}
+
+/// Parse "0x" + 64 hex chars into (low, high) felt. Low = last 16 bytes, high = first 16 bytes.
+fn parse_program_id_hex(hex_id: &str) -> Result<(Felt, Felt)> {
+    let s = hex_id.strip_prefix("0x").unwrap_or(hex_id);
+    let s = s.trim();
+    anyhow::ensure!(
+        s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()),
+        "SP1 program ID must be 32 bytes (64 hex chars)"
+    );
+    let low_hex = format!("0x{}", &s[32..]);
+    let high_hex = format!("0x{}", &s[..32]);
+    Ok((
+        Felt::from_hex(&low_hex).context("SP1 low")?,
+        Felt::from_hex(&high_hex).context("SP1 high")?,
+    ))
+}
+
+/// Run `cargo run -p snp-attest-cli --release -- program-id --sp1` in SDK dir and parse onchain representation.
+fn fetch_sp1_program_id_from_cli(sdk_path_opt: Option<&str>) -> Result<(Felt, Felt)> {
+    let sdk_path = match sdk_path_opt {
+        Some(p) => Path::new(p).to_path_buf(),
+        None => {
+            let cwd = std::env::current_dir().context("current_dir")?;
+            let default = cwd.join("crates").join("amd-sev-snp-attestation-sdk");
+            if default.exists() {
+                default
+            } else {
+                anyhow::bail!(
+                    "SDK path not found: {}. Set --sdk-path or run from repo root",
+                    default.display()
+                );
+            }
+        }
+    };
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "-p",
+            "snp-attest-cli",
+            "--release",
+            "--",
+            "program-id",
+            "--sp1",
+        ])
+        .current_dir(&sdk_path)
+        .output()
+        .context("run snp-attest-cli")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "snp-attest-cli failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let prefix = "ProgramID (Onchain Representation): ";
+    let line = stdout
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .context("snp-attest-cli output missing onchain program ID line")?;
+    let hex_id = line.strip_prefix(prefix).context("prefix")?.trim();
+    parse_program_id_hex(hex_id)
 }
