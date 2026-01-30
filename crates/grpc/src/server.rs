@@ -1,9 +1,10 @@
 //! gRPC server implementation.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::oneshot;
+use tokio::sync::watch;
 use tonic::transport::server::Routes;
 use tonic::transport::Server;
 use tracing::{error, info};
@@ -32,12 +33,12 @@ pub enum Error {
 /// Handle to a running gRPC server.
 ///
 /// This handle can be used to get the server's address and to stop the server.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GrpcServerHandle {
     /// The actual address that the server is bound to.
     addr: SocketAddr,
     /// Sender to signal server shutdown.
-    shutdown_tx: Option<oneshot::Sender<()>>,
+    shutdown_tx: Arc<watch::Sender<()>>,
 }
 
 impl GrpcServerHandle {
@@ -47,11 +48,18 @@ impl GrpcServerHandle {
     }
 
     /// Stops the server without waiting for it to fully stop.
-    pub fn stop(&mut self) -> Result<(), Error> {
-        if let Some(tx) = self.shutdown_tx.take() {
-            tx.send(()).map_err(|_| Error::AlreadyStopped)?;
-        }
-        Ok(())
+    pub fn stop(&self) -> Result<(), Error> {
+        self.shutdown_tx.send(()).map_err(|_| Error::AlreadyStopped)
+    }
+
+    /// Wait until the server has stopped.
+    pub async fn stopped(&self) {
+        self.shutdown_tx.closed().await
+    }
+
+    /// Returns true if the server has stopped.
+    pub fn is_stopped(&self) -> bool {
+        self.shutdown_tx.is_closed()
     }
 }
 
@@ -104,14 +112,14 @@ impl GrpcServer {
             .map_err(|e| Error::ReflectionBuild(e.to_string()))?;
 
         // Create shutdown channel
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
         let mut builder = Server::builder().timeout(self.timeout);
         let server = builder.add_routes(self.routes.clone()).add_service(reflection_service);
 
         // Start the server with graceful shutdown
-        let server_future = server.serve_with_shutdown(addr, async {
-            let _ = shutdown_rx.await;
+        let server_future = server.serve_with_shutdown(addr, async move {
+            let _ = shutdown_rx.changed().await;
         });
 
         tokio::spawn(async move {
@@ -122,7 +130,7 @@ impl GrpcServer {
 
         info!(target: "grpc", %addr, "gRPC server started.");
 
-        Ok(GrpcServerHandle { addr, shutdown_tx: Some(shutdown_tx) })
+        Ok(GrpcServerHandle { addr, shutdown_tx: Arc::new(shutdown_tx) })
     }
 }
 

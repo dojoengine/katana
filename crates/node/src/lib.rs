@@ -713,7 +713,7 @@ where
 
         // Stop gRPC server if it's running
         #[cfg(feature = "grpc")]
-        if let Some(mut handle) = self.grpc {
+        if let Some(handle) = self.grpc {
             handle.stop()?;
         }
 

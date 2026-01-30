@@ -23,16 +23,29 @@ where
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     pub(crate) fn new(handle: &'a LaunchedNode<P>) -> Self {
-        let fut = Box::pin(async {
-            handle.node.task_manager.wait_for_shutdown().await;
-            handle.rpc.stop()?;
+        // Clone the handles we need so we can move them into the async block.
+        // This avoids capturing `&LaunchedNode<P>` which isn't Sync.
 
-            if let Some(handle) = handle.gateway.as_ref() {
-                handle.stop()?;
+        let rpc = handle.rpc.clone();
+        let grpc = handle.grpc.clone();
+        let gateway = handle.gateway.clone();
+        let task_manager = handle.node.task_manager.clone();
+
+        let fut = Box::pin(async move {
+            task_manager.wait_for_shutdown().await;
+            rpc.stop()?;
+
+            if let Some(grpc) = grpc {
+                grpc.stop()?;
+            }
+
+            if let Some(gw) = gateway {
+                gw.stop()?;
             }
 
             Ok(())
         });
+
         Self { fut, _phantom: std::marker::PhantomData }
     }
 }
