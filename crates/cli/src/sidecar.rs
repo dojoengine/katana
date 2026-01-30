@@ -21,12 +21,13 @@ use ark_ff::PrimeField;
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::ExecutorFactory;
-#[cfg(feature = "vrf")]
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
 pub use katana_paymaster::{
-    bootstrap_paymaster, format_felt, start_paymaster_sidecar, PaymasterBootstrap,
-    PaymasterSidecarConfig,
+    bootstrap_paymaster, format_felt, start_paymaster_sidecar, wait_for_paymaster_ready,
+    PaymasterBootstrapConfig, PaymasterBootstrapResult, PaymasterSidecarConfig,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS as PAYMASTER_ETH_TOKEN_ADDRESS,
+    DEFAULT_STRK_FEE_TOKEN_ADDRESS as PAYMASTER_STRK_TOKEN_ADDRESS,
 };
 use katana_pool::TxPool;
 #[cfg(feature = "vrf")]
@@ -60,6 +61,7 @@ use tokio::process::Child;
 use tokio::process::Command;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
+use url::Url;
 
 use crate::options::PaymasterOptions;
 #[cfg(feature = "vrf")]
@@ -87,17 +89,47 @@ pub struct VrfBootstrap {
 /// Result of bootstrapping sidecars.
 #[derive(Debug, Default)]
 pub struct BootstrapResult {
-    pub paymaster: Option<PaymasterBootstrap>,
+    pub paymaster: Option<PaymasterBootstrapInfo>,
     #[cfg(feature = "vrf")]
     pub vrf: Option<VrfBootstrap>,
 }
 
+/// Paymaster bootstrap info combining config and result.
+#[derive(Debug, Clone)]
+pub struct PaymasterBootstrapInfo {
+    /// Relayer account address.
+    pub relayer_address: ContractAddress,
+    /// Relayer account private key.
+    pub relayer_private_key: Felt,
+    /// Gas tank account address.
+    pub gas_tank_address: ContractAddress,
+    /// Gas tank account private key.
+    pub gas_tank_private_key: Felt,
+    /// Estimation account address.
+    pub estimate_account_address: ContractAddress,
+    /// Estimation account private key.
+    pub estimate_account_private_key: Felt,
+    /// The deployed forwarder contract address.
+    pub forwarder_address: ContractAddress,
+    /// The chain ID of the network.
+    pub chain_id: ChainId,
+}
+
 /// Configuration for bootstrapping sidecars.
 pub struct BootstrapConfig {
-    pub paymaster_prefunded_index: Option<u16>,
+    pub paymaster: Option<PaymasterBootstrapInput>,
     #[cfg(feature = "vrf")]
     pub vrf: Option<VrfBootstrapConfig>,
+    #[allow(dead_code)]
     pub fee_enabled: bool,
+}
+
+/// Input for paymaster bootstrap (extracted from genesis accounts).
+pub struct PaymasterBootstrapInput {
+    /// RPC URL for the katana node.
+    pub rpc_url: Url,
+    /// Index of the first prefunded account to use (relayer).
+    pub prefunded_index: u16,
 }
 
 /// VRF-specific bootstrap configuration.
@@ -137,8 +169,8 @@ where
 {
     let mut result = BootstrapResult::default();
 
-    if let Some(prefunded_index) = config.paymaster_prefunded_index {
-        let bootstrap = bootstrap_paymaster(prefunded_index, backend, block_producer, pool).await?;
+    if let Some(paymaster_input) = &config.paymaster {
+        let bootstrap = bootstrap_paymaster_from_genesis(paymaster_input, backend).await?;
         result.paymaster = Some(bootstrap);
     }
 
@@ -150,6 +182,84 @@ where
     }
 
     Ok(result)
+}
+
+/// Bootstrap the paymaster using genesis accounts from the backend.
+async fn bootstrap_paymaster_from_genesis<EF, PF>(
+    input: &PaymasterBootstrapInput,
+    backend: &Backend<EF, PF>,
+) -> Result<PaymasterBootstrapInfo>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
+{
+    // Extract account info from genesis
+    let (relayer_address, relayer_private_key) = prefunded_account(backend, input.prefunded_index)?;
+
+    let gas_tank_index = input
+        .prefunded_index
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("paymaster gas tank index overflow"))?;
+    let estimate_index = input
+        .prefunded_index
+        .checked_add(2)
+        .ok_or_else(|| anyhow!("paymaster estimate index overflow"))?;
+
+    let (gas_tank_address, gas_tank_private_key) = prefunded_account(backend, gas_tank_index)?;
+    let (estimate_account_address, estimate_account_private_key) =
+        prefunded_account(backend, estimate_index)?;
+
+    // Build bootstrap config for paymaster crate
+    let bootstrap_config = PaymasterBootstrapConfig {
+        rpc_url: input.rpc_url.clone(),
+        relayer_address,
+        relayer_private_key,
+        gas_tank_address,
+        gas_tank_private_key,
+        estimate_account_address,
+        estimate_account_private_key,
+    };
+
+    // Call the paymaster crate's bootstrap function (uses RPC)
+    let bootstrap_result = bootstrap_paymaster(&bootstrap_config).await?;
+
+    Ok(PaymasterBootstrapInfo {
+        relayer_address,
+        relayer_private_key,
+        gas_tank_address,
+        gas_tank_private_key,
+        estimate_account_address,
+        estimate_account_private_key,
+        forwarder_address: bootstrap_result.forwarder_address,
+        chain_id: bootstrap_result.chain_id,
+    })
+}
+
+fn prefunded_account<EF, PF>(
+    backend: &Backend<EF, PF>,
+    index: u16,
+) -> Result<(ContractAddress, Felt)>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
+{
+    let (address, allocation) = backend
+        .chain_spec
+        .genesis()
+        .accounts()
+        .nth(index as usize)
+        .ok_or_else(|| anyhow!("prefunded account index {} out of range", index))?;
+
+    let private_key = match allocation {
+        GenesisAccountAlloc::DevAccount(account) => account.private_key,
+        _ => return Err(anyhow!("prefunded account {} has no private key", address)),
+    };
+
+    Ok((*address, private_key))
 }
 
 #[cfg(feature = "vrf")]
@@ -296,32 +406,6 @@ where
     .await?;
 
     Ok(VrfBootstrap { secret_key: derived.secret_key })
-}
-
-#[cfg(feature = "vrf")]
-fn prefunded_account<EF, PF>(
-    backend: &Backend<EF, PF>,
-    index: u16,
-) -> Result<(ContractAddress, Felt)>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
-    let (address, allocation) = backend
-        .chain_spec
-        .genesis()
-        .accounts()
-        .nth(index as usize)
-        .ok_or_else(|| anyhow!("prefunded account index {} out of range", index))?;
-
-    let private_key = match allocation {
-        GenesisAccountAlloc::DevAccount(account) => account.private_key,
-        _ => return Err(anyhow!("prefunded account {} has no private key", address)),
-    };
-
-    Ok((*address, private_key))
 }
 
 #[cfg(feature = "vrf")]
@@ -680,6 +764,7 @@ pub struct PaymasterStartConfig<'a> {
     pub options: &'a PaymasterOptions,
     pub port: u16,
     pub api_key: String,
+    pub rpc_url: Url,
 }
 
 /// Configuration for the VRF sidecar.
@@ -693,7 +778,6 @@ pub struct VrfSidecarConfig<'a> {
 pub async fn start_sidecars(
     config: &SidecarStartConfig<'_>,
     bootstrap: &BootstrapResult,
-    rpc_addr: &SocketAddr,
 ) -> Result<SidecarProcesses> {
     let mut paymaster_child = None;
     #[cfg(feature = "vrf")]
@@ -707,9 +791,19 @@ pub async fn start_sidecars(
             port: paymaster_cfg.port,
             api_key: paymaster_cfg.api_key.clone(),
             price_api_key: paymaster_cfg.options.price_api_key.clone(),
+            relayer_address: paymaster_bootstrap.relayer_address,
+            relayer_private_key: paymaster_bootstrap.relayer_private_key,
+            gas_tank_address: paymaster_bootstrap.gas_tank_address,
+            gas_tank_private_key: paymaster_bootstrap.gas_tank_private_key,
+            estimate_account_address: paymaster_bootstrap.estimate_account_address,
+            estimate_account_private_key: paymaster_bootstrap.estimate_account_private_key,
+            forwarder_address: paymaster_bootstrap.forwarder_address,
+            chain_id: paymaster_bootstrap.chain_id,
+            rpc_url: paymaster_cfg.rpc_url.clone(),
+            eth_token_address: PAYMASTER_ETH_TOKEN_ADDRESS,
+            strk_token_address: PAYMASTER_STRK_TOKEN_ADDRESS,
         };
-        paymaster_child =
-            Some(start_paymaster_sidecar(&sidecar_config, paymaster_bootstrap, rpc_addr).await?);
+        paymaster_child = Some(start_paymaster_sidecar(&sidecar_config).await?);
     }
 
     #[cfg(feature = "vrf")]
@@ -802,6 +896,21 @@ async fn wait_for_http_ok(url: &str, name: &str, timeout: Duration) -> Result<()
 
         sleep(Duration::from_millis(200)).await;
     }
+}
+
+/// Helper to construct the local RPC URL from the socket address.
+pub fn local_rpc_url(addr: &SocketAddr) -> Url {
+    let host = match addr.ip() {
+        std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
+            std::net::IpAddr::V4([127, 0, 0, 1].into())
+        }
+        std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
+            std::net::IpAddr::V4([127, 0, 0, 1].into())
+        }
+        ip => ip,
+    };
+
+    Url::parse(&format!("http://{}:{}", host, addr.port())).expect("valid rpc url")
 }
 
 #[cfg(test)]
