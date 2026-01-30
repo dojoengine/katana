@@ -37,7 +37,6 @@ use url::Url;
 
 const FORWARDER_SALT: u64 = 0x12345;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
 
 /// The default universal deployer contract address.
@@ -483,7 +482,7 @@ struct PaymasterSponsoringProfile {
 
 fn build_paymaster_profile(config: &PaymasterSidecarConfig) -> Result<PaymasterProfile> {
     let chain_id = paymaster_chain_id(config.chain_id)?;
-    let price_endpoint = paymaster_price_endpoint(config.chain_id)?;
+    let price_endpoint = DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT;
     let price_api_key = config.price_api_key.clone().unwrap_or_default();
 
     let eth_token = format_felt(config.eth_token_address.into());
@@ -543,45 +542,8 @@ fn write_paymaster_profile(profile: &PaymasterProfile) -> Result<PathBuf> {
 
 fn paymaster_chain_id(chain_id: ChainId) -> Result<String> {
     match chain_id {
-        ChainId::Named(NamedChainId::Sepolia) => Ok("sepolia".to_string()),
         ChainId::Named(NamedChainId::Mainnet) => Ok("mainnet".to_string()),
-        ChainId::Named(other) => Err(anyhow!(
-            "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
-        )),
-        ChainId::Id(id) => {
-            // Check if the id matches known chain IDs
-            if id == ChainId::SEPOLIA.id() {
-                Ok("sepolia".to_string())
-            } else if id == ChainId::MAINNET.id() {
-                Ok("mainnet".to_string())
-            } else {
-                Err(anyhow!(
-                    "paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"
-                ))
-            }
-        }
-    }
-}
-
-fn paymaster_price_endpoint(chain_id: ChainId) -> Result<&'static str> {
-    match chain_id {
-        ChainId::Named(NamedChainId::Sepolia) => Ok(DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT),
-        ChainId::Named(NamedChainId::Mainnet) => Ok(DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT),
-        ChainId::Named(other) => Err(anyhow!(
-            "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
-        )),
-        ChainId::Id(id) => {
-            // Check if the id matches known chain IDs
-            if id == ChainId::SEPOLIA.id() {
-                Ok(DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT)
-            } else if id == ChainId::MAINNET.id() {
-                Ok(DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT)
-            } else {
-                Err(anyhow!(
-                    "paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"
-                ))
-            }
-        }
+        _ => Ok("sepolia".to_string()),
     }
 }
 
