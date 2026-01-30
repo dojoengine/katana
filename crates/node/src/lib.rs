@@ -727,7 +727,7 @@ where
     }
 
     /// Returns a future which resolves only when the node has stopped.
-    pub fn stopped(&self) -> NodeStoppedFuture<'_, P> {
+    pub fn stopped(&self) -> NodeStoppedFuture<'_> {
         NodeStoppedFuture::new(self)
     }
 }
