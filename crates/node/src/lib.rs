@@ -23,6 +23,8 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
+#[cfg(feature = "grpc")]
+use katana_grpc::{GrpcServer, GrpcServerHandle};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -77,6 +79,8 @@ where
     config: Arc<Config>,
     pool: TxPool,
     rpc_server: RpcServer,
+    #[cfg(feature = "grpc")]
+    grpc_server: Option<GrpcServer>,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory, P>>,
     block_producer: BlockProducer<BlockifierFactory, P>,
@@ -330,6 +334,32 @@ where
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        // --- build gRPC server (optional)
+
+        #[cfg(feature = "grpc")]
+        let grpc_server = if let Some(grpc_config) = &config.grpc {
+            use katana_grpc::{
+                StarknetServer, StarknetService, StarknetTraceServer, StarknetWriteServer,
+            };
+
+            let mut server = GrpcServer::new();
+
+            if let Some(timeout) = grpc_config.timeout {
+                server = server.timeout(timeout);
+            }
+
+            let svc = StarknetService::new(starknet_api.clone());
+
+            server = server
+                .service(StarknetServer::new(svc.clone()))
+                .service(StarknetTraceServer::new(svc.clone()))
+                .service(StarknetWriteServer::new(svc.clone()));
+
+            Some(server)
+        } else {
+            None
+        };
+
         // --- build feeder gateway server (optional)
 
         let gateway_server = if let Some(gw_config) = &config.gateway {
@@ -367,6 +397,8 @@ where
             pool,
             backend,
             rpc_server,
+            #[cfg(feature = "grpc")]
+            grpc_server,
             gateway_server,
             block_producer,
             metrics_server,
@@ -547,6 +579,21 @@ where
             None => None,
         };
 
+        // --- start the gRPC server (if configured)
+
+        #[cfg(feature = "grpc")]
+        let grpc_handle = if let Some(server) = &self.grpc_server {
+            let config = self
+                .config()
+                .grpc
+                .as_ref()
+                .expect("qed; config must exist if grpc server is configured");
+
+            Some(server.start(config.socket_addr()).await?)
+        } else {
+            None
+        };
+
         // --- start the gas oracle worker task
 
         if let Some(worker) = self.backend.gas_oracle.run_worker() {
@@ -564,6 +611,8 @@ where
             node: self,
             rpc: rpc_handle,
             gateway: gateway_handle,
+            #[cfg(feature = "grpc")]
+            grpc: grpc_handle,
             metrics: metrics_handle,
         })
     }
@@ -611,6 +660,9 @@ where
     rpc: RpcServerHandle,
     /// Handle to the gateway server (if enabled).
     gateway: Option<GatewayServerHandle>,
+    /// Handle to the gRPC server (if enabled).
+    #[cfg(feature = "grpc")]
+    grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
 }
@@ -641,6 +693,12 @@ where
         self.metrics.as_ref()
     }
 
+    /// Returns a reference to the gRPC server handle (if enabled).
+    #[cfg(feature = "grpc")]
+    pub fn grpc(&self) -> Option<&GrpcServerHandle> {
+        self.grpc.as_ref()
+    }
+
     /// Stops the node.
     ///
     /// This will instruct the node to stop and wait until it has actually stop.
@@ -650,6 +708,12 @@ where
 
         // Stop feeder gateway server if it's running
         if let Some(handle) = self.gateway {
+            handle.stop()?;
+        }
+
+        // Stop gRPC server if it's running
+        #[cfg(feature = "grpc")]
+        if let Some(handle) = self.grpc {
             handle.stop()?;
         }
 
@@ -663,7 +727,7 @@ where
     }
 
     /// Returns a future which resolves only when the node has stopped.
-    pub fn stopped(&self) -> NodeStoppedFuture<'_, P> {
+    pub fn stopped(&self) -> NodeStoppedFuture<'_> {
         NodeStoppedFuture::new(self)
     }
 }

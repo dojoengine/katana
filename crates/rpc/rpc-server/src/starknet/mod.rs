@@ -171,6 +171,11 @@ where
     pub fn config(&self) -> &StarknetApiConfig {
         &self.inner.config
     }
+
+    /// Returns the chain ID.
+    pub fn chain_id(&self) -> Felt {
+        self.inner.chain_spec.id().id()
+    }
 }
 
 impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>

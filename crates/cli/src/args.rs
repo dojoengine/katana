@@ -20,6 +20,7 @@ use katana_node::config::execution::ExecutionConfig;
 use katana_node::config::fork::ForkingConfig;
 #[cfg(feature = "server")]
 use katana_node::config::gateway::GatewayConfig;
+use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
@@ -135,6 +136,10 @@ pub struct SequencerNodeArgs {
     #[cfg(feature = "tee")]
     #[command(flatten)]
     pub tee: TeeOptions,
+
+    #[cfg(feature = "server")]
+    #[command(flatten)]
+    pub grpc: GrpcOptions,
 }
 
 impl SequencerNodeArgs {
@@ -209,6 +214,7 @@ impl SequencerNodeArgs {
         let (chain, cs_messaging) = self.chain_spec()?;
         let metrics = self.metrics_config();
         let gateway = self.gateway_config();
+        let grpc = self.grpc_config();
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
@@ -222,6 +228,7 @@ impl SequencerNodeArgs {
             db,
             dev,
             rpc,
+            grpc,
             chain,
             metrics,
             gateway,
@@ -448,6 +455,24 @@ impl SequencerNodeArgs {
         None
     }
 
+    fn grpc_config(&self) -> Option<GrpcConfig> {
+        #[cfg(feature = "server")]
+        if self.grpc.grpc_enable {
+            use std::time::Duration;
+
+            Some(GrpcConfig {
+                addr: self.grpc.grpc_addr,
+                port: self.grpc.grpc_port,
+                timeout: self.grpc.grpc_timeout.map(Duration::from_secs),
+            })
+        } else {
+            None
+        }
+
+        #[cfg(not(feature = "server"))]
+        None
+    }
+
     #[cfg(feature = "cartridge")]
     fn cartridge_config(&self) -> Option<PaymasterConfig> {
         if self.cartridge.paymaster {
@@ -506,6 +531,8 @@ impl SequencerNodeArgs {
                     self.metrics = metrics;
                 }
             }
+
+            self.grpc.merge(config.grpc.as_ref());
         }
 
         self.starknet.merge(config.starknet.as_ref());
@@ -881,13 +908,13 @@ explorer = true
             ControllerV108, ControllerV109,
         };
 
-        assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV106::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV107::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_some());
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV105::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV106::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV107::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
 
         // Test without paymaster enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
@@ -896,12 +923,12 @@ explorer = true
         // Verify cartridge module is not enabled by default
         assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
-        assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV106::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV107::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_none());
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV105::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV106::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV107::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
     }
 }
