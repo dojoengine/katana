@@ -16,6 +16,9 @@ docs/plans/
 # Lock files (client generates their own)
 Cargo.lock
 
+artifacts/
+.tee_deployment_state.json
+
 # Generated Cairo test fixtures (regenerate with: katana-tee generate-cairo-fixtures)
 # Uncomment to track fixtures in git:
 # !contracts/amd_tee_registry/tests/test_journal_decode_from_fixtures/test_journal_decode_fixtures.cairo

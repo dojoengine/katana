@@ -49,7 +49,8 @@ pub use config::ProverConfig;
 pub use error::Error;
 pub use kds::{parse_processor_type, KdsClient, KdsFetcher, RootCertInfo};
 pub use prover::{
-    AmdAttestationProver, OnchainProof, ProofWithCacheInfo, Sp1Backend, Sp1NetworkBackend,
+    prepare_verifier_input_with_storage, AmdAttestationProver, OnchainProof, ProofWithCacheInfo,
+    Sp1Backend, Sp1NetworkBackend, StorageProofParams,
 };
 pub use report::ATTESTATION_REPORT_SIZE;
 pub use starknet::StarknetRegistryClient;

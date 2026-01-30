@@ -21,8 +21,8 @@ const GARAGA_CLASS_HASH: felt252 =
     0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22;
 
 /// SP1 program ID for the AMD attestation verifier
-const SP1_PROGRAM_ID_LOW: felt252 = 0x2c621bae91a0626796ce637f01c928d8;
-const SP1_PROGRAM_ID_HIGH: felt252 = 0x00d2342d2400bed28302507269281dcb;
+const SP1_PROGRAM_ID_LOW: felt252 = 0xea077510823adf4b1255ada5d2977402;
+const SP1_PROGRAM_ID_HIGH: felt252 = 0x00613d956661ba71ff3d4d75fba28b79;
 
 /// Max time difference for attestation validation (1 year for testing with old fixtures)
 const MAX_TIME_DIFF: u64 = 31536000;

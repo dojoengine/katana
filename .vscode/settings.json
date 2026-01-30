@@ -1,0 +1,7 @@
+{
+    "rust-analyzer.linkedProjects": [
+      "Cargo.toml",
+      "crates/amd-sev-snp-attestation-sdk/Cargo.toml"
+    ]
+  }
+  

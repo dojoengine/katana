@@ -28,7 +28,7 @@ fn deploy_live_mode() -> ContractAddress {
 
     // Use a mock verifier class hash and SP1 program ID
     let verifier_class_hash: felt252 = 0x1;
-    let sp1_program_id: u256 = 0x00d2342d2400bed28302507269281dcb2c621bae91a0626796ce637f01c928d8;
+    let sp1_program_id: u256 = 0x00613d956661ba71ff3d4d75fba28b79ea077510823adf4b1255ada5d2977402;
     let max_time_diff: u64 = 86400; // 1 day
 
     let milan_root = get_milan_root();
@@ -70,7 +70,7 @@ fn deploy_fixture_mode() -> ContractAddress {
     let contract = declare("AMDTEERegistry").unwrap().contract_class();
 
     let verifier_class_hash: felt252 = 0x1;
-    let sp1_program_id: u256 = 0x00d2342d2400bed28302507269281dcb2c621bae91a0626796ce637f01c928d8;
+    let sp1_program_id: u256 = 0x00613d956661ba71ff3d4d75fba28b79ea077510823adf4b1255ada5d2977402;
     let max_time_diff: u64 = 86400;
 
     let milan_root = get_milan_root();

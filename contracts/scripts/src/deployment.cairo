@@ -12,8 +12,8 @@ const GARAGA_CLASS_HASH: felt252 =
     0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22;
 
 // SP1 program ID
-const SP1_PROGRAM_ID_LOW: felt252 = 0x2c621bae91a0626796ce637f01c928d8;
-const SP1_PROGRAM_ID_HIGH: felt252 = 0x00d2342d2400bed28302507269281dcb;
+const SP1_PROGRAM_ID_LOW: felt252 = 0xea077510823adf4b1255ada5d2977402;
+const SP1_PROGRAM_ID_HIGH: felt252 = 0x00613d956661ba71ff3d4d75fba28b79;
 
 #[derive(Drop, Serde)]
 struct RootCerts {
@@ -48,7 +48,7 @@ fn main() {
     let sp1_program_id: u256 = u256 {
         low: SP1_PROGRAM_ID_LOW.try_into().unwrap(), high: SP1_PROGRAM_ID_HIGH.try_into().unwrap(),
     };
-    let max_time_diff: u64 = 3600;
+    let max_time_diff: u64 = 86400; // 24h (match deploy_sncast.sh)
     let trusted_certs: Array<u256> = array![]; // Live mode - empty
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan, ProcessorType::Genoa];
     let root_certs: Array<u256> = array![milan_root, genoa_root];

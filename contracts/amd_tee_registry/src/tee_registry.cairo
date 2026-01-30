@@ -81,9 +81,9 @@ pub mod AMDTEERegistry {
             // serializes as [length, elem0, elem1, ...]. We must serialize the array
             // rather than just passing sp1_proof.span() which lacks the length prefix.
 
-            println!("[AMDTEERegistry] Verifying SP1 proof");
-            println!("[AMDTEERegistry] SP1 proof[0]: {:?}", *sp1_proof.at(0));
-            println!("[AMDTEERegistry] SP1 proof[1]: {:?}", *sp1_proof.at(1));
+            // println!("[AMDTEERegistry] Verifying SP1 proof");
+            // println!("[AMDTEERegistry] SP1 proof[0]: {:?}", *sp1_proof.at(0));
+            // println!("[AMDTEERegistry] SP1 proof[1]: {:?}", *sp1_proof.at(1));
             let mut result_serialized = library_call_syscall(
                 self.verifier_class_hash.read(),
                 selector!("verify_sp1_groth16_proof_bn254"),
@@ -108,7 +108,7 @@ pub mod AMDTEERegistry {
                     assert(vk == self.sp1_program_id.read(), 'Wrong program');
 
                     let journal = decode_verifier_journal(public_inputs);
-                    println!("[AMDTEERegistry] Journal: {:?}", journal);
+                    // println!("[AMDTEERegistry] Journal: {:?}", journal);
                     if journal.result != VerificationResult::Success {
                         return Result::Err('SP1 program returned an error');
                     }
@@ -151,11 +151,15 @@ pub mod AMDTEERegistry {
                     let trusted_len_u32: u32 = journal.trusted_certs_prefix_len.into();
                     self.cert_cache.cache_new_cert(certs, trusted_len_u32);
 
+                    //TODO:
+                    // also here we should have journal.storage_commitment_hash 
+                    // and call to proxy contract to regiester thhis commitment as verified
+
                     // Return the journal for the verified computation
                     Result::Ok(journal)
                 },
                 Result::Err(error) => {
-                    println!("[AMDTEERegistry] Error: {:?}", error);
+                    // println!("[AMDTEERegistry] Error: {:?}", error);
                     Result::Err(error)
                 },
             }

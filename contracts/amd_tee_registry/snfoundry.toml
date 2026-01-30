@@ -40,3 +40,6 @@ show-explorer-links = true
 
 [sncast.mainnet.networks]
 mainnet = "$MAINNET_RPC_URL"
+
+[sncast.default]
+account = "devnet_mainnet_0"

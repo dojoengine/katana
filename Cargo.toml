@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "clients/amd_tee_registry_client",
     "clients/katana_tee_client",
+    "crates/tee_deploy",
 ]
 
 # Exclude submodule workspaces - they manage their own builds
@@ -55,4 +56,27 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # CLI support
 clap = { version = "4", features = ["derive"] }
+
+# Fix alloy-consensus 1.0.41 derive macro bug - use git source for all alloy crates
+[patch.crates-io]
+alloy = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-consensus = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-consensus-any = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-contract = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-eips = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-json-rpc = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-network = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-network-primitives = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-provider = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-rpc-client = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-rpc-types-any = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-rpc-types-engine = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-rpc-types-eth = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-serde = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-signer = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-signer-aws = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-signer-local = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-transport = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
 

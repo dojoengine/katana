@@ -53,7 +53,7 @@
 use crate::{
     config::ProverConfig, report::AttestationReportBytes, starknet::StarknetRegistryClient, Error,
 };
-use alloy_primitives::Bytes;
+use alloy_primitives::{Bytes, B256};
 use amd_sev_snp_attestation_prover::{
     AmdSevSnpProver, ProverConfig as SdkProverConfig, RawProofType, SP1ProverConfig, KDS,
 };
@@ -67,6 +67,16 @@ use x509_verifier_rust_crypto::CertChain;
 
 // Re-export OnchainProof for convenience
 pub use amd_sev_snp_attestation_prover::OnchainProof;
+
+/// Optional storage proof data for ZK circuit. When set, the circuit verifies the proof
+/// and commits `keccak256(abi.encode(keys, values))` to the journal.
+#[derive(Debug, Clone, Default)]
+pub struct StorageProofParams {
+    pub state_root: B256,
+    pub keys: Vec<Bytes>,
+    pub values: Vec<Bytes>,
+    pub proof_nodes: Vec<Bytes>,
+}
 
 /// Proof result with cache metadata for transparency
 #[derive(Debug)]
@@ -179,12 +189,41 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
             .await
     }
 
+    /// Generate an SP1 Groth16 proof with optional storage proof (same flow as `prove_with_timestamp`).
+    /// When `storage` is `Some`, the ZK circuit verifies the proof and commits storage commitment to the journal.
+    pub async fn prove_with_storage(
+        &self,
+        report_bytes: &[u8],
+        registry_client: &StarknetRegistryClient,
+        storage: Option<StorageProofParams>,
+    ) -> Result<ProofWithCacheInfo, Error> {
+        self.prove_with_timestamp_and_storage(
+            report_bytes,
+            current_timestamp()?,
+            registry_client,
+            storage,
+        )
+        .await
+    }
+
     /// Generate an SP1 Groth16 proof with a specific timestamp and cache lookup.
     pub async fn prove_with_timestamp(
         &self,
         report_bytes: &[u8],
         timestamp: u64,
         registry_client: &StarknetRegistryClient,
+    ) -> Result<ProofWithCacheInfo, Error> {
+        self.prove_with_timestamp_and_storage(report_bytes, timestamp, registry_client, None)
+            .await
+    }
+
+    /// Generate an SP1 Groth16 proof with timestamp, cache lookup, and optional storage proof.
+    pub async fn prove_with_timestamp_and_storage(
+        &self,
+        report_bytes: &[u8],
+        timestamp: u64,
+        registry_client: &StarknetRegistryClient,
+        storage: Option<StorageProofParams>,
     ) -> Result<ProofWithCacheInfo, Error> {
         let report = AttestationReportBytes::new(report_bytes)?;
         let report_struct = AttestationReport::from_bytes(report.as_bytes())
@@ -227,14 +266,13 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         let proof = tokio::task::spawn_blocking(move || {
             let prover = AmdSevSnpProver::new(sdk_config, None);
 
-            // Construct VerifierInput directly, bypassing prepare_verifier_input
-            // which logs a warning when no contract is provided
-            let input = VerifierInput {
+            let input = prepare_verifier_input_with_storage(
                 timestamp,
-                trustedCertsPrefixLen: trusted_prefix_len,
-                rawReport: Bytes::from(report_bytes),
-                vekDerChain: vek_der_chain,
-            };
+                Bytes::from(report_bytes),
+                vek_der_chain,
+                trusted_prefix_len,
+                storage,
+            );
 
             let raw_proof = prover
                 .verifier
@@ -300,6 +338,34 @@ fn processor_type_to_u8(value: ProcessorType) -> Result<u8, Error> {
         }
     };
     Ok(result)
+}
+
+/// Builds `VerifierInput` for attestation; optionally attaches storage proof data.
+/// Storage logic lives here (and in callers like sharding_operator), not in the SDK prover.
+pub fn prepare_verifier_input_with_storage(
+    timestamp: u64,
+    raw_report: Bytes,
+    vek_der_chain: Vec<Bytes>,
+    trusted_certs_prefix_len: u8,
+    storage: Option<StorageProofParams>,
+) -> VerifierInput {
+    let mut input = VerifierInput {
+        timestamp,
+        trustedCertsPrefixLen: trusted_certs_prefix_len,
+        rawReport: raw_report,
+        vekDerChain: vek_der_chain,
+        storageStateRoot: B256::ZERO,
+        storageKeys: vec![],
+        storageValues: vec![],
+        storageProofNodes: vec![],
+    };
+    if let Some(s) = storage {
+        input.storageStateRoot = s.state_root;
+        input.storageKeys = s.keys;
+        input.storageValues = s.values;
+        input.storageProofNodes = s.proof_nodes;
+    }
+    input
 }
 
 /// Get the current Unix timestamp.

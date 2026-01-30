@@ -50,6 +50,13 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
     let cert_serials_offset_word = read_word_u32(words, 5);
     let trusted_prefix_word = read_word_u32(words, 6);
 
+    // Word 7: storage_commitment (bytes32). Default 0 when not present (old journal encoding).
+    let storage_commitment = if words.len() >= 64 {
+        word_to_u256(read_word_u32(words, 7))
+    } else {
+        u256 { low: 0, high: 0 }
+    };
+
     let result = verification_result_from_u8(word_to_u8(result_word));
     let timestamp = word_to_u64(timestamp_word);
     let processor_model = word_to_u8(processor_word);
@@ -105,6 +112,7 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
         certs,
         cert_serials,
         trusted_certs_prefix_len,
+        storage_commitment,
     }
 }
 

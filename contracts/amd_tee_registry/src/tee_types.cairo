@@ -100,6 +100,8 @@ pub struct VerifierJournal {
     pub cert_serials: Array<felt252>,
     /// Length of trusted certificates prefix
     pub trusted_certs_prefix_len: u8,
+    /// Commitment to verified storage (keccak256(abi.encode(keys, values))). 0 when no storage proof.
+    pub storage_commitment: u256,
 }
 
 // ============================================================================

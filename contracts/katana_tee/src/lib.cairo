@@ -80,7 +80,7 @@ pub mod KatanaTee {
             };
             match registry.verify_sp1_proof(sp1_proof) {
                 Result::Ok(journal) => {
-                    println!("[KatanaTee] SP1 proof ok");
+                    // println!("[KatanaTee] SP1 proof ok");
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
                     let report_data = raw_report.report_data();
                     verify_katana_report_data(report_data, state_root, block_hash);
