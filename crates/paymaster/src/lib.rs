@@ -15,10 +15,9 @@ use std::{env, fs};
 
 use anyhow::{anyhow, Context, Result};
 use katana_primitives::block::BlockIdOrTag;
-use katana_primitives::fee::Tip;
 use katana_primitives::chain::{ChainId, NamedChainId};
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping, Tip};
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_client::starknet::Client;
@@ -42,22 +41,19 @@ const DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT: &str = "https://sepolia.api.avnu.fi";
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.api.avnu.fi";
 
 /// The default universal deployer contract address.
-pub const DEFAULT_UDC_ADDRESS: ContractAddress =
-    ContractAddress(katana_primitives::felt!(
-        "0x041a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"
-    ));
+pub const DEFAULT_UDC_ADDRESS: ContractAddress = ContractAddress(katana_primitives::felt!(
+    "0x041a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"
+));
 
 /// The default ETH fee token contract address.
-pub const DEFAULT_ETH_FEE_TOKEN_ADDRESS: ContractAddress =
-    ContractAddress(katana_primitives::felt!(
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-    ));
+pub const DEFAULT_ETH_FEE_TOKEN_ADDRESS: ContractAddress = ContractAddress(
+    katana_primitives::felt!("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"),
+);
 
 /// The default STRK fee token contract address.
-pub const DEFAULT_STRK_FEE_TOKEN_ADDRESS: ContractAddress =
-    ContractAddress(katana_primitives::felt!(
-        "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
-    ));
+pub const DEFAULT_STRK_FEE_TOKEN_ADDRESS: ContractAddress = ContractAddress(
+    katana_primitives::felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"),
+);
 
 // ============================================================================
 // Bootstrap Configuration Types
@@ -296,10 +292,7 @@ fn build_and_sign_invoke_tx(
         .map_err(|e| anyhow!("failed to sign transaction: {e}"))?;
 
     // Return signed transaction
-    Ok(BroadcastedInvokeTx {
-        signature: vec![signature.r, signature.s],
-        ..unsigned_tx
-    })
+    Ok(BroadcastedInvokeTx { signature: vec![signature.r, signature.s], ..unsigned_tx })
 }
 
 fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
@@ -335,7 +328,11 @@ async fn is_deployed(client: &Client, address: ContractAddress) -> Result<bool> 
     }
 }
 
-async fn wait_for_contract(client: &Client, address: ContractAddress, timeout: Duration) -> Result<()> {
+async fn wait_for_contract(
+    client: &Client,
+    address: ContractAddress,
+    timeout: Duration,
+) -> Result<()> {
     let start = Instant::now();
     loop {
         if is_deployed(client, address).await? {

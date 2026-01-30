@@ -4,12 +4,8 @@
 //! without requiring a running katana node.
 //!
 //! Prerequisites:
-//! - paymaster-service binary must be installed:
-//!   ```
-//!   git clone https://github.com/avnu-labs/paymaster
-//!   cd paymaster
-//!   cargo build --release --bin paymaster-service
-//!   ```
+//! - paymaster-service binary must be installed: ``` git clone https://github.com/avnu-labs/paymaster
+//!   cd paymaster cargo build --release --bin paymaster-service ```
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -112,8 +108,5 @@ async fn test_wait_for_paymaster_ready_timeout() {
     assert!(result.is_err(), "should timeout when service not available");
 
     let err = result.unwrap_err();
-    assert!(
-        err.to_string().contains("timeout"),
-        "error should mention timeout, got: {err}"
-    );
+    assert!(err.to_string().contains("timeout"), "error should mention timeout, got: {err}");
 }

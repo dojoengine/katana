@@ -1,6 +1,7 @@
 //! Sidecar bootstrap and process management for CLI.
 //!
 //! This module handles:
+//! - Building paymaster and VRF configurations from CLI options
 //! - Bootstrapping paymaster and VRF services (deploying contracts)
 //! - Spawning and managing sidecar processes when running in sidecar mode
 //!
@@ -23,6 +24,10 @@ use katana_core::service::block_producer::BlockProducer;
 use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
+#[cfg(feature = "paymaster")]
+use katana_node::config::paymaster::PaymasterConfig;
+#[cfg(feature = "vrf")]
+use katana_node::config::paymaster::{VrfConfig, VrfKeySource as NodeVrfKeySource};
 pub use katana_paymaster::{
     bootstrap_paymaster, format_felt, start_paymaster_sidecar, wait_for_paymaster_ready,
     PaymasterBootstrapConfig, PaymasterBootstrapResult, PaymasterSidecarConfig,
@@ -65,7 +70,143 @@ use url::Url;
 
 use crate::options::PaymasterOptions;
 #[cfg(feature = "vrf")]
-use crate::options::VrfOptions;
+use crate::options::{VrfKeySource as OptionsVrfKeySource, VrfOptions};
+
+const LOG_TARGET: &str = "katana::cli::sidecar";
+
+/// Default API key for the paymaster sidecar.
+pub const DEFAULT_PAYMASTER_API_KEY: &str = "paymaster_katana";
+
+// ============================================================================
+// Sidecar Info Types
+// ============================================================================
+
+/// Sidecar-specific info for paymaster (used by CLI to start sidecar process).
+#[cfg(feature = "paymaster")]
+#[derive(Debug, Clone)]
+pub struct PaymasterSidecarInfo {
+    pub port: u16,
+    pub api_key: String,
+}
+
+/// Sidecar-specific info for VRF (used by CLI to start sidecar process).
+#[cfg(feature = "vrf")]
+#[derive(Debug, Clone)]
+pub struct VrfSidecarInfo {
+    pub port: u16,
+}
+
+// ============================================================================
+// Config Building Functions
+// ============================================================================
+
+/// Build the paymaster configuration from CLI options.
+///
+/// Returns `None` if paymaster is not enabled.
+/// Returns `(PaymasterConfig, Option<PaymasterSidecarInfo>)` where the sidecar info
+/// is `Some` in sidecar mode and `None` in external mode.
+#[cfg(feature = "paymaster")]
+pub fn build_paymaster_config(
+    options: &PaymasterOptions,
+    #[cfg(feature = "cartridge")] cartridge_api_url: &url::Url,
+) -> Result<Option<(PaymasterConfig, Option<PaymasterSidecarInfo>)>> {
+    if !options.is_enabled() {
+        return Ok(None);
+    }
+
+    // Determine mode based on whether URL is provided
+    let is_external = options.is_external();
+
+    // For sidecar mode, allocate a free port and prepare sidecar info
+    let (url, sidecar_info) = if is_external {
+        // External mode: use the provided URL
+        let url = options.url.clone().expect("URL must be set in external mode");
+        (url, None)
+    } else {
+        // Sidecar mode: allocate a free port
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .context("failed to find free port for paymaster sidecar")?;
+        let port = listener.local_addr()?.port();
+        let url = Url::parse(&format!("http://127.0.0.1:{port}")).expect("valid url");
+
+        // Validate and prepare API key
+        let api_key = {
+            let key =
+                options.api_key.clone().unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
+            if !key.starts_with("paymaster_") {
+                warn!(
+                    target: LOG_TARGET,
+                    %key,
+                    "paymaster api key must start with 'paymaster_'; using default"
+                );
+                DEFAULT_PAYMASTER_API_KEY.to_string()
+            } else {
+                key
+            }
+        };
+
+        let sidecar_info = PaymasterSidecarInfo { port, api_key };
+        (url, Some(sidecar_info))
+    };
+
+    let api_key = if is_external {
+        options.api_key.clone()
+    } else {
+        sidecar_info.as_ref().map(|s| s.api_key.clone())
+    };
+
+    let config = PaymasterConfig {
+        url,
+        api_key,
+        prefunded_index: options.prefunded_index,
+        #[cfg(feature = "cartridge")]
+        cartridge_api_url: Some(cartridge_api_url.clone()),
+    };
+
+    Ok(Some((config, sidecar_info)))
+}
+
+/// Build the VRF configuration from CLI options.
+///
+/// Returns `None` if VRF is not enabled.
+/// Returns `(VrfConfig, Option<VrfSidecarInfo>)` where the sidecar info
+/// is `Some` in sidecar mode and `None` in external mode.
+#[cfg(feature = "vrf")]
+pub fn build_vrf_config(
+    options: &VrfOptions,
+) -> Result<Option<(VrfConfig, Option<VrfSidecarInfo>)>> {
+    if !options.is_enabled() {
+        return Ok(None);
+    }
+
+    // Determine mode based on whether URL is provided
+    let is_external = options.is_external();
+
+    let (url, sidecar_info) = if is_external {
+        // External mode: use the provided URL
+        let url = options.url.clone().expect("URL must be set in external mode");
+        (url, None)
+    } else {
+        // Sidecar mode: use configured port (VRF server uses fixed port 3000)
+        let port = options.port;
+        let url = Url::parse(&format!("http://127.0.0.1:{port}")).expect("valid url");
+        let sidecar_info = VrfSidecarInfo { port };
+        (url, Some(sidecar_info))
+    };
+
+    let key_source = match options.key_source {
+        OptionsVrfKeySource::Prefunded => NodeVrfKeySource::Prefunded,
+        OptionsVrfKeySource::Sequencer => NodeVrfKeySource::Sequencer,
+    };
+
+    let config = VrfConfig { url, key_source, prefunded_index: options.prefunded_index };
+
+    Ok(Some((config, sidecar_info)))
+}
+
+// ============================================================================
+// Bootstrap Types
+// ============================================================================
 
 #[cfg(feature = "vrf")]
 const VRF_ACCOUNT_SALT: u64 = 0x54321;
@@ -911,6 +1052,96 @@ pub fn local_rpc_url(addr: &SocketAddr) -> Url {
     };
 
     Url::parse(&format!("http://{}:{}", host, addr.port())).expect("valid rpc url")
+}
+
+// ============================================================================
+// High-Level Bootstrap and Start API
+// ============================================================================
+
+/// Bootstrap contracts and start sidecar processes if needed.
+///
+/// This function is called after the node is launched to:
+/// 1. Bootstrap necessary contracts (forwarder, VRF accounts)
+/// 2. Start sidecar processes in sidecar mode
+///
+/// Returns `None` if no sidecars need to be started.
+#[cfg(feature = "paymaster")]
+pub async fn bootstrap_and_start_sidecars<EF, PF>(
+    paymaster_options: &PaymasterOptions,
+    #[cfg(feature = "vrf")] vrf_options: &VrfOptions,
+    backend: &Backend<EF, PF>,
+    block_producer: &BlockProducer<EF, PF>,
+    pool: &TxPool,
+    rpc_addr: &SocketAddr,
+    paymaster_sidecar: Option<&PaymasterSidecarInfo>,
+    #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfSidecarInfo>,
+    fee_enabled: bool,
+    #[cfg(feature = "vrf")] sequencer_address: ContractAddress,
+) -> Result<Option<SidecarProcesses>>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
+{
+    // If no sidecars need to be started, return None
+    #[cfg(feature = "vrf")]
+    let has_sidecars = paymaster_sidecar.is_some() || vrf_sidecar.is_some();
+    #[cfg(not(feature = "vrf"))]
+    let has_sidecars = paymaster_sidecar.is_some();
+
+    if !has_sidecars {
+        return Ok(None);
+    }
+
+    // Build RPC URL for paymaster bootstrap
+    let rpc_url = local_rpc_url(rpc_addr);
+
+    // Build bootstrap config
+    let bootstrap_config = BootstrapConfig {
+        paymaster: paymaster_sidecar.map(|_| PaymasterBootstrapInput {
+            rpc_url: rpc_url.clone(),
+            prefunded_index: paymaster_options.prefunded_index,
+        }),
+        #[cfg(feature = "vrf")]
+        vrf: vrf_sidecar.map(|_| {
+            let key_source = match vrf_options.key_source {
+                OptionsVrfKeySource::Prefunded => VrfKeySource::Prefunded,
+                OptionsVrfKeySource::Sequencer => VrfKeySource::Sequencer,
+            };
+            VrfBootstrapConfig {
+                key_source,
+                prefunded_index: vrf_options.prefunded_index,
+                sequencer_address,
+            }
+        }),
+        fee_enabled,
+    };
+
+    // Bootstrap contracts
+    let bootstrap = bootstrap_sidecars(&bootstrap_config, backend, block_producer, pool).await?;
+
+    // Build sidecar start config
+    let paymaster_config = paymaster_sidecar.map(|info| PaymasterStartConfig {
+        options: paymaster_options,
+        port: info.port,
+        api_key: info.api_key.clone(),
+        rpc_url: rpc_url.clone(),
+    });
+
+    #[cfg(feature = "vrf")]
+    let vrf_config =
+        vrf_sidecar.map(|info| VrfSidecarConfig { options: vrf_options, port: info.port });
+
+    let start_config = SidecarStartConfig {
+        paymaster: paymaster_config,
+        #[cfg(feature = "vrf")]
+        vrf: vrf_config,
+    };
+
+    // Start sidecar processes
+    let processes = start_sidecars(&start_config, &bootstrap).await?;
+    Ok(Some(processes))
 }
 
 #[cfg(test)]
