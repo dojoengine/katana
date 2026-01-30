@@ -11,18 +11,17 @@ use crate::LaunchedNode;
 
 /// A Future that is resolved once the node has been stopped including all of its running tasks.
 #[must_use = "futures do nothing unless polled"]
-pub struct NodeStoppedFuture<'a, P> {
+pub struct NodeStoppedFuture<'a> {
     fut: BoxFuture<'a, Result<()>>,
-    _phantom: std::marker::PhantomData<P>,
 }
 
-impl<'a, P> NodeStoppedFuture<'a, P>
-where
-    P: ProviderFactory,
-    <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
-{
-    pub(crate) fn new(handle: &'a LaunchedNode<P>) -> Self {
+impl<'a> NodeStoppedFuture<'a> {
+    pub(crate) fn new(handle: &'a LaunchedNode<P>) -> Self
+    where
+        P: ProviderFactory,
+        <P as ProviderFactory>::Provider: ProviderRO,
+        <P as ProviderFactory>::ProviderMut: ProviderRW,
+    {
         // Clone the handles we need so we can move them into the async block.
         // This avoids capturing `&LaunchedNode<P>` which isn't Sync.
 
@@ -48,16 +47,11 @@ where
             Ok(())
         });
 
-        Self { fut, _phantom: std::marker::PhantomData }
+        Self { fut }
     }
 }
 
-impl<P> Future for NodeStoppedFuture<'_, P>
-where
-    P: ProviderFactory + Unpin,
-    <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
-{
+impl Future for NodeStoppedFuture<'_> {
     type Output = Result<()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -66,13 +60,8 @@ where
     }
 }
 
-impl<P> core::fmt::Debug for NodeStoppedFuture<'_, P>
-where
-    P: ProviderFactory,
-    <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
-{
+impl core::fmt::Debug for NodeStoppedFuture<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("NodeStoppedFuture").field("fut", &"...").finish()
+        f.debug_struct("NodeStoppedFuture").finish_non_exhaustive()
     }
 }
