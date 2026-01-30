@@ -6,13 +6,8 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-core.workspace = true
-katana-executor.workspace = true
-katana-genesis.workspace = true
-katana-pool.workspace = true
-katana-pool-api.workspace = true
 katana-primitives.workspace = true
-katana-provider.workspace = true
+katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
 
 anyhow.workspace = true
@@ -24,3 +19,6 @@ starknet.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

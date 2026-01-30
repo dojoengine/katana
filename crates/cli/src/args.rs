@@ -794,8 +794,8 @@ where
     <P as katana_provider::ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     use crate::sidecar::{
-        bootstrap_sidecars, start_sidecars, BootstrapConfig, PaymasterStartConfig,
-        SidecarStartConfig,
+        bootstrap_sidecars, local_rpc_url, start_sidecars, BootstrapConfig,
+        PaymasterBootstrapInput, PaymasterStartConfig, SidecarStartConfig,
     };
     #[cfg(feature = "vrf")]
     use crate::sidecar::{VrfBootstrapConfig, VrfKeySource, VrfSidecarConfig};
@@ -810,9 +810,15 @@ where
         return Ok(None);
     }
 
+    // Build RPC URL for paymaster bootstrap
+    let rpc_url = local_rpc_url(rpc_addr);
+
     // Build bootstrap config
     let bootstrap_config = BootstrapConfig {
-        paymaster_prefunded_index: paymaster_sidecar.map(|_| args.paymaster.prefunded_index),
+        paymaster: paymaster_sidecar.map(|_| PaymasterBootstrapInput {
+            rpc_url: rpc_url.clone(),
+            prefunded_index: args.paymaster.prefunded_index,
+        }),
         #[cfg(feature = "vrf")]
         vrf: vrf_sidecar.map(|_| {
             let key_source = match args.vrf.key_source {
@@ -838,6 +844,7 @@ where
         options: &args.paymaster,
         port: info.port,
         api_key: info.api_key.clone(),
+        rpc_url: rpc_url.clone(),
     });
 
     #[cfg(feature = "vrf")]
@@ -851,7 +858,7 @@ where
     };
 
     // Start sidecar processes
-    let processes = start_sidecars(&start_config, &bootstrap, rpc_addr).await?;
+    let processes = start_sidecars(&start_config, &bootstrap).await?;
     Ok(Some(processes))
 }
 

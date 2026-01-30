@@ -1,34 +1,28 @@
 //! Paymaster sidecar bootstrap and process management.
 //!
 //! This crate handles:
-//! - Bootstrapping the paymaster service (deploying forwarder contract)
+//! - Bootstrapping the paymaster service (deploying forwarder contract via RPC)
 //! - Spawning and managing the paymaster sidecar process
 //! - Generating paymaster configuration profiles
+//!
+//! This crate is self-contained and uses the Starknet RPC client to interact with
+//! the katana node for bootstrap operations.
 
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
 use anyhow::{anyhow, Context, Result};
-use katana_core::backend::Backend;
-use katana_core::service::block_producer::BlockProducer;
-use katana_executor::ExecutorFactory;
-use katana_genesis::allocation::GenesisAccountAlloc;
-use katana_genesis::constant::{
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
-};
-use katana_pool::TxPool;
-use katana_pool_api::TransactionPool;
+use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::fee::Tip;
 use katana_primitives::chain::{ChainId, NamedChainId};
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
-use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::api::state::{StateFactoryProvider, StateProvider};
-use katana_provider::ProviderFactory;
+use katana_rpc_client::starknet::Client;
+use katana_rpc_types::broadcasted::{BroadcastedInvokeTx, BroadcastedTxWithChainId};
 use katana_rpc_types::FunctionCall;
 use serde::Serialize;
 use starknet::macros::selector;
@@ -38,134 +32,175 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use url::Url;
 
+// ============================================================================
+// Constants
+// ============================================================================
+
 const FORWARDER_SALT: u64 = 0x12345;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT: &str = "https://sepolia.api.avnu.fi";
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.api.avnu.fi";
 
+/// The default universal deployer contract address.
+pub const DEFAULT_UDC_ADDRESS: ContractAddress =
+    ContractAddress(katana_primitives::felt!(
+        "0x041a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"
+    ));
+
+/// The default ETH fee token contract address.
+pub const DEFAULT_ETH_FEE_TOKEN_ADDRESS: ContractAddress =
+    ContractAddress(katana_primitives::felt!(
+        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+    ));
+
+/// The default STRK fee token contract address.
+pub const DEFAULT_STRK_FEE_TOKEN_ADDRESS: ContractAddress =
+    ContractAddress(katana_primitives::felt!(
+        "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
+    ));
+
 // ============================================================================
-// Bootstrap Types
+// Bootstrap Configuration Types
 // ============================================================================
 
-/// Bootstrap data for the paymaster service.
+/// Bootstrap configuration for the paymaster service.
+/// These are the input parameters needed to perform bootstrap.
 #[derive(Debug, Clone)]
-pub struct PaymasterBootstrap {
-    pub forwarder_address: ContractAddress,
+pub struct PaymasterBootstrapConfig {
+    /// RPC URL of the katana node.
+    pub rpc_url: Url,
+
+    /// Relayer account address (prefunded account).
     pub relayer_address: ContractAddress,
+    /// Relayer account private key.
     pub relayer_private_key: Felt,
+
+    /// Gas tank account address (prefunded account).
     pub gas_tank_address: ContractAddress,
+    /// Gas tank account private key.
     pub gas_tank_private_key: Felt,
+
+    /// Estimation account address (prefunded account).
     pub estimate_account_address: ContractAddress,
+    /// Estimation account private key.
     pub estimate_account_private_key: Felt,
+}
+
+/// Result of bootstrap operations.
+#[derive(Debug, Clone)]
+pub struct PaymasterBootstrapResult {
+    /// The deployed forwarder contract address.
+    pub forwarder_address: ContractAddress,
+    /// The chain ID of the network.
     pub chain_id: ChainId,
+}
+
+/// Configuration for the paymaster sidecar process.
+#[derive(Debug, Clone)]
+pub struct PaymasterSidecarConfig {
+    /// Path to the paymaster-service binary, or None to look up in PATH.
+    pub bin: Option<PathBuf>,
+    /// Port for the paymaster service.
+    pub port: u16,
+    /// API key for the paymaster service.
+    pub api_key: String,
+    /// Price API key (for AVNU price feed).
+    pub price_api_key: Option<String>,
+
+    /// Relayer account address.
+    pub relayer_address: ContractAddress,
+    /// Relayer account private key.
+    pub relayer_private_key: Felt,
+
+    /// Gas tank account address.
+    pub gas_tank_address: ContractAddress,
+    /// Gas tank account private key.
+    pub gas_tank_private_key: Felt,
+
+    /// Estimation account address.
+    pub estimate_account_address: ContractAddress,
+    /// Estimation account private key.
+    pub estimate_account_private_key: Felt,
+
+    /// Forwarder contract address (from bootstrap result).
+    pub forwarder_address: ContractAddress,
+
+    /// Chain ID (from bootstrap result).
+    pub chain_id: ChainId,
+    /// RPC URL of the katana node.
+    pub rpc_url: Url,
+
+    /// ETH token contract address.
+    pub eth_token_address: ContractAddress,
+    /// STRK token contract address.
+    pub strk_token_address: ContractAddress,
 }
 
 // ============================================================================
 // Bootstrap Functions
 // ============================================================================
 
-/// Bootstrap the paymaster by deploying the forwarder contract.
-pub async fn bootstrap_paymaster<EF, PF>(
-    prefunded_index: u16,
-    backend: &Backend<EF, PF>,
-    block_producer: &BlockProducer<EF, PF>,
-    pool: &TxPool,
-) -> Result<PaymasterBootstrap>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
-    let (relayer_address, relayer_private_key) = prefunded_account(backend, prefunded_index)?;
-    let gas_tank_index = prefunded_index
-        .checked_add(1)
-        .ok_or_else(|| anyhow!("paymaster gas tank index overflow"))?;
-    let estimate_index = prefunded_index
-        .checked_add(2)
-        .ok_or_else(|| anyhow!("paymaster estimate index overflow"))?;
+/// Bootstrap the paymaster by deploying the forwarder contract via RPC.
+///
+/// This function:
+/// 1. Connects to the node via RPC
+/// 2. Gets the chain ID
+/// 3. Computes the deterministic forwarder address
+/// 4. Deploys the forwarder if not already deployed
+/// 5. Whitelists the relayer address
+pub async fn bootstrap_paymaster(
+    config: &PaymasterBootstrapConfig,
+) -> Result<PaymasterBootstrapResult> {
+    let client = Client::new(config.rpc_url.clone());
 
-    let (gas_tank_address, gas_tank_private_key) = prefunded_account(backend, gas_tank_index)?;
-    let (estimate_account_address, estimate_account_private_key) =
-        prefunded_account(backend, estimate_index)?;
+    // Get chain ID from the node
+    let chain_id_felt = client.chain_id().await.context("failed to get chain ID from node")?;
+    let chain_id = ChainId::Id(chain_id_felt);
 
     let forwarder_class_hash = avnu_forwarder_class_hash()?;
     let forwarder_address = get_contract_address(
         Felt::from(FORWARDER_SALT),
         forwarder_class_hash,
-        &[relayer_address.into(), gas_tank_address.into()],
+        &[config.relayer_address.into(), config.gas_tank_address.into()],
         DEFAULT_UDC_ADDRESS.into(),
     )
     .into();
 
+    // Deploy forwarder if not already deployed
     ensure_deployed(
-        backend,
-        block_producer,
-        pool,
+        &client,
+        chain_id,
         DeploymentRequest {
-            sender_address: relayer_address,
-            sender_private_key: relayer_private_key,
+            sender_address: config.relayer_address,
+            sender_private_key: config.relayer_private_key,
             target_address: forwarder_address,
             class_hash: forwarder_class_hash,
-            constructor_calldata: vec![relayer_address.into(), gas_tank_address.into()],
+            constructor_calldata: vec![
+                config.relayer_address.into(),
+                config.gas_tank_address.into(),
+            ],
             salt: Felt::from(FORWARDER_SALT),
         },
     )
     .await?;
 
+    // Whitelist the relayer
     let whitelist_call = FunctionCall {
         contract_address: forwarder_address,
         entry_point_selector: selector!("set_whitelisted_address"),
-        calldata: vec![relayer_address.into(), Felt::ONE],
+        calldata: vec![config.relayer_address.into(), Felt::ONE],
     };
 
     submit_invoke(
-        backend,
-        block_producer,
-        pool,
-        relayer_address,
-        relayer_private_key,
+        &client,
+        chain_id,
+        config.relayer_address,
+        config.relayer_private_key,
         vec![whitelist_call],
     )
     .await?;
 
-    let chain_id = backend.chain_spec.id();
-
-    Ok(PaymasterBootstrap {
-        forwarder_address,
-        relayer_address,
-        relayer_private_key,
-        gas_tank_address,
-        gas_tank_private_key,
-        estimate_account_address,
-        estimate_account_private_key,
-        chain_id,
-    })
-}
-
-fn prefunded_account<EF, PF>(
-    backend: &Backend<EF, PF>,
-    index: u16,
-) -> Result<(ContractAddress, Felt)>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
-    let (address, allocation) = backend
-        .chain_spec
-        .genesis()
-        .accounts()
-        .nth(index as usize)
-        .ok_or_else(|| anyhow!("prefunded account index {} out of range", index))?;
-
-    let private_key = match allocation {
-        GenesisAccountAlloc::DevAccount(account) => account.private_key,
-        _ => return Err(anyhow!("prefunded account {} has no private key", address)),
-    };
-
-    Ok((*address, private_key))
+    Ok(PaymasterBootstrapResult { forwarder_address, chain_id })
 }
 
 struct DeploymentRequest {
@@ -177,18 +212,11 @@ struct DeploymentRequest {
     salt: Felt,
 }
 
-async fn ensure_deployed<EF, PF>(
-    backend: &Backend<EF, PF>,
-    block_producer: &BlockProducer<EF, PF>,
-    pool: &TxPool,
+async fn ensure_deployed(
+    client: &Client,
+    chain_id: ChainId,
     request: DeploymentRequest,
-) -> Result<()>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
+) -> Result<()> {
     let DeploymentRequest {
         sender_address,
         sender_private_key,
@@ -198,7 +226,7 @@ where
         salt,
     } = request;
 
-    if is_deployed(backend, target_address)? {
+    if is_deployed(client, target_address).await? {
         return Ok(());
     }
 
@@ -208,90 +236,70 @@ where
         calldata: udc_calldata(class_hash, salt, constructor_calldata),
     };
 
-    submit_invoke(
-        backend,
-        block_producer,
-        pool,
-        sender_address,
-        sender_private_key,
-        vec![deploy_call],
-    )
-    .await?;
+    submit_invoke(client, chain_id, sender_address, sender_private_key, vec![deploy_call]).await?;
 
-    wait_for_contract(backend, target_address, BOOTSTRAP_TIMEOUT).await?;
+    wait_for_contract(client, target_address, BOOTSTRAP_TIMEOUT).await?;
     Ok(())
 }
 
-async fn submit_invoke<EF, PF>(
-    backend: &Backend<EF, PF>,
-    block_producer: &BlockProducer<EF, PF>,
-    pool: &TxPool,
+async fn submit_invoke(
+    client: &Client,
+    chain_id: ChainId,
     sender_address: ContractAddress,
     sender_private_key: Felt,
     calls: Vec<FunctionCall>,
-) -> Result<()>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
-    let state = backend.storage.provider().latest()?;
-    let nonce = account_nonce(pool, state.as_ref(), sender_address)?;
-
-    let tx =
-        sign_invoke_tx(backend.chain_spec.id(), sender_address, sender_private_key, nonce, calls)?;
-
-    pool.add_transaction(tx)
+) -> Result<()> {
+    let nonce = client
+        .get_nonce(BlockIdOrTag::PreConfirmed, sender_address)
         .await
-        .map_err(|err| anyhow!("failed to add transaction to pool: {err}"))?;
-    block_producer.force_mine();
+        .context("failed to get nonce")?;
+
+    let tx = build_and_sign_invoke_tx(chain_id, sender_address, sender_private_key, nonce, calls)?;
+
+    client.add_invoke_transaction(tx).await.context("failed to submit invoke transaction")?;
 
     Ok(())
 }
 
-fn account_nonce(
-    pool: &TxPool,
-    state: &dyn StateProvider,
-    address: ContractAddress,
-) -> Result<Felt> {
-    if let Some(nonce) = pool.get_nonce(address) {
-        return Ok(nonce);
-    }
-    Ok(state.nonce(address)?.unwrap_or_default())
-}
-
-fn sign_invoke_tx(
-    chain_id: katana_primitives::chain::ChainId,
+fn build_and_sign_invoke_tx(
+    chain_id: ChainId,
     sender_address: ContractAddress,
     sender_private_key: Felt,
     nonce: Felt,
     calls: Vec<FunctionCall>,
-) -> Result<ExecutableTxWithHash> {
-    let mut tx = InvokeTxV3 {
-        nonce,
-        chain_id,
+) -> Result<BroadcastedInvokeTx> {
+    // Build an unsigned transaction to compute the hash
+    let unsigned_tx = BroadcastedInvokeTx {
+        sender_address,
         calldata: encode_calls(calls),
         signature: vec![],
-        sender_address,
-        tip: 0_u64,
+        nonce,
         paymaster_data: vec![],
+        tip: Tip::new(0),
         account_deployment_data: vec![],
-        nonce_data_availability_mode: DataAvailabilityMode::L1,
-        fee_data_availability_mode: DataAvailabilityMode::L1,
         resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
+        fee_data_availability_mode: DataAvailabilityMode::L1,
+        nonce_data_availability_mode: DataAvailabilityMode::L1,
+        is_query: false,
     };
 
-    let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
+    // Compute the transaction hash using BroadcastedTxWithChainId
+    let tx_with_chain = BroadcastedTxWithChainId {
+        tx: katana_rpc_types::broadcasted::BroadcastedTx::Invoke(unsigned_tx.clone()),
+        chain: chain_id,
+    };
+    let tx_hash = tx_with_chain.calculate_hash();
 
+    // Sign the transaction hash
     let signer = LocalWallet::from(SigningKey::from_secret_scalar(sender_private_key));
-    let signature =
-        futures::executor::block_on(signer.sign_hash(&tx_hash)).map_err(|e| anyhow!(e))?;
-    tx.signature = vec![signature.r, signature.s];
+    let signature = futures::executor::block_on(signer.sign_hash(&tx_hash))
+        .map_err(|e| anyhow!("failed to sign transaction: {e}"))?;
 
-    let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
-
-    Ok(tx)
+    // Return signed transaction
+    Ok(BroadcastedInvokeTx {
+        signature: vec![signature.r, signature.s],
+        ..unsigned_tx
+    })
 }
 
 fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
@@ -317,31 +325,20 @@ fn udc_calldata(class_hash: Felt, salt: Felt, constructor_calldata: Vec<Felt>) -
     calldata
 }
 
-fn is_deployed<EF, PF>(backend: &Backend<EF, PF>, address: ContractAddress) -> Result<bool>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
-    let state = backend.storage.provider().latest()?;
-    Ok(state.class_hash_of_contract(address)?.is_some())
+async fn is_deployed(client: &Client, address: ContractAddress) -> Result<bool> {
+    match client.get_class_hash_at(BlockIdOrTag::PreConfirmed, address).await {
+        Ok(_) => Ok(true),
+        Err(katana_rpc_client::starknet::Error::Starknet(
+            katana_rpc_client::starknet::StarknetApiError::ContractNotFound,
+        )) => Ok(false),
+        Err(e) => Err(anyhow!("failed to check contract deployment: {e}")),
+    }
 }
 
-async fn wait_for_contract<EF, PF>(
-    backend: &Backend<EF, PF>,
-    address: ContractAddress,
-    timeout: Duration,
-) -> Result<()>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
+async fn wait_for_contract(client: &Client, address: ContractAddress, timeout: Duration) -> Result<()> {
     let start = Instant::now();
     loop {
-        if is_deployed(backend, address)? {
+        if is_deployed(client, address).await? {
             return Ok(());
         }
 
@@ -365,24 +362,13 @@ fn avnu_forwarder_class_hash() -> Result<Felt> {
 // Sidecar Process Management
 // ============================================================================
 
-/// Configuration for the paymaster sidecar.
-pub struct PaymasterSidecarConfig {
-    pub bin: Option<PathBuf>,
-    pub port: u16,
-    pub api_key: String,
-    pub price_api_key: Option<String>,
-}
-
 /// Start the paymaster sidecar process.
-pub async fn start_paymaster_sidecar(
-    config: &PaymasterSidecarConfig,
-    bootstrap: &PaymasterBootstrap,
-    rpc_addr: &SocketAddr,
-) -> Result<Child> {
+///
+/// This spawns the paymaster-service binary with the appropriate configuration.
+pub async fn start_paymaster_sidecar(config: &PaymasterSidecarConfig) -> Result<Child> {
     let bin = config.bin.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
     let bin = resolve_executable(&bin)?;
-    let rpc_url = local_rpc_url(rpc_addr);
-    let profile = build_paymaster_profile(config, bootstrap, &rpc_url)?;
+    let profile = build_paymaster_profile(config)?;
     let profile_path = write_paymaster_profile(&profile)?;
 
     let mut command = Command::new(bin);
@@ -420,20 +406,6 @@ fn resolve_executable(path: &Path) -> Result<PathBuf> {
     }
 
     Err(anyhow!("sidecar binary '{}' not found in PATH", path.display()))
-}
-
-fn local_rpc_url(addr: &SocketAddr) -> Url {
-    let host = match addr.ip() {
-        std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
-            std::net::IpAddr::V4([127, 0, 0, 1].into())
-        }
-        std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
-            std::net::IpAddr::V4([127, 0, 0, 1].into())
-        }
-        ip => ip,
-    };
-
-    Url::parse(&format!("http://{}:{}", host, addr.port())).expect("valid rpc url")
 }
 
 // ============================================================================
@@ -510,43 +482,39 @@ struct PaymasterSponsoringProfile {
     sponsor_metadata: Vec<Felt>,
 }
 
-fn build_paymaster_profile(
-    config: &PaymasterSidecarConfig,
-    bootstrap: &PaymasterBootstrap,
-    rpc_url: &Url,
-) -> Result<PaymasterProfile> {
-    let chain_id = paymaster_chain_id(bootstrap.chain_id)?;
-    let price_endpoint = paymaster_price_endpoint(bootstrap.chain_id)?;
+fn build_paymaster_profile(config: &PaymasterSidecarConfig) -> Result<PaymasterProfile> {
+    let chain_id = paymaster_chain_id(config.chain_id)?;
+    let price_endpoint = paymaster_price_endpoint(config.chain_id)?;
     let price_api_key = config.price_api_key.clone().unwrap_or_default();
 
-    let eth_token = format_felt(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into());
-    let strk_token = format_felt(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into());
+    let eth_token = format_felt(config.eth_token_address.into());
+    let strk_token = format_felt(config.strk_token_address.into());
 
     Ok(PaymasterProfile {
         verbosity: "info".to_string(),
         prometheus: None,
         rpc: PaymasterRpcProfile { port: config.port as u64 },
-        forwarder: format_felt(bootstrap.forwarder_address.into()),
+        forwarder: format_felt(config.forwarder_address.into()),
         supported_tokens: vec![eth_token, strk_token],
         max_fee_multiplier: 3.0,
         provider_fee_overhead: 0.1,
         estimate_account: PaymasterAccountProfile {
-            address: format_felt(bootstrap.estimate_account_address.into()),
-            private_key: format_felt(bootstrap.estimate_account_private_key),
+            address: format_felt(config.estimate_account_address.into()),
+            private_key: format_felt(config.estimate_account_private_key),
         },
         gas_tank: PaymasterAccountProfile {
-            address: format_felt(bootstrap.gas_tank_address.into()),
-            private_key: format_felt(bootstrap.gas_tank_private_key),
+            address: format_felt(config.gas_tank_address.into()),
+            private_key: format_felt(config.gas_tank_private_key),
         },
         relayers: PaymasterRelayersProfile {
-            private_key: format_felt(bootstrap.relayer_private_key),
-            addresses: vec![format_felt(bootstrap.relayer_address.into())],
+            private_key: format_felt(config.relayer_private_key),
+            addresses: vec![format_felt(config.relayer_address.into())],
             min_relayer_balance: format_felt(Felt::ZERO),
             lock: PaymasterLockProfile { mode: "seggregated".to_string(), retry_timeout: 5 },
         },
         starknet: PaymasterStarknetProfile {
             chain_id,
-            endpoint: rpc_url.to_string(),
+            endpoint: config.rpc_url.to_string(),
             timeout: 30,
             fallbacks: Vec::new(),
         },
@@ -582,7 +550,16 @@ fn paymaster_chain_id(chain_id: ChainId) -> Result<String> {
             "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
         )),
         ChainId::Id(id) => {
-            Err(anyhow!("paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"))
+            // Check if the id matches known chain IDs
+            if id == ChainId::SEPOLIA.id() {
+                Ok("sepolia".to_string())
+            } else if id == ChainId::MAINNET.id() {
+                Ok("mainnet".to_string())
+            } else {
+                Err(anyhow!(
+                    "paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"
+                ))
+            }
         }
     }
 }
@@ -595,12 +572,22 @@ fn paymaster_price_endpoint(chain_id: ChainId) -> Result<&'static str> {
             "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
         )),
         ChainId::Id(id) => {
-            Err(anyhow!("paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"))
+            // Check if the id matches known chain IDs
+            if id == ChainId::SEPOLIA.id() {
+                Ok(DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT)
+            } else if id == ChainId::MAINNET.id() {
+                Ok(DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT)
+            } else {
+                Err(anyhow!(
+                    "paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"
+                ))
+            }
         }
     }
 }
 
-async fn wait_for_paymaster_ready(
+/// Wait for the paymaster sidecar to become ready.
+pub async fn wait_for_paymaster_ready(
     url: &Url,
     api_key: Option<&str>,
     timeout: Duration,
