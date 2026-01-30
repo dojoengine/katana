@@ -439,11 +439,13 @@ where
     let account_public_key =
         SigningKey::from_secret_scalar(source_private_key).verifying_key().scalar();
     let vrf_account_class_hash = vrf_account_class_hash()?;
+    // When using UDC with unique=0 (non-unique deployment), the deployer_address
+    // used in address computation is 0, not the actual deployer or UDC address.
     let vrf_account_address = get_contract_address(
         Felt::from(VRF_ACCOUNT_SALT),
         vrf_account_class_hash,
         &[account_public_key],
-        DEFAULT_UDC_ADDRESS.into(),
+        Felt::ZERO,
     )
     .into();
 
@@ -523,11 +525,13 @@ where
     .await?;
 
     let vrf_consumer_class_hash = vrf_consumer_class_hash()?;
+    // When using UDC with unique=0 (non-unique deployment), the deployer_address
+    // used in address computation is 0, not the actual deployer or UDC address.
     let vrf_consumer_address = get_contract_address(
         Felt::from(VRF_CONSUMER_SALT),
         vrf_consumer_class_hash,
         &[vrf_account_address.into()],
-        DEFAULT_UDC_ADDRESS.into(),
+        Felt::ZERO,
     )
     .into();
 

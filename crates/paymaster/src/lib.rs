@@ -37,8 +37,8 @@ use url::Url;
 
 const FORWARDER_SALT: u64 = 0x12345;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT: &str = "https://sepolia.api.avnu.fi";
-const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.api.avnu.fi";
+const DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
+const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
 
 /// The default universal deployer contract address.
 pub const DEFAULT_UDC_ADDRESS: ContractAddress = ContractAddress(katana_primitives::felt!(
@@ -154,11 +154,13 @@ pub async fn bootstrap_paymaster(
     let chain_id = ChainId::Id(chain_id_felt);
 
     let forwarder_class_hash = avnu_forwarder_class_hash()?;
+    // When using UDC with unique=0 (non-unique deployment), the deployer_address
+    // used in address computation is 0, not the actual deployer or UDC address.
     let forwarder_address = get_contract_address(
         Felt::from(FORWARDER_SALT),
         forwarder_class_hash,
         &[config.relayer_address.into(), config.gas_tank_address.into()],
-        DEFAULT_UDC_ADDRESS.into(),
+        Felt::ZERO,
     )
     .into();
 
