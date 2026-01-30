@@ -33,7 +33,6 @@ serde_json.workspace = true
 starknet = { workspace = true, optional = true }
 starknet-paymaster = { package = "starknet", git = "https://github.com/xJonathanLEI/starknet-rs", tag = "starknet/v0.17.0", optional = true }
 starknet-crypto = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
@@ -98,7 +97,6 @@ vrf = [
 cartridge = [
 	"dep:cainome",
 	"dep:cainome-cairo-serde",
-	"dep:futures",
 	"dep:cartridge",
 	"dep:katana-genesis",
 	"dep:reqwest",
