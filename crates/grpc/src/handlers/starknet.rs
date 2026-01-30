@@ -546,7 +546,7 @@ where
         _request: Request<ChainIdRequest>,
     ) -> Result<Response<ChainIdResponse>, Status> {
         let chain_id = self.inner.chain_id();
-        Ok(Response::new(ChainIdResponse { chain_id: format!("{:#x}", chain_id) }))
+        Ok(Response::new(ChainIdResponse { chain_id: format!("{chain_id:#x}") }))
     }
 
     async fn syncing(

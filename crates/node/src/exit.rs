@@ -27,6 +27,7 @@ where
         // This avoids capturing `&LaunchedNode<P>` which isn't Sync.
 
         let rpc = handle.rpc.clone();
+        #[cfg(feature = "grpc")]
         let grpc = handle.grpc.clone();
         let gateway = handle.gateway.clone();
         let task_manager = handle.node.task_manager.clone();
@@ -35,6 +36,7 @@ where
             task_manager.wait_for_shutdown().await;
             rpc.stop()?;
 
+            #[cfg(feature = "grpc")]
             if let Some(grpc) = grpc {
                 grpc.stop()?;
             }

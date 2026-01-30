@@ -51,6 +51,7 @@ impl FeltVecExt for [Felt] {
 }
 
 /// Extension trait for converting vectors of proto Felts.
+#[allow(clippy::result_large_err)]
 pub trait ProtoFeltVecExt {
     fn to_felts(&self) -> Result<Vec<Felt>, Status>;
 }

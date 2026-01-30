@@ -65,6 +65,7 @@ impl TryFrom<&ProtoBlockId> for BlockIdOrTag {
 }
 
 /// Helper to convert Option<&ProtoBlockId> to BlockIdOrTag.
+#[allow(clippy::result_large_err)]
 pub fn block_id_from_proto(proto: Option<&ProtoBlockId>) -> Result<BlockIdOrTag, Status> {
     let proto = proto.ok_or_else(|| Status::invalid_argument("Missing block_id"))?;
     BlockIdOrTag::try_from(proto)

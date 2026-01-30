@@ -908,13 +908,13 @@ explorer = true
             ControllerV108, ControllerV109,
         };
 
-        assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV106::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV107::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_some());
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV105::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV106::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV107::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
 
         // Test without paymaster enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
@@ -923,12 +923,12 @@ explorer = true
         // Verify cartridge module is not enabled by default
         assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
-        assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV106::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV107::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_none());
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV105::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV106::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV107::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
     }
 }

@@ -141,6 +141,7 @@ pub fn to_status(err: StarknetApiError) -> Status {
 }
 
 /// Extension trait to easily convert Results with StarknetApiError to gRPC Results.
+#[allow(clippy::result_large_err)]
 pub trait IntoGrpcResult<T> {
     /// Converts the result to a gRPC result.
     fn into_grpc_result(self) -> Result<T, Status>;
