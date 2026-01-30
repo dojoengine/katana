@@ -42,8 +42,8 @@ pub fn derive_vrf_accounts<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let (source_address, source_private_key) = match config.key_source {
         VrfKeySource::Prefunded => prefunded_account(backend, config.prefunded_index)?,
@@ -84,8 +84,8 @@ fn prefunded_account<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let (address, allocation) = backend
         .chain_spec
@@ -109,8 +109,8 @@ fn sequencer_account<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let sequencer = config.chain.genesis().sequencer_address;
 

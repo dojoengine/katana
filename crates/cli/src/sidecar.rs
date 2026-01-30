@@ -135,8 +135,8 @@ pub async fn bootstrap_sidecars<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let mut result = BootstrapResult::default();
 
@@ -164,8 +164,8 @@ async fn bootstrap_paymaster<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let (relayer_address, relayer_private_key) = prefunded_account(backend, prefunded_index)?;
     let gas_tank_index = prefunded_index
@@ -252,8 +252,8 @@ pub fn derive_vrf_accounts<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let (source_address, source_private_key) = match config.key_source {
         VrfKeySource::Prefunded => prefunded_account(backend, config.prefunded_index)?,
@@ -298,8 +298,8 @@ async fn bootstrap_vrf<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let derived = derive_vrf_accounts(config, backend)?;
     let account_address = derived.source_address;
@@ -386,8 +386,8 @@ fn prefunded_account<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let (address, allocation) = backend
         .chain_spec
@@ -412,8 +412,8 @@ fn sequencer_account<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     for (address, allocation) in backend.chain_spec.genesis().accounts() {
         if *address == sequencer_address {
@@ -446,8 +446,8 @@ async fn ensure_deployed<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let DeploymentRequest {
         sender_address,
@@ -494,8 +494,8 @@ async fn fund_account<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let amount = Felt::from(1_000_000_000_000_000_000u128);
     let (low, high) = split_u256(U256::from_be_bytes(amount.to_bytes_be()));
@@ -528,8 +528,8 @@ async fn submit_invoke<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let state = backend.storage.provider().latest()?;
     let nonce = account_nonce(pool, state.as_ref(), sender_address)?;
@@ -616,8 +616,8 @@ fn is_deployed<EF, PF>(backend: &Backend<EF, PF>, address: ContractAddress) -> R
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let state = backend.storage.provider().latest()?;
     Ok(state.class_hash_of_contract(address)?.is_some())
@@ -631,8 +631,8 @@ async fn wait_for_contract<EF, PF>(
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
+    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     let start = Instant::now();
     loop {
