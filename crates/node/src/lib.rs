@@ -4,6 +4,8 @@ pub mod full;
 
 pub mod config;
 pub mod exit;
+#[cfg(feature = "vrf")]
+pub mod sidecar;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -37,6 +39,8 @@ use katana_provider::{
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
+#[cfg(feature = "paymaster")]
+use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
@@ -44,9 +48,11 @@ use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::cartridge::CartridgeApi;
+use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
+#[cfg(feature = "paymaster")]
+use katana_rpc_server::paymaster::PaymasterProxy;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::starknet::PaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
@@ -212,26 +218,57 @@ where
         .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
         #[cfg(feature = "cartridge")]
-        let paymaster = if let Some(paymaster) = &config.paymaster {
+        let cartridge_paymaster = if let Some(paymaster) = &config.paymaster {
             anyhow::ensure!(
                 config.rpc.apis.contains(&RpcModuleKind::Cartridge),
                 "Cartridge API should be enabled when paymaster is set"
             );
+
+            let cartridge_api_url = paymaster.cartridge_api_url.clone().ok_or_else(|| {
+                anyhow::anyhow!("cartridge api url is required when paymaster is set")
+            })?;
+
+            #[cfg(feature = "vrf")]
+            let vrf = if let Some(vrf) = &config.vrf {
+                let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
+                Some(katana_rpc_server::cartridge::CartridgeVrfConfig {
+                    url: vrf.url.clone(),
+                    account_address: derived.vrf_account_address,
+                    account_private_key: derived.source_private_key,
+                })
+            } else {
+                None
+            };
+
+            #[cfg(not(feature = "vrf"))]
+            let vrf = None;
 
             let api = CartridgeApi::new(
                 backend.clone(),
                 block_producer.clone(),
                 pool.clone(),
                 task_spawner.clone(),
-                paymaster.cartridge_api_url.clone(),
-            );
+                CartridgeConfig {
+                    cartridge_api_url: cartridge_api_url.clone(),
+                    paymaster_url: paymaster.url.clone(),
+                    paymaster_api_key: paymaster.api_key.clone(),
+                    paymaster_prefunded_index: paymaster.prefunded_index,
+                    vrf,
+                },
+            )?;
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
+            Some(PaymasterConfig { cartridge_api_url, prefunded_index: paymaster.prefunded_index })
         } else {
             None
         };
+
+        #[cfg(feature = "paymaster")]
+        if let Some(pm) = &config.paymaster {
+            let proxy = PaymasterProxy::new(pm.url.clone(), pm.api_key.clone())?;
+            rpc_modules.merge(proxy.into_rpc())?;
+        }
 
         // --- build starknet api
 
@@ -243,7 +280,7 @@ where
             simulation_flags: execution_flags,
             versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
-            paymaster,
+            paymaster: cartridge_paymaster,
         };
 
         let chain_spec = backend.chain_spec.clone();
@@ -595,6 +632,11 @@ where
     /// Returns a reference to the node's configuration.
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Returns a reference to the node's block producer.
+    pub fn block_producer(&self) -> &BlockProducer<BlockifierFactory, P> {
+        &self.block_producer
     }
 }
 

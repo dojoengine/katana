@@ -12,7 +12,7 @@ use std::net::IpAddr;
 use std::num::NonZeroU128;
 use std::path::PathBuf;
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 use katana_genesis::Genesis;
 use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
@@ -538,39 +538,259 @@ pub struct GasPriceOracleOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Cartridge options")]
 pub struct CartridgeOptions {
-    /// Declare all versions of the Controller class at genesis. This is implictly enabled if
-    /// `--cartridge.paymaster` is provided.
+    /// Declare all versions of the Controller class at genesis.
     #[arg(long = "cartridge.controllers")]
     pub controllers: bool,
-
-    /// Whether to use the Cartridge paymaster.
-    /// This has the cost to call the Cartridge API to check
-    /// if a controller account exists on each estimate fee call.
-    ///
-    /// Mostly used for local development using controller, and must be
-    /// disabled for slot deployments.
-    #[arg(long = "cartridge.paymaster")]
-    #[arg(default_value_t = false)]
-    #[serde(default)]
-    pub paymaster: bool,
 
     /// The root URL for the Cartridge API.
     ///
     /// This is used to fetch the calldata for the constructor of the given controller
     /// address (at the moment). Must be configurable for local development
     /// with local cartridge API.
-    #[arg(long = "cartridge.api", requires = "paymaster")]
+    #[arg(long = "cartridge.api")]
     #[arg(default_value = "https://api.cartridge.gg")]
     #[serde(default = "default_api_url")]
     pub api: Url,
+}
+
+#[cfg(feature = "vrf")]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum VrfKeySource {
+    Prefunded,
+    Sequencer,
+}
+
+#[cfg(feature = "paymaster")]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Paymaster options")]
+pub struct PaymasterOptions {
+    /// Enable the paymaster service.
+    ///
+    /// By default, the paymaster runs as a sidecar process. If `--paymaster.url` is provided,
+    /// it will connect to an external paymaster service instead.
+    #[arg(long = "paymaster", id = "paymaster_enabled")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Paymaster JSON-RPC endpoint for external paymaster service.
+    ///
+    /// When provided, the paymaster will run in external mode, connecting to this URL
+    /// instead of spawning a sidecar process.
+    #[arg(long = "paymaster.url", value_name = "URL", id = "paymaster_url")]
+    #[serde(default)]
+    pub url: Option<Url>,
+
+    /// API key to send via `x-paymaster-api-key` when proxying requests.
+    #[arg(long = "paymaster.api-key", value_name = "KEY")]
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// API key for the Avnu price provider (used by the sidecar).
+    ///
+    /// Only required when running in sidecar mode. Not needed if `--paymaster.url` is provided.
+    #[arg(conflicts_with = "paymaster_url")]
+    #[arg(long = "paymaster.price-api-key", value_name = "KEY")]
+    #[serde(default)]
+    pub price_api_key: Option<String>,
+
+    /// Prefunded account index used by the paymaster (relayer at INDEX, gas tank at INDEX+1,
+    /// estimate account at INDEX+2).
+    #[arg(id = "paymaster_prefunded_index")]
+    #[arg(conflicts_with = "paymaster_url")]
+    #[arg(default_value_t = default_paymaster_prefunded_index())]
+    #[arg(value_name = "INDEX", long = "paymaster.prefunded-index")]
+    #[serde(default = "default_paymaster_prefunded_index")]
+    pub prefunded_index: u16,
+
+    /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--paymaster.url` is provided.
+    #[arg(conflicts_with = "paymaster_url")]
+    #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+#[cfg(feature = "paymaster")]
+impl Default for PaymasterOptions {
+    fn default() -> Self {
+        PaymasterOptions {
+            enabled: false,
+            url: None,
+            api_key: None,
+            price_api_key: None,
+            prefunded_index: default_paymaster_prefunded_index(),
+            bin: None,
+        }
+    }
+}
+
+#[cfg(feature = "paymaster")]
+impl PaymasterOptions {
+    /// Returns true if the paymaster is enabled (either explicitly or via URL).
+    pub fn is_enabled(&self) -> bool {
+        self.enabled || self.url.is_some()
+    }
+
+    /// Returns true if the paymaster should run in external mode (URL provided).
+    pub fn is_external(&self) -> bool {
+        self.url.is_some()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.enabled {
+                self.enabled = other.enabled;
+            }
+
+            if self.url.is_none() {
+                self.url = other.url.clone();
+            }
+
+            if self.api_key.is_none() {
+                self.api_key = other.api_key.clone();
+            }
+
+            if self.price_api_key.is_none() {
+                self.price_api_key = other.price_api_key.clone();
+            }
+
+            if self.prefunded_index == default_paymaster_prefunded_index() {
+                self.prefunded_index = other.prefunded_index;
+            }
+
+            if self.bin.is_none() {
+                self.bin = other.bin.clone();
+            }
+        }
+    }
+}
+
+#[cfg(feature = "vrf")]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "VRF options")]
+pub struct VrfOptions {
+    /// Enable the VRF service.
+    ///
+    /// By default, the VRF runs as a sidecar process. If `--vrf.url` is provided,
+    /// it will connect to an external VRF service instead.
+    #[arg(long = "vrf", id = "vrf_enabled")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// VRF service endpoint for external VRF service.
+    ///
+    /// When provided, the VRF will run in external mode, connecting to this URL
+    /// instead of spawning a sidecar process.
+    #[arg(long = "vrf.url", value_name = "URL", id = "vrf_url")]
+    #[serde(default)]
+    pub url: Option<Url>,
+
+    /// Source for the VRF secret key.
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(conflicts_with = "vrf_url")]
+    #[arg(long = "vrf.key-source", value_enum, default_value_t = default_vrf_key_source())]
+    #[serde(default = "default_vrf_key_source")]
+    pub key_source: VrfKeySource,
+
+    /// Prefunded account index used to sign VRF outside executions.
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(conflicts_with = "vrf_url")]
+    #[arg(
+        long = "vrf.prefunded-index",
+        value_name = "INDEX",
+        id = "vrf_prefunded_index",
+        default_value_t = default_vrf_prefunded_index()
+    )]
+    #[serde(default = "default_vrf_prefunded_index")]
+    pub prefunded_index: u16,
+
+    /// Port to bind the sidecar VRF service on (vrf-server uses 3000).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(conflicts_with = "vrf_url")]
+    #[arg(
+        long = "vrf.port",
+        value_name = "PORT",
+        id = "vrf_port",
+        default_value_t = default_vrf_port()
+    )]
+    #[serde(default = "default_vrf_port")]
+    pub port: u16,
+
+    /// Optional path to the VRF sidecar binary (defaults to `vrf-server` in PATH).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(conflicts_with = "vrf_url")]
+    #[arg(long = "vrf.bin", value_name = "PATH", id = "vrf_bin")]
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+#[cfg(feature = "vrf")]
+impl Default for VrfOptions {
+    fn default() -> Self {
+        VrfOptions {
+            enabled: false,
+            url: None,
+            key_source: default_vrf_key_source(),
+            prefunded_index: default_vrf_prefunded_index(),
+            port: default_vrf_port(),
+            bin: None,
+        }
+    }
+}
+
+#[cfg(feature = "vrf")]
+impl VrfOptions {
+    /// Returns true if the VRF is enabled (either explicitly or via URL).
+    pub fn is_enabled(&self) -> bool {
+        self.enabled || self.url.is_some()
+    }
+
+    /// Returns true if the VRF should run in external mode (URL provided).
+    pub fn is_external(&self) -> bool {
+        self.url.is_some()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.enabled {
+                self.enabled = other.enabled;
+            }
+
+            if self.url.is_none() {
+                self.url = other.url.clone();
+            }
+
+            if self.key_source == default_vrf_key_source() {
+                self.key_source = other.key_source;
+            }
+
+            if self.prefunded_index == default_vrf_prefunded_index() {
+                self.prefunded_index = other.prefunded_index;
+            }
+
+            if self.port == default_vrf_port() {
+                self.port = other.port;
+            }
+
+            if self.bin.is_none() {
+                self.bin = other.bin.clone();
+            }
+        }
+    }
 }
 
 #[cfg(feature = "cartridge")]
 impl CartridgeOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
-            if self.paymaster == default_paymaster() {
-                self.paymaster = other.paymaster;
+            if !self.controllers {
+                self.controllers = other.controllers;
             }
 
             if self.api == default_api_url() {
@@ -583,11 +803,7 @@ impl CartridgeOptions {
 #[cfg(feature = "cartridge")]
 impl Default for CartridgeOptions {
     fn default() -> Self {
-        CartridgeOptions {
-            controllers: false,
-            paymaster: default_paymaster(),
-            api: default_api_url(),
-        }
+        CartridgeOptions { controllers: false, api: default_api_url() }
     }
 }
 
@@ -699,13 +915,28 @@ where
 }
 
 #[cfg(feature = "cartridge")]
-fn default_paymaster() -> bool {
-    false
-}
-
-#[cfg(feature = "cartridge")]
 fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
+}
+
+#[cfg(feature = "vrf")]
+fn default_vrf_key_source() -> VrfKeySource {
+    VrfKeySource::Prefunded
+}
+
+#[cfg(feature = "paymaster")]
+fn default_paymaster_prefunded_index() -> u16 {
+    0
+}
+
+#[cfg(feature = "vrf")]
+fn default_vrf_prefunded_index() -> u16 {
+    0
+}
+
+#[cfg(feature = "vrf")]
+fn default_vrf_port() -> u16 {
+    3000
 }
 
 #[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
