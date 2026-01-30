@@ -820,17 +820,15 @@ async fn bootstrap_and_start_sidecars<P>(
 ) -> Result<Option<crate::sidecar::SidecarProcesses>>
 where
     P: katana_provider::ProviderFactory + Clone,
-    <P as katana_provider::ProviderFactory>::Provider:
-        katana_core::backend::storage::ProviderRO,
-    <P as katana_provider::ProviderFactory>::ProviderMut:
-        katana_core::backend::storage::ProviderRW,
+    <P as katana_provider::ProviderFactory>::Provider: katana_provider::ProviderRO,
+    <P as katana_provider::ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
-    #[cfg(feature = "vrf")]
-    use crate::sidecar::{VrfBootstrapConfig, VrfKeySource, VrfSidecarConfig};
     use crate::sidecar::{
         bootstrap_sidecars, start_sidecars, BootstrapConfig, PaymasterSidecarConfig,
         SidecarStartConfig,
     };
+    #[cfg(feature = "vrf")]
+    use crate::sidecar::{VrfBootstrapConfig, VrfKeySource, VrfSidecarConfig};
 
     // If no sidecars need to be started, return None
     #[cfg(feature = "vrf")]
@@ -861,13 +859,9 @@ where
     };
 
     // Bootstrap contracts
-    let bootstrap = bootstrap_sidecars(
-        &bootstrap_config,
-        node.backend(),
-        node.block_producer(),
-        node.pool(),
-    )
-    .await?;
+    let bootstrap =
+        bootstrap_sidecars(&bootstrap_config, node.backend(), node.block_producer(), node.pool())
+            .await?;
 
     // Build sidecar start config
     let paymaster_config = paymaster_sidecar.map(|info| PaymasterSidecarConfig {
