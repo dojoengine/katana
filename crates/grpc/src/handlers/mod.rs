@@ -7,4 +7,4 @@ mod starknet;
 mod trace;
 mod write;
 
-pub use self::starknet::{StarknetApiProvider, StarknetHandler};
+pub use self::starknet::StarknetHandler;

@@ -8,9 +8,11 @@
 mod config;
 mod error;
 mod handlers;
-mod impls;
 mod protos;
 mod server;
+
+// Re-export conversion module for internal use
+pub(crate) use protos::types::conversion;
 
 pub use config::GrpcConfig;
 pub use server::{GrpcServer, GrpcServerHandle};

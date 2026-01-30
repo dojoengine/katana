@@ -2,6 +2,9 @@
 
 use std::net::SocketAddr;
 
+use katana_pool::TransactionPool;
+use katana_provider::{ProviderFactory, ProviderRO};
+use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use tokio::sync::oneshot;
 use tonic::transport::Server;
 use tracing::info;
@@ -71,12 +74,15 @@ impl GrpcServer {
     ///
     /// This method spawns the server on a new Tokio task and returns a handle
     /// that can be used to manage the server.
-    pub async fn start<H>(self, handler: H) -> Result<GrpcServerHandle, Error>
+    pub async fn start<Pool, PP, PF>(
+        self,
+        starknet_api: StarknetApi<Pool, PP, PF>,
+    ) -> Result<GrpcServerHandle, Error>
     where
-        H: Clone + Send + Sync + 'static,
-        StarknetHandler<H>: crate::protos::starknet::starknet_server::Starknet
-            + crate::protos::starknet::starknet_write_server::StarknetWrite
-            + crate::protos::starknet::starknet_trace_server::StarknetTrace,
+        Pool: TransactionPool + 'static,
+        PP: PendingBlockProvider,
+        PF: ProviderFactory,
+        <PF as ProviderFactory>::Provider: ProviderRO,
     {
         let addr = self.config.socket_addr();
 
@@ -87,7 +93,7 @@ impl GrpcServer {
             .map_err(|e| Error::ReflectionBuild(e.to_string()))?;
 
         // Create the service handler
-        let starknet_handler = StarknetHandler::new(handler);
+        let starknet_handler = StarknetHandler::new(starknet_api);
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
