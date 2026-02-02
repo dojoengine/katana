@@ -10,18 +10,17 @@ use katana_primitives::fee::{
     ResourceBoundsMapping as PrimitiveResourceBoundsMapping,
 };
 use katana_primitives::Felt;
-use katana_rpc_types::broadcasted::{BroadcastedDeployAccountTx, BroadcastedInvokeTx};
+use katana_rpc_types::broadcasted::{
+    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx,
+};
 use katana_rpc_types::class::RpcSierraContractClass;
 use tonic::Status;
 
 use super::{FeltVecExt, ProtoFeltVecExt};
 use crate::proto;
 use crate::proto::{
-    broadcasted_declare_transaction, broadcasted_deploy_account_transaction,
-    broadcasted_invoke_transaction, BroadcastedDeclareTransaction, BroadcastedDeclareTxnV2,
-    BroadcastedDeclareTxnV3, BroadcastedDeployAccountTransaction, BroadcastedDeployAccountTxnV1,
-    BroadcastedDeployAccountTxnV3, BroadcastedInvokeTransaction, BroadcastedInvokeTxnV1,
-    BroadcastedInvokeTxnV3, ContractClass as ProtoContractClass, DeployAccountTxn,
+    BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction,
+    BroadcastedInvokeTransaction, ContractClass as ProtoContractClass, DeployAccountTxn,
     DeployAccountTxnV3, DeployTxn, Felt as ProtoFelt, InvokeTxnV1, InvokeTxnV3, L1HandlerTxn,
     ResourceBounds, ResourceBoundsMapping, SierraEntryPoint as ProtoSierraEntryPoint,
     Transaction as ProtoTx,
@@ -127,11 +126,11 @@ impl TryFrom<&proto::ResourceBoundsMapping> for PrimitiveResourceBoundsMapping {
     }
 }
 
-/// Convert proto BroadcastedInvokeTxnV3 to RPC BroadcastedInvokeTx.
-impl TryFrom<BroadcastedInvokeTxnV3> for BroadcastedInvokeTx {
+/// Convert proto BroadcastedInvokeTransaction to RPC BroadcastedInvokeTx.
+impl TryFrom<BroadcastedInvokeTransaction> for BroadcastedInvokeTx {
     type Error = Status;
 
-    fn try_from(proto: BroadcastedInvokeTxnV3) -> Result<Self, Self::Error> {
+    fn try_from(proto: BroadcastedInvokeTransaction) -> Result<Self, Self::Error> {
         let sender_address = required_felt(proto.sender_address.as_ref(), "sender_address")?;
         let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
         let tip = proto.tip.as_ref().map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
@@ -152,64 +151,16 @@ impl TryFrom<BroadcastedInvokeTxnV3> for BroadcastedInvokeTx {
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
             nonce_data_availability_mode: da_mode_from_string(&proto.nonce_data_availability_mode)?,
-            is_query: false,
+            is_query: proto.is_query,
         })
     }
 }
 
-/// Convert proto BroadcastedInvokeTxnV1 to RPC BroadcastedInvokeTx.
-/// Note: V1 transactions are converted to V3 format with default resource bounds.
-impl TryFrom<BroadcastedInvokeTxnV1> for BroadcastedInvokeTx {
+/// Convert proto BroadcastedDeployAccountTransaction to RPC BroadcastedDeployAccountTx.
+impl TryFrom<BroadcastedDeployAccountTransaction> for BroadcastedDeployAccountTx {
     type Error = Status;
 
-    fn try_from(proto: BroadcastedInvokeTxnV1) -> Result<Self, Self::Error> {
-        let sender_address = required_felt(proto.sender_address.as_ref(), "sender_address")?;
-        let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
-        let max_fee = required_felt(proto.max_fee.as_ref(), "max_fee")?;
-
-        // Convert max_fee to resource bounds (simplified conversion)
-        let max_fee_u128: u128 =
-            max_fee.try_into().map_err(|_| Status::invalid_argument("max_fee overflow"))?;
-
-        Ok(BroadcastedInvokeTx {
-            sender_address: sender_address.into(),
-            calldata: proto.calldata.to_felts()?,
-            signature: proto.signature.to_felts()?,
-            nonce,
-            paymaster_data: vec![],
-            tip: 0u64.into(),
-            account_deployment_data: vec![],
-            resource_bounds: PrimitiveResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
-                l1_gas: PrimitiveResourceBounds { max_amount: 0, max_price_per_unit: max_fee_u128 },
-                l2_gas: PrimitiveResourceBounds::default(),
-            }),
-            fee_data_availability_mode: DataAvailabilityMode::L1,
-            nonce_data_availability_mode: DataAvailabilityMode::L1,
-            is_query: false,
-        })
-    }
-}
-
-/// Convert proto BroadcastedInvokeTransaction to RPC BroadcastedInvokeTx.
-impl TryFrom<BroadcastedInvokeTransaction> for BroadcastedInvokeTx {
-    type Error = Status;
-
-    fn try_from(proto: BroadcastedInvokeTransaction) -> Result<Self, Self::Error> {
-        match proto.transaction {
-            Some(broadcasted_invoke_transaction::Transaction::InvokeV3(v3)) => v3.try_into(),
-            Some(broadcasted_invoke_transaction::Transaction::InvokeV1(v1)) => v1.try_into(),
-            None => {
-                Err(Status::invalid_argument("missing transaction in BroadcastedInvokeTransaction"))
-            }
-        }
-    }
-}
-
-/// Convert proto BroadcastedDeployAccountTxnV3 to RPC BroadcastedDeployAccountTx.
-impl TryFrom<BroadcastedDeployAccountTxnV3> for BroadcastedDeployAccountTx {
-    type Error = Status;
-
-    fn try_from(proto: BroadcastedDeployAccountTxnV3) -> Result<Self, Self::Error> {
+    fn try_from(proto: BroadcastedDeployAccountTransaction) -> Result<Self, Self::Error> {
         let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
         let class_hash = required_felt(proto.class_hash.as_ref(), "class_hash")?;
         let contract_address_salt =
@@ -232,60 +183,8 @@ impl TryFrom<BroadcastedDeployAccountTxnV3> for BroadcastedDeployAccountTx {
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
             nonce_data_availability_mode: da_mode_from_string(&proto.nonce_data_availability_mode)?,
-            is_query: false,
+            is_query: proto.is_query,
         })
-    }
-}
-
-/// Convert proto BroadcastedDeployAccountTxnV1 to RPC BroadcastedDeployAccountTx.
-impl TryFrom<BroadcastedDeployAccountTxnV1> for BroadcastedDeployAccountTx {
-    type Error = Status;
-
-    fn try_from(proto: BroadcastedDeployAccountTxnV1) -> Result<Self, Self::Error> {
-        let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
-        let class_hash = required_felt(proto.class_hash.as_ref(), "class_hash")?;
-        let contract_address_salt =
-            required_felt(proto.contract_address_salt.as_ref(), "contract_address_salt")?;
-
-        let max_fee: u128 = required_felt(proto.max_fee.as_ref(), "max_fee")?
-            .try_into()
-            .map_err(|_| Status::invalid_argument("max_fee overflow"))?;
-
-        Ok(BroadcastedDeployAccountTx {
-            signature: proto.signature.to_felts()?,
-            nonce,
-            contract_address_salt,
-            constructor_calldata: proto.constructor_calldata.to_felts()?,
-            class_hash,
-            paymaster_data: vec![],
-            tip: 0u64.into(),
-            resource_bounds: PrimitiveResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
-                l1_gas: PrimitiveResourceBounds { max_amount: 0, max_price_per_unit: max_fee },
-                l2_gas: PrimitiveResourceBounds::default(),
-            }),
-            fee_data_availability_mode: DataAvailabilityMode::L1,
-            nonce_data_availability_mode: DataAvailabilityMode::L1,
-            is_query: false,
-        })
-    }
-}
-
-/// Convert proto BroadcastedDeployAccountTransaction to RPC BroadcastedDeployAccountTx.
-impl TryFrom<BroadcastedDeployAccountTransaction> for BroadcastedDeployAccountTx {
-    type Error = Status;
-
-    fn try_from(proto: BroadcastedDeployAccountTransaction) -> Result<Self, Self::Error> {
-        match proto.transaction {
-            Some(broadcasted_deploy_account_transaction::Transaction::DeployAccountV3(v3)) => {
-                v3.try_into()
-            }
-            Some(broadcasted_deploy_account_transaction::Transaction::DeployAccountV1(v1)) => {
-                v1.try_into()
-            }
-            None => Err(Status::invalid_argument(
-                "missing transaction in BroadcastedDeployAccountTransaction",
-            )),
-        }
     }
 }
 
@@ -332,11 +231,11 @@ impl TryFrom<&ProtoContractClass> for RpcSierraContractClass {
     }
 }
 
-/// Convert proto BroadcastedDeclareTxnV3 to RPC BroadcastedDeclareTx.
-impl TryFrom<BroadcastedDeclareTxnV3> for katana_rpc_types::broadcasted::BroadcastedDeclareTx {
+/// Convert proto BroadcastedDeclareTransaction to RPC BroadcastedDeclareTx.
+impl TryFrom<BroadcastedDeclareTransaction> for BroadcastedDeclareTx {
     type Error = Status;
 
-    fn try_from(proto: BroadcastedDeclareTxnV3) -> Result<Self, Self::Error> {
+    fn try_from(proto: BroadcastedDeclareTransaction) -> Result<Self, Self::Error> {
         let sender_address = required_felt(proto.sender_address.as_ref(), "sender_address")?;
         let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
         let compiled_class_hash =
@@ -355,7 +254,7 @@ impl TryFrom<BroadcastedDeclareTxnV3> for katana_rpc_types::broadcasted::Broadca
 
         let rpc_contract_class = RpcSierraContractClass::try_from(contract_class)?;
 
-        Ok(katana_rpc_types::broadcasted::BroadcastedDeclareTx {
+        Ok(BroadcastedDeclareTx {
             sender_address: sender_address.into(),
             compiled_class_hash,
             signature: proto.signature.to_felts()?,
@@ -367,72 +266,117 @@ impl TryFrom<BroadcastedDeclareTxnV3> for katana_rpc_types::broadcasted::Broadca
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
             nonce_data_availability_mode: da_mode_from_string(&proto.nonce_data_availability_mode)?,
-            is_query: false,
+            is_query: proto.is_query,
         })
     }
 }
 
-/// Convert proto BroadcastedDeclareTxnV2 to RPC BroadcastedDeclareTx.
-impl TryFrom<BroadcastedDeclareTxnV2> for katana_rpc_types::broadcasted::BroadcastedDeclareTx {
-    type Error = Status;
+// ============================================================
+// RPC Type -> Proto Conversions
+// ============================================================
 
-    fn try_from(proto: BroadcastedDeclareTxnV2) -> Result<Self, Self::Error> {
-        let sender_address = required_felt(proto.sender_address.as_ref(), "sender_address")?;
-        let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
-        let compiled_class_hash =
-            required_felt(proto.compiled_class_hash.as_ref(), "compiled_class_hash")?;
-        let max_fee = required_felt(proto.max_fee.as_ref(), "max_fee")?;
-
-        let max_fee_u128: u128 =
-            max_fee.try_into().map_err(|_| Status::invalid_argument("max_fee overflow"))?;
-
-        let contract_class = proto
-            .contract_class
-            .as_ref()
-            .ok_or_else(|| Status::invalid_argument("missing required field: contract_class"))?;
-
-        let rpc_contract_class = RpcSierraContractClass::try_from(contract_class)?;
-
-        Ok(katana_rpc_types::broadcasted::BroadcastedDeclareTx {
-            sender_address: sender_address.into(),
-            compiled_class_hash,
-            signature: proto.signature.to_felts()?,
-            nonce,
-            contract_class: Arc::new(rpc_contract_class),
-            paymaster_data: vec![],
-            tip: 0u64.into(),
-            account_deployment_data: vec![],
-            resource_bounds: PrimitiveResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
-                l1_gas: PrimitiveResourceBounds { max_amount: 0, max_price_per_unit: max_fee_u128 },
-                l2_gas: PrimitiveResourceBounds::default(),
-            }),
-            fee_data_availability_mode: DataAvailabilityMode::L1,
-            nonce_data_availability_mode: DataAvailabilityMode::L1,
-            is_query: false,
-        })
-    }
-}
-
-/// Convert proto BroadcastedDeclareTransaction to RPC BroadcastedDeclareTx.
-impl TryFrom<BroadcastedDeclareTransaction>
-    for katana_rpc_types::broadcasted::BroadcastedDeclareTx
-{
-    type Error = Status;
-
-    fn try_from(proto: BroadcastedDeclareTransaction) -> Result<Self, Self::Error> {
-        match proto.transaction {
-            Some(broadcasted_declare_transaction::Transaction::DeclareV3(v3)) => v3.try_into(),
-            Some(broadcasted_declare_transaction::Transaction::DeclareV2(v2)) => v2.try_into(),
-            None => Err(Status::invalid_argument(
-                "missing transaction in BroadcastedDeclareTransaction",
-            )),
+/// Convert RPC BroadcastedInvokeTx to proto BroadcastedInvokeTransaction.
+impl From<&BroadcastedInvokeTx> for BroadcastedInvokeTransaction {
+    fn from(tx: &BroadcastedInvokeTx) -> Self {
+        BroadcastedInvokeTransaction {
+            sender_address: Some(ProtoFelt::from(Felt::from(tx.sender_address))),
+            calldata: tx.calldata.to_proto_felts(),
+            signature: tx.signature.to_proto_felts(),
+            nonce: Some(tx.nonce.into()),
+            paymaster_data: tx.paymaster_data.to_proto_felts(),
+            tip: Some(ProtoFelt::from(Felt::from(u64::from(tx.tip)))),
+            account_deployment_data: tx.account_deployment_data.to_proto_felts(),
+            resource_bounds: Some(ResourceBoundsMapping::from(&tx.resource_bounds)),
+            fee_data_availability_mode: da_mode_to_string(tx.fee_data_availability_mode),
+            nonce_data_availability_mode: da_mode_to_string(tx.nonce_data_availability_mode),
+            is_query: tx.is_query,
         }
     }
 }
 
-// ============================================================
-// RPC Type -> Proto Conversions (existing code)
-// ============================================================
+/// Convert RPC BroadcastedDeployAccountTx to proto BroadcastedDeployAccountTransaction.
+impl From<&BroadcastedDeployAccountTx> for BroadcastedDeployAccountTransaction {
+    fn from(tx: &BroadcastedDeployAccountTx) -> Self {
+        BroadcastedDeployAccountTransaction {
+            signature: tx.signature.to_proto_felts(),
+            nonce: Some(tx.nonce.into()),
+            contract_address_salt: Some(tx.contract_address_salt.into()),
+            constructor_calldata: tx.constructor_calldata.to_proto_felts(),
+            class_hash: Some(tx.class_hash.into()),
+            paymaster_data: tx.paymaster_data.to_proto_felts(),
+            tip: Some(ProtoFelt::from(Felt::from(u64::from(tx.tip)))),
+            resource_bounds: Some(ResourceBoundsMapping::from(&tx.resource_bounds)),
+            fee_data_availability_mode: da_mode_to_string(tx.fee_data_availability_mode),
+            nonce_data_availability_mode: da_mode_to_string(tx.nonce_data_availability_mode),
+            is_query: tx.is_query,
+        }
+    }
+}
+
+/// Convert RPC BroadcastedDeclareTx to proto BroadcastedDeclareTransaction.
+impl From<&BroadcastedDeclareTx> for BroadcastedDeclareTransaction {
+    fn from(tx: &BroadcastedDeclareTx) -> Self {
+        // Convert RpcSierraContractClass to proto ContractClass
+        let contract_class = ProtoContractClass {
+            sierra_program: tx.contract_class.sierra_program.to_proto_felts(),
+            contract_class_version: tx.contract_class.contract_class_version.clone(),
+            entry_points_by_type: Some(proto::EntryPointsByType {
+                constructor: tx
+                    .contract_class
+                    .entry_points_by_type
+                    .constructor
+                    .iter()
+                    .map(|ep| ProtoSierraEntryPoint {
+                        selector: Some(ProtoFelt::from(Felt::from_bytes_be(
+                            &ep.selector.to_bytes_be().try_into().unwrap_or([0u8; 32]),
+                        ))),
+                        function_idx: ep.function_idx as u64,
+                    })
+                    .collect(),
+                external: tx
+                    .contract_class
+                    .entry_points_by_type
+                    .external
+                    .iter()
+                    .map(|ep| ProtoSierraEntryPoint {
+                        selector: Some(ProtoFelt::from(Felt::from_bytes_be(
+                            &ep.selector.to_bytes_be().try_into().unwrap_or([0u8; 32]),
+                        ))),
+                        function_idx: ep.function_idx as u64,
+                    })
+                    .collect(),
+                l1_handler: tx
+                    .contract_class
+                    .entry_points_by_type
+                    .l1_handler
+                    .iter()
+                    .map(|ep| ProtoSierraEntryPoint {
+                        selector: Some(ProtoFelt::from(Felt::from_bytes_be(
+                            &ep.selector.to_bytes_be().try_into().unwrap_or([0u8; 32]),
+                        ))),
+                        function_idx: ep.function_idx as u64,
+                    })
+                    .collect(),
+            }),
+            abi: tx.contract_class.abi.clone().unwrap_or_default(),
+        };
+
+        BroadcastedDeclareTransaction {
+            sender_address: Some(ProtoFelt::from(Felt::from(tx.sender_address))),
+            compiled_class_hash: Some(tx.compiled_class_hash.into()),
+            signature: tx.signature.to_proto_felts(),
+            nonce: Some(tx.nonce.into()),
+            contract_class: Some(contract_class),
+            paymaster_data: tx.paymaster_data.to_proto_felts(),
+            tip: Some(ProtoFelt::from(Felt::from(u64::from(tx.tip)))),
+            account_deployment_data: tx.account_deployment_data.to_proto_felts(),
+            resource_bounds: Some(ResourceBoundsMapping::from(&tx.resource_bounds)),
+            fee_data_availability_mode: da_mode_to_string(tx.fee_data_availability_mode),
+            nonce_data_availability_mode: da_mode_to_string(tx.nonce_data_availability_mode),
+            is_query: tx.is_query,
+        }
+    }
+}
 
 /// Convert RPC transaction to proto Transaction.
 impl From<katana_rpc_types::transaction::RpcTxWithHash> for ProtoTx {
