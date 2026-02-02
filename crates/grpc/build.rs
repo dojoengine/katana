@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tonic_build::configure()
         .build_server(true)
-        .build_client(false)
+        .build_client(true)
         .file_descriptor_set_path(out_dir.join("starknet_descriptor.bin"))
         // Allow clippy lints on generated code for enum variant naming and size patterns
         .type_attribute(".", "#[allow(clippy::enum_variant_names, clippy::large_enum_variant)]")
