@@ -39,7 +39,7 @@ use url::Url;
 use crate::file::NodeArgsConfig;
 use crate::options::*;
 #[cfg(feature = "cartridge")]
-use crate::sidecar::{bootstrap_and_start_sidecars, build_paymaster_config, PaymasterSidecarInfo};
+use crate::sidecar::bootstrap_and_start_sidecars;
 #[cfg(feature = "vrf")]
 use crate::sidecar::{build_vrf_config, VrfSidecarInfo};
 use crate::utils::{self, parse_chain_config_dir, parse_seed};
@@ -174,13 +174,6 @@ impl SequencerNodeArgs {
         // Build the node configuration
         let config = self.config()?;
 
-        // Build sidecar configurations (separate from node config)
-        #[cfg(feature = "cartridge")]
-        let paymaster_sidecar = match self.paymaster_config(&config.chain)? {
-            Some((_, sidecar)) => sidecar,
-            None => None,
-        };
-
         #[cfg(feature = "vrf")]
         let vrf_sidecar = match self.vrf_config()? {
             Some((_, sidecar)) => sidecar,
@@ -188,7 +181,8 @@ impl SequencerNodeArgs {
         };
 
         if config.forking.is_some() {
-            let node = Node::build_forked(config).await.context("failed to build forked node")?;
+            let node =
+                Node::build_forked(config.clone()).await.context("failed to build forked node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
@@ -197,24 +191,28 @@ impl SequencerNodeArgs {
             // Launch the node
             let handle = node.launch().await.context("failed to launch forked node")?;
 
-            // Bootstrap and start sidecars if needed
-            #[cfg(feature = "cartridge")]
-            let mut sidecars = bootstrap_and_start_sidecars(
-                &self.paymaster,
-                #[cfg(feature = "vrf")]
-                &self.vrf,
-                handle.node().backend(),
-                handle.node().block_producer(),
-                handle.node().pool(),
-                handle.rpc().addr(),
-                paymaster_sidecar.as_ref(),
-                #[cfg(feature = "vrf")]
-                vrf_sidecar.as_ref(),
-                handle.node().config().dev.fee,
-                #[cfg(feature = "vrf")]
-                handle.node().config().chain.genesis().sequencer_address,
-            )
-            .await?;
+            #[cfg(feature = "paymaster")]
+            let mut sidecars = if let Some(paymaster_config) = &config.paymaster {
+                let sidecars = bootstrap_and_start_sidecars(
+                    &paymaster_config,
+                    #[cfg(feature = "vrf")]
+                    &self.vrf,
+                    handle.node().backend(),
+                    handle.node().block_producer(),
+                    handle.node().pool(),
+                    handle.rpc().addr(),
+                    #[cfg(feature = "vrf")]
+                    vrf_sidecar.as_ref(),
+                    handle.node().config().dev.fee,
+                    #[cfg(feature = "vrf")]
+                    handle.node().config().chain.genesis().sequencer_address,
+                )
+                .await?;
+
+                sidecars
+            } else {
+                None
+            };
 
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
@@ -227,38 +225,41 @@ impl SequencerNodeArgs {
             }
 
             // Shutdown sidecar processes
-            #[cfg(feature = "cartridge")]
+            #[cfg(feature = "paymaster")]
             if let Some(ref mut s) = sidecars {
                 s.shutdown().await;
             }
         } else {
-            let node = Node::build(config).context("failed to build node")?;
+            let node = Node::build(config.clone()).context("failed to build node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
             }
 
-            // Launch the node
             let handle = node.launch().await.context("failed to launch node")?;
 
-            // Bootstrap and start sidecars if needed
-            #[cfg(feature = "cartridge")]
-            let mut sidecars = bootstrap_and_start_sidecars(
-                &self.paymaster,
-                #[cfg(feature = "vrf")]
-                &self.vrf,
-                handle.node().backend(),
-                handle.node().block_producer(),
-                handle.node().pool(),
-                handle.rpc().addr(),
-                paymaster_sidecar.as_ref(),
-                #[cfg(feature = "vrf")]
-                vrf_sidecar.as_ref(),
-                handle.node().config().dev.fee,
-                #[cfg(feature = "vrf")]
-                handle.node().config().chain.genesis().sequencer_address,
-            )
-            .await?;
+            #[cfg(feature = "paymaster")]
+            let mut sidecars = if let Some(paymaster_config) = &config.paymaster {
+                let sidecars = bootstrap_and_start_sidecars(
+                    &paymaster_config,
+                    #[cfg(feature = "vrf")]
+                    &self.vrf,
+                    handle.node().backend(),
+                    handle.node().block_producer(),
+                    handle.node().pool(),
+                    handle.rpc().addr(),
+                    #[cfg(feature = "vrf")]
+                    vrf_sidecar.as_ref(),
+                    handle.node().config().dev.fee,
+                    #[cfg(feature = "vrf")]
+                    handle.node().config().chain.genesis().sequencer_address,
+                )
+                .await?;
+
+                sidecars
+            } else {
+                None
+            };
 
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
@@ -271,7 +272,7 @@ impl SequencerNodeArgs {
             }
 
             // Shutdown sidecar processes
-            #[cfg(feature = "cartridge")]
+            #[cfg(feature = "paymaster")]
             if let Some(ref mut s) = sidecars {
                 s.shutdown().await;
             }
@@ -296,7 +297,7 @@ impl SequencerNodeArgs {
         let sequencing = self.sequencer_config();
 
         #[cfg(feature = "cartridge")]
-        let paymaster = self.paymaster_config(&chain)?.map(|(config, _)| config);
+        let paymaster = self.paymaster_config(&chain)?;
 
         #[cfg(feature = "vrf")]
         let vrf = self.vrf_config()?.map(|(config, _)| config);
@@ -582,46 +583,67 @@ impl SequencerNodeArgs {
     fn paymaster_config(
         &self,
         chain_spec: &Arc<katana_chain_spec::ChainSpec>,
-    ) -> Result<Option<(PaymasterConfig, Option<PaymasterSidecarInfo>)>> {
-        if self.paymaster.enabled {
-            let (mut config, sidecar) = build_paymaster_config(&self.paymaster)?;
+    ) -> Result<Option<PaymasterConfig>> {
+        if !self.paymaster.enabled {
+            return Ok(None);
+        }
 
-            #[cfg(feature = "cartridge")]
-            {
-                use anyhow::anyhow;
-                use katana_genesis::allocation::GenesisAccountAlloc;
-                use katana_node::config::paymaster::CartridgeApiConfig;
+        use crate::sidecar::DEFAULT_PAYMASTER_API_KEY;
 
-                // Derive paymaster credentials from genesis account 0
-                let (paymaster_address, paymaster_private_key) = {
-                    let (address, allocation) =
-                        chain_spec.genesis().accounts().next().ok_or_else(|| {
-                            anyhow!("no genesis accounts available for paymaster")
-                        })?;
+        let mut config = if self.paymaster.is_external() {
+            let url = self.paymaster.url.clone().expect("URL must be set in external mode");
+            let api_key = self.paymaster.api_key.clone();
+            PaymasterConfig { url, api_key, cartridge_api: None }
+        } else {
+            // find free port
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let url = Url::parse(&format!("{}", listener.local_addr()?))?;
 
-                    let private_key = match allocation {
-                        GenesisAccountAlloc::DevAccount(account) => account.private_key,
-                        _ => {
-                            return Err(anyhow!("paymaster account {} has no private key", address))
-                        }
-                    };
+            let api_key = self
+                .paymaster
+                .api_key
+                .clone()
+                .unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
 
-                    (*address, private_key)
-                };
-
-                if self.paymaster.cartridge_paymaster {
-                    config.cartridge_api = Some(CartridgeApiConfig {
-                        cartridge_api_url: self.paymaster.cartridge_api.clone(),
-                        controller_deployer_address: paymaster_address,
-                        controller_deployer_private_key: paymaster_private_key,
-                    });
-                }
+            if !api_key.starts_with("paymaster_") {
+                anyhow::bail!(
+                    "invalid api key {api_key}; paymaster api key must start with `paymaster_`"
+                );
             }
 
-            Ok(Some((config, sidecar)))
-        } else {
-            Ok(None)
+            PaymasterConfig { url, api_key: Some(api_key), cartridge_api: None }
+        };
+
+        #[cfg(feature = "cartridge")]
+        if self.paymaster.cartridge_paymaster {
+            use anyhow::anyhow;
+            use katana_genesis::allocation::GenesisAccountAlloc;
+            use katana_node::config::paymaster::CartridgeApiConfig;
+
+            // Derive paymaster credentials from genesis account 0
+            let (address, private_key) = {
+                let (address, allocation) = chain_spec
+                    .genesis()
+                    .accounts()
+                    .next()
+                    .ok_or_else(|| anyhow!("no genesis accounts available for paymaster"))?;
+
+                let private_key = match allocation {
+                    GenesisAccountAlloc::DevAccount(account) => account.private_key,
+                    _ => return Err(anyhow!("paymaster account {address} has no private key")),
+                };
+
+                (*address, private_key)
+            };
+
+            config.cartridge_api = Some(CartridgeApiConfig {
+                controller_deployer_address: address,
+                controller_deployer_private_key: private_key,
+                cartridge_api_url: self.paymaster.cartridge_api.clone(),
+            });
         }
+
+        Ok(Some(config))
     }
 
     #[cfg(feature = "vrf")]

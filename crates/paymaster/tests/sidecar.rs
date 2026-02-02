@@ -24,7 +24,7 @@ use url::Url;
 #[ignore = "requires paymaster-service binary to be installed"]
 async fn test_sidecar_spawn_and_health_check() {
     let config = PaymasterSidecarConfig {
-        bin: None, // Use PATH lookup
+        program_path: None, // Use PATH lookup
         port: 3030,
         api_key: "test-api-key".to_string(),
         price_api_key: None,
@@ -65,7 +65,7 @@ async fn test_sidecar_spawn_and_health_check() {
 #[tokio::test]
 async fn test_sidecar_spawn_binary_not_found() {
     let config = PaymasterSidecarConfig {
-        bin: Some(PathBuf::from("/nonexistent/path/to/paymaster-service")),
+        program_path: Some(PathBuf::from("/nonexistent/path/to/paymaster-service")),
         port: 3031,
         api_key: "test-api-key".to_string(),
         price_api_key: None,

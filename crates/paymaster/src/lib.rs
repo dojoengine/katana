@@ -80,7 +80,8 @@ pub struct PaymasterBootstrapResult {
 #[derive(Debug, Clone)]
 pub struct PaymasterSidecarConfig {
     /// Path to the paymaster-service binary, or None to look up in PATH.
-    pub bin: Option<PathBuf>,
+    pub program_path: Option<PathBuf>,
+
     /// Port for the paymaster service.
     pub port: u16,
     /// API key for the paymaster service.
@@ -350,7 +351,7 @@ fn avnu_forwarder_class_hash() -> Result<Felt> {
 ///
 /// This spawns the paymaster-service binary with the appropriate configuration.
 pub async fn start_paymaster_sidecar(config: &PaymasterSidecarConfig) -> Result<Child> {
-    let bin = config.bin.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
+    let bin = config.program_path.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
     let bin = resolve_executable(&bin)?;
     let profile = build_paymaster_profile(config)?;
     let profile_path = write_paymaster_profile(&profile)?;

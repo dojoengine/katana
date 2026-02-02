@@ -96,65 +96,6 @@ pub struct VrfSidecarInfo {
     pub port: u16,
 }
 
-// ============================================================================
-// Config Building Functions
-// ============================================================================
-
-/// Build the paymaster configuration from CLI options.
-///
-/// Returns `None` if paymaster is not enabled.
-/// Returns `(CartridgePaymasterConfig, Option<PaymasterSidecarInfo>)` where the sidecar info
-/// is `Some` in sidecar mode and `None` in external mode.
-///
-/// The `chain_spec` is used to derive paymaster credentials from genesis accounts
-/// in sidecar mode (always uses account 0).
-#[cfg(feature = "paymaster")]
-pub fn build_paymaster_config(
-    options: &PaymasterOptions,
-) -> Result<(PaymasterConfig, Option<PaymasterSidecarInfo>)> {
-    // Determine mode based on whether URL is provided
-
-    // For sidecar mode, allocate a free port and prepare sidecar info
-    let (url, sidecar_info) = if options.is_external() {
-        // External mode: use the provided URL
-        let url = options.url.clone().expect("URL must be set in external mode");
-        (url, None)
-    } else {
-        // Sidecar mode: allocate a free port
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")
-            .context("failed to find free port for paymaster sidecar")?;
-        let port = listener.local_addr()?.port();
-        let url = Url::parse(&format!("http://127.0.0.1:{port}")).expect("valid url");
-
-        // Validate and prepare API key
-        let api_key = {
-            let key =
-                options.api_key.clone().unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
-            if !key.starts_with("paymaster_") {
-                warn!(
-                    target: LOG_TARGET,
-                    %key,
-                    "paymaster api key must start with 'paymaster_'; using default"
-                );
-                DEFAULT_PAYMASTER_API_KEY.to_string()
-            } else {
-                key
-            }
-        };
-
-        let sidecar_info = PaymasterSidecarInfo { port, api_key };
-        (url, Some(sidecar_info))
-    };
-
-    let api_key = if options.is_external() {
-        options.api_key.clone()
-    } else {
-        sidecar_info.as_ref().map(|s| s.api_key.clone())
-    };
-
-    Ok((PaymasterConfig { url, api_key, cartridge_api: None }, sidecar_info))
-}
-
 /// Build the VRF configuration from CLI options.
 ///
 /// Returns `None` if VRF is not enabled.
@@ -910,7 +851,7 @@ pub async fn start_sidecars(
         (&config.paymaster, bootstrap.paymaster.as_ref())
     {
         let sidecar_config = PaymasterSidecarConfig {
-            bin: paymaster_cfg.options.bin.clone(),
+            program_path: paymaster_cfg.options.bin.clone(),
             port: paymaster_cfg.port,
             api_key: paymaster_cfg.api_key.clone(),
             price_api_key: paymaster_cfg.options.price_api_key.clone(),
@@ -1050,13 +991,12 @@ pub fn local_rpc_url(addr: &SocketAddr) -> Url {
 #[cfg(feature = "cartridge")]
 #[allow(clippy::too_many_arguments)]
 pub async fn bootstrap_and_start_sidecars<EF, PF>(
-    paymaster_options: &PaymasterOptions,
+    paymaster_config: &PaymasterConfig,
     #[cfg(feature = "vrf")] vrf_options: &VrfOptions,
     backend: &Backend<EF, PF>,
     block_producer: &BlockProducer<EF, PF>,
     pool: &TxPool,
     rpc_addr: &SocketAddr,
-    paymaster_sidecar: Option<&PaymasterSidecarInfo>,
     #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfSidecarInfo>,
     fee_enabled: bool,
     #[cfg(feature = "vrf")] sequencer_address: ContractAddress,
@@ -1067,16 +1007,6 @@ where
     <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
     <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
-    // If no sidecars need to be started, return None
-    #[cfg(feature = "vrf")]
-    let has_sidecars = paymaster_sidecar.is_some() || vrf_sidecar.is_some();
-    #[cfg(not(feature = "vrf"))]
-    let has_sidecars = paymaster_sidecar.is_some();
-
-    if !has_sidecars {
-        return Ok(None);
-    }
-
     // Build RPC URL for paymaster bootstrap
     let rpc_url = local_rpc_url(rpc_addr);
 
