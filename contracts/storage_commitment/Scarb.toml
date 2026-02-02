@@ -1,5 +1,5 @@
 [package]
-name = "katana_tee"
+name = "storage_commitment"
 version = "0.1.0"
 edition = "2024_07"
 
@@ -7,8 +7,6 @@ edition = "2024_07"
 
 [dependencies]
 starknet = "2.15.0"
-amd_tee_registry = { path = "../amd_tee_registry" }
-storage_commitment = { path = "../storage_commitment" }
 
 [dev-dependencies]
 snforge_std = "0.54.1"
@@ -18,7 +16,6 @@ assert_macros = "2.15.0"
 
 [[target.starknet-contract]]
 sierra = true
-build-external-contracts = ["amd_tee_registry::tee_registry::AMDTEERegistry", "storage_commitment::StorageCommitment"]
 
 [scripts]
 test = "snforge test"
@@ -56,8 +53,8 @@ allow-prebuilt-plugins = ["snforge_std"]
 # [features]                                                 # Used for conditional compilation
 # enable_for_tests = []                                      # Feature name and list of other features that should be enabled with it
 
-# Fork configs for snforge tests (uses env vars from .env)
-[[tool.snforge.fork]]
-name = "MAINNET"
-url = "$MAINNET_RPC_URL"
-block_id.tag = "latest"
+# # Fork configs for snforge tests (uses env vars from .env)
+# [[tool.snforge.fork]]
+# name = "MAINNET"
+# url = "$MAINNET_RPC_URL"
+# block_id.tag = "latest"

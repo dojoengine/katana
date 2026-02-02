@@ -41,6 +41,7 @@ pub fn decode_verifier_journal(public_inputs: Span<u256>) -> VerifierJournal {
 
 fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
     assert(words.len() % 8 == 0, 'Invalid ABI length');
+    assert(words.len() >= 8 * 8, 'ABI too short');
 
     let result_word = read_word_u32(words, 0);
     let timestamp_word = read_word_u32(words, 1);
@@ -49,13 +50,7 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
     let certs_offset_word = read_word_u32(words, 4);
     let cert_serials_offset_word = read_word_u32(words, 5);
     let trusted_prefix_word = read_word_u32(words, 6);
-
-    // Word 7: storage_commitment (bytes32). Default 0 when not present (old journal encoding).
-    let storage_commitment = if words.len() >= 64 {
-        word_to_u256(read_word_u32(words, 7))
-    } else {
-        u256 { low: 0, high: 0 }
-    };
+    let storage_commitment = word_to_u256(read_word_u32(words, 7));
 
     let result = verification_result_from_u8(word_to_u8(result_word));
     let timestamp = word_to_u64(timestamp_word);

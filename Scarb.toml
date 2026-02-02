@@ -1,5 +1,5 @@
 [workspace]
-members = ["contracts/amd_tee_registry", "contracts/katana_tee", "contracts/scripts"]
+members = ["contracts/amd_tee_registry", "contracts/katana_tee", "contracts/storage_commitment", "contracts/scripts"]
 
 [[tool.snforge.fork]]
 name = "SEPOLIA_LATEST"

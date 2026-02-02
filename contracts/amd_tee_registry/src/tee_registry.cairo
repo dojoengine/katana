@@ -1,12 +1,5 @@
 use crate::tee_types::VerifierJournal;
 
-/// Interface for a contract that stores verified storage commitments from the registry.
-#[starknet::interface]
-pub trait IStorageCommitmentProxy<TContractState> {
-    /// Register a storage commitment that was verified by the TEE (SP1 proof).
-    fn register_verified_commitment(ref self: TContractState, commitment: u256);
-}
-
 #[starknet::interface]
 pub trait IAMDTeeRegistry<TContractState> {
     /// Verify a SP1 proof.
@@ -24,7 +17,6 @@ pub mod AMDTEERegistry {
     use crate::cert_cache::CertCacheComponent;
     use crate::journal_decode::decode_verifier_journal;
     use crate::tee_types::{ProcessorType, VerificationResult, VerifierJournal};
-    use super::{IStorageCommitmentProxyDispatcher, IStorageCommitmentProxyDispatcherTrait};
 
     // Embed the certificate cache component
     component!(path: CertCacheComponent, storage: cert_cache, event: CertCacheEvent);
@@ -42,8 +34,6 @@ pub mod AMDTEERegistry {
         verifier_class_hash: ClassHash,
         sp1_program_id: u256,
         max_time_diff: u64,
-        /// Optional proxy contract to register verified storage commitments. Zero = disabled.
-        storage_commitment_proxy: ContractAddress,
         #[substorage(v0)]
         cert_cache: CertCacheComponent::Storage,
     }
@@ -53,14 +43,6 @@ pub mod AMDTEERegistry {
     enum Event {
         #[flat]
         CertCacheEvent: CertCacheComponent::Event,
-        /// Emitted when a non-zero storage commitment is verified and (optionally) sent to the
-        /// proxy.
-        StorageCommitmentVerified: StorageCommitmentVerifiedEvent,
-    }
-
-    #[derive(Drop, starknet::Event)]
-    struct StorageCommitmentVerifiedEvent {
-        commitment: u256,
     }
 
     #[constructor]
@@ -72,12 +54,10 @@ pub mod AMDTEERegistry {
         trusted_certs: Span<u256>,
         processor_models: Span<ProcessorType>,
         root_certs: Span<u256>,
-        storage_commitment_proxy: ContractAddress,
     ) {
         self.verifier_class_hash.write(verifier_class_hash);
         self.sp1_program_id.write(sp1_program_id);
         self.max_time_diff.write(max_time_diff);
-        self.storage_commitment_proxy.write(storage_commitment_proxy);
 
         // Initialize trusted intermediate certificates
         self.cert_cache.initialize_trusted_certs(trusted_certs);
@@ -172,21 +152,6 @@ pub mod AMDTEERegistry {
 
                     let trusted_len_u32: u32 = journal.trusted_certs_prefix_len.into();
                     self.cert_cache.cache_new_cert(certs, trusted_len_u32);
-
-                    // If the journal includes a storage commitment, emit event and optionally
-                    // notify proxy
-                    let commitment = journal.storage_commitment;
-                    let commitment_nonzero = commitment.low != 0 || commitment.high != 0;
-                    if commitment_nonzero {
-                        self.emit(StorageCommitmentVerifiedEvent { commitment });
-                        let zero: ContractAddress = 0.try_into().unwrap();
-                        if self.storage_commitment_proxy.read() != zero {
-                            IStorageCommitmentProxyDispatcher {
-                                contract_address: self.storage_commitment_proxy.read(),
-                            }
-                                .register_verified_commitment(commitment);
-                        }
-                    }
 
                     // Return the journal for the verified computation
                     Result::Ok(journal)

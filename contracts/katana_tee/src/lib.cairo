@@ -1,6 +1,7 @@
 pub mod katana_report_utils;
 use amd_tee_registry::tee_types::VerifierJournal;
 use starknet::ContractAddress;
+
 /// Interface for the Katana TEE contract.
 #[starknet::interface]
 pub trait IKatanaTee<TContractState> {
@@ -36,6 +37,7 @@ pub mod KatanaTee {
     };
     use starknet::ContractAddress;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
+    use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatcherTrait};
     use crate::katana_report_utils::verify_katana_report_data;
 
     #[storage]
@@ -48,11 +50,32 @@ pub mod KatanaTee {
         latest_block_hash: felt252,
         /// Latest verified block number
         latest_block_number: u64,
+        /// Storage commitment registry contract address
+        storage_commitment_registry: ContractAddress,
     }
 
+
+    // #[event]
+    // #[derive(Drop, starknet::Event)]
+    // enum Event {
+    //     /// Emitted when a non-zero storage commitment is verified and (optionally) sent to the
+    //     /// proxy.
+    //     StorageCommitmentVerified: StorageCommitmentVerifiedEvent,
+    // }
+
+    // #[derive(Drop, starknet::Event)]
+    // struct StorageCommitmentVerifiedEvent {
+    //     commitment: u256,
+    // }
+
     #[constructor]
-    fn constructor(ref self: ContractState, registry_address: ContractAddress) {
+    fn constructor(
+        ref self: ContractState,
+        registry_address: ContractAddress,
+        storage_commitment_registry: ContractAddress,
+    ) {
         self.registry_address.write(registry_address);
+        self.storage_commitment_registry.write(storage_commitment_registry);
     }
 
     #[abi(embed_v0)]
@@ -88,6 +111,13 @@ pub mod KatanaTee {
                     self.latest_state_root.write(state_root);
                     self.latest_block_hash.write(block_hash);
                     self.latest_block_number.write(block_number);
+
+                    // If the journal includes a storage commitment, register it
+                    IStorageCommitmentDispatcher {
+                        contract_address: self.storage_commitment_registry.read(),
+                    }
+                        .register_verified_commitment(journal.storage_commitment);
+
                     Result::Ok(true)
                 },
                 Result::Err(error) => Result::Err(error),

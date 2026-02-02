@@ -66,6 +66,13 @@ pub struct InitArgs {
     )]
     pub katana_contract_class_path: String,
 
+    /// Path to StorageCommitment Sierra contract class JSON (run `scarb build` from repo root first)
+    #[arg(
+        long,
+        default_value = "target/dev/storage_commitment_StorageCommitment.contract_class.json"
+    )]
+    pub storage_commitment_contract_class_path: String,
+
     /// SP1 program ID (onchain bytes32) as hex; if unset, computed via snp-attest-cli in SDK dir
     #[arg(long)]
     pub sp1_program_id: Option<String>,
@@ -96,8 +103,12 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         .context("failed to fetch chain id")?;
 
     let encoding = starknet_rust::accounts::ExecutionEncoding::New;
-    let account: SingleOwnerAccount<Arc<JsonRpcClient<HttpTransport>>, LocalWallet> =
+    let mut account: SingleOwnerAccount<Arc<JsonRpcClient<HttpTransport>>, LocalWallet> =
         SingleOwnerAccount::new(provider.clone(), signer, address, chain_id, encoding);
+    // Use pre-confirmed block for nonce to avoid nonce mismatch after waiting for tx confirmation
+    account.set_block_id(starknet_core::types::BlockId::Tag(
+        starknet_core::types::BlockTag::PreConfirmed,
+    ));
 
     // Declare AMDTeeRegistry
     let (maybe_tx, amd_class_hash) = declare_contract(&account, &args.amd_contract_class_path)
@@ -120,9 +131,20 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         let _ = watch_tx(&provider, tx.transaction_hash, POLLING_INTERVAL).await;
     }
 
+    // Declare StorageCommitment
+    let (maybe_tx, storage_commitment_class_hash) =
+        declare_contract(&account, &args.storage_commitment_contract_class_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("declare StorageCommitment: {}", e))?;
+
+    if let Some(ref tx) = maybe_tx {
+        info!("Waiting for StorageCommitment declaration to be confirmed...");
+        let _ = watch_tx(&provider, tx.transaction_hash, POLLING_INTERVAL).await;
+    }
+
     info!(
-        "Declared contracts: AMDTeeRegistry {:?}, KatanaTee {:?}",
-        amd_class_hash, katana_class_hash
+        "Declared contracts: AMDTeeRegistry {:?}, KatanaTee {:?}, StorageCommitment {:?}",
+        amd_class_hash, katana_class_hash, storage_commitment_class_hash
     );
 
     let salt = if let Some(ref salt_hex) = args.salt {
@@ -148,8 +170,7 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
 
     // AMDTeeRegistry constructor calldata:
     // verifier_class_hash, sp1_program_id (low, high), max_time_diff,
-    // trusted_certs (len 0), processor_models (len 2: Milan=0, Genoa=1), root_certs (len 2: milan u256, genoa u256),
-    // storage_commitment_proxy (0 = disabled)
+    // trusted_certs (len 0), processor_models (len 2: Milan=0, Genoa=1), root_certs (len 2: milan u256, genoa u256)
     let amd_calldata = vec![
         Felt::from_hex(GARAGA_CLASS_HASH).unwrap(),
         sp1_low,
@@ -164,7 +185,6 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         Felt::from_dec_str(MILAN_HIGH).unwrap(),
         Felt::from_dec_str(GENOA_LOW).unwrap(),
         Felt::from_dec_str(GENOA_HIGH).unwrap(),
-        Felt::ZERO, // storage_commitment_proxy
     ];
 
     let (maybe_tx, amd_address) =
@@ -182,8 +202,31 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
     }
 
-    // KatanaTee constructor: single argument = AMDTeeRegistry address
-    let katana_calldata = vec![amd_address];
+    // Deploy StorageCommitment (no constructor arguments)
+    let storage_commitment_calldata = vec![];
+
+    let (maybe_tx, storage_commitment_address) = deploy::deploy(
+        &account,
+        storage_commitment_class_hash,
+        storage_commitment_calldata,
+        Some(salt),
+        false,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("deploy StorageCommitment: {}", e))?;
+
+    info!(
+        "Deployed StorageCommitment: {:?}, tx_hash: {:?}",
+        storage_commitment_address, maybe_tx
+    );
+
+    if let Some(ref tx_result) = maybe_tx {
+        info!("Waiting for StorageCommitment deployment to be confirmed...");
+        let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
+    }
+
+    // KatanaTee constructor: registry_address, storage_commitment_registry
+    let katana_calldata = vec![amd_address, storage_commitment_address];
 
     let (maybe_tx, katana_address) = deploy::deploy(
         &account,
@@ -217,6 +260,7 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         deployment_block,
         amd_tee_registry_address: Some(format!("{:#064x}", amd_address)),
         katana_tee_address: Some(format!("{:#064x}", katana_address)),
+        storage_commitment_address: Some(format!("{:#064x}", storage_commitment_address)),
     };
 
     state
@@ -224,6 +268,10 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("save deployment state: {}", e))?;
     info!("Deployment state saved to {}", crate::state::STATE_FILE);
     info!("  - AMDTeeRegistry: {:#064x}", amd_address);
+    info!(
+        "  - StorageCommitment: {:#064x}",
+        storage_commitment_address
+    );
     info!("  - KatanaTee: {:#064x}", katana_address);
     if let Some(block) = deployment_block {
         info!("  - Deployment block: {}", block);

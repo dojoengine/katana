@@ -12,6 +12,8 @@ pub struct DeploymentState {
     pub amd_tee_registry_address: Option<String>,
     /// Address of the deployed KatanaTee
     pub katana_tee_address: Option<String>,
+    /// Address of the deployed StorageCommitment
+    pub storage_commitment_address: Option<String>,
 }
 
 impl DeploymentState {
@@ -47,5 +49,13 @@ impl DeploymentState {
         self.katana_tee_address
             .clone()
             .ok_or_else(|| "KatanaTee address not found. Run init first.".into())
+    }
+
+    pub fn get_storage_commitment_address(
+        &self,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        self.storage_commitment_address
+            .clone()
+            .ok_or_else(|| "StorageCommitment address not found. Run init first.".into())
     }
 }
