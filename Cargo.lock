@@ -6072,6 +6072,8 @@ dependencies = [
 name = "katana-grpc"
 version = "1.7.0"
 dependencies = [
+ "cairo-lang-starknet-classes",
+ "hex",
  "http 0.2.12",
  "katana-pool",
  "katana-primitives",
@@ -6080,6 +6082,7 @@ dependencies = [
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-rpc-types-builder",
+ "num-bigint",
  "prost 0.12.6",
  "serde_json",
  "starknet",

@@ -36,10 +36,19 @@ serde_json.workspace = true
 # Starknet types
 starknet.workspace = true
 
+# Cairo types
+cairo-lang-starknet-classes.workspace = true
+num-bigint.workspace = true
+
 tower-service.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+hex = "0.4"
+
+[[example]]
+name = "grpc-client"
+path = "examples/client.rs"
 
 [build-dependencies]
 tonic-build.workspace = true
