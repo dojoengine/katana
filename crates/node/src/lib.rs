@@ -238,10 +238,10 @@ where
                 #[cfg(feature = "vrf")]
                 let vrf = if let Some(vrf) = &config.vrf {
                     let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
-                    Some(katana_rpc_server::cartridge::CartridgeVrfConfig {
+                    Some(katana_rpc_server::cartridge::VrfServiceConfig {
                         url: vrf.url.clone(),
                         account_address: derived.vrf_account_address,
-                        account_private_key: derived.source_private_key,
+                        rpc_url: vrf.rpc_url.clone(),
                     })
                 } else {
                     None
@@ -259,8 +259,9 @@ where
                         paymaster_url: cfg.url.clone(),
                         paymaster_api_key: cfg.api_key.clone(),
                         api_url: cartridge_api_cfg.cartridge_api_url.clone(),
-                        paymaster_address: cartridge_api_cfg.controller_deployer_address,
-                        paymaster_private_key: cartridge_api_cfg.controller_deployer_private_key,
+                        controller_deployer_address: cartridge_api_cfg.controller_deployer_address,
+                        controller_deployer_private_key: cartridge_api_cfg
+                            .controller_deployer_private_key,
                         vrf,
                     },
                 )?;

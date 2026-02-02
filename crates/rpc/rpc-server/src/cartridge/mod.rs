@@ -66,27 +66,17 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_paymaster::core::types::Call as PaymasterCall;
 use tracing::{debug, info};
 use url::Url;
-
-use self::vrf::{
-    build_submit_random_call, build_vrf_outside_execution, compute_vrf_seed,
-    outside_execution_calls_len, request_random_call, VrfRequestRandom, VrfService,
-};
+pub use vrf::VrfServiceConfig;
+use vrf::{outside_execution_calls_len, request_random_call, VrfService};
 
 #[derive(Debug, Clone)]
 pub struct CartridgeConfig {
     pub api_url: Url,
     pub paymaster_url: Url,
     pub paymaster_api_key: Option<String>,
-    pub paymaster_address: ContractAddress,
-    pub paymaster_private_key: Felt,
-    pub vrf: Option<CartridgeVrfConfig>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CartridgeVrfConfig {
-    pub url: Url,
-    pub account_address: ContractAddress,
-    pub account_private_key: Felt,
+    pub controller_deployer_address: ContractAddress,
+    pub controller_deployer_private_key: Felt,
+    pub vrf: Option<VrfServiceConfig>,
 }
 
 #[allow(missing_debug_implementations)]
@@ -98,9 +88,9 @@ pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     api_client: cartridge::Client,
     paymaster_client: HttpClient,
     /// The paymaster account address used for controller deployment.
-    paymaster_address: ContractAddress,
+    controller_deployer_address: ContractAddress,
     /// The paymaster account private key.
-    paymaster_private_key: Felt,
+    controller_deployer_private_key: Felt,
     vrf_service: Option<VrfService>,
 }
 
@@ -117,8 +107,8 @@ where
             pool: self.pool.clone(),
             api_client: self.api_client.clone(),
             paymaster_client: self.paymaster_client.clone(),
-            paymaster_address: self.paymaster_address,
-            paymaster_private_key: self.paymaster_private_key,
+            controller_deployer_address: self.controller_deployer_address,
+            controller_deployer_private_key: self.controller_deployer_private_key,
             vrf_service: self.vrf_service.clone(),
         }
     }
@@ -162,8 +152,8 @@ where
             pool,
             api_client,
             paymaster_client,
-            paymaster_address: config.paymaster_address,
-            paymaster_private_key: config.paymaster_private_key,
+            controller_deployer_address: config.controller_deployer_address,
+            controller_deployer_private_key: config.controller_deployer_private_key,
             vrf_service,
         })
     }
@@ -191,8 +181,8 @@ where
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
         self.on_cpu_blocking_task(move |this| async move {
-            let pm_address = this.paymaster_address;
-            let pm_private_key = this.paymaster_private_key;
+            let pm_address = this.controller_deployer_address;
+            let pm_private_key = this.controller_deployer_private_key;
 
             // ====================== CONTROLLER DEPLOYMENT ======================
             let state = this.state().map(Arc::new)?;
@@ -235,42 +225,15 @@ where
                         ));
                     }
 
-                    let request_random =
-                        VrfRequestRandom::cairo_deserialize(&request_random_call.calldata, 0)
-                            .map_err(|err| {
-                                StarknetApiError::unexpected(format!(
-                                    "vrf request_random decode failed: {err}"
-                                ))
-                            })?;
-
+                    // Delegate VRF computation to the VRF server
                     let chain_id = this.backend.chain_spec.id();
-                    let seed = compute_vrf_seed(
-                        state.as_ref(),
-                        vrf_service.account_address(),
-                        &request_random,
-                        chain_id.id(),
-                    )?;
-                    let proof = vrf_service.prove(seed).await?;
+                    let result = vrf_service
+                        .outside_execution(address, &outside_execution, &signature, chain_id)
+                        .await?;
 
-                    let submit_random_call =
-                        build_submit_random_call(vrf_service.account_address(), seed, &proof);
-                    let execute_from_outside_call_data =
-                        build_execute_from_outside_call_data(address, &outside_execution, &signature);
-
-                    let (wrapped_execution, wrapped_signature) = build_vrf_outside_execution(
-                        vrf_service.account_address(),
-                        vrf_service.account_private_key(),
-                        chain_id,
-                        vec![submit_random_call, execute_from_outside_call_data],
-                    )
-                    .await?;
-
-                    user_address = vrf_service.account_address().into();
-                    execute_from_outside_call = build_execute_from_outside_call(
-                        vrf_service.account_address(),
-                        &OutsideExecution::V2(wrapped_execution),
-                        &wrapped_signature,
-                    );
+                    user_address = result.address;
+                    execute_from_outside_call =
+                        build_execute_from_outside_call_from_vrf_result(&result);
                 }
             }
 
@@ -505,4 +468,23 @@ fn build_execute_from_outside_call(
 ) -> PaymasterCall {
     let call = build_execute_from_outside_call_data(address, outside_execution, signature);
     PaymasterCall { to: call.to.into(), selector: call.selector, calldata: call.calldata }
+}
+
+fn build_execute_from_outside_call_from_vrf_result(
+    result: &cartridge::vrf::SignedOutsideExecution,
+) -> PaymasterCall {
+    let (selector, calldata) = match &result.outside_execution {
+        cartridge::vrf::VrfOutsideExecution::V2(v2) => {
+            let mut calldata = OutsideExecutionV2::cairo_serialize(v2);
+            calldata.extend(Vec::<Felt>::cairo_serialize(&result.signature));
+            (selector!("execute_from_outside_v2"), calldata)
+        }
+        cartridge::vrf::VrfOutsideExecution::V3(v3) => {
+            let mut calldata = OutsideExecutionV3::cairo_serialize(v3);
+            calldata.extend(Vec::<Felt>::cairo_serialize(&result.signature));
+            (selector!("execute_from_outside_v3"), calldata)
+        }
+    };
+
+    PaymasterCall { to: result.address.into(), selector, calldata }
 }

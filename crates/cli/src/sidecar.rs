@@ -101,9 +101,13 @@ pub struct VrfSidecarInfo {
 /// Returns `None` if VRF is not enabled.
 /// Returns `(VrfConfig, Option<VrfSidecarInfo>)` where the sidecar info
 /// is `Some` in sidecar mode and `None` in external mode.
+///
+/// The `rpc_addr` parameter is the address the node's RPC server is bound to,
+/// used to construct the RPC URL for the VRF server to query state.
 #[cfg(feature = "vrf")]
 pub fn build_vrf_config(
     options: &VrfOptions,
+    rpc_addr: Option<SocketAddr>,
 ) -> Result<Option<(VrfConfig, Option<VrfSidecarInfo>)>> {
     if !options.is_enabled() {
         return Ok(None);
@@ -129,7 +133,10 @@ pub fn build_vrf_config(
         OptionsVrfKeySource::Sequencer => NodeVrfKeySource::Sequencer,
     };
 
-    let config = VrfConfig { url, key_source, prefunded_index: options.prefunded_index };
+    // Construct RPC URL for VRF server to query state
+    let rpc_url = rpc_addr.map(|addr| format!("http://{addr}"));
+
+    let config = VrfConfig { url, key_source, prefunded_index: options.prefunded_index, rpc_url };
 
     Ok(Some((config, sidecar_info)))
 }

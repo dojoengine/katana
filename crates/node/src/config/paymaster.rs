@@ -31,6 +31,8 @@ pub struct VrfConfig {
     pub key_source: VrfKeySource,
     /// Prefunded account index used for VRF operations.
     pub prefunded_index: u16,
+    /// RPC URL for VRF server to query state (for Nonce-based seed computation).
+    pub rpc_url: Option<String>,
 }
 
 /// Configuration for connecting to a Cartridge paymaster service.
