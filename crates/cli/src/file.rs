@@ -26,7 +26,7 @@ pub struct NodeArgsConfig {
     pub server: Option<ServerOptions>,
     #[cfg(feature = "server")]
     pub metrics: Option<MetricsOptions>,
-    #[cfg(feature = "server")]
+    #[cfg(all(feature = "server", feature = "grpc"))]
     pub grpc: Option<GrpcOptions>,
     #[cfg(feature = "cartridge")]
     pub cartridge: Option<CartridgeOptions>,
@@ -76,6 +76,10 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
                 if args.server == ServerOptions::default() { None } else { Some(args.server) };
             node_config.metrics =
                 if args.metrics == MetricsOptions::default() { None } else { Some(args.metrics) };
+        }
+
+        #[cfg(all(feature = "server", feature = "grpc"))]
+        {
             node_config.grpc =
                 if args.grpc == GrpcOptions::default() { None } else { Some(args.grpc) };
         }

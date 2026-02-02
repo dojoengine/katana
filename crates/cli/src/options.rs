@@ -836,7 +836,7 @@ impl TeeOptions {
     }
 }
 
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", feature = "grpc"))]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "gRPC server options")]
 pub struct GrpcOptions {
@@ -868,7 +868,7 @@ pub struct GrpcOptions {
     pub grpc_timeout: Option<u64>,
 }
 
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", feature = "grpc"))]
 impl Default for GrpcOptions {
     fn default() -> Self {
         GrpcOptions {
@@ -880,7 +880,7 @@ impl Default for GrpcOptions {
     }
 }
 
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", feature = "grpc"))]
 impl GrpcOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
@@ -900,12 +900,12 @@ impl GrpcOptions {
     }
 }
 
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", feature = "grpc"))]
 fn default_grpc_addr() -> IpAddr {
     katana_node::config::grpc::DEFAULT_GRPC_ADDR
 }
 
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", feature = "grpc"))]
 fn default_grpc_port() -> u16 {
     katana_node::config::grpc::DEFAULT_GRPC_PORT
 }

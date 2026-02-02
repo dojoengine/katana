@@ -20,6 +20,7 @@ use katana_node::config::execution::ExecutionConfig;
 use katana_node::config::fork::ForkingConfig;
 #[cfg(feature = "server")]
 use katana_node::config::gateway::GatewayConfig;
+#[cfg(all(feature = "server", feature = "grpc"))]
 use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
@@ -137,7 +138,7 @@ pub struct SequencerNodeArgs {
     #[command(flatten)]
     pub tee: TeeOptions,
 
-    #[cfg(feature = "server")]
+    #[cfg(all(feature = "server", feature = "grpc"))]
     #[command(flatten)]
     pub grpc: GrpcOptions,
 }
@@ -214,6 +215,7 @@ impl SequencerNodeArgs {
         let (chain, cs_messaging) = self.chain_spec()?;
         let metrics = self.metrics_config();
         let gateway = self.gateway_config();
+        #[cfg(all(feature = "server", feature = "grpc"))]
         let grpc = self.grpc_config();
         let forking = self.forking_config()?;
         let execution = self.execution_config();
@@ -228,6 +230,7 @@ impl SequencerNodeArgs {
             db,
             dev,
             rpc,
+            #[cfg(feature = "grpc")]
             grpc,
             chain,
             metrics,
@@ -455,8 +458,8 @@ impl SequencerNodeArgs {
         None
     }
 
+    #[cfg(all(feature = "server", feature = "grpc"))]
     fn grpc_config(&self) -> Option<GrpcConfig> {
-        #[cfg(feature = "server")]
         if self.grpc.grpc_enable {
             use std::time::Duration;
 
@@ -468,9 +471,6 @@ impl SequencerNodeArgs {
         } else {
             None
         }
-
-        #[cfg(not(feature = "server"))]
-        None
     }
 
     #[cfg(feature = "cartridge")]
@@ -531,7 +531,10 @@ impl SequencerNodeArgs {
                     self.metrics = metrics;
                 }
             }
+        }
 
+        #[cfg(all(feature = "server", feature = "grpc"))]
+        {
             self.grpc.merge(config.grpc.as_ref());
         }
 
