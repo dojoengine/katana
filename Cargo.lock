@@ -2877,8 +2877,6 @@ dependencies = [
 name = "cartridge"
 version = "1.7.0"
 dependencies = [
- "anyhow",
- "ark-ec 0.4.2",
  "katana-contracts",
  "katana-primitives",
  "katana-rpc-types",

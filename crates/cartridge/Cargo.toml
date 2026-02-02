@@ -11,8 +11,6 @@ katana-contracts.workspace = true
 katana-primitives.workspace = true
 katana-rpc-types = { path = "../rpc/rpc-types" }
 
-anyhow.workspace = true
-ark-ec = "0.4"
 lazy_static.workspace = true
 num-bigint.workspace = true
 reqwest.workspace = true
