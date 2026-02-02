@@ -176,11 +176,11 @@ pub fn build_paymaster_config(
     };
 
     let config = CartridgePaymasterConfig {
-        url,
-        api_key,
+        paymaster_url: url,
+        paymaster_api_key: api_key,
         cartridge_api_url: cartridge_api_url.clone(),
-        paymaster_address,
-        paymaster_private_key,
+        controller_deployer_address: paymaster_address,
+        controller_deployer_private_key: paymaster_private_key,
     };
 
     Ok(Some((config, sidecar_info)))

@@ -250,10 +250,10 @@ where
                 task_spawner.clone(),
                 CartridgeConfig {
                     cartridge_api_url: paymaster.cartridge_api_url.clone(),
-                    paymaster_url: paymaster.url.clone(),
-                    paymaster_api_key: paymaster.api_key.clone(),
-                    paymaster_address: paymaster.paymaster_address,
-                    paymaster_private_key: paymaster.paymaster_private_key,
+                    paymaster_url: paymaster.paymaster_url.clone(),
+                    paymaster_api_key: paymaster.paymaster_api_key.clone(),
+                    paymaster_address: paymaster.controller_deployer_address,
+                    paymaster_private_key: paymaster.controller_deployer_private_key,
                     vrf,
                 },
             )?;
@@ -262,8 +262,8 @@ where
 
             Some(PaymasterConfig {
                 cartridge_api_url: paymaster.cartridge_api_url.clone(),
-                paymaster_address: paymaster.paymaster_address,
-                paymaster_private_key: paymaster.paymaster_private_key,
+                paymaster_address: paymaster.controller_deployer_address,
+                paymaster_private_key: paymaster.controller_deployer_private_key,
             })
         } else {
             None
@@ -271,7 +271,8 @@ where
 
         #[cfg(feature = "paymaster")]
         if let Some(pm) = &config.paymaster {
-            let proxy = PaymasterProxy::new(pm.url.clone(), pm.api_key.clone())?;
+            let proxy =
+                PaymasterProxy::new(pm.paymaster_url.clone(), pm.paymaster_api_key.clone())?;
             rpc_modules.merge(proxy.into_rpc())?;
         }
 

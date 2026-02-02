@@ -19,15 +19,15 @@ pub enum VrfKeySource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CartridgePaymasterConfig {
     /// The paymaster service URL.
-    pub url: Url,
+    pub paymaster_url: Url,
     /// Optional API key for authentication.
-    pub api_key: Option<String>,
-    /// Cartridge API URL (required for cartridge integration).
+    pub paymaster_api_key: Option<String>,
+    /// Cartridge API URL.
     pub cartridge_api_url: Url,
     /// The paymaster account address. (used for deploying controller)
-    pub paymaster_address: ContractAddress,
+    pub controller_deployer_address: ContractAddress,
     /// The paymaster account private key. (used for deploying controller)
-    pub paymaster_private_key: Felt,
+    pub controller_deployer_private_key: Felt,
 }
 
 /// Configuration for connecting to a VRF service.
