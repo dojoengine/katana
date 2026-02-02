@@ -2881,6 +2881,7 @@ dependencies = [
  "ark-ec 0.4.2",
  "katana-contracts",
  "katana-primitives",
+ "katana-rpc-types",
  "lazy_static",
  "num-bigint",
  "reqwest",

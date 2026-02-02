@@ -24,9 +24,12 @@ use ark_ec::short_weierstrass::Affine;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{felt, ContractAddress, Felt};
+use katana_rpc_types::outside_execution::{OutsideExecutionV2, OutsideExecutionV3};
 use num_bigint::BigInt;
+use serde::{Deserialize, Serialize};
 use stark_vrf::{generate_public_key, BaseField, StarkCurve, StarkVRF};
 use tracing::trace;
+use url::Url;
 
 // Class hash of the VRF provider contract (fee estimation code commented, since currently Katana
 // returns 0 for the fees): <https://github.com/cartridge-gg/vrf/blob/38d71385f939a19829113c122f1ab12dbbe0f877/src/vrf_provider/vrf_provider_component.cairo#L124>
@@ -37,7 +40,7 @@ pub const CARTRIDGE_VRF_CLASS_HASH: Felt =
 pub const CARTRIDGE_VRF_SALT: ShortString = ShortString::from_ascii("cartridge_vrf");
 pub const CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY: Felt = felt!("0x1");
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StarkVrfProof {
     pub gamma_x: String,
     pub gamma_y: String,
@@ -137,4 +140,155 @@ fn compute_vrf_address(
 fn format<T: std::fmt::Display>(v: T) -> String {
     let int = BigInt::from_str(&format!("{v}")).unwrap();
     format!("0x{}", int.to_str_radix(16))
+}
+
+// -------------------------------------------------------------------------------------
+// VRF HTTP Client
+// -------------------------------------------------------------------------------------
+
+/// Error type for VRF client operations.
+#[derive(thiserror::Error, Debug)]
+pub enum VrfClientError {
+    #[error("URL parsing error: {0}")]
+    UrlParse(#[from] url::ParseError),
+
+    #[error("HTTP request error: {0}")]
+    Request(#[from] reqwest::Error),
+
+    #[error("JSON parsing error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("server error: {0}")]
+    Server(String),
+}
+
+/// OutsideExecution enum with tagged serialization for VRF server compatibility.
+///
+/// Different from `katana_rpc_types::OutsideExecution` which uses untagged serialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VrfOutsideExecution {
+    V2(OutsideExecutionV2),
+    V3(OutsideExecutionV3),
+}
+
+/// A signed outside execution request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedOutsideExecution {
+    pub address: Felt,
+    pub outside_execution: VrfOutsideExecution,
+    pub signature: Vec<Felt>,
+}
+
+/// Response from GET /info endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InfoResponse {
+    pub public_key_x: String,
+    pub public_key_y: String,
+}
+
+/// Request body for POST /proof endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProofRequest {
+    pub seed: Vec<String>,
+}
+
+/// Request context for outside execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestContext {
+    pub chain_id: String,
+    pub rpc_url: Option<String>,
+}
+
+/// Request body for POST /outside_execution endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutsideExecutionRequest {
+    pub request: SignedOutsideExecution,
+    pub context: RequestContext,
+}
+
+/// HTTP client for interacting with the VRF server.
+#[derive(Debug, Clone)]
+pub struct VrfClient {
+    url: Url,
+    client: reqwest::Client,
+}
+
+impl VrfClient {
+    /// Creates a new [`VrfClient`] with the given base URL.
+    pub fn new(url: Url) -> Self {
+        Self { url, client: reqwest::Client::new() }
+    }
+
+    /// Health check - GET /
+    ///
+    /// Returns `Ok(())` if server responds with "OK".
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn health_check(&self) -> Result<(), VrfClientError> {
+        let response = self.client.get(self.url.clone()).send().await?;
+        let text = response.text().await?;
+
+        if text.trim() == "OK" {
+            Ok(())
+        } else {
+            Err(VrfClientError::Server(format!("unexpected response: {text}")))
+        }
+    }
+
+    /// Get VRF public key info - GET /info
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn info(&self) -> Result<InfoResponse, VrfClientError> {
+        let url = self.url.join("/info")?;
+        let response = self.client.get(url).send().await?;
+        let info: InfoResponse = response.json().await?;
+        Ok(info)
+    }
+
+    /// Generate VRF proof - POST /proof
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn proof(&self, request: &ProofRequest) -> Result<StarkVrfProof, VrfClientError> {
+        let url = self.url.join("/proof")?;
+        let response = self
+            .client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .json(request)
+            .send()
+            .await?;
+
+        #[derive(Debug, Deserialize)]
+        struct ProofResponse {
+            result: StarkVrfProof,
+        }
+
+        Ok(response.json::<ProofResponse>().await?.result)
+    }
+
+    /// Process outside execution with VRF - POST /outside_execution
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn outside_execution(
+        &self,
+        request: &OutsideExecutionRequest,
+    ) -> Result<SignedOutsideExecution, VrfClientError> {
+        let url = self.url.join("/outside_execution")?;
+        let response = self
+            .client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .json(request)
+            .send()
+            .await?;
+
+        // Check for error responses (server returns 404 with JSON error for failures)
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(VrfClientError::Server(error_text));
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct OutsideExecutionResponse {
+            result: SignedOutsideExecution,
+        }
+
+        Ok(response.json::<OutsideExecutionResponse>().await?.result)
+    }
 }

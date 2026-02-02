@@ -4,6 +4,10 @@ pub mod client;
 pub mod vrf;
 
 pub use client::Client;
+pub use vrf::{
+    InfoResponse, OutsideExecutionRequest, ProofRequest, RequestContext, SignedOutsideExecution,
+    VrfClient, VrfClientError, VrfOutsideExecution,
+};
 
 #[rustfmt::skip]
 pub mod controller;
