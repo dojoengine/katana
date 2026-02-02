@@ -36,7 +36,7 @@ use url::Url;
 
 use crate::file::NodeArgsConfig;
 use crate::options::*;
-#[cfg(feature = "paymaster")]
+#[cfg(feature = "cartridge")]
 use crate::sidecar::{bootstrap_and_start_sidecars, build_paymaster_config, PaymasterSidecarInfo};
 #[cfg(feature = "vrf")]
 use crate::sidecar::{build_vrf_config, VrfSidecarInfo};
@@ -173,8 +173,8 @@ impl SequencerNodeArgs {
         let config = self.config()?;
 
         // Build sidecar configurations (separate from node config)
-        #[cfg(feature = "paymaster")]
-        let paymaster_sidecar = match self.paymaster_config()? {
+        #[cfg(feature = "cartridge")]
+        let paymaster_sidecar = match self.paymaster_config(&config.chain)? {
             Some((_, sidecar)) => sidecar,
             None => None,
         };
@@ -196,7 +196,7 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch forked node")?;
 
             // Bootstrap and start sidecars if needed
-            #[cfg(feature = "paymaster")]
+            #[cfg(feature = "cartridge")]
             let mut sidecars = bootstrap_and_start_sidecars(
                 &self.paymaster,
                 #[cfg(feature = "vrf")]
@@ -225,7 +225,7 @@ impl SequencerNodeArgs {
             }
 
             // Shutdown sidecar processes
-            #[cfg(feature = "paymaster")]
+            #[cfg(feature = "cartridge")]
             if let Some(ref mut s) = sidecars {
                 s.shutdown().await;
             }
@@ -240,7 +240,7 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch node")?;
 
             // Bootstrap and start sidecars if needed
-            #[cfg(feature = "paymaster")]
+            #[cfg(feature = "cartridge")]
             let mut sidecars = bootstrap_and_start_sidecars(
                 &self.paymaster,
                 #[cfg(feature = "vrf")]
@@ -269,7 +269,7 @@ impl SequencerNodeArgs {
             }
 
             // Shutdown sidecar processes
-            #[cfg(feature = "paymaster")]
+            #[cfg(feature = "cartridge")]
             if let Some(ref mut s) = sidecars {
                 s.shutdown().await;
             }
@@ -293,13 +293,13 @@ impl SequencerNodeArgs {
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
 
-        #[cfg(feature = "paymaster")]
-        let paymaster = self.paymaster_config()?.map(|(config, _)| config);
+        #[cfg(feature = "cartridge")]
+        let paymaster = self.paymaster_config(&chain)?.map(|(config, _)| config);
 
         #[cfg(feature = "vrf")]
         let vrf = self.vrf_config()?.map(|(config, _)| config);
 
-        #[cfg(feature = "vrf")]
+        #[cfg(all(feature = "vrf", feature = "cartridge"))]
         if vrf.is_some() && paymaster.is_none() {
             return Err(anyhow::anyhow!("--vrf requires paymaster; enable --paymaster"));
         }
@@ -322,7 +322,7 @@ impl SequencerNodeArgs {
             execution,
             messaging,
             sequencing,
-            #[cfg(feature = "paymaster")]
+            #[cfg(feature = "cartridge")]
             paymaster,
             #[cfg(feature = "vrf")]
             vrf,
@@ -587,17 +587,17 @@ impl SequencerNodeArgs {
         }
     }
 
-    #[cfg(feature = "paymaster")]
+    #[cfg(feature = "cartridge")]
     fn paymaster_config(
         &self,
+        chain_spec: &std::sync::Arc<katana_chain_spec::ChainSpec>,
     ) -> Result<
-        Option<(katana_node::config::paymaster::PaymasterConfig, Option<PaymasterSidecarInfo>)>,
+        Option<(
+            katana_node::config::paymaster::CartridgePaymasterConfig,
+            Option<PaymasterSidecarInfo>,
+        )>,
     > {
-        build_paymaster_config(
-            &self.paymaster,
-            #[cfg(feature = "cartridge")]
-            &self.cartridge.api,
-        )
+        build_paymaster_config(&self.paymaster, chain_spec, &self.cartridge.api)
     }
 
     #[cfg(feature = "vrf")]

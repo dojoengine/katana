@@ -39,7 +39,6 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
-use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::chain::ChainId;
@@ -77,7 +76,8 @@ pub struct CartridgeConfig {
     pub cartridge_api_url: Url,
     pub paymaster_url: Url,
     pub paymaster_api_key: Option<String>,
-    pub paymaster_prefunded_index: u16,
+    pub paymaster_address: ContractAddress,
+    pub paymaster_private_key: Felt,
     pub vrf: Option<CartridgeVrfConfig>,
 }
 
@@ -188,7 +188,10 @@ pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     pool: TxPool,
     api_client: cartridge::Client,
     paymaster_client: HttpClient,
-    paymaster_prefunded_index: u16,
+    /// The paymaster account address used for controller deployment.
+    paymaster_address: ContractAddress,
+    /// The paymaster account private key.
+    paymaster_private_key: Felt,
     vrf_service: Option<VrfService>,
 }
 
@@ -205,7 +208,8 @@ where
             pool: self.pool.clone(),
             api_client: self.api_client.clone(),
             paymaster_client: self.paymaster_client.clone(),
-            paymaster_prefunded_index: self.paymaster_prefunded_index,
+            paymaster_address: self.paymaster_address,
+            paymaster_private_key: self.paymaster_private_key,
             vrf_service: self.vrf_service.clone(),
         }
     }
@@ -249,7 +253,8 @@ where
             pool,
             api_client,
             paymaster_client,
-            paymaster_prefunded_index: config.paymaster_prefunded_index,
+            paymaster_address: config.paymaster_address,
+            paymaster_private_key: config.paymaster_private_key,
             vrf_service,
         })
     }
@@ -277,7 +282,8 @@ where
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
         self.on_cpu_blocking_task(move |this| async move {
-            let (pm_address, pm_private_key) = this.prefunded_account()?;
+            let pm_address = this.paymaster_address;
+            let pm_private_key = this.paymaster_private_key;
 
             // ====================== CONTROLLER DEPLOYMENT ======================
             let state = this.state().map(Arc::new)?;
@@ -385,28 +391,6 @@ where
             Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })
         })
         .await?
-    }
-
-    fn prefunded_account(&self) -> Result<(ContractAddress, Felt), StarknetApiError> {
-        let (address, allocation) = self
-            .backend
-            .chain_spec
-            .genesis()
-            .accounts()
-            .nth(self.paymaster_prefunded_index as usize)
-            .ok_or_else(|| {
-                StarknetApiError::unexpected(format!(
-                    "prefunded account index {} out of range",
-                    self.paymaster_prefunded_index
-                ))
-            })?;
-
-        let private_key = match allocation {
-            GenesisAccountAlloc::DevAccount(account) => account.private_key,
-            _ => return Err(StarknetApiError::unexpected("paymaster account has no private key")),
-        };
-
-        Ok((*address, private_key))
     }
 
     /// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking

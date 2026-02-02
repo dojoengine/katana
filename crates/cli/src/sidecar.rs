@@ -26,8 +26,8 @@ use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
-#[cfg(feature = "paymaster")]
-use katana_node::config::paymaster::PaymasterConfig;
+#[cfg(feature = "cartridge")]
+use katana_node::config::paymaster::CartridgePaymasterConfig;
 #[cfg(feature = "vrf")]
 use katana_node::config::paymaster::{VrfConfig, VrfKeySource as NodeVrfKeySource};
 pub use katana_paymaster::{
@@ -103,13 +103,17 @@ pub struct VrfSidecarInfo {
 /// Build the paymaster configuration from CLI options.
 ///
 /// Returns `None` if paymaster is not enabled.
-/// Returns `(PaymasterConfig, Option<PaymasterSidecarInfo>)` where the sidecar info
+/// Returns `(CartridgePaymasterConfig, Option<PaymasterSidecarInfo>)` where the sidecar info
 /// is `Some` in sidecar mode and `None` in external mode.
-#[cfg(feature = "paymaster")]
+///
+/// The `chain_spec` is used to derive paymaster credentials from genesis accounts
+/// in sidecar mode (always uses account 0).
+#[cfg(feature = "cartridge")]
 pub fn build_paymaster_config(
     options: &PaymasterOptions,
-    #[cfg(feature = "cartridge")] cartridge_api_url: &url::Url,
-) -> Result<Option<(PaymasterConfig, Option<PaymasterSidecarInfo>)>> {
+    chain_spec: &katana_chain_spec::ChainSpec,
+    cartridge_api_url: &url::Url,
+) -> Result<Option<(CartridgePaymasterConfig, Option<PaymasterSidecarInfo>)>> {
     if !options.is_enabled() {
         return Ok(None);
     }
@@ -155,12 +159,28 @@ pub fn build_paymaster_config(
         sidecar_info.as_ref().map(|s| s.api_key.clone())
     };
 
-    let config = PaymasterConfig {
+    // Derive paymaster credentials from genesis account 0
+    let (paymaster_address, paymaster_private_key) = {
+        let (address, allocation) = chain_spec
+            .genesis()
+            .accounts()
+            .next()
+            .ok_or_else(|| anyhow!("no genesis accounts available for paymaster"))?;
+
+        let private_key = match allocation {
+            GenesisAccountAlloc::DevAccount(account) => account.private_key,
+            _ => return Err(anyhow!("paymaster account {} has no private key", address)),
+        };
+
+        (*address, private_key)
+    };
+
+    let config = CartridgePaymasterConfig {
         url,
         api_key,
-        prefunded_index: options.prefunded_index,
-        #[cfg(feature = "cartridge")]
-        cartridge_api_url: Some(cartridge_api_url.clone()),
+        cartridge_api_url: cartridge_api_url.clone(),
+        paymaster_address,
+        paymaster_private_key,
     };
 
     Ok(Some((config, sidecar_info)))
@@ -269,8 +289,6 @@ pub struct BootstrapConfig {
 pub struct PaymasterBootstrapInput {
     /// RPC URL for the katana node.
     pub rpc_url: Url,
-    /// Index of the first prefunded account to use (relayer).
-    pub prefunded_index: u16,
 }
 
 /// VRF-specific bootstrap configuration.
@@ -326,6 +344,8 @@ where
 }
 
 /// Bootstrap the paymaster using genesis accounts from the backend.
+///
+/// Always uses accounts 0, 1, 2 from genesis for relayer, gas tank, and estimate account.
 async fn bootstrap_paymaster_from_genesis<EF, PF>(
     input: &PaymasterBootstrapInput,
     backend: &Backend<EF, PF>,
@@ -336,21 +356,10 @@ where
     <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
     <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
-    // Extract account info from genesis
-    let (relayer_address, relayer_private_key) = prefunded_account(backend, input.prefunded_index)?;
-
-    let gas_tank_index = input
-        .prefunded_index
-        .checked_add(1)
-        .ok_or_else(|| anyhow!("paymaster gas tank index overflow"))?;
-    let estimate_index = input
-        .prefunded_index
-        .checked_add(2)
-        .ok_or_else(|| anyhow!("paymaster estimate index overflow"))?;
-
-    let (gas_tank_address, gas_tank_private_key) = prefunded_account(backend, gas_tank_index)?;
-    let (estimate_account_address, estimate_account_private_key) =
-        prefunded_account(backend, estimate_index)?;
+    // Extract account info from genesis - always use accounts 0, 1, 2
+    let (relayer_address, relayer_private_key) = prefunded_account(backend, 0)?;
+    let (gas_tank_address, gas_tank_private_key) = prefunded_account(backend, 1)?;
+    let (estimate_account_address, estimate_account_private_key) = prefunded_account(backend, 2)?;
 
     // Build bootstrap config for paymaster crate
     let bootstrap_config = PaymasterBootstrapConfig {
@@ -1069,7 +1078,8 @@ pub fn local_rpc_url(addr: &SocketAddr) -> Url {
 /// 2. Start sidecar processes in sidecar mode
 ///
 /// Returns `None` if no sidecars need to be started.
-#[cfg(feature = "paymaster")]
+#[cfg(feature = "cartridge")]
+#[allow(clippy::too_many_arguments)]
 pub async fn bootstrap_and_start_sidecars<EF, PF>(
     paymaster_options: &PaymasterOptions,
     #[cfg(feature = "vrf")] vrf_options: &VrfOptions,
@@ -1103,10 +1113,7 @@ where
 
     // Build bootstrap config
     let bootstrap_config = BootstrapConfig {
-        paymaster: paymaster_sidecar.map(|_| PaymasterBootstrapInput {
-            rpc_url: rpc_url.clone(),
-            prefunded_index: paymaster_options.prefunded_index,
-        }),
+        paymaster: paymaster_sidecar.map(|_| PaymasterBootstrapInput { rpc_url: rpc_url.clone() }),
         #[cfg(feature = "vrf")]
         vrf: vrf_sidecar.map(|_| {
             let key_source = match vrf_options.key_source {

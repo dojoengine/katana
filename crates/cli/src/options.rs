@@ -562,7 +562,7 @@ pub enum VrfKeySource {
 }
 
 #[cfg(feature = "paymaster")]
-#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Paymaster options")]
 pub struct PaymasterOptions {
     /// Enable the paymaster service.
@@ -594,15 +594,6 @@ pub struct PaymasterOptions {
     #[serde(default)]
     pub price_api_key: Option<String>,
 
-    /// Prefunded account index used by the paymaster (relayer at INDEX, gas tank at INDEX+1,
-    /// estimate account at INDEX+2).
-    #[arg(id = "paymaster_prefunded_index")]
-    #[arg(conflicts_with = "paymaster_url")]
-    #[arg(default_value_t = default_paymaster_prefunded_index())]
-    #[arg(value_name = "INDEX", long = "paymaster.prefunded-index")]
-    #[serde(default = "default_paymaster_prefunded_index")]
-    pub prefunded_index: u16,
-
     /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
     ///
     /// Only used when running in sidecar mode. Not applicable if `--paymaster.url` is provided.
@@ -610,20 +601,6 @@ pub struct PaymasterOptions {
     #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
-}
-
-#[cfg(feature = "paymaster")]
-impl Default for PaymasterOptions {
-    fn default() -> Self {
-        PaymasterOptions {
-            enabled: false,
-            url: None,
-            api_key: None,
-            price_api_key: None,
-            prefunded_index: default_paymaster_prefunded_index(),
-            bin: None,
-        }
-    }
 }
 
 #[cfg(feature = "paymaster")]
@@ -654,10 +631,6 @@ impl PaymasterOptions {
 
             if self.price_api_key.is_none() {
                 self.price_api_key = other.price_api_key.clone();
-            }
-
-            if self.prefunded_index == default_paymaster_prefunded_index() {
-                self.prefunded_index = other.prefunded_index;
             }
 
             if self.bin.is_none() {
@@ -922,11 +895,6 @@ fn default_api_url() -> Url {
 #[cfg(feature = "vrf")]
 fn default_vrf_key_source() -> VrfKeySource {
     VrfKeySource::Prefunded
-}
-
-#[cfg(feature = "paymaster")]
-fn default_paymaster_prefunded_index() -> u16 {
-    0
 }
 
 #[cfg(feature = "vrf")]

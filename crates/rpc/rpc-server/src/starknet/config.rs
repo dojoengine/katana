@@ -45,11 +45,17 @@ pub struct StarknetApiConfig {
     pub paymaster: Option<PaymasterConfig>,
 }
 
+/// Configuration for controller deployment during fee estimation.
+///
+/// This is used to deploy Cartridge controller accounts during fee estimation
+/// so that the fee estimation can be performed correctly.
 #[cfg(feature = "cartridge")]
 #[derive(Debug, Clone)]
 pub struct PaymasterConfig {
     /// The root URL for the Cartridge API.
     pub cartridge_api_url: url::Url,
-    /// Prefunded account index used for controller deployments.
-    pub prefunded_index: u16,
+    /// The paymaster account address used for controller deployment.
+    pub paymaster_address: katana_primitives::ContractAddress,
+    /// The paymaster account private key.
+    pub paymaster_private_key: katana_primitives::Felt,
 }

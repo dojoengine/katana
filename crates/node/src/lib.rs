@@ -228,10 +228,6 @@ where
                 "Cartridge API should be enabled when paymaster is set"
             );
 
-            let cartridge_api_url = paymaster.cartridge_api_url.clone().ok_or_else(|| {
-                anyhow::anyhow!("cartridge api url is required when paymaster is set")
-            })?;
-
             #[cfg(feature = "vrf")]
             let vrf = if let Some(vrf) = &config.vrf {
                 let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
@@ -253,17 +249,22 @@ where
                 pool.clone(),
                 task_spawner.clone(),
                 CartridgeConfig {
-                    cartridge_api_url: cartridge_api_url.clone(),
+                    cartridge_api_url: paymaster.cartridge_api_url.clone(),
                     paymaster_url: paymaster.url.clone(),
                     paymaster_api_key: paymaster.api_key.clone(),
-                    paymaster_prefunded_index: paymaster.prefunded_index,
+                    paymaster_address: paymaster.paymaster_address,
+                    paymaster_private_key: paymaster.paymaster_private_key,
                     vrf,
                 },
             )?;
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
-            Some(PaymasterConfig { cartridge_api_url, prefunded_index: paymaster.prefunded_index })
+            Some(PaymasterConfig {
+                cartridge_api_url: paymaster.cartridge_api_url.clone(),
+                paymaster_address: paymaster.paymaster_address,
+                paymaster_private_key: paymaster.paymaster_private_key,
+            })
         } else {
             None
         };

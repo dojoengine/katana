@@ -65,9 +65,9 @@ pub struct Config {
     /// Development options.
     pub dev: DevConfig,
 
-    /// Paymaster options.
-    #[cfg(feature = "paymaster")]
-    pub paymaster: Option<paymaster::PaymasterConfig>,
+    /// Cartridge paymaster options.
+    #[cfg(feature = "cartridge")]
+    pub paymaster: Option<paymaster::CartridgePaymasterConfig>,
 
     /// VRF options.
     #[cfg(feature = "vrf")]

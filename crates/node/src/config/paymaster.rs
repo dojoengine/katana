@@ -1,3 +1,4 @@
+use katana_primitives::{ContractAddress, Felt};
 use url::Url;
 
 /// Key source for VRF secret key derivation.
@@ -7,22 +8,26 @@ pub enum VrfKeySource {
     Sequencer,
 }
 
-/// Configuration for connecting to a paymaster service.
+/// Configuration for connecting to a Cartridge paymaster service.
 ///
 /// The node treats the paymaster as an external service - it simply connects to the
 /// provided URL. Whether the service is managed externally or as a sidecar process
 /// is a concern of the CLI layer, not the node.
+///
+/// This config is specific to the Cartridge integration and requires explicit
+/// account credentials for the paymaster account.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaymasterConfig {
+pub struct CartridgePaymasterConfig {
     /// The paymaster service URL.
     pub url: Url,
     /// Optional API key for authentication.
     pub api_key: Option<String>,
-    /// Prefunded account index used by the paymaster.
-    pub prefunded_index: u16,
     /// Cartridge API URL (required for cartridge integration).
-    #[cfg(feature = "cartridge")]
-    pub cartridge_api_url: Option<Url>,
+    pub cartridge_api_url: Url,
+    /// The paymaster account address. (used for deploying controller)
+    pub paymaster_address: ContractAddress,
+    /// The paymaster account private key. (used for deploying controller)
+    pub paymaster_private_key: Felt,
 }
 
 /// Configuration for connecting to a VRF service.
