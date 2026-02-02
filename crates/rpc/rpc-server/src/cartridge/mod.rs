@@ -73,7 +73,7 @@ use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct CartridgeConfig {
-    pub cartridge_api_url: Url,
+    pub api_url: Url,
     pub paymaster_url: Url,
     pub paymaster_api_key: Option<String>,
     pub paymaster_address: ContractAddress,
@@ -229,7 +229,7 @@ where
         task_spawner: TaskSpawner,
         config: CartridgeConfig,
     ) -> anyhow::Result<Self> {
-        let api_client = cartridge::Client::new(config.cartridge_api_url);
+        let api_client = cartridge::Client::new(config.api_url);
         let vrf_service = config.vrf.map(VrfService::new);
 
         info!(target: "rpc::cartridge", vrf_enabled = vrf_service.is_some(), "Cartridge API initialized.");

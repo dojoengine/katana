@@ -541,16 +541,6 @@ pub struct CartridgeOptions {
     /// Declare all versions of the Controller class at genesis.
     #[arg(long = "cartridge.controllers")]
     pub controllers: bool,
-
-    /// The root URL for the Cartridge API.
-    ///
-    /// This is used to fetch the calldata for the constructor of the given controller
-    /// address (at the moment). Must be configurable for local development
-    /// with local cartridge API.
-    #[arg(long = "cartridge.api")]
-    #[arg(default_value = "https://api.cartridge.gg")]
-    #[serde(default = "default_api_url")]
-    pub api: Url,
 }
 
 #[cfg(feature = "vrf")]
@@ -562,7 +552,7 @@ pub enum VrfKeySource {
 }
 
 #[cfg(feature = "paymaster")]
-#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Paymaster options")]
 pub struct PaymasterOptions {
     /// Enable the paymaster service.
@@ -577,11 +567,13 @@ pub struct PaymasterOptions {
     ///
     /// When provided, the paymaster will run in external mode, connecting to this URL
     /// instead of spawning a sidecar process.
+    #[arg(requires = "paymaster_enabled")]
     #[arg(long = "paymaster.url", value_name = "URL", id = "paymaster_url")]
     #[serde(default)]
     pub url: Option<Url>,
 
     /// API key to send via `x-paymaster-api-key` when proxying requests.
+    #[arg(requires = "paymaster_enabled")]
     #[arg(long = "paymaster.api-key", value_name = "KEY")]
     #[serde(default)]
     pub api_key: Option<String>,
@@ -589,6 +581,7 @@ pub struct PaymasterOptions {
     /// API key for the Avnu price provider (used by the sidecar).
     ///
     /// Only required when running in sidecar mode. Not needed if `--paymaster.url` is provided.
+    #[arg(requires = "paymaster_enabled")]
     #[arg(conflicts_with = "paymaster_url")]
     #[arg(long = "paymaster.price-api-key", value_name = "KEY")]
     #[serde(default)]
@@ -597,19 +590,34 @@ pub struct PaymasterOptions {
     /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
     ///
     /// Only used when running in sidecar mode. Not applicable if `--paymaster.url` is provided.
+    #[arg(requires = "paymaster_enabled")]
     #[arg(conflicts_with = "paymaster_url")]
     #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
+
+    /// Enable Cartridge paymaster
+    #[cfg(feature = "cartridge")]
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(long = "paymaster.cartridge")]
+    #[serde(default)]
+    pub cartridge_paymaster: bool,
+
+    /// The base URL for the Cartridge API.
+    ///
+    /// This is used to fetch the calldata for the constructor of the given controller
+    /// address (at the moment). Must be configurable for local development
+    /// with local cartridge API.
+    #[cfg(feature = "cartridge")]
+    #[arg(long = "paymaster.cartridge-api")]
+    #[arg(default_value = "https://api.cartridge.gg")]
+    #[arg(requires_all = ["paymaster_enabled", "cartridge_paymaster"])]
+    #[serde(default = "default_api_url")]
+    pub cartridge_api: Url,
 }
 
 #[cfg(feature = "paymaster")]
 impl PaymasterOptions {
-    /// Returns true if the paymaster is enabled (either explicitly or via URL).
-    pub fn is_enabled(&self) -> bool {
-        self.enabled || self.url.is_some()
-    }
-
     /// Returns true if the paymaster should run in external mode (URL provided).
     pub fn is_external(&self) -> bool {
         self.url.is_some()
@@ -765,10 +773,6 @@ impl CartridgeOptions {
             if !self.controllers {
                 self.controllers = other.controllers;
             }
-
-            if self.api == default_api_url() {
-                self.api = other.api.clone();
-            }
         }
     }
 }
@@ -776,7 +780,22 @@ impl CartridgeOptions {
 #[cfg(feature = "cartridge")]
 impl Default for CartridgeOptions {
     fn default() -> Self {
-        CartridgeOptions { controllers: false, api: default_api_url() }
+        CartridgeOptions { controllers: false }
+    }
+}
+
+#[cfg(feature = "paymaster")]
+impl Default for PaymasterOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: None,
+            api_key: None,
+            bin: None,
+            price_api_key: None,
+            cartridge_paymaster: false,
+            cartridge_api: default_api_url(),
+        }
     }
 }
 

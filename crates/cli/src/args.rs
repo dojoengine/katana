@@ -22,6 +22,8 @@ use katana_node::config::gateway::GatewayConfig;
 #[cfg(all(feature = "server", feature = "grpc"))]
 use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
+#[cfg(feature = "cartridge")]
+use katana_node::config::paymaster::PaymasterConfig;
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
@@ -373,17 +375,12 @@ impl SequencerNodeArgs {
             // (ie `--rpc.api`) we guarantee that the cartridge rpc is enabled.
             #[cfg(feature = "cartridge")]
             {
-                #[cfg(feature = "paymaster")]
-                let paymaster_enabled = self.paymaster.is_enabled();
-                #[cfg(not(feature = "paymaster"))]
-                let paymaster_enabled = false;
-
                 #[cfg(feature = "vrf")]
                 let vrf_enabled = self.vrf.is_enabled();
                 #[cfg(not(feature = "vrf"))]
                 let vrf_enabled = false;
 
-                if paymaster_enabled || vrf_enabled {
+                if self.paymaster.enabled || vrf_enabled {
                     modules.add(RpcModuleKind::Cartridge);
                 }
             }
@@ -453,26 +450,20 @@ impl SequencerNodeArgs {
             chain_spec.genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
             #[cfg(feature = "cartridge")]
-            {
-                if self.cartridge.controllers {
-                    katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
-                    katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
-                }
+            if self.cartridge.controllers {
+                katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
+                katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
             }
 
             #[cfg(feature = "paymaster")]
-            {
-                if self.paymaster.is_enabled() {
-                    katana_slot_controller::add_avnu_forwarder_class(&mut chain_spec.genesis);
-                }
+            if self.paymaster.enabled {
+                katana_slot_controller::add_avnu_forwarder_class(&mut chain_spec.genesis);
             }
 
             #[cfg(feature = "vrf")]
-            {
-                if self.vrf.is_enabled() {
-                    katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
-                    katana_slot_controller::add_vrf_consumer_class(&mut chain_spec.genesis);
-                }
+            if self.vrf.is_enabled() {
+                katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
+                katana_slot_controller::add_vrf_consumer_class(&mut chain_spec.genesis);
             }
 
             Ok((Arc::new(ChainSpec::Dev(chain_spec)), None))
@@ -587,17 +578,50 @@ impl SequencerNodeArgs {
         }
     }
 
-    #[cfg(feature = "cartridge")]
+    #[cfg(feature = "paymaster")]
     fn paymaster_config(
         &self,
-        chain_spec: &std::sync::Arc<katana_chain_spec::ChainSpec>,
-    ) -> Result<
-        Option<(
-            katana_node::config::paymaster::CartridgePaymasterConfig,
-            Option<PaymasterSidecarInfo>,
-        )>,
-    > {
-        build_paymaster_config(&self.paymaster, chain_spec, &self.cartridge.api)
+        chain_spec: &Arc<katana_chain_spec::ChainSpec>,
+    ) -> Result<Option<(PaymasterConfig, Option<PaymasterSidecarInfo>)>> {
+        if self.paymaster.enabled {
+            let (mut config, sidecar) = build_paymaster_config(&self.paymaster)?;
+
+            #[cfg(feature = "cartridge")]
+            {
+                use anyhow::anyhow;
+                use katana_genesis::allocation::GenesisAccountAlloc;
+                use katana_node::config::paymaster::CartridgeApiConfig;
+
+                // Derive paymaster credentials from genesis account 0
+                let (paymaster_address, paymaster_private_key) = {
+                    let (address, allocation) =
+                        chain_spec.genesis().accounts().next().ok_or_else(|| {
+                            anyhow!("no genesis accounts available for paymaster")
+                        })?;
+
+                    let private_key = match allocation {
+                        GenesisAccountAlloc::DevAccount(account) => account.private_key,
+                        _ => {
+                            return Err(anyhow!("paymaster account {} has no private key", address))
+                        }
+                    };
+
+                    (*address, private_key)
+                };
+
+                if self.paymaster.cartridge_paymaster {
+                    config.cartridge_api = Some(CartridgeApiConfig {
+                        cartridge_api_url: self.paymaster.cartridge_api.clone(),
+                        controller_deployer_address: paymaster_address,
+                        controller_deployer_private_key: paymaster_private_key,
+                    });
+                }
+            }
+
+            Ok(Some((config, sidecar)))
+        } else {
+            Ok(None)
+        }
     }
 
     #[cfg(feature = "vrf")]

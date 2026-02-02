@@ -42,7 +42,7 @@ pub struct StarknetApiConfig {
     pub versioned_constant_overrides: Option<VersionedConstantsOverrides>,
 
     #[cfg(feature = "cartridge")]
-    pub paymaster: Option<PaymasterConfig>,
+    pub paymaster: Option<CartridgePaymasterConfig>,
 }
 
 /// Configuration for controller deployment during fee estimation.
@@ -51,7 +51,7 @@ pub struct StarknetApiConfig {
 /// so that the fee estimation can be performed correctly.
 #[cfg(feature = "cartridge")]
 #[derive(Debug, Clone)]
-pub struct PaymasterConfig {
+pub struct CartridgePaymasterConfig {
     /// The root URL for the Cartridge API.
     pub cartridge_api_url: url::Url,
     /// The paymaster account address used for controller deployment.

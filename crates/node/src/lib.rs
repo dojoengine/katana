@@ -56,7 +56,7 @@ use katana_rpc_server::dev::DevApi;
 #[cfg(feature = "paymaster")]
 use katana_rpc_server::paymaster::PaymasterProxy;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::starknet::PaymasterConfig;
+use katana_rpc_server::starknet::CartridgePaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
@@ -221,60 +221,63 @@ where
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
-        #[cfg(feature = "cartridge")]
-        let cartridge_paymaster = if let Some(paymaster) = &config.paymaster {
-            anyhow::ensure!(
-                config.rpc.apis.contains(&RpcModuleKind::Cartridge),
-                "Cartridge API should be enabled when paymaster is set"
-            );
+        #[cfg(feature = "paymaster")]
+        if let Some(cfg) = &config.paymaster {
+            let proxy = PaymasterProxy::new(cfg.url.clone(), cfg.api_key.clone())?;
+            rpc_modules.merge(proxy.into_rpc())?;
+        };
 
-            #[cfg(feature = "vrf")]
-            let vrf = if let Some(vrf) = &config.vrf {
-                let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
-                Some(katana_rpc_server::cartridge::CartridgeVrfConfig {
-                    url: vrf.url.clone(),
-                    account_address: derived.vrf_account_address,
-                    account_private_key: derived.source_private_key,
+        #[cfg(feature = "cartridge")]
+        let cartridge_paymaster = if let Some(cfg) = &config.paymaster {
+            if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
+                anyhow::ensure!(
+                    config.rpc.apis.contains(&RpcModuleKind::Cartridge),
+                    "Cartridge API should be enabled when paymaster is set"
+                );
+
+                #[cfg(feature = "vrf")]
+                let vrf = if let Some(vrf) = &config.vrf {
+                    let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
+                    Some(katana_rpc_server::cartridge::CartridgeVrfConfig {
+                        url: vrf.url.clone(),
+                        account_address: derived.vrf_account_address,
+                        account_private_key: derived.source_private_key,
+                    })
+                } else {
+                    None
+                };
+
+                #[cfg(not(feature = "vrf"))]
+                let vrf = None;
+
+                let api = CartridgeApi::new(
+                    backend.clone(),
+                    block_producer.clone(),
+                    pool.clone(),
+                    task_spawner.clone(),
+                    CartridgeConfig {
+                        paymaster_url: cfg.url.clone(),
+                        paymaster_api_key: cfg.api_key.clone(),
+                        api_url: cartridge_api_cfg.cartridge_api_url.clone(),
+                        paymaster_address: cartridge_api_cfg.controller_deployer_address,
+                        paymaster_private_key: cartridge_api_cfg.controller_deployer_private_key,
+                        vrf,
+                    },
+                )?;
+
+                rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
+
+                Some(CartridgePaymasterConfig {
+                    cartridge_api_url: cartridge_api_cfg.cartridge_api_url.clone(),
+                    paymaster_address: cartridge_api_cfg.controller_deployer_address,
+                    paymaster_private_key: cartridge_api_cfg.controller_deployer_private_key,
                 })
             } else {
                 None
-            };
-
-            #[cfg(not(feature = "vrf"))]
-            let vrf = None;
-
-            let api = CartridgeApi::new(
-                backend.clone(),
-                block_producer.clone(),
-                pool.clone(),
-                task_spawner.clone(),
-                CartridgeConfig {
-                    cartridge_api_url: paymaster.cartridge_api_url.clone(),
-                    paymaster_url: paymaster.paymaster_url.clone(),
-                    paymaster_api_key: paymaster.paymaster_api_key.clone(),
-                    paymaster_address: paymaster.controller_deployer_address,
-                    paymaster_private_key: paymaster.controller_deployer_private_key,
-                    vrf,
-                },
-            )?;
-
-            rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
-
-            Some(PaymasterConfig {
-                cartridge_api_url: paymaster.cartridge_api_url.clone(),
-                paymaster_address: paymaster.controller_deployer_address,
-                paymaster_private_key: paymaster.controller_deployer_private_key,
-            })
+            }
         } else {
             None
         };
-
-        #[cfg(feature = "paymaster")]
-        if let Some(pm) = &config.paymaster {
-            let proxy =
-                PaymasterProxy::new(pm.paymaster_url.clone(), pm.paymaster_api_key.clone())?;
-            rpc_modules.merge(proxy.into_rpc())?;
-        }
 
         // --- build starknet api
 

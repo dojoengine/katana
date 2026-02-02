@@ -26,8 +26,8 @@ use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
-#[cfg(feature = "cartridge")]
-use katana_node::config::paymaster::CartridgePaymasterConfig;
+#[cfg(feature = "paymaster")]
+use katana_node::config::paymaster::PaymasterConfig;
 #[cfg(feature = "vrf")]
 use katana_node::config::paymaster::{VrfConfig, VrfKeySource as NodeVrfKeySource};
 pub use katana_paymaster::{
@@ -108,21 +108,14 @@ pub struct VrfSidecarInfo {
 ///
 /// The `chain_spec` is used to derive paymaster credentials from genesis accounts
 /// in sidecar mode (always uses account 0).
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 pub fn build_paymaster_config(
     options: &PaymasterOptions,
-    chain_spec: &katana_chain_spec::ChainSpec,
-    cartridge_api_url: &url::Url,
-) -> Result<Option<(CartridgePaymasterConfig, Option<PaymasterSidecarInfo>)>> {
-    if !options.is_enabled() {
-        return Ok(None);
-    }
-
+) -> Result<(PaymasterConfig, Option<PaymasterSidecarInfo>)> {
     // Determine mode based on whether URL is provided
-    let is_external = options.is_external();
 
     // For sidecar mode, allocate a free port and prepare sidecar info
-    let (url, sidecar_info) = if is_external {
+    let (url, sidecar_info) = if options.is_external() {
         // External mode: use the provided URL
         let url = options.url.clone().expect("URL must be set in external mode");
         (url, None)
@@ -153,37 +146,13 @@ pub fn build_paymaster_config(
         (url, Some(sidecar_info))
     };
 
-    let api_key = if is_external {
+    let api_key = if options.is_external() {
         options.api_key.clone()
     } else {
         sidecar_info.as_ref().map(|s| s.api_key.clone())
     };
 
-    // Derive paymaster credentials from genesis account 0
-    let (paymaster_address, paymaster_private_key) = {
-        let (address, allocation) = chain_spec
-            .genesis()
-            .accounts()
-            .next()
-            .ok_or_else(|| anyhow!("no genesis accounts available for paymaster"))?;
-
-        let private_key = match allocation {
-            GenesisAccountAlloc::DevAccount(account) => account.private_key,
-            _ => return Err(anyhow!("paymaster account {} has no private key", address)),
-        };
-
-        (*address, private_key)
-    };
-
-    let config = CartridgePaymasterConfig {
-        paymaster_url: url,
-        paymaster_api_key: api_key,
-        cartridge_api_url: cartridge_api_url.clone(),
-        controller_deployer_address: paymaster_address,
-        controller_deployer_private_key: paymaster_private_key,
-    };
-
-    Ok(Some((config, sidecar_info)))
+    Ok((PaymasterConfig { url, api_key, cartridge_api: None }, sidecar_info))
 }
 
 /// Build the VRF configuration from CLI options.
