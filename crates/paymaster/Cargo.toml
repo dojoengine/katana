@@ -6,6 +6,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-genesis.workspace = true
 katana-primitives.workspace = true
 katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true

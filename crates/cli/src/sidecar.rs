@@ -23,7 +23,9 @@ use katana_core::backend::Backend;
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
-use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
+use katana_genesis::constant::{
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
+};
 #[cfg(feature = "paymaster")]
 use katana_node::config::paymaster::PaymasterConfig;
 #[cfg(feature = "vrf")]
@@ -31,8 +33,6 @@ use katana_node::config::paymaster::{VrfConfig, VrfKeySource as NodeVrfKeySource
 pub use katana_paymaster::{
     bootstrap_paymaster, format_felt, start_paymaster_sidecar, wait_for_paymaster_ready,
     PaymasterBootstrapConfig, PaymasterBootstrapResult, PaymasterSidecarConfig,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS as PAYMASTER_ETH_TOKEN_ADDRESS,
-    DEFAULT_STRK_FEE_TOKEN_ADDRESS as PAYMASTER_STRK_TOKEN_ADDRESS,
 };
 use katana_pool::TxPool;
 #[cfg(feature = "vrf")]
@@ -945,8 +945,8 @@ pub async fn start_sidecars(
             forwarder_address: paymaster_bootstrap.forwarder_address,
             chain_id: paymaster_bootstrap.chain_id,
             rpc_url: paymaster_cfg.rpc_url.clone(),
-            eth_token_address: PAYMASTER_ETH_TOKEN_ADDRESS,
-            strk_token_address: PAYMASTER_STRK_TOKEN_ADDRESS,
+            eth_token_address: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
+            strk_token_address: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
         paymaster_child = Some(start_paymaster_sidecar(&sidecar_config).await?);
     }

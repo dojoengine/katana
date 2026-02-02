@@ -10,10 +10,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use katana_paymaster::{
-    start_paymaster_sidecar, wait_for_paymaster_ready, PaymasterSidecarConfig,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-};
+use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
+use katana_paymaster::{start_paymaster_sidecar, wait_for_paymaster_ready, PaymasterSidecarConfig};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, felt};
 use url::Url;

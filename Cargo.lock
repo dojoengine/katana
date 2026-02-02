@@ -6483,6 +6483,7 @@ version = "1.7.0"
 dependencies = [
  "anyhow",
  "futures",
+ "katana-genesis",
  "katana-primitives",
  "katana-rpc-client",
  "katana-rpc-types",
