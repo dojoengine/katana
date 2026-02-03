@@ -44,16 +44,14 @@ impl TryFrom<crate::proto::BlockId> for katana_primitives::block::BlockIdOrTag {
     type Error = Status;
 
     fn try_from(proto: crate::proto::BlockId) -> Result<Self, Self::Error> {
-        let identifier = proto
-            .identifier
-            .as_ref()
-            .ok_or_else(|| Status::invalid_argument("Missing identifier"))?;
+        let identifier =
+            proto.identifier.ok_or_else(|| Status::invalid_argument("Missing identifier"))?;
 
         match identifier {
-            Identifier::Number(num) => Ok(BlockIdOrTag::Number(*num)),
-            Identifier::Hash(hash) => Ok(BlockIdOrTag::Hash(Felt::try_from(hash)?)),
+            Identifier::Number(num) => Ok(BlockIdOrTag::Number(num)),
+            Identifier::Hash(hash) => Ok(BlockIdOrTag::Hash(hash.try_into()?)),
             Identifier::Tag(tag) => {
-                let tag = ProtoBlockTag::try_from(*tag)
+                let tag = ProtoBlockTag::try_from(tag)
                     .map_err(|_| Status::invalid_argument(format!("Unknown block tag: {tag}")))?;
 
                 match tag {
@@ -66,7 +64,6 @@ impl TryFrom<crate::proto::BlockId> for katana_primitives::block::BlockIdOrTag {
     }
 }
 
-/// Helper to convert Option<&ProtoBlockId> to BlockIdOrTag.
 #[allow(clippy::result_large_err)]
 pub fn block_id_from_proto(proto: Option<crate::proto::BlockId>) -> Result<BlockIdOrTag, Status> {
     let proto = proto.ok_or_else(|| Status::invalid_argument("Missing block_id"))?;

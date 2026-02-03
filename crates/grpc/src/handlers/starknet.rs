@@ -1,6 +1,7 @@
 //! Starknet service handler implementation.
 
 use katana_pool::TransactionPool;
+use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::starknet::RPC_SPEC_VERSION;
@@ -8,7 +9,7 @@ use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use katana_rpc_types::{BroadcastedTxWithChainId, FunctionCall};
 use tonic::{Request, Response, Status};
 
-use crate::conversion::{block_id_from_proto, ProtoFeltVecExt};
+use crate::conversion::block_id_from_proto;
 use crate::error::IntoGrpcResult;
 use crate::protos::starknet::starknet_server::Starknet;
 use crate::protos::starknet::starknet_trace_server::StarknetTrace;
@@ -139,19 +140,16 @@ where
         &self,
         request: Request<GetStorageAtRequest>,
     ) -> Result<Response<GetStorageAtResponse>, Status> {
-        let req = request.into_inner();
-        let block_id = block_id_from_proto(req.block_id)?;
-        let contract_address = Felt::try_from(
-            req.contract_address
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
-        )?;
-        let key = Felt::try_from(
-            req.key.as_ref().ok_or_else(|| Status::invalid_argument("Missing key"))?,
-        )?;
+        let GetStorageAtRequest { block_id, contract_address, key } = request.into_inner();
+
+        let block_id = block_id_from_proto(block_id)?;
+        let contract_address = contract_address
+            .ok_or_else(|| Status::invalid_argument("Missing `contract_address`"))?
+            .try_into()?;
+        let key = key.ok_or_else(|| Status::invalid_argument("Missing `key`"))?.try_into()?;
 
         let result =
-            self.api.storage_at(contract_address.into(), key, block_id).await.into_grpc_result()?;
+            self.api.storage_at(contract_address, key, block_id).await.into_grpc_result()?;
 
         Ok(Response::new(GetStorageAtResponse { value: Some(result.into()) }))
     }
@@ -160,13 +158,11 @@ where
         &self,
         request: Request<GetTransactionStatusRequest>,
     ) -> Result<Response<GetTransactionStatusResponse>, Status> {
-        let tx_hash = Felt::try_from(
-            request
-                .into_inner()
-                .transaction_hash
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
-        )?;
+        let tx_hash = request
+            .into_inner()
+            .transaction_hash
+            .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?
+            .try_into()?;
 
         let status = self.api.transaction_status(tx_hash).await.into_grpc_result()?;
 
@@ -191,13 +187,11 @@ where
         &self,
         request: Request<GetTransactionByHashRequest>,
     ) -> Result<Response<GetTransactionByHashResponse>, Status> {
-        let tx_hash = Felt::try_from(
-            request
-                .into_inner()
-                .transaction_hash
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
-        )?;
+        let tx_hash = request
+            .into_inner()
+            .transaction_hash
+            .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?
+            .try_into()?;
 
         let tx = self.api.transaction(tx_hash).await.into_grpc_result()?;
 
@@ -222,13 +216,11 @@ where
         &self,
         request: Request<GetTransactionReceiptRequest>,
     ) -> Result<Response<GetTransactionReceiptResponse>, Status> {
-        let tx_hash = Felt::try_from(
-            request
-                .into_inner()
-                .transaction_hash
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
-        )?;
+        let tx_hash = request
+            .into_inner()
+            .transaction_hash
+            .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?
+            .try_into()?;
 
         let receipt = self.api.receipt(tx_hash).await.into_grpc_result()?;
 
@@ -243,11 +235,10 @@ where
     ) -> Result<Response<GetClassResponse>, Status> {
         let req = request.into_inner();
         let block_id = block_id_from_proto(req.block_id)?;
-        let class_hash = Felt::try_from(
-            req.class_hash
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing class_hash"))?,
-        )?;
+        let class_hash = req
+            .class_hash
+            .ok_or_else(|| Status::invalid_argument("Missing class_hash"))?
+            .try_into()?;
 
         let class = self.api.class_at_hash(block_id, class_hash).await.into_grpc_result()?;
 
@@ -270,17 +261,13 @@ where
     ) -> Result<Response<GetClassHashAtResponse>, Status> {
         let req = request.into_inner();
         let block_id = block_id_from_proto(req.block_id)?;
-        let contract_address = Felt::try_from(
-            req.contract_address
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
-        )?;
+        let contract_address = req
+            .contract_address
+            .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?
+            .try_into()?;
 
-        let class_hash = self
-            .api
-            .class_hash_at_address(block_id, contract_address.into())
-            .await
-            .into_grpc_result()?;
+        let class_hash =
+            self.api.class_hash_at_address(block_id, contract_address).await.into_grpc_result()?;
 
         Ok(Response::new(GetClassHashAtResponse { class_hash: Some(class_hash.into()) }))
     }
@@ -291,17 +278,13 @@ where
     ) -> Result<Response<GetClassAtResponse>, Status> {
         let req = request.into_inner();
         let block_id = block_id_from_proto(req.block_id)?;
-        let contract_address = Felt::try_from(
-            req.contract_address
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
-        )?;
+        let contract_address = req
+            .contract_address
+            .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?
+            .try_into()?;
 
-        let class = self
-            .api
-            .class_at_address(block_id, contract_address.into())
-            .await
-            .into_grpc_result()?;
+        let class =
+            self.api.class_at_address(block_id, contract_address).await.into_grpc_result()?;
 
         // Convert class to proto - simplified for now
         Ok(Response::new(GetClassAtResponse {
@@ -332,30 +315,26 @@ where
         let function_call =
             req.request.ok_or_else(|| Status::invalid_argument("Missing request"))?;
 
-        let contract_address = Felt::try_from(
-            function_call
-                .contract_address
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
-        )?;
+        let contract_address = function_call
+            .contract_address
+            .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?
+            .try_into()?;
 
-        let entry_point_selector = Felt::try_from(
-            function_call
-                .entry_point_selector
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing entry_point_selector"))?,
-        )?;
+        let entry_point_selector = function_call
+            .entry_point_selector
+            .ok_or_else(|| Status::invalid_argument("Missing entry_point_selector"))?
+            .try_into()?;
 
-        let calldata = function_call.calldata.to_felts()?;
+        let calldata = function_call
+            .calldata
+            .into_iter()
+            .map(Felt::try_from)
+            .collect::<Result<Vec<Felt>, _>>()?;
 
         let response = self
             .api
             .call_contract(
-                FunctionCall {
-                    calldata,
-                    entry_point_selector,
-                    contract_address: contract_address.into(),
-                },
+                FunctionCall { calldata, entry_point_selector, contract_address },
                 block_id,
             )
             .await
@@ -443,14 +422,12 @@ where
     ) -> Result<Response<GetNonceResponse>, Status> {
         let req = request.into_inner();
         let block_id = block_id_from_proto(req.block_id)?;
-        let contract_address = Felt::try_from(
-            req.contract_address
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
-        )?;
+        let contract_address = req
+            .contract_address
+            .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?
+            .try_into()?;
 
-        let nonce =
-            self.api.nonce_at(block_id, contract_address.into()).await.into_grpc_result()?;
+        let nonce = self.api.nonce_at(block_id, contract_address).await.into_grpc_result()?;
 
         Ok(Response::new(GetNonceResponse { nonce: Some(nonce.into()) }))
     }
@@ -543,13 +520,11 @@ where
         &self,
         request: Request<TraceTransactionRequest>,
     ) -> Result<Response<TraceTransactionResponse>, Status> {
-        let _tx_hash = Felt::try_from(
-            request
-                .into_inner()
-                .transaction_hash
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
-        )?;
+        let _tx_hash: TxHash = request
+            .into_inner()
+            .transaction_hash
+            .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?
+            .try_into()?;
 
         // Trace requires access to the executor - not yet implemented
         Err(Status::unimplemented("trace_transaction not yet implemented for gRPC"))

@@ -34,35 +34,29 @@ impl From<katana_primitives::Felt> for proto::Felt {
     }
 }
 
-impl TryFrom<&proto::Felt> for katana_primitives::Felt {
-    type Error = Status;
-
-    fn try_from(proto: &proto::Felt) -> Result<Self, Self::Error> {
-        if proto.value.len() > 32 {
-            return Err(Status::invalid_argument("Felt value exceeds 32 bytes"));
-        }
-
-        // Pad the value to 32 bytes if necessary (big-endian)
-        let mut bytes = [0u8; 32];
-        let offset = 32 - proto.value.len();
-        bytes[offset..].copy_from_slice(&proto.value);
-
-        // from_bytes_be returns Felt directly (doesn't fail for valid 32-byte input)
-        Ok(Felt::from_bytes_be(&bytes))
-    }
-}
-
 impl TryFrom<proto::Felt> for katana_primitives::Felt {
     type Error = Status;
 
     fn try_from(proto: proto::Felt) -> Result<Self, Self::Error> {
-        Felt::try_from(&proto)
+        if proto.value.len() > 32 {
+            return Err(Status::invalid_argument("Felt value exceeds 32 bytes"));
+        }
+
+        Ok(Felt::from_bytes_be_slice(&proto.value))
     }
 }
 
 impl From<katana_primitives::ContractAddress> for proto::Felt {
     fn from(address: katana_primitives::ContractAddress) -> Self {
         Self { value: address.to_bytes_be().to_vec() }
+    }
+}
+
+impl TryFrom<proto::Felt> for katana_primitives::ContractAddress {
+    type Error = Status;
+
+    fn try_from(value: proto::Felt) -> Result<Self, Self::Error> {
+        Ok(Self::new(value.try_into()?))
     }
 }
 
@@ -74,17 +68,5 @@ pub trait FeltVecExt {
 impl FeltVecExt for [Felt] {
     fn to_proto_felts(&self) -> Vec<proto::Felt> {
         self.iter().copied().map(proto::Felt::from).collect()
-    }
-}
-
-/// Extension trait for converting vectors of proto Felts.
-#[allow(clippy::result_large_err)]
-pub trait ProtoFeltVecExt {
-    fn to_felts(&self) -> Result<Vec<Felt>, Status>;
-}
-
-impl ProtoFeltVecExt for [proto::Felt] {
-    fn to_felts(&self) -> Result<Vec<Felt>, Status> {
-        self.iter().map(Felt::try_from).collect()
     }
 }

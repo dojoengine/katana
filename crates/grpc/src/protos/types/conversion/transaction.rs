@@ -16,7 +16,7 @@ use katana_rpc_types::broadcasted::{
 use katana_rpc_types::class::RpcSierraContractClass;
 use tonic::Status;
 
-use super::{FeltVecExt, ProtoFeltVecExt};
+use super::FeltVecExt;
 use crate::proto;
 use crate::proto::{
     BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction,
@@ -47,6 +47,7 @@ fn da_mode_from_string(s: &str) -> Result<DataAvailabilityMode, Status> {
 /// Helper to extract a required Felt field from an Option.
 fn required_felt(field: Option<&ProtoFelt>, field_name: &str) -> Result<Felt, Status> {
     field
+        .cloned()
         .ok_or_else(|| Status::invalid_argument(format!("missing required field: {field_name}")))?
         .try_into()
 }
@@ -157,7 +158,7 @@ impl TryFrom<BroadcastedInvokeTransaction> for BroadcastedInvokeTx {
         let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
         let version = required_felt(proto.version.as_ref(), "version")?;
         let is_query = is_query_from_version(version)?;
-        let tip = proto.tip.as_ref().map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
+        let tip = proto.tip.map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
 
         let resource_bounds = proto
             .resource_bounds
@@ -166,12 +167,28 @@ impl TryFrom<BroadcastedInvokeTransaction> for BroadcastedInvokeTx {
 
         Ok(BroadcastedInvokeTx {
             sender_address: sender_address.into(),
-            calldata: proto.calldata.to_felts()?,
-            signature: proto.signature.to_felts()?,
+            calldata: proto
+                .calldata
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
+            signature: proto
+                .signature
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             nonce,
-            paymaster_data: proto.paymaster_data.to_felts()?,
+            paymaster_data: proto
+                .paymaster_data
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             tip: u64::try_from(tip).map_err(|_| Status::invalid_argument("tip overflow"))?.into(),
-            account_deployment_data: proto.account_deployment_data.to_felts()?,
+            account_deployment_data: proto
+                .account_deployment_data
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
             nonce_data_availability_mode: da_mode_from_string(&proto.nonce_data_availability_mode)?,
@@ -191,7 +208,7 @@ impl TryFrom<BroadcastedDeployAccountTransaction> for BroadcastedDeployAccountTx
             required_felt(proto.contract_address_salt.as_ref(), "contract_address_salt")?;
         let version = required_felt(proto.version.as_ref(), "version")?;
         let is_query = is_query_from_version(version)?;
-        let tip = proto.tip.as_ref().map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
+        let tip = proto.tip.map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
 
         let resource_bounds = proto
             .resource_bounds
@@ -199,12 +216,24 @@ impl TryFrom<BroadcastedDeployAccountTransaction> for BroadcastedDeployAccountTx
             .ok_or_else(|| Status::invalid_argument("missing required field: resource_bounds"))?;
 
         Ok(BroadcastedDeployAccountTx {
-            signature: proto.signature.to_felts()?,
+            signature: proto
+                .signature
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             nonce,
             contract_address_salt,
-            constructor_calldata: proto.constructor_calldata.to_felts()?,
+            constructor_calldata: proto
+                .constructor_calldata
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             class_hash,
-            paymaster_data: proto.paymaster_data.to_felts()?,
+            paymaster_data: proto
+                .paymaster_data
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             tip: u64::try_from(tip).map_err(|_| Status::invalid_argument("tip overflow"))?.into(),
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
@@ -215,11 +244,15 @@ impl TryFrom<BroadcastedDeployAccountTransaction> for BroadcastedDeployAccountTx
 }
 
 /// Convert proto ContractClass to RPC RpcSierraContractClass.
-impl TryFrom<&ProtoContractClass> for RpcSierraContractClass {
+impl TryFrom<ProtoContractClass> for RpcSierraContractClass {
     type Error = Status;
 
-    fn try_from(proto: &ProtoContractClass) -> Result<Self, Self::Error> {
-        let sierra_program = proto.sierra_program.to_felts()?;
+    fn try_from(proto: ProtoContractClass) -> Result<Self, Self::Error> {
+        let sierra_program = proto
+            .sierra_program
+            .into_iter()
+            .map(Felt::try_from)
+            .collect::<Result<Vec<Felt>, _>>()?;
 
         let entry_points = proto
             .entry_points_by_type
@@ -268,7 +301,7 @@ impl TryFrom<BroadcastedDeclareTransaction> for BroadcastedDeclareTx {
             required_felt(proto.compiled_class_hash.as_ref(), "compiled_class_hash")?;
         let version = required_felt(proto.version.as_ref(), "version")?;
         let is_query = is_query_from_version(version)?;
-        let tip = proto.tip.as_ref().map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
+        let tip = proto.tip.map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
 
         let resource_bounds = proto
             .resource_bounds
@@ -277,7 +310,6 @@ impl TryFrom<BroadcastedDeclareTransaction> for BroadcastedDeclareTx {
 
         let contract_class = proto
             .contract_class
-            .as_ref()
             .ok_or_else(|| Status::invalid_argument("missing required field: contract_class"))?;
 
         let rpc_contract_class = RpcSierraContractClass::try_from(contract_class)?;
@@ -285,12 +317,24 @@ impl TryFrom<BroadcastedDeclareTransaction> for BroadcastedDeclareTx {
         Ok(BroadcastedDeclareTx {
             sender_address: sender_address.into(),
             compiled_class_hash,
-            signature: proto.signature.to_felts()?,
+            signature: proto
+                .signature
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             nonce,
             contract_class: Arc::new(rpc_contract_class),
-            paymaster_data: proto.paymaster_data.to_felts()?,
+            paymaster_data: proto
+                .paymaster_data
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             tip: u64::try_from(tip).map_err(|_| Status::invalid_argument("tip overflow"))?.into(),
-            account_deployment_data: proto.account_deployment_data.to_felts()?,
+            account_deployment_data: proto
+                .account_deployment_data
+                .into_iter()
+                .map(Felt::try_from)
+                .collect::<Result<Vec<Felt>, _>>()?,
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
             nonce_data_availability_mode: da_mode_from_string(&proto.nonce_data_availability_mode)?,

@@ -21,7 +21,9 @@ fn felt_to_hex(felt: &Felt) -> String {
 
 fn block_id_latest() -> Option<BlockId> {
     Some(BlockId {
-        identifier: Some(katana_grpc::proto::block_id::Identifier::Tag("latest".into())),
+        identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
+            katana_grpc::proto::types::BlockTag::Latest as i32,
+        )),
     })
 }
 
