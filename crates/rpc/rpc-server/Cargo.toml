@@ -38,11 +38,8 @@ tower-http = { workspace = true, features = [ "cors", "trace" ] }
 tracing.workspace = true
 
 cainome = { workspace = true, optional = true }
-cainome-cairo-serde = { workspace = true, optional = true }
 cartridge = { workspace = true, optional = true }
 paymaster-rpc = { workspace = true, optional = true }
-reqwest = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 katana-tee = { workspace = true, optional = true }
@@ -87,7 +84,6 @@ url.workspace = true
 paymaster = [
 	"dep:paymaster-rpc",
 	"dep:url",
-	"dep:serde",
 	"katana-rpc-api/paymaster",
 ]
 vrf = [
@@ -95,10 +91,8 @@ vrf = [
 ]
 cartridge = [
 	"dep:cainome",
-	"dep:cainome-cairo-serde",
 	"dep:cartridge",
 	"dep:katana-genesis",
-	"dep:reqwest",
 	"dep:starknet",
 	"dep:starknet-paymaster",
 	"paymaster",

@@ -66,6 +66,7 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_paymaster::core::types::Call as PaymasterCall;
 use tracing::{debug, info};
 use url::Url;
+#[cfg(feature = "vrf")]
 pub use vrf::VrfServiceConfig;
 use vrf::{outside_execution_calls_len, request_random_call, VrfService};
 
@@ -76,7 +77,8 @@ pub struct CartridgeConfig {
     pub paymaster_api_key: Option<String>,
     pub controller_deployer_address: ContractAddress,
     pub controller_deployer_private_key: Felt,
-    pub vrf: Option<VrfServiceConfig>,
+    #[cfg(feature = "vrf")]
+    pub vrf: Option<vrf::VrfServiceConfig>,
 }
 
 #[allow(missing_debug_implementations)]
@@ -91,6 +93,7 @@ pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     controller_deployer_address: ContractAddress,
     /// The paymaster account private key.
     controller_deployer_private_key: Felt,
+    #[cfg(feature = "vrf")]
     vrf_service: Option<VrfService>,
 }
 
@@ -109,6 +112,7 @@ where
             paymaster_client: self.paymaster_client.clone(),
             controller_deployer_address: self.controller_deployer_address,
             controller_deployer_private_key: self.controller_deployer_private_key,
+            #[cfg(feature = "vrf")]
             vrf_service: self.vrf_service.clone(),
         }
     }
@@ -129,6 +133,7 @@ where
         config: CartridgeConfig,
     ) -> anyhow::Result<Self> {
         let api_client = cartridge::Client::new(config.api_url);
+        #[cfg(feature = "vrf")]
         let vrf_service = config.vrf.map(VrfService::new);
 
         info!(target: "rpc::cartridge", vrf_enabled = vrf_service.is_some(), "Cartridge API initialized.");
@@ -154,6 +159,7 @@ where
             paymaster_client,
             controller_deployer_address: config.controller_deployer_address,
             controller_deployer_private_key: config.controller_deployer_private_key,
+            #[cfg(feature = "vrf")]
             vrf_service,
         })
     }
@@ -209,6 +215,7 @@ where
                 build_execute_from_outside_call(address, &outside_execution, &signature);
             let mut user_address: Felt = address.into();
 
+            #[cfg(feature = "vrf")]
             if let Some(vrf_service) = &this.vrf_service {
                 // check first if the outside execution calls include a request_random call
                 if let Some((request_random_call, position)) =

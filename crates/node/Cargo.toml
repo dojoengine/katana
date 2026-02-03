@@ -60,7 +60,7 @@ paymaster = [
 	"katana-rpc-server/paymaster",
 ]
 vrf = [
-	"paymaster",
+	"katana-rpc-server/vrf",
 	"dep:stark-vrf",
 	"dep:ark-ff",
 ]
