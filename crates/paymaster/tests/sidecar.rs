@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
-use katana_paymaster::{wait_for_paymaster_ready, PaymasterSidecar};
+use katana_paymaster::{wait_for_paymaster_ready, PaymasterConfigBuilder, PaymasterSidecar};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, felt};
 use url::Url;
@@ -26,18 +26,21 @@ async fn test_sidecar_spawn_and_health_check() {
     let port = 3030;
     let api_key = "test-api-key".to_string();
 
-    // Build the sidecar using the builder pattern
-    let sidecar = PaymasterSidecar::new(
-        Url::parse("http://127.0.0.1:5050").unwrap(), // Mock RPC URL
-        port,
-        api_key.clone(),
-    )
-    .relayer(address!("0x1"), felt!("0x1"))
-    .gas_tank(address!("0x2"), felt!("0x2"))
-    .estimate_account(address!("0x3"), felt!("0x3"))
-    .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
-    .forwarder(address!("0x4"))
-    .chain_id(ChainId::SEPOLIA);
+    // Build the config using the builder pattern (unchecked since we don't have a real node)
+    let config = PaymasterConfigBuilder::new()
+        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+        .port(port)
+        .api_key(api_key.clone())
+        .relayer(address!("0x1"), felt!("0x1"))
+        .gas_tank(address!("0x2"), felt!("0x2"))
+        .estimate_account(address!("0x3"), felt!("0x3"))
+        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
+        .build_unchecked()
+        .expect("config should build");
+
+    // Create sidecar with forwarder and chain_id set directly (skip bootstrap)
+    let sidecar =
+        PaymasterSidecar::new(config).forwarder(address!("0x4")).chain_id(ChainId::SEPOLIA);
 
     // Spawn the sidecar
     let mut process = sidecar.start().await.expect("failed to spawn paymaster sidecar");
@@ -60,16 +63,21 @@ async fn test_sidecar_spawn_binary_not_found() {
     let port = 3031;
     let api_key = "test-api-key".to_string();
 
-    // Build the sidecar with a nonexistent binary path
+    // Build the config with a nonexistent binary path
+    let config = PaymasterConfigBuilder::new()
+        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+        .port(port)
+        .api_key(api_key)
+        .relayer(address!("0x1"), felt!("0x1"))
+        .gas_tank(address!("0x2"), felt!("0x2"))
+        .estimate_account(address!("0x3"), felt!("0x3"))
+        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
+        .program_path(PathBuf::from("/nonexistent/path/to/paymaster-service"))
+        .build_unchecked()
+        .expect("config should build");
+
     let sidecar =
-        PaymasterSidecar::new(Url::parse("http://127.0.0.1:5050").unwrap(), port, api_key)
-            .program_path(PathBuf::from("/nonexistent/path/to/paymaster-service"))
-            .relayer(address!("0x1"), felt!("0x1"))
-            .gas_tank(address!("0x2"), felt!("0x2"))
-            .estimate_account(address!("0x3"), felt!("0x3"))
-            .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
-            .forwarder(address!("0x4"))
-            .chain_id(ChainId::SEPOLIA);
+        PaymasterSidecar::new(config).forwarder(address!("0x4")).chain_id(ChainId::SEPOLIA);
 
     let result = sidecar.start().await;
     assert!(result.is_err(), "should fail when binary not found");
@@ -78,6 +86,71 @@ async fn test_sidecar_spawn_binary_not_found() {
     assert!(
         err.to_string().contains("not found"),
         "error should mention binary not found, got: {err}"
+    );
+}
+
+/// Test that the builder fails when required fields are missing.
+#[tokio::test]
+async fn test_builder_missing_required_fields() {
+    // Missing rpc_url
+    let result = PaymasterConfigBuilder::new()
+        .port(3030)
+        .api_key("key".to_string())
+        .relayer(address!("0x1"), felt!("0x1"))
+        .gas_tank(address!("0x2"), felt!("0x2"))
+        .estimate_account(address!("0x3"), felt!("0x3"))
+        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
+        .build_unchecked();
+
+    assert!(result.is_err(), "should fail when rpc_url is missing");
+    assert!(result.unwrap_err().to_string().contains("rpc_url"), "error should mention rpc_url");
+
+    // Missing api_key
+    let result = PaymasterConfigBuilder::new()
+        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+        .port(3030)
+        // Missing api_key
+        .relayer(address!("0x1"), felt!("0x1"))
+        .gas_tank(address!("0x2"), felt!("0x2"))
+        .estimate_account(address!("0x3"), felt!("0x3"))
+        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
+        .build_unchecked();
+
+    assert!(result.is_err(), "should fail when api_key is missing");
+    assert!(result.unwrap_err().to_string().contains("api_key"), "error should mention api_key");
+
+    // Missing relayer
+    let result = PaymasterConfigBuilder::new()
+        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+        .port(3030)
+        .api_key("key".to_string())
+        // Missing relayer
+        .gas_tank(address!("0x2"), felt!("0x2"))
+        .estimate_account(address!("0x3"), felt!("0x3"))
+        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
+        .build_unchecked();
+
+    assert!(result.is_err(), "should fail when relayer is missing");
+    assert!(
+        result.unwrap_err().to_string().contains("relayer_address"),
+        "error should mention relayer_address"
+    );
+
+    // Missing tokens
+    let result = PaymasterConfigBuilder::new()
+        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+        .port(3030)
+        .api_key("key".to_string())
+        .relayer(address!("0x1"), felt!("0x1"))
+        .gas_tank(address!("0x2"), felt!("0x2"))
+        .estimate_account(address!("0x3"), felt!("0x3"))
+        // Missing tokens
+        .build_unchecked();
+
+    assert!(result.is_err(), "should fail when tokens are missing");
+    assert!(
+        result.unwrap_err().to_string().contains("eth_token_address"),
+        "error should mention eth_token_address"
     );
 }
 

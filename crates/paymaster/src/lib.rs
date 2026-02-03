@@ -30,36 +30,23 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use url::Url;
 
-// ============================================================================
-// Constants
-// ============================================================================
-
 const FORWARDER_SALT: u64 = 0x12345;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
 
-// ============================================================================
-// Paymaster Sidecar Types
-// ============================================================================
-
-/// A running paymaster sidecar process with its configuration.
 #[derive(Debug)]
 pub struct PaymasterSidecarProcess {
-    /// The child process handle.
     process: Child,
-    /// The configuration used to start the sidecar.
-    config: PaymasterSidecarConfig,
+    profile: PaymasterProfile,
 }
 
 impl PaymasterSidecarProcess {
-    /// Get the child process handle.
     pub fn process(&mut self) -> &mut Child {
         &mut self.process
     }
 
-    /// Get the sidecar configuration.
-    pub fn config(&self) -> &PaymasterSidecarConfig {
-        &self.config
+    pub fn profile(&self) -> &PaymasterProfile {
+        &self.profile
     }
 
     /// Gracefully shutdown the sidecar process.
@@ -69,23 +56,22 @@ impl PaymasterSidecarProcess {
     }
 }
 
-/// The resolved configuration for a paymaster sidecar.
+// ============================================================================
+// PaymasterConfig and PaymasterConfigBuilder
+// ============================================================================
+
+/// Validated paymaster configuration.
+///
+/// This struct contains all the configuration needed to start a paymaster sidecar.
+/// Use [`PaymasterConfigBuilder`] to construct this.
 #[derive(Debug, Clone)]
-pub struct PaymasterSidecarConfig {
+pub struct PaymasterConfig {
+    /// RPC URL of the katana node.
+    pub rpc_url: Url,
     /// Port for the paymaster service.
     pub port: u16,
     /// API key for the paymaster service.
     pub api_key: String,
-    /// RPC URL of the katana node.
-    pub rpc_url: Url,
-    /// Forwarder contract address.
-    pub forwarder_address: ContractAddress,
-    /// Chain ID.
-    pub chain_id: ChainId,
-    /// Path to the paymaster-service binary, or None to look up in PATH.
-    pub program_path: Option<PathBuf>,
-    /// Price API key (for AVNU price feed).
-    pub price_api_key: Option<String>,
     /// Relayer account address.
     pub relayer_address: ContractAddress,
     /// Relayer account private key.
@@ -102,56 +88,101 @@ pub struct PaymasterSidecarConfig {
     pub eth_token_address: ContractAddress,
     /// STRK token contract address.
     pub strk_token_address: ContractAddress,
+    /// Path to the paymaster-service binary, or None to look up in PATH.
+    pub program_path: Option<PathBuf>,
+    /// Price API key (for AVNU price feed).
+    pub price_api_key: Option<String>,
 }
 
-/// Builder for configuring and starting the paymaster sidecar.
-#[derive(Debug, Clone)]
-pub struct PaymasterSidecar {
-    // Runtime configuration
+/// Builder for [`PaymasterConfig`] - ensures all required fields are set.
+///
+/// The builder validates all required arguments at build time and fails if any are missing.
+/// It also validates that all account addresses exist on-chain via RPC.
+///
+/// # Example
+///
+/// ```ignore
+/// let config = PaymasterConfigBuilder::new()
+///     .rpc_url(rpc_url)
+///     .port(3030)
+///     .api_key("paymaster_key".to_string())
+///     .relayer(relayer_addr, relayer_key)
+///     .gas_tank(gas_tank_addr, gas_tank_key)
+///     .estimate_account(estimate_addr, estimate_key)
+///     .tokens(eth_addr, strk_addr)
+///     .build()
+///     .await?;
+/// ```
+#[derive(Debug, Default)]
+pub struct PaymasterConfigBuilder {
+    // Required fields
+    rpc_url: Option<Url>,
+    port: Option<u16>,
+    api_key: Option<String>,
+    relayer_address: Option<ContractAddress>,
+    relayer_private_key: Option<Felt>,
+    gas_tank_address: Option<ContractAddress>,
+    gas_tank_private_key: Option<Felt>,
+    estimate_account_address: Option<ContractAddress>,
+    estimate_account_private_key: Option<Felt>,
+    eth_token_address: Option<ContractAddress>,
+    strk_token_address: Option<ContractAddress>,
+
+    // Optional fields
     program_path: Option<PathBuf>,
-    port: u16,
-    api_key: String,
     price_api_key: Option<String>,
-    rpc_url: Url,
-
-    // Account credentials
-    relayer_address: ContractAddress,
-    relayer_private_key: Felt,
-    gas_tank_address: ContractAddress,
-    gas_tank_private_key: Felt,
-    estimate_account_address: ContractAddress,
-    estimate_account_private_key: Felt,
-
-    // Token addresses
-    eth_token_address: ContractAddress,
-    strk_token_address: ContractAddress,
-
-    // Bootstrap-derived (can be set directly or via bootstrap)
-    forwarder_address: Option<ContractAddress>,
-    /// The chain ID (set via `chain_id()` or `bootstrap()`).
-    pub chain_id: Option<ChainId>,
 }
 
-impl PaymasterSidecar {
-    /// Create a new builder with required configuration.
-    pub fn new(rpc_url: Url, port: u16, api_key: String) -> Self {
-        Self {
-            rpc_url,
-            port,
-            api_key,
-            program_path: None,
-            price_api_key: None,
-            relayer_address: ContractAddress::default(),
-            relayer_private_key: Felt::ZERO,
-            gas_tank_address: ContractAddress::default(),
-            gas_tank_private_key: Felt::ZERO,
-            estimate_account_address: ContractAddress::default(),
-            estimate_account_private_key: Felt::ZERO,
-            eth_token_address: ContractAddress::default(),
-            strk_token_address: ContractAddress::default(),
-            forwarder_address: None,
-            chain_id: None,
-        }
+impl PaymasterConfigBuilder {
+    /// Create a new builder with no fields set.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the RPC URL of the katana node.
+    pub fn rpc_url(mut self, url: Url) -> Self {
+        self.rpc_url = Some(url);
+        self
+    }
+
+    /// Set the port for the paymaster service.
+    pub fn port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
+    }
+
+    /// Set the API key for the paymaster service.
+    pub fn api_key(mut self, key: String) -> Self {
+        self.api_key = Some(key);
+        self
+    }
+
+    /// Set relayer account credentials.
+    pub fn relayer(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.relayer_address = Some(address);
+        self.relayer_private_key = Some(private_key);
+        self
+    }
+
+    /// Set gas tank account credentials.
+    pub fn gas_tank(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.gas_tank_address = Some(address);
+        self.gas_tank_private_key = Some(private_key);
+        self
+    }
+
+    /// Set estimation account credentials.
+    pub fn estimate_account(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.estimate_account_address = Some(address);
+        self.estimate_account_private_key = Some(private_key);
+        self
+    }
+
+    /// Set token addresses.
+    pub fn tokens(mut self, eth: ContractAddress, strk: ContractAddress) -> Self {
+        self.eth_token_address = Some(eth);
+        self.strk_token_address = Some(strk);
+        self
     }
 
     /// Set the path to the paymaster-service binary.
@@ -166,32 +197,186 @@ impl PaymasterSidecar {
         self
     }
 
-    /// Set relayer account credentials.
-    pub fn relayer(mut self, address: ContractAddress, private_key: Felt) -> Self {
-        self.relayer_address = address;
-        self.relayer_private_key = private_key;
-        self
+    /// Build the [`PaymasterConfig`], validating all required fields.
+    ///
+    /// Also validates that all account addresses exist on-chain via RPC.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Any required field is missing
+    /// - Any account address does not exist on-chain
+    pub async fn build(self) -> Result<PaymasterConfig> {
+        // Validate required fields
+        let rpc_url = self.rpc_url.ok_or_else(|| anyhow!("missing required field: rpc_url"))?;
+        let port = self.port.ok_or_else(|| anyhow!("missing required field: port"))?;
+        let api_key = self.api_key.ok_or_else(|| anyhow!("missing required field: api_key"))?;
+        let relayer_address = self
+            .relayer_address
+            .ok_or_else(|| anyhow!("missing required field: relayer_address"))?;
+        let relayer_private_key = self
+            .relayer_private_key
+            .ok_or_else(|| anyhow!("missing required field: relayer_private_key"))?;
+        let gas_tank_address = self
+            .gas_tank_address
+            .ok_or_else(|| anyhow!("missing required field: gas_tank_address"))?;
+        let gas_tank_private_key = self
+            .gas_tank_private_key
+            .ok_or_else(|| anyhow!("missing required field: gas_tank_private_key"))?;
+        let estimate_account_address = self
+            .estimate_account_address
+            .ok_or_else(|| anyhow!("missing required field: estimate_account_address"))?;
+        let estimate_account_private_key = self
+            .estimate_account_private_key
+            .ok_or_else(|| anyhow!("missing required field: estimate_account_private_key"))?;
+        let eth_token_address = self
+            .eth_token_address
+            .ok_or_else(|| anyhow!("missing required field: eth_token_address"))?;
+        let strk_token_address = self
+            .strk_token_address
+            .ok_or_else(|| anyhow!("missing required field: strk_token_address"))?;
+
+        // Validate accounts exist on-chain
+        let provider = JsonRpcClient::new(HttpTransport::new(rpc_url.clone()));
+
+        if !is_deployed(&provider, relayer_address).await? {
+            return Err(anyhow!("relayer account {relayer_address} does not exist on chain"));
+        }
+
+        if !is_deployed(&provider, gas_tank_address).await? {
+            return Err(anyhow!("gas tank account {gas_tank_address} does not exist on chain"));
+        }
+
+        if !is_deployed(&provider, estimate_account_address).await? {
+            return Err(anyhow!(
+                "estimate account {estimate_account_address} does not exist on chain"
+            ));
+        }
+
+        Ok(PaymasterConfig {
+            rpc_url,
+            port,
+            api_key,
+            relayer_address,
+            relayer_private_key,
+            gas_tank_address,
+            gas_tank_private_key,
+            estimate_account_address,
+            estimate_account_private_key,
+            eth_token_address,
+            strk_token_address,
+            program_path: self.program_path,
+            price_api_key: self.price_api_key,
+        })
     }
 
-    /// Set gas tank account credentials.
-    pub fn gas_tank(mut self, address: ContractAddress, private_key: Felt) -> Self {
-        self.gas_tank_address = address;
-        self.gas_tank_private_key = private_key;
-        self
-    }
+    /// Build the [`PaymasterConfig`] without on-chain validation.
+    ///
+    /// This method validates that all required fields are set but does NOT check
+    /// if accounts exist on-chain. Use this for bootstrap scenarios where accounts
+    /// are known to exist from genesis.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any required field is missing.
+    pub fn build_unchecked(self) -> Result<PaymasterConfig> {
+        // Validate required fields
+        let rpc_url = self.rpc_url.ok_or_else(|| anyhow!("missing required field: rpc_url"))?;
+        let port = self.port.ok_or_else(|| anyhow!("missing required field: port"))?;
+        let api_key = self.api_key.ok_or_else(|| anyhow!("missing required field: api_key"))?;
+        let relayer_address = self
+            .relayer_address
+            .ok_or_else(|| anyhow!("missing required field: relayer_address"))?;
+        let relayer_private_key = self
+            .relayer_private_key
+            .ok_or_else(|| anyhow!("missing required field: relayer_private_key"))?;
+        let gas_tank_address = self
+            .gas_tank_address
+            .ok_or_else(|| anyhow!("missing required field: gas_tank_address"))?;
+        let gas_tank_private_key = self
+            .gas_tank_private_key
+            .ok_or_else(|| anyhow!("missing required field: gas_tank_private_key"))?;
+        let estimate_account_address = self
+            .estimate_account_address
+            .ok_or_else(|| anyhow!("missing required field: estimate_account_address"))?;
+        let estimate_account_private_key = self
+            .estimate_account_private_key
+            .ok_or_else(|| anyhow!("missing required field: estimate_account_private_key"))?;
+        let eth_token_address = self
+            .eth_token_address
+            .ok_or_else(|| anyhow!("missing required field: eth_token_address"))?;
+        let strk_token_address = self
+            .strk_token_address
+            .ok_or_else(|| anyhow!("missing required field: strk_token_address"))?;
 
-    /// Set estimation account credentials.
-    pub fn estimate_account(mut self, address: ContractAddress, private_key: Felt) -> Self {
-        self.estimate_account_address = address;
-        self.estimate_account_private_key = private_key;
-        self
+        Ok(PaymasterConfig {
+            rpc_url,
+            port,
+            api_key,
+            relayer_address,
+            relayer_private_key,
+            gas_tank_address,
+            gas_tank_private_key,
+            estimate_account_address,
+            estimate_account_private_key,
+            eth_token_address,
+            strk_token_address,
+            program_path: self.program_path,
+            price_api_key: self.price_api_key,
+        })
     }
+}
 
-    /// Set token addresses.
-    pub fn tokens(mut self, eth: ContractAddress, strk: ContractAddress) -> Self {
-        self.eth_token_address = eth;
-        self.strk_token_address = strk;
-        self
+// ============================================================================
+// PaymasterSidecar
+// ============================================================================
+
+/// Paymaster sidecar - handles bootstrapping and starting the sidecar process.
+///
+/// This struct accepts a validated [`PaymasterConfig`] and provides methods to:
+/// - Bootstrap the paymaster (deploy forwarder contract, whitelist relayer)
+/// - Start the sidecar process
+///
+/// # Example
+///
+/// ```ignore
+/// // Build and validate config
+/// let config = PaymasterConfigBuilder::new()
+///     .rpc_url(rpc_url)
+///     .port(3030)
+///     .api_key("paymaster_key".to_string())
+///     .relayer(relayer_addr, relayer_key)
+///     .gas_tank(gas_tank_addr, gas_tank_key)
+///     .estimate_account(estimate_addr, estimate_key)
+///     .tokens(eth_addr, strk_addr)
+///     .build()
+///     .await?;
+///
+/// // Create sidecar and bootstrap
+/// let mut sidecar = PaymasterSidecar::new(config);
+/// sidecar.bootstrap().await?;
+/// let process = sidecar.start().await?;
+///
+/// // Or skip bootstrap if forwarder/chain_id are known
+/// let process = PaymasterSidecar::new(config)
+///     .forwarder(known_forwarder)
+///     .chain_id(ChainId::SEPOLIA)
+///     .start()
+///     .await?;
+/// ```
+#[derive(Debug, Clone)]
+pub struct PaymasterSidecar {
+    config: PaymasterConfig,
+
+    // Bootstrap-derived (can be set directly or via bootstrap)
+    forwarder_address: Option<ContractAddress>,
+    chain_id: Option<ChainId>,
+}
+
+impl PaymasterSidecar {
+    /// Create a new sidecar from a validated config.
+    pub fn new(config: PaymasterConfig) -> Self {
+        Self { config, forwarder_address: None, chain_id: None }
     }
 
     /// Set forwarder address directly (skip deploying during bootstrap).
@@ -206,6 +391,11 @@ impl PaymasterSidecar {
         self
     }
 
+    /// Get the chain ID if set.
+    pub fn get_chain_id(&self) -> Option<ChainId> {
+        self.chain_id
+    }
+
     /// Bootstrap the paymaster by deploying the forwarder contract and whitelisting the relayer.
     ///
     /// This method:
@@ -217,7 +407,8 @@ impl PaymasterSidecar {
     ///
     /// After calling this method, `forwarder_address` and `chain_id` will be set.
     pub async fn bootstrap(&mut self) -> Result<ContractAddress> {
-        let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(self.rpc_url.clone())));
+        let provider =
+            Arc::new(JsonRpcClient::new(HttpTransport::new(self.config.rpc_url.clone())));
 
         // Get chain ID if not already set
         let chain_id_felt = if let Some(chain_id) = &self.chain_id {
@@ -235,21 +426,20 @@ impl PaymasterSidecar {
         let forwarder_address = get_contract_address(
             Felt::from(FORWARDER_SALT),
             forwarder_class_hash,
-            &[self.relayer_address.into(), self.gas_tank_address.into()],
+            &[self.config.relayer_address.into(), self.config.gas_tank_address.into()],
             Felt::ZERO,
         )
         .into();
 
         // Create the relayer account for transactions
-        let signer = LocalWallet::from(SigningKey::from_secret_scalar(self.relayer_private_key));
-        let mut account = SingleOwnerAccount::new(
+        let secret_key = SigningKey::from_secret_scalar(self.config.relayer_private_key);
+        let account = SingleOwnerAccount::new(
             provider.clone(),
-            signer,
-            self.relayer_address.into(),
+            LocalWallet::from(secret_key),
+            self.config.relayer_address.into(),
             chain_id_felt,
             ExecutionEncoding::New,
         );
-        account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
         // Deploy forwarder if not already deployed
         if !is_deployed(&provider, forwarder_address).await? {
@@ -257,7 +447,7 @@ impl PaymasterSidecar {
             let factory = ContractFactory::new(forwarder_class_hash, &account);
             factory
                 .deploy_v3(
-                    vec![self.relayer_address.into(), self.gas_tank_address.into()],
+                    vec![self.config.relayer_address.into(), self.config.gas_tank_address.into()],
                     Felt::from(FORWARDER_SALT),
                     false,
                 )
@@ -272,7 +462,7 @@ impl PaymasterSidecar {
         let whitelist_call = Call {
             to: forwarder_address.into(),
             selector: selector!("set_whitelisted_address"),
-            calldata: vec![self.relayer_address.into(), Felt::ONE],
+            calldata: vec![self.config.relayer_address.into(), Felt::ONE],
         };
 
         account
@@ -299,29 +489,11 @@ impl PaymasterSidecar {
             .chain_id
             .ok_or_else(|| anyhow!("chain_id not set - call bootstrap() or chain_id()"))?;
 
-        // Build the resolved config
-        let config = PaymasterSidecarConfig {
-            port: self.port,
-            api_key: self.api_key,
-            rpc_url: self.rpc_url,
-            forwarder_address,
-            chain_id,
-            program_path: self.program_path,
-            price_api_key: self.price_api_key,
-            relayer_address: self.relayer_address,
-            relayer_private_key: self.relayer_private_key,
-            gas_tank_address: self.gas_tank_address,
-            gas_tank_private_key: self.gas_tank_private_key,
-            estimate_account_address: self.estimate_account_address,
-            estimate_account_private_key: self.estimate_account_private_key,
-            eth_token_address: self.eth_token_address,
-            strk_token_address: self.strk_token_address,
-        };
-
         // Build profile and spawn process
-        let bin = config.program_path.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
+        let bin =
+            self.config.program_path.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
         let bin = resolve_executable(&bin)?;
-        let profile = build_paymaster_profile(&config)?;
+        let profile = build_paymaster_profile(&self.config, forwarder_address, chain_id)?;
         let profile_path = write_paymaster_profile(&profile)?;
 
         let mut command = Command::new(bin);
@@ -335,10 +507,10 @@ impl PaymasterSidecar {
 
         let process = command.spawn().context("failed to spawn paymaster sidecar")?;
 
-        let url = Url::parse(&format!("http://127.0.0.1:{}", config.port)).expect("valid url");
-        wait_for_paymaster_ready(&url, Some(&config.api_key), BOOTSTRAP_TIMEOUT).await?;
+        let url = Url::parse(&format!("http://127.0.0.1:{}", self.config.port)).expect("valid url");
+        wait_for_paymaster_ready(&url, Some(&self.config.api_key), BOOTSTRAP_TIMEOUT).await?;
 
-        Ok(PaymasterSidecarProcess { process, config })
+        Ok(PaymasterSidecarProcess { process, profile })
     }
 }
 
@@ -410,77 +582,81 @@ fn resolve_executable(path: &Path) -> Result<PathBuf> {
 // ============================================================================
 
 #[derive(Debug, Serialize)]
-struct PaymasterProfile {
-    verbosity: String,
+pub struct PaymasterProfile {
+    pub verbosity: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    prometheus: Option<PaymasterPrometheusProfile>,
-    rpc: PaymasterRpcProfile,
-    forwarder: String,
-    supported_tokens: Vec<String>,
-    max_fee_multiplier: f32,
-    provider_fee_overhead: f32,
-    estimate_account: PaymasterAccountProfile,
-    gas_tank: PaymasterAccountProfile,
-    relayers: PaymasterRelayersProfile,
-    starknet: PaymasterStarknetProfile,
-    price: PaymasterPriceProfile,
-    sponsoring: PaymasterSponsoringProfile,
+    pub prometheus: Option<PaymasterPrometheusProfile>,
+    pub rpc: PaymasterRpcProfile,
+    pub forwarder: String,
+    pub supported_tokens: Vec<String>,
+    pub max_fee_multiplier: f32,
+    pub provider_fee_overhead: f32,
+    pub estimate_account: PaymasterAccountProfile,
+    pub gas_tank: PaymasterAccountProfile,
+    pub relayers: PaymasterRelayersProfile,
+    pub starknet: PaymasterStarknetProfile,
+    pub price: PaymasterPriceProfile,
+    pub sponsoring: PaymasterSponsoringProfile,
 }
 
 #[derive(Debug, Serialize)]
-struct PaymasterPrometheusProfile {
-    endpoint: String,
+pub struct PaymasterPrometheusProfile {
+    pub endpoint: String,
 }
 
 #[derive(Debug, Serialize)]
-struct PaymasterRpcProfile {
-    port: u64,
+pub struct PaymasterRpcProfile {
+    pub port: u64,
 }
 
 #[derive(Debug, Serialize)]
-struct PaymasterAccountProfile {
-    address: String,
-    private_key: String,
+pub struct PaymasterAccountProfile {
+    pub address: String,
+    pub private_key: String,
 }
 
 #[derive(Debug, Serialize)]
-struct PaymasterRelayersProfile {
-    private_key: String,
-    addresses: Vec<String>,
-    min_relayer_balance: String,
-    lock: PaymasterLockProfile,
+pub struct PaymasterRelayersProfile {
+    pub private_key: String,
+    pub addresses: Vec<String>,
+    pub min_relayer_balance: String,
+    pub lock: PaymasterLockProfile,
 }
 
 #[derive(Debug, Serialize)]
-struct PaymasterLockProfile {
-    mode: String,
-    retry_timeout: u64,
+pub struct PaymasterLockProfile {
+    pub mode: String,
+    pub retry_timeout: u64,
 }
 
 #[derive(Debug, Serialize)]
-struct PaymasterStarknetProfile {
-    chain_id: String,
-    endpoint: String,
-    timeout: u64,
-    fallbacks: Vec<String>,
+pub struct PaymasterStarknetProfile {
+    pub chain_id: String,
+    pub endpoint: String,
+    pub timeout: u64,
+    pub fallbacks: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct PaymasterPriceProfile {
-    provider: String,
-    endpoint: String,
-    api_key: String,
+pub struct PaymasterPriceProfile {
+    pub provider: String,
+    pub endpoint: String,
+    pub api_key: String,
 }
 
 #[derive(Debug, Serialize)]
-struct PaymasterSponsoringProfile {
-    mode: String,
-    api_key: String,
-    sponsor_metadata: Vec<Felt>,
+pub struct PaymasterSponsoringProfile {
+    pub mode: String,
+    pub api_key: String,
+    pub sponsor_metadata: Vec<Felt>,
 }
 
-fn build_paymaster_profile(config: &PaymasterSidecarConfig) -> Result<PaymasterProfile> {
-    let chain_id = paymaster_chain_id(config.chain_id)?;
+fn build_paymaster_profile(
+    config: &PaymasterConfig,
+    forwarder_address: ContractAddress,
+    chain_id: ChainId,
+) -> Result<PaymasterProfile> {
+    let chain_id_str = paymaster_chain_id(chain_id)?;
     let price_endpoint = DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT;
     let price_api_key = config.price_api_key.clone().unwrap_or_default();
 
@@ -491,7 +667,7 @@ fn build_paymaster_profile(config: &PaymasterSidecarConfig) -> Result<PaymasterP
         verbosity: "info".to_string(),
         prometheus: None,
         rpc: PaymasterRpcProfile { port: config.port as u64 },
-        forwarder: format_felt(config.forwarder_address.into()),
+        forwarder: format_felt(forwarder_address.into()),
         supported_tokens: vec![eth_token, strk_token],
         max_fee_multiplier: 3.0,
         provider_fee_overhead: 0.1,
@@ -510,7 +686,7 @@ fn build_paymaster_profile(config: &PaymasterSidecarConfig) -> Result<PaymasterP
             lock: PaymasterLockProfile { mode: "seggregated".to_string(), retry_timeout: 5 },
         },
         starknet: PaymasterStarknetProfile {
-            chain_id,
+            chain_id: chain_id_str,
             endpoint: config.rpc_url.to_string(),
             timeout: 30,
             fallbacks: Vec::new(),

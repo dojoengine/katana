@@ -22,8 +22,8 @@ use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_T
 #[cfg(feature = "vrf")]
 use katana_node::config::paymaster::VrfConfig;
 pub use katana_paymaster::{
-    format_felt, wait_for_paymaster_ready, PaymasterSidecar, PaymasterSidecarConfig,
-    PaymasterSidecarProcess,
+    format_felt, wait_for_paymaster_ready, PaymasterConfig, PaymasterConfigBuilder,
+    PaymasterSidecar, PaymasterSidecarProcess,
 };
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt};
@@ -172,21 +172,24 @@ async fn bootstrap_paymaster_from_genesis(
     let (estimate_account_address, estimate_account_private_key) =
         prefunded_account(chain_spec, 2)?;
 
-    // Use the builder pattern to bootstrap
-    let mut sidecar = PaymasterSidecar::new(
-        input.rpc_url.clone(),
-        0, // Port not needed for bootstrap
-        String::new(),
-    )
-    .relayer(relayer_address, relayer_private_key)
-    .gas_tank(gas_tank_address, gas_tank_private_key)
-    .estimate_account(estimate_account_address, estimate_account_private_key);
+    // Build config without on-chain validation (accounts are from genesis)
+    let config = PaymasterConfigBuilder::new()
+        .rpc_url(input.rpc_url.clone())
+        .port(0) // Port not needed for bootstrap
+        .api_key(String::new())
+        .relayer(relayer_address, relayer_private_key)
+        .gas_tank(gas_tank_address, gas_tank_private_key)
+        .estimate_account(estimate_account_address, estimate_account_private_key)
+        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
+        .build_unchecked()?;
 
-    // Bootstrap deploys forwarder and gets chain_id
+    // Create sidecar and bootstrap (deploys forwarder and gets chain_id)
+    let mut sidecar = PaymasterSidecar::new(config);
     let forwarder_address = sidecar.bootstrap().await?;
 
-    // Extract chain_id from the builder (set during bootstrap)
-    let chain_id = sidecar.chain_id.ok_or_else(|| anyhow!("chain_id not set after bootstrap"))?;
+    // Extract chain_id (set during bootstrap)
+    let chain_id =
+        sidecar.get_chain_id().ok_or_else(|| anyhow!("chain_id not set after bootstrap"))?;
 
     Ok(PaymasterBootstrapInfo {
         relayer_address,
@@ -305,29 +308,36 @@ pub async fn start_sidecars(
     if let (Some(paymaster_cfg), Some(paymaster_bootstrap)) =
         (&config.paymaster, bootstrap.paymaster.as_ref())
     {
-        // Build and start the paymaster sidecar using the builder pattern
-        let mut sidecar = PaymasterSidecar::new(
-            paymaster_cfg.rpc_url.clone(),
-            paymaster_cfg.port,
-            paymaster_cfg.api_key.clone(),
-        )
-        .relayer(paymaster_bootstrap.relayer_address, paymaster_bootstrap.relayer_private_key)
-        .gas_tank(paymaster_bootstrap.gas_tank_address, paymaster_bootstrap.gas_tank_private_key)
-        .estimate_account(
-            paymaster_bootstrap.estimate_account_address,
-            paymaster_bootstrap.estimate_account_private_key,
-        )
-        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
-        .forwarder(paymaster_bootstrap.forwarder_address)
-        .chain_id(paymaster_bootstrap.chain_id);
+        // Build config using the builder pattern (unchecked since accounts are from genesis)
+        let mut builder = PaymasterConfigBuilder::new()
+            .rpc_url(paymaster_cfg.rpc_url.clone())
+            .port(paymaster_cfg.port)
+            .api_key(paymaster_cfg.api_key.clone())
+            .relayer(paymaster_bootstrap.relayer_address, paymaster_bootstrap.relayer_private_key)
+            .gas_tank(
+                paymaster_bootstrap.gas_tank_address,
+                paymaster_bootstrap.gas_tank_private_key,
+            )
+            .estimate_account(
+                paymaster_bootstrap.estimate_account_address,
+                paymaster_bootstrap.estimate_account_private_key,
+            )
+            .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS);
 
-        // Set optional fields
+        // Set optional fields on builder
         if let Some(bin) = &paymaster_cfg.options.bin {
-            sidecar = sidecar.program_path(bin.clone());
+            builder = builder.program_path(bin.clone());
         }
         if let Some(price_api_key) = &paymaster_cfg.options.price_api_key {
-            sidecar = sidecar.price_api_key(price_api_key.clone());
+            builder = builder.price_api_key(price_api_key.clone());
         }
+
+        let paymaster_config = builder.build_unchecked()?;
+
+        // Create sidecar with forwarder and chain_id from bootstrap
+        let sidecar = PaymasterSidecar::new(paymaster_config)
+            .forwarder(paymaster_bootstrap.forwarder_address)
+            .chain_id(paymaster_bootstrap.chain_id);
 
         paymaster_process = Some(sidecar.start().await?);
     }
