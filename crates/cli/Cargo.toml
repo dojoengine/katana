@@ -8,12 +8,10 @@ version.workspace = true
 [dependencies]
 katana-chain-spec.workspace = true
 katana-core.workspace = true
-katana-executor.workspace = true
 katana-messaging.workspace = true
 katana-node.workspace = true
 katana-genesis.workspace = true
 katana-primitives.workspace = true
-katana-provider.workspace = true
 katana-rpc-server.workspace = true
 katana-slot-controller = { workspace = true, optional = true }
 katana-tee = { workspace = true, optional = true }

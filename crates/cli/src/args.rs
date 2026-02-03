@@ -204,7 +204,7 @@ impl SequencerNodeArgs {
                     &self.paymaster,
                     #[cfg(feature = "vrf")]
                     &self.vrf,
-                    handle.node().backend(),
+                    &handle.node().config().chain,
                     handle.rpc().addr(),
                     #[cfg(feature = "vrf")]
                     vrf_sidecar.as_ref(),
@@ -248,7 +248,7 @@ impl SequencerNodeArgs {
                     &self.paymaster,
                     #[cfg(feature = "vrf")]
                     &self.vrf,
-                    handle.node().backend(),
+                    &handle.node().config().chain,
                     handle.rpc().addr(),
                     #[cfg(feature = "vrf")]
                     vrf_sidecar.as_ref(),

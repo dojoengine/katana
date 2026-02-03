@@ -16,8 +16,7 @@ pub use cartridge::vrf::{
     bootstrap_vrf, derive_vrf_accounts, start_vrf_sidecar, VrfBootstrapConfig, VrfBootstrapResult,
     VrfDerivedAccounts, VrfSidecarConfig, VrfSidecarInfo, VRF_SERVER_PORT,
 };
-use katana_core::backend::Backend;
-use katana_executor::ExecutorFactory;
+use katana_chain_spec::ChainSpec;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 #[cfg(feature = "vrf")]
@@ -28,7 +27,6 @@ pub use katana_paymaster::{
 };
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::ProviderFactory;
 use tokio::process::Child;
 use tracing::info;
 use url::Url;
@@ -143,20 +141,14 @@ pub struct PaymasterBootstrapInput {
 /// Bootstrap sidecars by deploying necessary contracts and preparing configuration.
 ///
 /// This must be called after the node is launched but before sidecars are started.
-pub async fn bootstrap_sidecars<EF, PF>(
+pub async fn bootstrap_sidecars(
     config: &BootstrapConfig,
-    backend: &Backend<EF, PF>,
-) -> Result<BootstrapResult>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
+    chain_spec: &ChainSpec,
+) -> Result<BootstrapResult> {
     let mut result = BootstrapResult::default();
 
     if let Some(paymaster_input) = &config.paymaster {
-        let bootstrap = bootstrap_paymaster_from_genesis(paymaster_input, backend).await?;
+        let bootstrap = bootstrap_paymaster_from_genesis(paymaster_input, chain_spec).await?;
         result.paymaster = Some(bootstrap);
     }
 
@@ -172,20 +164,15 @@ where
 /// Bootstrap the paymaster using genesis accounts from the backend.
 ///
 /// Always uses accounts 0, 1, 2 from genesis for relayer, gas tank, and estimate account.
-async fn bootstrap_paymaster_from_genesis<EF, PF>(
+async fn bootstrap_paymaster_from_genesis(
     input: &PaymasterBootstrapInput,
-    backend: &Backend<EF, PF>,
-) -> Result<PaymasterBootstrapInfo>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
+    chain_spec: &ChainSpec,
+) -> Result<PaymasterBootstrapInfo> {
     // Extract account info from genesis - always use accounts 0, 1, 2
-    let (relayer_address, relayer_private_key) = prefunded_account(backend, 0)?;
-    let (gas_tank_address, gas_tank_private_key) = prefunded_account(backend, 1)?;
-    let (estimate_account_address, estimate_account_private_key) = prefunded_account(backend, 2)?;
+    let (relayer_address, relayer_private_key) = prefunded_account(chain_spec, 0)?;
+    let (gas_tank_address, gas_tank_private_key) = prefunded_account(chain_spec, 1)?;
+    let (estimate_account_address, estimate_account_private_key) =
+        prefunded_account(chain_spec, 2)?;
 
     // Build bootstrap config for paymaster crate
     let bootstrap_config = PaymasterBootstrapConfig {
@@ -213,18 +200,8 @@ where
     })
 }
 
-fn prefunded_account<EF, PF>(
-    backend: &Backend<EF, PF>,
-    index: u16,
-) -> Result<(ContractAddress, Felt)>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
-    let (address, allocation) = backend
-        .chain_spec
+fn prefunded_account(chain_spec: &ChainSpec, index: u16) -> Result<(ContractAddress, Felt)> {
+    let (address, allocation) = chain_spec
         .genesis()
         .accounts()
         .nth(index as usize)
@@ -387,21 +364,15 @@ pub fn local_rpc_url(addr: &SocketAddr) -> Url {
 ///
 /// Returns `None` if no sidecars need to be started.
 #[cfg(feature = "cartridge")]
-pub async fn bootstrap_and_start_sidecars<EF, PF>(
+pub async fn bootstrap_and_start_sidecars(
     paymaster_sidecar: Option<&PaymasterSidecarInfo>,
     paymaster_options: &PaymasterOptions,
     #[cfg(feature = "vrf")] vrf_options: &VrfOptions,
-    backend: &Backend<EF, PF>,
+    chain_spec: &ChainSpec,
     rpc_addr: &SocketAddr,
-    #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfSidecarInfo>,
+    #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfConfig>,
     fee_enabled: bool,
-) -> Result<Option<SidecarProcesses>>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
+) -> Result<Option<SidecarProcesses>> {
     // Build RPC URL for paymaster bootstrap
     let rpc_url = local_rpc_url(rpc_addr);
 
@@ -409,7 +380,7 @@ where
     #[cfg(feature = "vrf")]
     let vrf_bootstrap_config = if vrf_sidecar.is_some() {
         // Always use the first genesis account (index 0)
-        let (source_address, source_private_key) = prefunded_account(backend, 0)?;
+        let (source_address, source_private_key) = prefunded_account(chain_spec, 0)?;
         Some(VrfBootstrapConfig {
             rpc_url: rpc_url.clone(),
             source_address,
@@ -428,7 +399,7 @@ where
     };
 
     // Bootstrap contracts
-    let bootstrap = bootstrap_sidecars(&bootstrap_config, backend).await?;
+    let bootstrap = bootstrap_sidecars(&bootstrap_config, chain_spec).await?;
 
     // Build sidecar start config
     let paymaster_config = paymaster_sidecar.map(|info| PaymasterStartConfig {
