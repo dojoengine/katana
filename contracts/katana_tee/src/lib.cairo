@@ -55,19 +55,6 @@ pub mod KatanaTee {
     }
 
 
-    // #[event]
-    // #[derive(Drop, starknet::Event)]
-    // enum Event {
-    //     /// Emitted when a non-zero storage commitment is verified and (optionally) sent to the
-    //     /// proxy.
-    //     StorageCommitmentVerified: StorageCommitmentVerifiedEvent,
-    // }
-
-    // #[derive(Drop, starknet::Event)]
-    // struct StorageCommitmentVerifiedEvent {
-    //     commitment: u256,
-    // }
-
     #[constructor]
     fn constructor(
         ref self: ContractState,

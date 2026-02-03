@@ -10,6 +10,7 @@ use amd_tee_registry::cert_cache::CertCacheComponent::{
 };
 use amd_tee_registry::tee_registry::AMDTEERegistry;
 use katana_tee::{IKatanaTeeDispatcher, IKatanaTeeDispatcherTrait};
+use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatcherTrait};
 use snforge_std::fs::{FileParser, FileTrait, read_txt};
 use snforge_std::{
     ContractClassTrait, DeclareResultTrait, EventSpyTrait, EventsFilterTrait, declare, spy_events,
@@ -21,9 +22,9 @@ const GARAGA_CLASS_HASH: felt252 =
     0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22;
 
 /// SP1 program ID for the AMD attestation verifier
-const SP1_PROGRAM_ID_LOW: felt252 = 0xea077510823adf4b1255ada5d2977402;
-const SP1_PROGRAM_ID_HIGH: felt252 = 0x00613d956661ba71ff3d4d75fba28b79;
-
+const SP1_PROGRAM_ID_LOW: felt252 = 0x8323ce49dba9b22fc128157fb9cb4ff0;
+const SP1_PROGRAM_ID_HIGH: felt252 = 0x008d500940a54e9411d515f14090769b;
+ 
 /// Max time difference for attestation validation (1 year for testing with old fixtures)
 const MAX_TIME_DIFF: u64 = 31536000;
 
@@ -55,9 +56,16 @@ fn deploy_amd_registry_live_mode() -> ContractAddress {
         1, 1, // ProcessorType::Genoa
         // root_certs array (Genoa root cert hash)
         1,
-        certs.genoa_ark_hash_low, certs.genoa_ark_hash_high, 0 // storage_commitment_proxy
+        certs.genoa_ark_hash_low, certs.genoa_ark_hash_high,
     ];
 
+    let (contract_address, _) = contract.deploy(@calldata).unwrap();
+    contract_address
+}
+
+fn deploy_storage_commitment_registry() -> ContractAddress {
+    let contract = declare("StorageCommitment").unwrap().contract_class();
+    let mut calldata: Array<felt252> = array![];
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
 }
@@ -65,13 +73,28 @@ fn deploy_amd_registry_live_mode() -> ContractAddress {
 /// Deploy the KatanaTee contract for testing
 fn deploy_katana_tee(registry_address: ContractAddress) -> ContractAddress {
     let contract = declare("KatanaTee").unwrap().contract_class();
+    let storage_commitment_registry = deploy_storage_commitment_registry();
 
     let mut calldata: Array<felt252> = array![];
     calldata.append(registry_address.into());
+    calldata.append(storage_commitment_registry.into());
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
 }
+
+fn deploy_katana_tee_and_storage_commitment_registry(registry_address: ContractAddress) -> (ContractAddress, ContractAddress) {
+    let contract = declare("KatanaTee").unwrap().contract_class();
+    let storage_commitment_registry = deploy_storage_commitment_registry();
+
+    let mut calldata: Array<felt252> = array![];
+    calldata.append(registry_address.into());
+    calldata.append(storage_commitment_registry.into());
+
+    let (katana_contract_address, _) = contract.deploy(@calldata).unwrap();
+    (katana_contract_address, storage_commitment_registry)
+}
+
 
 /// Load calldata from a fixture file
 fn load_calldata_from_fixture(path: ByteArray) -> Array<felt252> {
@@ -142,4 +165,101 @@ fn test_verify_blocks_with_cache_progression() {
     println!("Block 2 verified successfully");
 
     println!("=== All blocks verified with cache progression ===");
+}
+
+#[test]
+#[fork("MAINNET")]
+fn test_verify_and_update_state() {
+    // Use a dummy address for the registry
+    let registry_address = deploy_amd_registry_live_mode();
+    let (katana_address, storage_commitment_registry_address) = deploy_katana_tee_and_storage_commitment_registry(registry_address);
+    let katana_dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
+    let storage_commitment_dispatcher = IStorageCommitmentDispatcher { contract_address: storage_commitment_registry_address };
+
+    let sp1_proof = load_calldata_from_fixture("../../tests/fixtures/sp1_proof_as_calldata.txt");
+    let state_root: felt252 = 0x4ff77ff86b29cd49b7c37d57fa7f1ea06d6c09145c4e18e82fb9667359f2c26;
+    let block_hash: felt252 = 0x26198ccf53a6611cd2a6cab0906e98f7e7524ec163d266aec615ab2def91809;
+    let block_number: u64 = 6149472;
+
+    // Start spying BEFORE the action
+    let mut spy = spy_events();
+
+    let result = katana_dispatcher.verify_and_update_state(sp1_proof, state_root, block_hash, block_number).unwrap();
+
+    // Get events AFTER the action
+    let events = spy.get_events().emitted_by(katana_address);
+    println!("Events emitted: {}", events.events.len());
+
+    // Print event details
+    for i in 0..events.events.len() {
+        let (_, event) = events.events.at(i);
+        println!("Event {}: keys={}, data={}", i, event.keys.len(), event.data.len());
+
+        // Print first key (usually the event name selector)
+        if event.keys.len() > 0 {
+            println!("  key[0]: {:?}", *event.keys.at(0));
+        }
+        // Print data in hex
+        for j in 0..event.data.len() {
+            println!("  data[{}]: {:x}", j, *event.data.at(j));
+        }
+    }
+
+    assert(result == true, 'Verify true');
+
+    // Extract storage commitment from the event data (data[0]=low, data[1]=high)
+    let (_, event) = events.events.at(0);
+    let commitment_low: u128 = (*event.data.at(0)).try_into().unwrap();
+    let commitment_high: u128 = (*event.data.at(1)).try_into().unwrap();
+    let storage_commitment = u256 { low: commitment_low, high: commitment_high };
+
+    println!("Checking storage commitment: {:x}", storage_commitment);
+    assert(storage_commitment_dispatcher.is_verified(storage_commitment), 'Storage commitment not verified');
+}
+
+use core::poseidon::poseidon_hash_span;
+
+/// Helper function to compute commitment the same way as sharding contract
+/// poseidon_hash([keys..., values...]) converted to u256
+fn compute_commitment_helper(storage_changes: Span<(felt252, felt252)>) -> u256 {
+    let mut data: Array<felt252> = ArrayTrait::new();
+
+    // First all keys
+    for change in storage_changes {
+        let (key, _) = *change;
+        data.append(key);
+    }
+
+    // Then all values
+    for change in storage_changes {
+        let (_, value) = *change;
+        data.append(value);
+    }
+
+    poseidon_hash_span(data.span()).into()
+}
+
+#[test]
+fn test_compute_commitment_matches_rust_format() {
+    // This test verifies the format matches Rust side:
+    // Poseidon::hash_array(&[keys..., values...])
+    //
+    // For storage_changes = [(key1, val1), (key2, val2)]
+    // The hash input should be: [key1, key2, val1, val2]
+
+    let storage_changes: Array<(felt252, felt252)> = array![
+        (0x7ebcc807b5c7e19f245995a55aed6f46f5f582f476a886b91b834b0ddf5854, 0x3),
+    ];
+
+    let commitment = compute_commitment_helper(storage_changes.span());
+
+    // Verify format: hash([key, value])
+    let expected_input: Array<felt252> = array![
+        0x7ebcc807b5c7e19f245995a55aed6f46f5f582f476a886b91b834b0ddf5854, 0x3,
+    ];
+    let expected: u256 = poseidon_hash_span(expected_input.span()).into();
+
+    assert!(commitment == expected, "Commitment should match Rust format");
+
+    println!("Real slot commitment: {:?}", commitment);
 }

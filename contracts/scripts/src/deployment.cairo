@@ -12,8 +12,8 @@ const GARAGA_CLASS_HASH: felt252 =
     0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22;
 
 // SP1 program ID
-const SP1_PROGRAM_ID_LOW: felt252 = 0xea077510823adf4b1255ada5d2977402;
-const SP1_PROGRAM_ID_HIGH: felt252 = 0x00613d956661ba71ff3d4d75fba28b79;
+const SP1_PROGRAM_ID_LOW: felt252 = 0x8323ce49dba9b22fc128157fb9cb4ff0;
+const SP1_PROGRAM_ID_HIGH: felt252 = 0x008d500940a54e9411d515f14090769b;
 
 #[derive(Drop, Serde)]
 struct RootCerts {
