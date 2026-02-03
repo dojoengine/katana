@@ -22,12 +22,11 @@ use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_T
 #[cfg(feature = "vrf")]
 use katana_node::config::paymaster::VrfConfig;
 pub use katana_paymaster::{
-    bootstrap_paymaster, format_felt, start_paymaster_sidecar, wait_for_paymaster_ready,
-    PaymasterBootstrapConfig, PaymasterBootstrapResult, PaymasterSidecarConfig,
+    format_felt, wait_for_paymaster_ready, PaymasterSidecar, PaymasterSidecarConfig,
+    PaymasterSidecarProcess,
 };
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt};
-use tokio::process::Child;
 use tracing::info;
 use url::Url;
 
@@ -128,7 +127,6 @@ pub struct BootstrapConfig {
     pub fee_enabled: bool,
 }
 
-/// Input for paymaster bootstrap (extracted from genesis accounts).
 pub struct PaymasterBootstrapInput {
     /// RPC URL for the katana node.
     pub rpc_url: Url,
@@ -174,19 +172,21 @@ async fn bootstrap_paymaster_from_genesis(
     let (estimate_account_address, estimate_account_private_key) =
         prefunded_account(chain_spec, 2)?;
 
-    // Build bootstrap config for paymaster crate
-    let bootstrap_config = PaymasterBootstrapConfig {
-        rpc_url: input.rpc_url.clone(),
-        relayer_address,
-        relayer_private_key,
-        gas_tank_address,
-        gas_tank_private_key,
-        estimate_account_address,
-        estimate_account_private_key,
-    };
+    // Use the builder pattern to bootstrap
+    let mut sidecar = PaymasterSidecar::new(
+        input.rpc_url.clone(),
+        0, // Port not needed for bootstrap
+        String::new(),
+    )
+    .relayer(relayer_address, relayer_private_key)
+    .gas_tank(gas_tank_address, gas_tank_private_key)
+    .estimate_account(estimate_account_address, estimate_account_private_key);
 
-    // Call the paymaster crate's bootstrap function (uses RPC)
-    let bootstrap_result = bootstrap_paymaster(&bootstrap_config).await?;
+    // Bootstrap deploys forwarder and gets chain_id
+    let forwarder_address = sidecar.bootstrap().await?;
+
+    // Extract chain_id from the builder (set during bootstrap)
+    let chain_id = sidecar.chain_id.ok_or_else(|| anyhow!("chain_id not set after bootstrap"))?;
 
     Ok(PaymasterBootstrapInfo {
         relayer_address,
@@ -195,8 +195,8 @@ async fn bootstrap_paymaster_from_genesis(
         gas_tank_private_key,
         estimate_account_address,
         estimate_account_private_key,
-        forwarder_address: bootstrap_result.forwarder_address,
-        chain_id: bootstrap_result.chain_id,
+        forwarder_address,
+        chain_id,
     })
 }
 
@@ -224,19 +224,22 @@ fn prefunded_account(chain_spec: &ChainSpec, index: u16) -> Result<(ContractAddr
 /// When dropped, the sidecar processes are killed.
 #[derive(Debug)]
 pub struct SidecarProcesses {
-    paymaster: Option<Child>,
+    paymaster: Option<PaymasterSidecarProcess>,
     #[cfg(feature = "vrf")]
-    vrf: Option<Child>,
+    vrf: Option<tokio::process::Child>,
 }
 
 impl SidecarProcesses {
     #[cfg(feature = "vrf")]
-    pub fn new(paymaster: Option<Child>, vrf: Option<Child>) -> Self {
+    pub fn new(
+        paymaster: Option<PaymasterSidecarProcess>,
+        vrf: Option<tokio::process::Child>,
+    ) -> Self {
         Self { paymaster, vrf }
     }
 
     #[cfg(not(feature = "vrf"))]
-    pub fn new(paymaster: Option<Child>) -> Self {
+    pub fn new(paymaster: Option<PaymasterSidecarProcess>) -> Self {
         Self { paymaster }
     }
 
@@ -244,9 +247,9 @@ impl SidecarProcesses {
     ///
     /// This kills each process and waits for it to exit.
     pub async fn shutdown(&mut self) {
-        if let Some(ref mut child) = self.paymaster {
+        if let Some(ref mut process) = self.paymaster {
             info!(target: "sidecar", "shutting down paymaster sidecar");
-            let _ = child.kill().await;
+            let _ = process.shutdown().await;
         }
         #[cfg(feature = "vrf")]
         if let Some(ref mut child) = self.vrf {
@@ -258,8 +261,8 @@ impl SidecarProcesses {
 
 impl Drop for SidecarProcesses {
     fn drop(&mut self) {
-        if let Some(mut child) = self.paymaster.take() {
-            let _ = child.start_kill();
+        if let Some(mut process) = self.paymaster.take() {
+            let _ = process.process().start_kill();
         }
         #[cfg(feature = "vrf")]
         if let Some(mut child) = self.vrf.take() {
@@ -295,31 +298,38 @@ pub async fn start_sidecars(
     config: &SidecarStartConfig<'_>,
     bootstrap: &BootstrapResult,
 ) -> Result<SidecarProcesses> {
-    let mut paymaster_child = None;
+    let mut paymaster_process = None;
     #[cfg(feature = "vrf")]
     let mut vrf_child = None;
 
     if let (Some(paymaster_cfg), Some(paymaster_bootstrap)) =
         (&config.paymaster, bootstrap.paymaster.as_ref())
     {
-        let sidecar_config = PaymasterSidecarConfig {
-            program_path: paymaster_cfg.options.bin.clone(),
-            port: paymaster_cfg.port,
-            api_key: paymaster_cfg.api_key.clone(),
-            price_api_key: paymaster_cfg.options.price_api_key.clone(),
-            relayer_address: paymaster_bootstrap.relayer_address,
-            relayer_private_key: paymaster_bootstrap.relayer_private_key,
-            gas_tank_address: paymaster_bootstrap.gas_tank_address,
-            gas_tank_private_key: paymaster_bootstrap.gas_tank_private_key,
-            estimate_account_address: paymaster_bootstrap.estimate_account_address,
-            estimate_account_private_key: paymaster_bootstrap.estimate_account_private_key,
-            forwarder_address: paymaster_bootstrap.forwarder_address,
-            chain_id: paymaster_bootstrap.chain_id,
-            rpc_url: paymaster_cfg.rpc_url.clone(),
-            eth_token_address: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
-            strk_token_address: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-        };
-        paymaster_child = Some(start_paymaster_sidecar(&sidecar_config).await?);
+        // Build and start the paymaster sidecar using the builder pattern
+        let mut sidecar = PaymasterSidecar::new(
+            paymaster_cfg.rpc_url.clone(),
+            paymaster_cfg.port,
+            paymaster_cfg.api_key.clone(),
+        )
+        .relayer(paymaster_bootstrap.relayer_address, paymaster_bootstrap.relayer_private_key)
+        .gas_tank(paymaster_bootstrap.gas_tank_address, paymaster_bootstrap.gas_tank_private_key)
+        .estimate_account(
+            paymaster_bootstrap.estimate_account_address,
+            paymaster_bootstrap.estimate_account_private_key,
+        )
+        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
+        .forwarder(paymaster_bootstrap.forwarder_address)
+        .chain_id(paymaster_bootstrap.chain_id);
+
+        // Set optional fields
+        if let Some(bin) = &paymaster_cfg.options.bin {
+            sidecar = sidecar.program_path(bin.clone());
+        }
+        if let Some(price_api_key) = &paymaster_cfg.options.price_api_key {
+            sidecar = sidecar.price_api_key(price_api_key.clone());
+        }
+
+        paymaster_process = Some(sidecar.start().await?);
     }
 
     #[cfg(feature = "vrf")]
@@ -330,9 +340,9 @@ pub async fn start_sidecars(
     }
 
     #[cfg(feature = "vrf")]
-    let processes = SidecarProcesses::new(paymaster_child, vrf_child);
+    let processes = SidecarProcesses::new(paymaster_process, vrf_child);
     #[cfg(not(feature = "vrf"))]
-    let processes = SidecarProcesses::new(paymaster_child);
+    let processes = SidecarProcesses::new(paymaster_process);
 
     Ok(processes)
 }
@@ -370,7 +380,7 @@ pub async fn bootstrap_and_start_sidecars(
     #[cfg(feature = "vrf")] vrf_options: &VrfOptions,
     chain_spec: &ChainSpec,
     rpc_addr: &SocketAddr,
-    #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfConfig>,
+    #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfSidecarInfo>,
     fee_enabled: bool,
 ) -> Result<Option<SidecarProcesses>> {
     // Build RPC URL for paymaster bootstrap
@@ -402,7 +412,7 @@ pub async fn bootstrap_and_start_sidecars(
     let bootstrap = bootstrap_sidecars(&bootstrap_config, chain_spec).await?;
 
     // Build sidecar start config
-    let paymaster_config = paymaster_sidecar.map(|info| PaymasterStartConfig {
+    let paymaster_start_config = paymaster_sidecar.map(|info| PaymasterStartConfig {
         options: paymaster_options,
         port: info.port,
         api_key: info.api_key.clone(),
@@ -414,7 +424,7 @@ pub async fn bootstrap_and_start_sidecars(
         vrf_sidecar.map(|info| VrfStartConfig { options: vrf_options, port: info.port });
 
     let start_config = SidecarStartConfig {
-        paymaster: paymaster_config,
+        paymaster: paymaster_start_config,
         #[cfg(feature = "vrf")]
         vrf: vrf_config,
     };

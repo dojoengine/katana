@@ -39,158 +39,312 @@ const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
 
 // ============================================================================
-// Bootstrap Configuration Types
+// Paymaster Sidecar Types
 // ============================================================================
 
-/// Bootstrap configuration for the paymaster service.
-/// These are the input parameters needed to perform bootstrap.
-#[derive(Debug, Clone)]
-pub struct PaymasterBootstrapConfig {
-    /// RPC URL of the katana node.
-    pub rpc_url: Url,
-
-    /// Relayer account address (prefunded account).
-    pub relayer_address: ContractAddress,
-    /// Relayer account private key.
-    pub relayer_private_key: Felt,
-
-    /// Gas tank account address (prefunded account).
-    pub gas_tank_address: ContractAddress,
-    /// Gas tank account private key.
-    pub gas_tank_private_key: Felt,
-
-    /// Estimation account address (prefunded account).
-    pub estimate_account_address: ContractAddress,
-    /// Estimation account private key.
-    pub estimate_account_private_key: Felt,
+/// A running paymaster sidecar process with its configuration.
+#[derive(Debug)]
+pub struct PaymasterSidecarProcess {
+    /// The child process handle.
+    process: Child,
+    /// The configuration used to start the sidecar.
+    config: PaymasterSidecarConfig,
 }
 
-/// Result of bootstrap operations.
-#[derive(Debug, Clone)]
-pub struct PaymasterBootstrapResult {
-    /// The deployed forwarder contract address.
-    pub forwarder_address: ContractAddress,
-    /// The chain ID of the network.
-    pub chain_id: ChainId,
+impl PaymasterSidecarProcess {
+    /// Get the child process handle.
+    pub fn process(&mut self) -> &mut Child {
+        &mut self.process
+    }
+
+    /// Get the sidecar configuration.
+    pub fn config(&self) -> &PaymasterSidecarConfig {
+        &self.config
+    }
+
+    /// Gracefully shutdown the sidecar process.
+    pub async fn shutdown(&mut self) -> Result<()> {
+        self.process.kill().await?;
+        Ok(())
+    }
 }
 
-/// Configuration for the paymaster sidecar process.
+/// The resolved configuration for a paymaster sidecar.
 #[derive(Debug, Clone)]
 pub struct PaymasterSidecarConfig {
-    /// Path to the paymaster-service binary, or None to look up in PATH.
-    pub program_path: Option<PathBuf>,
-
     /// Port for the paymaster service.
     pub port: u16,
     /// API key for the paymaster service.
     pub api_key: String,
+    /// RPC URL of the katana node.
+    pub rpc_url: Url,
+    /// Forwarder contract address.
+    pub forwarder_address: ContractAddress,
+    /// Chain ID.
+    pub chain_id: ChainId,
+    /// Path to the paymaster-service binary, or None to look up in PATH.
+    pub program_path: Option<PathBuf>,
     /// Price API key (for AVNU price feed).
     pub price_api_key: Option<String>,
-
     /// Relayer account address.
     pub relayer_address: ContractAddress,
     /// Relayer account private key.
     pub relayer_private_key: Felt,
-
     /// Gas tank account address.
     pub gas_tank_address: ContractAddress,
     /// Gas tank account private key.
     pub gas_tank_private_key: Felt,
-
     /// Estimation account address.
     pub estimate_account_address: ContractAddress,
     /// Estimation account private key.
     pub estimate_account_private_key: Felt,
-
-    /// Forwarder contract address (from bootstrap result).
-    pub forwarder_address: ContractAddress,
-
-    /// Chain ID (from bootstrap result).
-    pub chain_id: ChainId,
-    /// RPC URL of the katana node.
-    pub rpc_url: Url,
-
     /// ETH token contract address.
     pub eth_token_address: ContractAddress,
     /// STRK token contract address.
     pub strk_token_address: ContractAddress,
 }
 
-// ============================================================================
-// Bootstrap Functions
-// ============================================================================
+/// Builder for configuring and starting the paymaster sidecar.
+#[derive(Debug, Clone)]
+pub struct PaymasterSidecar {
+    // Runtime configuration
+    program_path: Option<PathBuf>,
+    port: u16,
+    api_key: String,
+    price_api_key: Option<String>,
+    rpc_url: Url,
 
-/// Bootstrap the paymaster by deploying the forwarder contract via RPC.
-///
-/// This function:
-/// 1. Connects to the node via RPC
-/// 2. Gets the chain ID
-/// 3. Computes the deterministic forwarder address
-/// 4. Deploys the forwarder if not already deployed
-/// 5. Whitelists the relayer address
-pub async fn bootstrap_paymaster(
-    config: &PaymasterBootstrapConfig,
-) -> Result<PaymasterBootstrapResult> {
-    let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(config.rpc_url.clone())));
+    // Account credentials
+    relayer_address: ContractAddress,
+    relayer_private_key: Felt,
+    gas_tank_address: ContractAddress,
+    gas_tank_private_key: Felt,
+    estimate_account_address: ContractAddress,
+    estimate_account_private_key: Felt,
 
-    // Get chain ID from the node
-    let chain_id_felt = provider.chain_id().await.context("failed to get chain ID from node")?;
-    let chain_id = ChainId::Id(chain_id_felt);
+    // Token addresses
+    eth_token_address: ContractAddress,
+    strk_token_address: ContractAddress,
 
-    let forwarder_class_hash = avnu_forwarder_class_hash()?;
-    // When using UDC with unique=0 (non-unique deployment), the deployer_address
-    // used in address computation is 0, not the actual deployer or UDC address.
-    let forwarder_address = get_contract_address(
-        Felt::from(FORWARDER_SALT),
-        forwarder_class_hash,
-        &[config.relayer_address.into(), config.gas_tank_address.into()],
-        Felt::ZERO,
-    )
-    .into();
+    // Bootstrap-derived (can be set directly or via bootstrap)
+    forwarder_address: Option<ContractAddress>,
+    /// The chain ID (set via `chain_id()` or `bootstrap()`).
+    pub chain_id: Option<ChainId>,
+}
 
-    // Create the relayer account for transactions
-    let signer = LocalWallet::from(SigningKey::from_secret_scalar(config.relayer_private_key));
-    let mut account = SingleOwnerAccount::new(
-        provider.clone(),
-        signer,
-        config.relayer_address.into(),
-        chain_id_felt,
-        ExecutionEncoding::New,
-    );
-    account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
-
-    // Deploy forwarder if not already deployed
-    if !is_deployed(&provider, forwarder_address).await? {
-        #[allow(deprecated)]
-        let factory = ContractFactory::new(forwarder_class_hash, &account);
-        factory
-            .deploy_v3(
-                vec![config.relayer_address.into(), config.gas_tank_address.into()],
-                Felt::from(FORWARDER_SALT),
-                false,
-            )
-            .send()
-            .await
-            .map_err(|e| anyhow!("failed to deploy forwarder: {e}"))?;
-
-        wait_for_contract(&provider, forwarder_address, BOOTSTRAP_TIMEOUT).await?;
+impl PaymasterSidecar {
+    /// Create a new builder with required configuration.
+    pub fn new(rpc_url: Url, port: u16, api_key: String) -> Self {
+        Self {
+            rpc_url,
+            port,
+            api_key,
+            program_path: None,
+            price_api_key: None,
+            relayer_address: ContractAddress::default(),
+            relayer_private_key: Felt::ZERO,
+            gas_tank_address: ContractAddress::default(),
+            gas_tank_private_key: Felt::ZERO,
+            estimate_account_address: ContractAddress::default(),
+            estimate_account_private_key: Felt::ZERO,
+            eth_token_address: ContractAddress::default(),
+            strk_token_address: ContractAddress::default(),
+            forwarder_address: None,
+            chain_id: None,
+        }
     }
 
-    // Whitelist the relayer
-    let whitelist_call = Call {
-        to: forwarder_address.into(),
-        selector: selector!("set_whitelisted_address"),
-        calldata: vec![config.relayer_address.into(), Felt::ONE],
-    };
+    /// Set the path to the paymaster-service binary.
+    pub fn program_path(mut self, path: PathBuf) -> Self {
+        self.program_path = Some(path);
+        self
+    }
 
-    account
-        .execute_v3(vec![whitelist_call])
-        .send()
-        .await
-        .map_err(|e| anyhow!("failed to whitelist relayer: {e}"))?;
+    /// Set the price API key for AVNU price feed.
+    pub fn price_api_key(mut self, key: String) -> Self {
+        self.price_api_key = Some(key);
+        self
+    }
 
-    Ok(PaymasterBootstrapResult { forwarder_address, chain_id })
+    /// Set relayer account credentials.
+    pub fn relayer(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.relayer_address = address;
+        self.relayer_private_key = private_key;
+        self
+    }
+
+    /// Set gas tank account credentials.
+    pub fn gas_tank(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.gas_tank_address = address;
+        self.gas_tank_private_key = private_key;
+        self
+    }
+
+    /// Set estimation account credentials.
+    pub fn estimate_account(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.estimate_account_address = address;
+        self.estimate_account_private_key = private_key;
+        self
+    }
+
+    /// Set token addresses.
+    pub fn tokens(mut self, eth: ContractAddress, strk: ContractAddress) -> Self {
+        self.eth_token_address = eth;
+        self.strk_token_address = strk;
+        self
+    }
+
+    /// Set forwarder address directly (skip deploying during bootstrap).
+    pub fn forwarder(mut self, address: ContractAddress) -> Self {
+        self.forwarder_address = Some(address);
+        self
+    }
+
+    /// Set chain ID directly (skip fetching from node during bootstrap).
+    pub fn chain_id(mut self, chain_id: ChainId) -> Self {
+        self.chain_id = Some(chain_id);
+        self
+    }
+
+    /// Bootstrap the paymaster by deploying the forwarder contract and whitelisting the relayer.
+    ///
+    /// This method:
+    /// 1. Connects to the node via RPC
+    /// 2. Gets the chain ID (if not already set)
+    /// 3. Computes the deterministic forwarder address
+    /// 4. Deploys the forwarder if not already deployed
+    /// 5. Whitelists the relayer address
+    ///
+    /// After calling this method, `forwarder_address` and `chain_id` will be set.
+    pub async fn bootstrap(&mut self) -> Result<ContractAddress> {
+        let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(self.rpc_url.clone())));
+
+        // Get chain ID if not already set
+        let chain_id_felt = if let Some(chain_id) = &self.chain_id {
+            chain_id.id()
+        } else {
+            let chain_id_felt =
+                provider.chain_id().await.context("failed to get chain ID from node")?;
+            self.chain_id = Some(ChainId::Id(chain_id_felt));
+            chain_id_felt
+        };
+
+        let forwarder_class_hash = avnu_forwarder_class_hash()?;
+        // When using UDC with unique=0 (non-unique deployment), the deployer_address
+        // used in address computation is 0, not the actual deployer or UDC address.
+        let forwarder_address = get_contract_address(
+            Felt::from(FORWARDER_SALT),
+            forwarder_class_hash,
+            &[self.relayer_address.into(), self.gas_tank_address.into()],
+            Felt::ZERO,
+        )
+        .into();
+
+        // Create the relayer account for transactions
+        let signer = LocalWallet::from(SigningKey::from_secret_scalar(self.relayer_private_key));
+        let mut account = SingleOwnerAccount::new(
+            provider.clone(),
+            signer,
+            self.relayer_address.into(),
+            chain_id_felt,
+            ExecutionEncoding::New,
+        );
+        account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
+
+        // Deploy forwarder if not already deployed
+        if !is_deployed(&provider, forwarder_address).await? {
+            #[allow(deprecated)]
+            let factory = ContractFactory::new(forwarder_class_hash, &account);
+            factory
+                .deploy_v3(
+                    vec![self.relayer_address.into(), self.gas_tank_address.into()],
+                    Felt::from(FORWARDER_SALT),
+                    false,
+                )
+                .send()
+                .await
+                .map_err(|e| anyhow!("failed to deploy forwarder: {e}"))?;
+
+            wait_for_contract(&provider, forwarder_address, BOOTSTRAP_TIMEOUT).await?;
+        }
+
+        // Whitelist the relayer
+        let whitelist_call = Call {
+            to: forwarder_address.into(),
+            selector: selector!("set_whitelisted_address"),
+            calldata: vec![self.relayer_address.into(), Felt::ONE],
+        };
+
+        account
+            .execute_v3(vec![whitelist_call])
+            .send()
+            .await
+            .map_err(|e| anyhow!("failed to whitelist relayer: {e}"))?;
+
+        self.forwarder_address = Some(forwarder_address);
+        Ok(forwarder_address)
+    }
+
+    /// Start the paymaster sidecar process.
+    ///
+    /// Requires `forwarder_address` and `chain_id` to be set (either via builder methods
+    /// or by calling `bootstrap()` first).
+    ///
+    /// Returns a wrapper containing the process handle and resolved configuration.
+    pub async fn start(self) -> Result<PaymasterSidecarProcess> {
+        let forwarder_address = self.forwarder_address.ok_or_else(|| {
+            anyhow!("forwarder_address not set - call bootstrap() or forwarder()")
+        })?;
+        let chain_id = self
+            .chain_id
+            .ok_or_else(|| anyhow!("chain_id not set - call bootstrap() or chain_id()"))?;
+
+        // Build the resolved config
+        let config = PaymasterSidecarConfig {
+            port: self.port,
+            api_key: self.api_key,
+            rpc_url: self.rpc_url,
+            forwarder_address,
+            chain_id,
+            program_path: self.program_path,
+            price_api_key: self.price_api_key,
+            relayer_address: self.relayer_address,
+            relayer_private_key: self.relayer_private_key,
+            gas_tank_address: self.gas_tank_address,
+            gas_tank_private_key: self.gas_tank_private_key,
+            estimate_account_address: self.estimate_account_address,
+            estimate_account_private_key: self.estimate_account_private_key,
+            eth_token_address: self.eth_token_address,
+            strk_token_address: self.strk_token_address,
+        };
+
+        // Build profile and spawn process
+        let bin = config.program_path.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
+        let bin = resolve_executable(&bin)?;
+        let profile = build_paymaster_profile(&config)?;
+        let profile_path = write_paymaster_profile(&profile)?;
+
+        let mut command = Command::new(bin);
+        command
+            .env("PAYMASTER_PROFILE", &profile_path)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true);
+
+        info!(target: "sidecar", profile = %profile_path.display(), "paymaster profile generated");
+
+        let process = command.spawn().context("failed to spawn paymaster sidecar")?;
+
+        let url = Url::parse(&format!("http://127.0.0.1:{}", config.port)).expect("valid url");
+        wait_for_paymaster_ready(&url, Some(&config.api_key), BOOTSTRAP_TIMEOUT).await?;
+
+        Ok(PaymasterSidecarProcess { process, config })
+    }
 }
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 async fn is_deployed(
     provider: &JsonRpcClient<HttpTransport>,
@@ -229,36 +383,6 @@ fn avnu_forwarder_class_hash() -> Result<Felt> {
         "/../controller/classes/avnu_Forwarder.contract_class.json"
     )))?;
     class.class_hash().context("failed to compute forwarder class hash")
-}
-
-// ============================================================================
-// Sidecar Process Management
-// ============================================================================
-
-/// Start the paymaster sidecar process.
-///
-/// This spawns the paymaster-service binary with the appropriate configuration.
-pub async fn start_paymaster_sidecar(config: &PaymasterSidecarConfig) -> Result<Child> {
-    let bin = config.program_path.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
-    let bin = resolve_executable(&bin)?;
-    let profile = build_paymaster_profile(config)?;
-    let profile_path = write_paymaster_profile(&profile)?;
-
-    let mut command = Command::new(bin);
-    command
-        .env("PAYMASTER_PROFILE", &profile_path)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(true);
-
-    info!(target: "sidecar", profile = %profile_path.display(), "paymaster profile generated");
-
-    let child = command.spawn().context("failed to spawn paymaster sidecar")?;
-
-    let url = Url::parse(&format!("http://127.0.0.1:{}", config.port)).expect("valid url");
-    wait_for_paymaster_ready(&url, Some(&config.api_key), BOOTSTRAP_TIMEOUT).await?;
-
-    Ok(child)
 }
 
 fn resolve_executable(path: &Path) -> Result<PathBuf> {
