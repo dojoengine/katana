@@ -1,30 +1,36 @@
-//! Starknet read service handler implementation.
+//! Starknet service handler implementation.
 
 use katana_pool::TransactionPool;
 use katana_primitives::Felt;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::starknet::RPC_SPEC_VERSION;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
-use katana_rpc_types::FunctionCall;
+use katana_rpc_types::{BroadcastedTxWithChainId, FunctionCall};
 use tonic::{Request, Response, Status};
 
 use crate::conversion::{block_id_from_proto, ProtoFeltVecExt};
 use crate::error::IntoGrpcResult;
 use crate::protos::starknet::starknet_server::Starknet;
+use crate::protos::starknet::starknet_trace_server::StarknetTrace;
+use crate::protos::starknet::starknet_write_server::StarknetWrite;
 use crate::protos::starknet::{
-    BlockHashAndNumberRequest, BlockHashAndNumberResponse, BlockNumberRequest, BlockNumberResponse,
-    CallRequest, CallResponse, ChainIdRequest, ChainIdResponse, EstimateFeeRequest,
-    EstimateFeeResponse, EstimateMessageFeeRequest, GetBlockRequest,
-    GetBlockTransactionCountResponse, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
-    GetBlockWithTxsResponse, GetClassAtRequest, GetClassAtResponse, GetClassHashAtRequest,
-    GetClassHashAtResponse, GetClassRequest, GetClassResponse, GetCompiledCasmRequest,
-    GetCompiledCasmResponse, GetEventsRequest, GetEventsResponse, GetNonceRequest,
-    GetNonceResponse, GetStateUpdateResponse, GetStorageAtRequest, GetStorageAtResponse,
-    GetStorageProofRequest, GetStorageProofResponse, GetTransactionByBlockIdAndIndexRequest,
-    GetTransactionByBlockIdAndIndexResponse, GetTransactionByHashRequest,
-    GetTransactionByHashResponse, GetTransactionReceiptRequest, GetTransactionReceiptResponse,
-    GetTransactionStatusRequest, GetTransactionStatusResponse, SpecVersionRequest,
-    SpecVersionResponse, SyncingRequest, SyncingResponse,
+    AddDeclareTransactionRequest, AddDeclareTransactionResponse,
+    AddDeployAccountTransactionRequest, AddDeployAccountTransactionResponse,
+    AddInvokeTransactionRequest, AddInvokeTransactionResponse, BlockHashAndNumberRequest,
+    BlockHashAndNumberResponse, BlockNumberRequest, BlockNumberResponse, CallRequest, CallResponse,
+    ChainIdRequest, ChainIdResponse, EstimateFeeRequest, EstimateFeeResponse,
+    EstimateMessageFeeRequest, GetBlockRequest, GetBlockTransactionCountResponse,
+    GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, GetBlockWithTxsResponse,
+    GetClassAtRequest, GetClassAtResponse, GetClassHashAtRequest, GetClassHashAtResponse,
+    GetClassRequest, GetClassResponse, GetCompiledCasmRequest, GetCompiledCasmResponse,
+    GetEventsRequest, GetEventsResponse, GetNonceRequest, GetNonceResponse, GetStateUpdateResponse,
+    GetStorageAtRequest, GetStorageAtResponse, GetStorageProofRequest, GetStorageProofResponse,
+    GetTransactionByBlockIdAndIndexRequest, GetTransactionByBlockIdAndIndexResponse,
+    GetTransactionByHashRequest, GetTransactionByHashResponse, GetTransactionReceiptRequest,
+    GetTransactionReceiptResponse, GetTransactionStatusRequest, GetTransactionStatusResponse,
+    SimulateTransactionsRequest, SimulateTransactionsResponse, SpecVersionRequest,
+    SpecVersionResponse, SyncingRequest, SyncingResponse, TraceBlockTransactionsRequest,
+    TraceBlockTransactionsResponse, TraceTransactionRequest, TraceTransactionResponse,
 };
 use crate::protos::types::{Transaction as ProtoTx, TransactionReceipt as ProtoTransactionReceipt};
 
@@ -38,7 +44,18 @@ where
     PP: PendingBlockProvider,
     PF: ProviderFactory,
 {
-    inner: StarknetApi<Pool, PP, PF>,
+    pub(crate) api: StarknetApi<Pool, PP, PF>,
+}
+
+impl<Pool, PP, PF> StarknetService<Pool, PP, PF>
+where
+    Pool: TransactionPool,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    pub fn new(api: StarknetApi<Pool, PP, PF>) -> Self {
+        Self { api }
+    }
 }
 
 impl<Pool, PP, PF> std::fmt::Debug for StarknetService<Pool, PP, PF>
@@ -59,27 +76,13 @@ where
     PF: ProviderFactory,
 {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { api: self.api.clone() }
     }
 }
 
-impl<Pool, PP, PF> StarknetService<Pool, PP, PF>
-where
-    Pool: TransactionPool,
-    PP: PendingBlockProvider,
-    PF: ProviderFactory,
-{
-    /// Creates a new handler wrapping the given `StarknetApi`.
-    pub fn new(inner: StarknetApi<Pool, PP, PF>) -> Self {
-        Self { inner }
-    }
-
-    /// Returns a reference to the inner `StarknetApi`.
-    #[allow(dead_code)]
-    pub fn inner(&self) -> &StarknetApi<Pool, PP, PF> {
-        &self.inner
-    }
-}
+/////////////////////////////////////////////////////////////////////////
+/// Starknet Read Service Implementation
+/////////////////////////////////////////////////////////////////////////
 
 #[tonic::async_trait]
 impl<Pool, PP, PF> Starknet for StarknetService<Pool, PP, PF>
@@ -101,7 +104,7 @@ where
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithTxHashesResponse>, Status> {
         let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
-        let result = self.inner.block_with_tx_hashes(block_id).await.into_grpc_result()?;
+        let result = self.api.block_with_tx_hashes(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
 
@@ -110,7 +113,7 @@ where
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithTxsResponse>, Status> {
         let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
-        let result = self.inner.block_with_txs(block_id).await.into_grpc_result()?;
+        let result = self.api.block_with_txs(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
 
@@ -119,7 +122,7 @@ where
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithReceiptsResponse>, Status> {
         let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
-        let result = self.inner.block_with_receipts(block_id).await.into_grpc_result()?;
+        let result = self.api.block_with_receipts(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
 
@@ -128,7 +131,7 @@ where
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetStateUpdateResponse>, Status> {
         let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
-        let result = self.inner.state_update(block_id).await.into_grpc_result()?;
+        let result = self.api.state_update(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
 
@@ -147,11 +150,8 @@ where
             req.key.as_ref().ok_or_else(|| Status::invalid_argument("Missing key"))?,
         )?;
 
-        let result = self
-            .inner
-            .storage_at(contract_address.into(), key, block_id)
-            .await
-            .into_grpc_result()?;
+        let result =
+            self.api.storage_at(contract_address.into(), key, block_id).await.into_grpc_result()?;
 
         Ok(Response::new(GetStorageAtResponse { value: Some(result.into()) }))
     }
@@ -168,7 +168,7 @@ where
                 .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
         )?;
 
-        let status = self.inner.transaction_status(tx_hash).await.into_grpc_result()?;
+        let status = self.api.transaction_status(tx_hash).await.into_grpc_result()?;
 
         let (finality_status, execution_status) = match status {
             katana_rpc_types::TxStatus::Received => ("RECEIVED".to_string(), String::new()),
@@ -199,7 +199,7 @@ where
                 .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
         )?;
 
-        let tx = self.inner.transaction(tx_hash).await.into_grpc_result()?;
+        let tx = self.api.transaction(tx_hash).await.into_grpc_result()?;
 
         Ok(Response::new(GetTransactionByHashResponse { transaction: Some(ProtoTx::from(tx)) }))
     }
@@ -212,11 +212,8 @@ where
         let block_id = block_id_from_proto(req.block_id.as_ref())?;
         let index = req.index;
 
-        let tx = self
-            .inner
-            .transaction_by_block_id_and_index(block_id, index)
-            .await
-            .into_grpc_result()?;
+        let tx =
+            self.api.transaction_by_block_id_and_index(block_id, index).await.into_grpc_result()?;
 
         Ok(Response::new(GetTransactionByBlockIdAndIndexResponse { transaction: Some(tx.into()) }))
     }
@@ -233,7 +230,7 @@ where
                 .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
         )?;
 
-        let receipt = self.inner.receipt(tx_hash).await.into_grpc_result()?;
+        let receipt = self.api.receipt(tx_hash).await.into_grpc_result()?;
 
         Ok(Response::new(GetTransactionReceiptResponse {
             receipt: Some(ProtoTransactionReceipt::from(&receipt)),
@@ -252,7 +249,7 @@ where
                 .ok_or_else(|| Status::invalid_argument("Missing class_hash"))?,
         )?;
 
-        let class = self.inner.class_at_hash(block_id, class_hash).await.into_grpc_result()?;
+        let class = self.api.class_at_hash(block_id, class_hash).await.into_grpc_result()?;
 
         // Convert class to proto - simplified for now
         Ok(Response::new(GetClassResponse {
@@ -280,7 +277,7 @@ where
         )?;
 
         let class_hash = self
-            .inner
+            .api
             .class_hash_at_address(block_id, contract_address.into())
             .await
             .into_grpc_result()?;
@@ -301,7 +298,7 @@ where
         )?;
 
         let class = self
-            .inner
+            .api
             .class_at_address(block_id, contract_address.into())
             .await
             .into_grpc_result()?;
@@ -324,7 +321,7 @@ where
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockTransactionCountResponse>, Status> {
         let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
-        let count = self.inner.block_tx_count(block_id).await.into_grpc_result()?;
+        let count = self.api.block_tx_count(block_id).await.into_grpc_result()?;
         Ok(Response::new(GetBlockTransactionCountResponse { count }))
     }
 
@@ -352,7 +349,7 @@ where
         let calldata = function_call.calldata.to_felts()?;
 
         let response = self
-            .inner
+            .api
             .call_contract(
                 FunctionCall {
                     calldata,
@@ -388,7 +385,7 @@ where
         _request: Request<BlockNumberRequest>,
     ) -> Result<Response<BlockNumberResponse>, Status> {
         let result = self
-            .inner
+            .api
             .on_io_blocking_task(move |api| {
                 use katana_provider::api::block::BlockNumberProvider;
                 let block_number = api.storage().provider().latest_number()?;
@@ -407,7 +404,7 @@ where
     ) -> Result<Response<BlockHashAndNumberResponse>, Status> {
         let _ = request;
 
-        let result = self.inner.block_hash_and_number().await.into_grpc_result()?;
+        let result = self.api.block_hash_and_number().await.into_grpc_result()?;
 
         Ok(Response::new(BlockHashAndNumberResponse {
             block_hash: Some(result.block_hash.into()),
@@ -419,7 +416,7 @@ where
         &self,
         _request: Request<ChainIdRequest>,
     ) -> Result<Response<ChainIdResponse>, Status> {
-        let chain_id = self.inner.chain_id();
+        let chain_id = self.api.chain_id();
         Ok(Response::new(ChainIdResponse { chain_id: format!("{chain_id:#x}") }))
     }
 
@@ -453,7 +450,7 @@ where
         )?;
 
         let nonce =
-            self.inner.nonce_at(block_id, contract_address.into()).await.into_grpc_result()?;
+            self.api.nonce_at(block_id, contract_address.into()).await.into_grpc_result()?;
 
         Ok(Response::new(GetNonceResponse { nonce: Some(nonce.into()) }))
     }
@@ -470,6 +467,130 @@ where
         _request: Request<GetStorageProofRequest>,
     ) -> Result<Response<GetStorageProofResponse>, Status> {
         Err(Status::unimplemented("get_storage_proof requires proof conversion"))
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////
+/// Starknet Write Service Implementation
+/////////////////////////////////////////////////////////////////////////
+
+#[tonic::async_trait]
+impl<Pool, PoolTx, PP, PF> StarknetWrite for StarknetService<Pool, PP, PF>
+where
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    async fn add_invoke_transaction(
+        &self,
+        request: Request<AddInvokeTransactionRequest>,
+    ) -> Result<Response<AddInvokeTransactionResponse>, Status> {
+        let AddInvokeTransactionRequest { transaction } = request.into_inner();
+
+        let tx = transaction.ok_or(Status::invalid_argument("missing transaction"))?;
+        let response = self.api.add_invoke_tx(tx.try_into()?).await.into_grpc_result()?;
+
+        Ok(Response::new(AddInvokeTransactionResponse {
+            transaction_hash: Some(response.transaction_hash.into()),
+        }))
+    }
+
+    async fn add_declare_transaction(
+        &self,
+        request: Request<AddDeclareTransactionRequest>,
+    ) -> Result<Response<AddDeclareTransactionResponse>, Status> {
+        let AddDeclareTransactionRequest { transaction } = request.into_inner();
+
+        let tx = transaction.ok_or(Status::invalid_argument("missing transaction"))?;
+        let response = self.api.add_declare_tx(tx.try_into()?).await.into_grpc_result()?;
+
+        Ok(Response::new(AddDeclareTransactionResponse {
+            transaction_hash: Some(response.transaction_hash.into()),
+            class_hash: Some(response.class_hash.into()),
+        }))
+    }
+
+    async fn add_deploy_account_transaction(
+        &self,
+        request: Request<AddDeployAccountTransactionRequest>,
+    ) -> Result<Response<AddDeployAccountTransactionResponse>, Status> {
+        let AddDeployAccountTransactionRequest { transaction } = request.into_inner();
+
+        let tx = transaction.ok_or(Status::invalid_argument("missing transaction"))?;
+        let response = self.api.add_deploy_account_tx(tx.try_into()?).await.into_grpc_result()?;
+
+        Ok(Response::new(AddDeployAccountTransactionResponse {
+            transaction_hash: Some(response.transaction_hash.into()),
+            contract_address: Some(Felt::from(response.contract_address).into()),
+        }))
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////
+/// Starknet Trace Service Implementation
+/////////////////////////////////////////////////////////////////////////
+
+#[tonic::async_trait]
+impl<Pool, PP, PF> StarknetTrace for StarknetService<Pool, PP, PF>
+where
+    Pool: TransactionPool + 'static,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    async fn trace_transaction(
+        &self,
+        request: Request<TraceTransactionRequest>,
+    ) -> Result<Response<TraceTransactionResponse>, Status> {
+        let _tx_hash = Felt::try_from(
+            request
+                .into_inner()
+                .transaction_hash
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
+        )?;
+
+        // Trace requires access to the executor - not yet implemented
+        Err(Status::unimplemented("trace_transaction not yet implemented for gRPC"))
+    }
+
+    async fn simulate_transactions(
+        &self,
+        _request: Request<SimulateTransactionsRequest>,
+    ) -> Result<Response<SimulateTransactionsResponse>, Status> {
+        Err(Status::unimplemented(
+            "simulate_transactions requires full transaction conversion from proto",
+        ))
+    }
+
+    async fn trace_block_transactions(
+        &self,
+        request: Request<TraceBlockTransactionsRequest>,
+    ) -> Result<Response<TraceBlockTransactionsResponse>, Status> {
+        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
+
+        // Convert BlockIdOrTag to ConfirmedBlockIdOrTag
+        let _confirmed_block_id = match block_id {
+            katana_primitives::block::BlockIdOrTag::Number(n) => {
+                katana_primitives::block::ConfirmedBlockIdOrTag::Number(n)
+            }
+            katana_primitives::block::BlockIdOrTag::Hash(h) => {
+                katana_primitives::block::ConfirmedBlockIdOrTag::Hash(h)
+            }
+            katana_primitives::block::BlockIdOrTag::Latest => {
+                katana_primitives::block::ConfirmedBlockIdOrTag::Latest
+            }
+            katana_primitives::block::BlockIdOrTag::PreConfirmed => {
+                return Err(Status::invalid_argument("Pending block does not have traces"));
+            }
+            katana_primitives::block::BlockIdOrTag::L1Accepted => {
+                katana_primitives::block::ConfirmedBlockIdOrTag::L1Accepted
+            }
+        };
+
+        // Trace requires access to the executor - not yet implemented
+        Err(Status::unimplemented("trace_block_transactions not yet implemented for gRPC"))
     }
 }
 
