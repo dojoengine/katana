@@ -12,6 +12,7 @@ mod receipt;
 mod state;
 mod trace;
 mod transaction;
+mod trie;
 
 pub use block::*;
 #[allow(unused_imports)]
@@ -28,6 +29,8 @@ use tonic::Status;
 pub use trace::*;
 #[allow(unused_imports)]
 pub use transaction::*;
+#[allow(unused_imports)]
+pub use trie::*;
 
 use crate::proto;
 

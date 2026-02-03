@@ -7,6 +7,7 @@ use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::starknet::RPC_SPEC_VERSION;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use katana_rpc_types::event::EventFilterWithPage;
+use katana_rpc_types::trie::ContractStorageKeys;
 use katana_rpc_types::{BroadcastedTxWithChainId, FunctionCall};
 use tonic::{Request, Response, Status};
 
@@ -362,30 +363,17 @@ where
 
     async fn block_number(
         &self,
-        _request: Request<BlockNumberRequest>,
+        _: Request<BlockNumberRequest>,
     ) -> Result<Response<BlockNumberResponse>, Status> {
-        let result = self
-            .api
-            .on_io_blocking_task(move |api| {
-                use katana_provider::api::block::BlockNumberProvider;
-                let block_number = api.storage().provider().latest_number()?;
-                Ok(katana_rpc_types::block::BlockNumberResponse { block_number })
-            })
-            .await
-            .into_grpc_result()?
-            .map_err(crate::error::to_status)?;
-
+        let result = self.api.latest_block_number().await.into_grpc_result()?;
         Ok(Response::new(BlockNumberResponse { block_number: result.block_number }))
     }
 
     async fn block_hash_and_number(
         &self,
-        request: Request<BlockHashAndNumberRequest>,
+        _: Request<BlockHashAndNumberRequest>,
     ) -> Result<Response<BlockHashAndNumberResponse>, Status> {
-        let _ = request;
-
         let result = self.api.block_hash_and_number().await.into_grpc_result()?;
-
         Ok(Response::new(BlockHashAndNumberResponse {
             block_hash: Some(result.block_hash.into()),
             block_number: result.block_number,
@@ -444,9 +432,49 @@ where
 
     async fn get_storage_proof(
         &self,
-        _request: Request<GetStorageProofRequest>,
+        request: Request<GetStorageProofRequest>,
     ) -> Result<Response<GetStorageProofResponse>, Status> {
-        Err(Status::unimplemented("get_storage_proof requires proof conversion"))
+        let req = request.into_inner();
+        let block_id = block_id_from_proto(req.block_id)?;
+
+        // Convert class_hashes
+        let class_hashes = if req.class_hashes.is_empty() {
+            None
+        } else {
+            Some(req.class_hashes.into_iter().map(Felt::try_from).collect::<Result<Vec<_>, _>>()?)
+        };
+
+        // Convert contract_addresses
+        let contract_addresses = if req.contract_addresses.is_empty() {
+            None
+        } else {
+            Some(
+                req.contract_addresses
+                    .into_iter()
+                    .map(|f| f.try_into())
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+        };
+
+        // Convert contracts_storage_keys
+        let contracts_storage_keys = if req.contracts_storage_keys.is_empty() {
+            None
+        } else {
+            Some(
+                req.contracts_storage_keys
+                    .into_iter()
+                    .map(ContractStorageKeys::try_from)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+        };
+
+        let result = self
+            .api
+            .get_proofs(block_id, class_hashes, contract_addresses, contracts_storage_keys)
+            .await
+            .into_grpc_result()?;
+
+        Ok(Response::new(GetStorageProofResponse { proof: Some(result.into()) }))
     }
 }
 

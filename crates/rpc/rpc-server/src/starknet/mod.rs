@@ -510,7 +510,7 @@ where
         }
     }
 
-    async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
+    pub async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
         self.on_io_blocking_task(move |this| {
             let block_number = this.storage().provider().latest_number()?;
             Ok(BlockNumberResponse { block_number })
@@ -1014,7 +1014,7 @@ where
         Ok(id)
     }
 
-    async fn get_proofs(
+    pub async fn get_proofs(
         &self,
         block_id: BlockIdOrTag,
         class_hashes: Option<Vec<ClassHash>>,
