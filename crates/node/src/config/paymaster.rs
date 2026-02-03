@@ -1,12 +1,7 @@
-use katana_primitives::{ContractAddress, Felt};
 use url::Url;
 
-/// Key source for VRF secret key derivation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VrfKeySource {
-    Prefunded,
-    Sequencer,
-}
+#[cfg(feature = "cartridge")]
+use katana_primitives::{ContractAddress, Felt};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaymasterConfig {
@@ -27,10 +22,6 @@ pub struct PaymasterConfig {
 pub struct VrfConfig {
     /// The VRF service URL.
     pub url: Url,
-    /// Source for the VRF secret key.
-    pub key_source: VrfKeySource,
-    /// Prefunded account index used for VRF operations.
-    pub prefunded_index: u16,
     /// RPC URL for VRF server to query state (for Nonce-based seed computation).
     pub rpc_url: Option<Url>,
 }

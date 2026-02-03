@@ -15,7 +15,7 @@ use katana_provider::ProviderFactory;
 use stark_vrf::{generate_public_key, ScalarField};
 use starknet::signers::SigningKey;
 
-use crate::config::paymaster::{VrfConfig, VrfKeySource};
+use crate::config::paymaster::VrfConfig;
 use crate::config::Config;
 
 const VRF_ACCOUNT_SALT: u64 = 0x54321;
@@ -35,8 +35,8 @@ pub struct VrfDerivedAccounts {
 ///
 /// This is used by CartridgeApi to configure VRF settings.
 pub fn derive_vrf_accounts<EF, PF>(
-    config: &VrfConfig,
-    node_config: &Config,
+    _config: &VrfConfig,
+    _node_config: &Config,
     backend: &Backend<EF, PF>,
 ) -> Result<VrfDerivedAccounts>
 where
@@ -45,10 +45,8 @@ where
     <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
     <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
-    let (source_address, source_private_key) = match config.key_source {
-        VrfKeySource::Prefunded => prefunded_account(backend, config.prefunded_index)?,
-        VrfKeySource::Sequencer => sequencer_account(node_config, backend)?,
-    };
+    // Always use the first genesis account (index 0)
+    let (source_address, source_private_key) = prefunded_account(backend, 0)?;
 
     // vrf-server expects a u64 secret, so derive one from the account key.
     let secret_key = vrf_secret_key_from_account_key(source_private_key);
@@ -100,31 +98,6 @@ where
     };
 
     Ok((*address, private_key))
-}
-
-fn sequencer_account<EF, PF>(
-    config: &Config,
-    backend: &Backend<EF, PF>,
-) -> Result<(ContractAddress, Felt)>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
-    let sequencer = config.chain.genesis().sequencer_address;
-
-    for (address, allocation) in backend.chain_spec.genesis().accounts() {
-        if *address == sequencer {
-            let private_key = match allocation {
-                GenesisAccountAlloc::DevAccount(account) => account.private_key,
-                _ => return Err(anyhow!("sequencer account has no private key")),
-            };
-            return Ok((*address, private_key));
-        }
-    }
-
-    Err(anyhow!("sequencer key source requested but sequencer is not a prefunded account"))
 }
 
 fn vrf_account_class_hash() -> Result<Felt> {

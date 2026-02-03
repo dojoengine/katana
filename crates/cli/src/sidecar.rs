@@ -21,7 +21,7 @@ use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 #[cfg(feature = "vrf")]
-use katana_node::config::paymaster::{VrfConfig, VrfKeySource as NodeVrfKeySource};
+use katana_node::config::paymaster::VrfConfig;
 pub use katana_paymaster::{
     bootstrap_paymaster, format_felt, start_paymaster_sidecar, wait_for_paymaster_ready,
     PaymasterBootstrapConfig, PaymasterBootstrapResult, PaymasterSidecarConfig,
@@ -35,7 +35,7 @@ use url::Url;
 
 use crate::options::PaymasterOptions;
 #[cfg(feature = "vrf")]
-use crate::options::{VrfKeySource as OptionsVrfKeySource, VrfOptions};
+use crate::options::VrfOptions;
 
 /// Default API key for the paymaster sidecar.
 pub const DEFAULT_PAYMASTER_API_KEY: &str = "paymaster_katana";
@@ -84,16 +84,11 @@ pub fn build_vrf_config(
         (url, Some(sidecar_info))
     };
 
-    let key_source = match options.key_source {
-        OptionsVrfKeySource::Prefunded => NodeVrfKeySource::Prefunded,
-        OptionsVrfKeySource::Sequencer => NodeVrfKeySource::Sequencer,
-    };
-
     // Construct RPC URL for VRF server to query state
     let rpc_url =
         rpc_addr.map(|addr| Url::parse(&format!("http://{addr}"))).transpose().expect("valid URL");
 
-    let config = VrfConfig { url, key_source, prefunded_index: options.prefunded_index, rpc_url };
+    let config = VrfConfig { url, rpc_url };
 
     Ok(Some((config, sidecar_info)))
 }
@@ -418,17 +413,8 @@ where
     // Build bootstrap config
     #[cfg(feature = "vrf")]
     let vrf_bootstrap_config = if vrf_sidecar.is_some() {
-        // Determine source account for VRF bootstrap based on key source
-        let (source_address, source_private_key) = match vrf_options.key_source {
-            OptionsVrfKeySource::Prefunded => {
-                prefunded_account(backend, vrf_options.prefunded_index)?
-            }
-            OptionsVrfKeySource::Sequencer => {
-                // For sequencer mode, use the sequencer's prefunded account (index 0 by default)
-                // The sequencer_address is typically the first prefunded account
-                prefunded_account(backend, 0)?
-            }
-        };
+        // Always use the first genesis account (index 0)
+        let (source_address, source_private_key) = prefunded_account(backend, 0)?;
         Some(VrfBootstrapConfig {
             rpc_url: rpc_url.clone(),
             source_address,

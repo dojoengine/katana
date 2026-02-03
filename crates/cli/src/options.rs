@@ -12,7 +12,7 @@ use std::net::IpAddr;
 use std::num::NonZeroU128;
 use std::path::PathBuf;
 
-use clap::{Args, ValueEnum};
+use clap::Args;
 use katana_genesis::Genesis;
 use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
@@ -543,14 +543,6 @@ pub struct CartridgeOptions {
     pub controllers: bool,
 }
 
-#[cfg(feature = "vrf")]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
-#[serde(rename_all = "lowercase")]
-pub enum VrfKeySource {
-    Prefunded,
-    Sequencer,
-}
-
 #[cfg(feature = "paymaster")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Paymaster options")]
@@ -668,27 +660,6 @@ pub struct VrfOptions {
     #[serde(default)]
     pub url: Option<Url>,
 
-    /// Source for the VRF secret key.
-    ///
-    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
-    #[arg(conflicts_with = "vrf_url")]
-    #[arg(long = "vrf.key-source", value_enum, default_value_t = default_vrf_key_source())]
-    #[serde(default = "default_vrf_key_source")]
-    pub key_source: VrfKeySource,
-
-    /// Prefunded account index used to sign VRF outside executions.
-    ///
-    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
-    #[arg(conflicts_with = "vrf_url")]
-    #[arg(
-        long = "vrf.prefunded-index",
-        value_name = "INDEX",
-        id = "vrf_prefunded_index",
-        default_value_t = default_vrf_prefunded_index()
-    )]
-    #[serde(default = "default_vrf_prefunded_index")]
-    pub prefunded_index: u16,
-
     /// Port to bind the sidecar VRF service on (vrf-server uses 3000).
     ///
     /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
@@ -714,14 +685,7 @@ pub struct VrfOptions {
 #[cfg(feature = "vrf")]
 impl Default for VrfOptions {
     fn default() -> Self {
-        VrfOptions {
-            enabled: false,
-            url: None,
-            key_source: default_vrf_key_source(),
-            prefunded_index: default_vrf_prefunded_index(),
-            port: default_vrf_port(),
-            bin: None,
-        }
+        VrfOptions { enabled: false, url: None, port: default_vrf_port(), bin: None }
     }
 }
 
@@ -745,14 +709,6 @@ impl VrfOptions {
 
             if self.url.is_none() {
                 self.url = other.url.clone();
-            }
-
-            if self.key_source == default_vrf_key_source() {
-                self.key_source = other.key_source;
-            }
-
-            if self.prefunded_index == default_vrf_prefunded_index() {
-                self.prefunded_index = other.prefunded_index;
             }
 
             if self.port == default_vrf_port() {
@@ -909,16 +865,6 @@ where
 #[cfg(feature = "cartridge")]
 fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
-}
-
-#[cfg(feature = "vrf")]
-fn default_vrf_key_source() -> VrfKeySource {
-    VrfKeySource::Prefunded
-}
-
-#[cfg(feature = "vrf")]
-fn default_vrf_prefunded_index() -> u16 {
-    0
 }
 
 #[cfg(feature = "vrf")]
