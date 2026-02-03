@@ -20,7 +20,7 @@ where
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
 {
-    async fn add_invoke_transaction_impl(
+    pub async fn add_invoke_tx(
         &self,
         tx: BroadcastedInvokeTx,
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
@@ -38,7 +38,7 @@ where
         .await?
     }
 
-    async fn add_declare_transaction_impl(
+    pub async fn add_declare_tx(
         &self,
         tx: BroadcastedDeclareTx,
     ) -> Result<AddDeclareTransactionResponse, StarknetApiError> {
@@ -58,7 +58,7 @@ where
         .await?
     }
 
-    async fn add_deploy_account_transaction_impl(
+    pub async fn add_deploy_account_tx(
         &self,
         tx: BroadcastedDeployAccountTx,
     ) -> Result<AddDeployAccountTransactionResponse, StarknetApiError> {
@@ -91,20 +91,20 @@ where
         &self,
         invoke_transaction: BroadcastedInvokeTx,
     ) -> RpcResult<AddInvokeTransactionResponse> {
-        Ok(self.add_invoke_transaction_impl(invoke_transaction).await?)
+        Ok(self.add_invoke_tx(invoke_transaction).await?)
     }
 
     async fn add_declare_transaction(
         &self,
         declare_transaction: BroadcastedDeclareTx,
     ) -> RpcResult<AddDeclareTransactionResponse> {
-        Ok(self.add_declare_transaction_impl(declare_transaction).await?)
+        Ok(self.add_declare_tx(declare_transaction).await?)
     }
 
     async fn add_deploy_account_transaction(
         &self,
         deploy_account_transaction: BroadcastedDeployAccountTx,
     ) -> RpcResult<AddDeployAccountTransactionResponse> {
-        Ok(self.add_deploy_account_transaction_impl(deploy_account_transaction).await?)
+        Ok(self.add_deploy_account_tx(deploy_account_transaction).await?)
     }
 }

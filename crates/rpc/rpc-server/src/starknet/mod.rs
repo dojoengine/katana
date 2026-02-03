@@ -44,7 +44,7 @@ use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
     GetStorageProofResponse, GlobalRoots, Nodes,
 };
-use katana_rpc_types::{FeeEstimate, TxStatus};
+use katana_rpc_types::{CallResponse, FeeEstimate, FunctionCall, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 
@@ -343,11 +343,14 @@ where
         env.ok_or(StarknetApiError::BlockNotFound)
     }
 
-    fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
-        let provider = self.storage().provider();
-        let hash = provider.latest_hash()?;
-        let number = provider.latest_number()?;
-        Ok(BlockHashAndNumberResponse::new(hash, number))
+    pub async fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
+        self.on_io_blocking_task(move |this| {
+            let provider = this.storage().provider();
+            let hash = provider.latest_hash()?;
+            let number = provider.latest_number()?;
+            Ok(BlockHashAndNumberResponse::new(hash, number))
+        })
+        .await?
     }
 
     pub async fn class_at_hash(
@@ -420,28 +423,57 @@ where
         .await?
     }
 
-    pub fn storage_at(
+    pub async fn call_contract(
+        &self,
+        request: FunctionCall,
+        block_id: BlockIdOrTag,
+    ) -> StarknetApiResult<CallResponse> {
+        self.on_io_blocking_task(move |this| {
+            // get the state and block env at the specified block for function call execution
+            let state = this.state(&block_id)?;
+            let env = this.block_env_at(&block_id)?;
+            let cfg_env = this.inner.config.versioned_constant_overrides.as_ref();
+            let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
+
+            let result = self::blockifier::call(
+                this.inner.chain_spec.as_ref(),
+                state,
+                env,
+                cfg_env,
+                request,
+                max_call_gas,
+            )?;
+
+            Ok(CallResponse { result })
+        })
+        .await?
+    }
+
+    pub async fn storage_at(
         &self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<StorageValue> {
-        let state = self.state(&block_id)?;
+        self.on_io_blocking_task(move |this| {
+            let state = this.state(&block_id)?;
 
-        // Check that contract exist by checking the class hash of the contract,
-        // unless its address 0x1 or 0x2 which are special system contracts and does not
-        // have a class.
-        //
-        // See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
-        if contract_address != ContractAddress::ONE
-            && contract_address != ContractAddress::TWO
-            && state.class_hash_of_contract(contract_address)?.is_none()
-        {
-            return Err(StarknetApiError::ContractNotFound);
-        }
+            // Check that contract exist by checking the class hash of the contract,
+            // unless its address 0x1 or 0x2 which are special system contracts and does not
+            // have a class.
+            //
+            // See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
+            if contract_address != ContractAddress::ONE
+                && contract_address != ContractAddress::TWO
+                && state.class_hash_of_contract(contract_address)?.is_none()
+            {
+                return Err(StarknetApiError::ContractNotFound);
+            }
 
-        let value = state.storage(contract_address, storage_key)?;
-        Ok(value.unwrap_or_default())
+            let value = state.storage(contract_address, storage_key)?;
+            Ok(value.unwrap_or_default())
+        })
+        .await?
     }
 
     pub async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
@@ -509,7 +541,7 @@ where
         .await?
     }
 
-    async fn transaction_by_block_id_and_index(
+    pub async fn transaction_by_block_id_and_index(
         &self,
         block_id: BlockIdOrTag,
         index: u64,
@@ -543,7 +575,7 @@ where
         }
     }
 
-    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
+    pub async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
                 if let pending_tx @ Some(..) =
@@ -569,7 +601,7 @@ where
         }
     }
 
-    async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
+    pub async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
         let receipt = self
             .on_io_blocking_task(move |this| {
                 if let pending_receipt @ Some(..) =
@@ -590,7 +622,7 @@ where
         }
     }
 
-    async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
+    pub async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
             .on_io_blocking_task(move |this| {
                 let provider = this.storage().provider();
@@ -675,7 +707,7 @@ where
         }
     }
 
-    async fn block_with_receipts(
+    pub async fn block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetBlockWithReceiptsResponse> {

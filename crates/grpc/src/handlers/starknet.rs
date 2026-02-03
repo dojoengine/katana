@@ -5,6 +5,7 @@ use katana_primitives::Felt;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::starknet::RPC_SPEC_VERSION;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
+use katana_rpc_types::FunctionCall;
 use tonic::{Request, Response, Status};
 
 use crate::conversion::{block_id_from_proto, ProtoFeltVecExt};
@@ -118,40 +119,7 @@ where
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithReceiptsResponse>, Status> {
         let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
-
-        // Use the storage provider to build the block with receipts
-        let result = self
-            .inner
-            .on_io_blocking_task(move |api| {
-                use katana_primitives::block::BlockIdOrTag;
-                use katana_provider::api::block::BlockIdReader;
-
-                let provider = api.storage().provider();
-
-                // Note: Pending block support requires access to private StarknetApi internals.
-                // For now, pending blocks are not supported via gRPC.
-                if BlockIdOrTag::PreConfirmed == block_id {
-                    return Err(katana_rpc_api::error::starknet::StarknetApiError::BlockNotFound);
-                }
-
-                if let Some(num) = provider.convert_block_id(block_id)? {
-                    let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
-                        .build_with_receipts()?
-                        .map(katana_rpc_types::block::GetBlockWithReceiptsResponse::Block);
-
-                    if let Some(block) = block {
-                        Ok(block)
-                    } else {
-                        Err(katana_rpc_api::error::starknet::StarknetApiError::BlockNotFound)
-                    }
-                } else {
-                    Err(katana_rpc_api::error::starknet::StarknetApiError::BlockNotFound)
-                }
-            })
-            .await
-            .into_grpc_result()?
-            .map_err(crate::error::to_status)?;
-
+        let result = self.inner.block_with_receipts(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
 
@@ -181,10 +149,9 @@ where
 
         let result = self
             .inner
-            .on_io_blocking_task(move |api| api.storage_at(contract_address.into(), key, block_id))
+            .storage_at(contract_address.into(), key, block_id)
             .await
-            .into_grpc_result()?
-            .map_err(crate::error::to_status)?;
+            .into_grpc_result()?;
 
         Ok(Response::new(GetStorageAtResponse { value: Some(result.into()) }))
     }
@@ -201,57 +168,7 @@ where
                 .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
         )?;
 
-        let status = self
-            .inner
-            .on_io_blocking_task(move |api| {
-                #[allow(unused_imports)]
-                use katana_pool::TransactionPool;
-                use katana_primitives::block::FinalityStatus;
-                use katana_provider::api::transaction::{
-                    ReceiptProvider, TransactionStatusProvider,
-                };
-
-                let provider = api.storage().provider();
-                let status = provider.transaction_status(tx_hash)?;
-
-                if let Some(status) = status {
-                    let Some(receipt) = provider.receipt_by_hash(tx_hash)? else {
-                        return Err(katana_rpc_api::error::starknet::StarknetApiError::unexpected(
-                            "Transaction hash exist, but the receipt is missing",
-                        ));
-                    };
-
-                    let exec_status = if let Some(reason) = receipt.revert_reason() {
-                        katana_rpc_types::ExecutionResult::Reverted { reason: reason.to_string() }
-                    } else {
-                        katana_rpc_types::ExecutionResult::Succeeded
-                    };
-
-                    let status = match status {
-                        FinalityStatus::AcceptedOnL1 => {
-                            katana_rpc_types::TxStatus::AcceptedOnL1(exec_status)
-                        }
-                        FinalityStatus::AcceptedOnL2 => {
-                            katana_rpc_types::TxStatus::AcceptedOnL2(exec_status)
-                        }
-                        FinalityStatus::PreConfirmed => {
-                            katana_rpc_types::TxStatus::PreConfirmed(exec_status)
-                        }
-                    };
-
-                    return Ok(status);
-                }
-
-                // Check if it's in the pool
-                let _ = api
-                    .pool()
-                    .get(tx_hash)
-                    .ok_or(katana_rpc_api::error::starknet::StarknetApiError::TxnHashNotFound)?;
-                Ok(katana_rpc_types::TxStatus::Received)
-            })
-            .await
-            .into_grpc_result()?
-            .map_err(crate::error::to_status)?;
+        let status = self.inner.transaction_status(tx_hash).await.into_grpc_result()?;
 
         let (finality_status, execution_status) = match status {
             katana_rpc_types::TxStatus::Received => ("RECEIVED".to_string(), String::new()),
@@ -282,22 +199,7 @@ where
                 .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
         )?;
 
-        let tx = self
-            .inner
-            .on_io_blocking_task(move |api| {
-                use katana_provider::api::transaction::TransactionProvider;
-
-                let tx = api
-                    .storage()
-                    .provider()
-                    .transaction_by_hash(tx_hash)?
-                    .map(katana_rpc_types::transaction::RpcTxWithHash::from);
-
-                tx.ok_or(katana_rpc_api::error::starknet::StarknetApiError::TxnHashNotFound)
-            })
-            .await
-            .into_grpc_result()?
-            .map_err(crate::error::to_status)?;
+        let tx = self.inner.transaction(tx_hash).await.into_grpc_result()?;
 
         Ok(Response::new(GetTransactionByHashResponse { transaction: Some(ProtoTx::from(tx)) }))
     }
@@ -312,31 +214,9 @@ where
 
         let tx = self
             .inner
-            .on_io_blocking_task(move |api| {
-                use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
-                use katana_provider::api::block::BlockIdReader;
-                use katana_provider::api::transaction::TransactionProvider;
-
-                // Note: Pending block support requires access to private StarknetApi internals.
-                if BlockIdOrTag::PreConfirmed == block_id {
-                    return Err(katana_rpc_api::error::starknet::StarknetApiError::BlockNotFound);
-                }
-
-                let provider = api.storage().provider();
-                let block_num = provider
-                    .convert_block_id(block_id)?
-                    .map(BlockHashOrNumber::Num)
-                    .ok_or(katana_rpc_api::error::starknet::StarknetApiError::BlockNotFound)?;
-
-                let tx = provider
-                    .transaction_by_block_and_idx(block_num, index)?
-                    .map(katana_rpc_types::transaction::RpcTxWithHash::from);
-
-                tx.ok_or(katana_rpc_api::error::starknet::StarknetApiError::InvalidTxnIndex)
-            })
+            .transaction_by_block_id_and_index(block_id, index)
             .await
-            .into_grpc_result()?
-            .map_err(crate::error::to_status)?;
+            .into_grpc_result()?;
 
         Ok(Response::new(GetTransactionByBlockIdAndIndexResponse { transaction: Some(tx.into()) }))
     }
@@ -353,18 +233,7 @@ where
                 .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
         )?;
 
-        let receipt = self
-            .inner
-            .on_io_blocking_task(move |api| {
-                let provider = api.storage().provider();
-                let receipt =
-                    katana_rpc_types_builder::ReceiptBuilder::new(tx_hash, provider).build()?;
-
-                receipt.ok_or(katana_rpc_api::error::starknet::StarknetApiError::TxnHashNotFound)
-            })
-            .await
-            .into_grpc_result()?
-            .map_err(crate::error::to_status)?;
+        let receipt = self.inner.receipt(tx_hash).await.into_grpc_result()?;
 
         Ok(Response::new(GetTransactionReceiptResponse {
             receipt: Some(ProtoTransactionReceipt::from(&receipt)),
@@ -461,29 +330,43 @@ where
 
     async fn call(&self, request: Request<CallRequest>) -> Result<Response<CallResponse>, Status> {
         let req = request.into_inner();
-        let _block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id.as_ref())?;
 
         let function_call =
             req.request.ok_or_else(|| Status::invalid_argument("Missing request"))?;
 
-        let _contract_address = Felt::try_from(
+        let contract_address = Felt::try_from(
             function_call
                 .contract_address
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
         )?;
 
-        let _entry_point_selector = Felt::try_from(
+        let entry_point_selector = Felt::try_from(
             function_call
                 .entry_point_selector
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing entry_point_selector"))?,
         )?;
 
-        let _calldata = function_call.calldata.to_felts()?;
+        let calldata = function_call.calldata.to_felts()?;
 
-        // Call requires access to the executor - not yet implemented
-        Err(Status::unimplemented("call not yet implemented for gRPC"))
+        let response = self
+            .inner
+            .call_contract(
+                FunctionCall {
+                    calldata,
+                    entry_point_selector,
+                    contract_address: contract_address.into(),
+                },
+                block_id,
+            )
+            .await
+            .into_grpc_result()?;
+
+        Ok(Response::new(CallResponse {
+            result: response.result.into_iter().map(Into::into).collect(),
+        }))
     }
 
     async fn estimate_fee(
@@ -520,20 +403,11 @@ where
 
     async fn block_hash_and_number(
         &self,
-        _request: Request<BlockHashAndNumberRequest>,
+        request: Request<BlockHashAndNumberRequest>,
     ) -> Result<Response<BlockHashAndNumberResponse>, Status> {
-        let result = self
-            .inner
-            .on_io_blocking_task(move |api| {
-                use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider};
-                let provider = api.storage().provider();
-                let hash = provider.latest_hash()?;
-                let number = provider.latest_number()?;
-                Ok(katana_rpc_types::block::BlockHashAndNumberResponse::new(hash, number))
-            })
-            .await
-            .into_grpc_result()?
-            .map_err(crate::error::to_status)?;
+        let _ = request;
+
+        let result = self.inner.block_hash_and_number().await.into_grpc_result()?;
 
         Ok(Response::new(BlockHashAndNumberResponse {
             block_hash: Some(result.block_hash.into()),

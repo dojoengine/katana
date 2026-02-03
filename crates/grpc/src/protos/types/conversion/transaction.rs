@@ -11,7 +11,7 @@ use katana_primitives::fee::{
 };
 use katana_primitives::Felt;
 use katana_rpc_types::broadcasted::{
-    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx,
+    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, QUERY_VERSION_OFFSET,
 };
 use katana_rpc_types::class::RpcSierraContractClass;
 use tonic::Status;
@@ -49,6 +49,28 @@ fn required_felt(field: Option<&ProtoFelt>, field_name: &str) -> Result<Felt, St
     field
         .ok_or_else(|| Status::invalid_argument(format!("missing required field: {field_name}")))?
         .try_into()
+}
+
+/// Derive is_query flag from version field.
+fn is_query_from_version(version: Felt) -> Result<bool, Status> {
+    if version == Felt::THREE {
+        Ok(false)
+    } else if version == Felt::THREE + QUERY_VERSION_OFFSET {
+        Ok(true)
+    } else {
+        Err(Status::invalid_argument(format!(
+            "invalid version {version:#x} for broadcasted transaction"
+        )))
+    }
+}
+
+/// Compute version from is_query flag.
+fn version_from_is_query(is_query: bool) -> Felt {
+    if is_query {
+        Felt::THREE + QUERY_VERSION_OFFSET
+    } else {
+        Felt::THREE
+    }
 }
 
 // ============================================================
@@ -133,6 +155,8 @@ impl TryFrom<BroadcastedInvokeTransaction> for BroadcastedInvokeTx {
     fn try_from(proto: BroadcastedInvokeTransaction) -> Result<Self, Self::Error> {
         let sender_address = required_felt(proto.sender_address.as_ref(), "sender_address")?;
         let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
+        let version = required_felt(proto.version.as_ref(), "version")?;
+        let is_query = is_query_from_version(version)?;
         let tip = proto.tip.as_ref().map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
 
         let resource_bounds = proto
@@ -151,7 +175,7 @@ impl TryFrom<BroadcastedInvokeTransaction> for BroadcastedInvokeTx {
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
             nonce_data_availability_mode: da_mode_from_string(&proto.nonce_data_availability_mode)?,
-            is_query: proto.is_query,
+            is_query,
         })
     }
 }
@@ -165,6 +189,8 @@ impl TryFrom<BroadcastedDeployAccountTransaction> for BroadcastedDeployAccountTx
         let class_hash = required_felt(proto.class_hash.as_ref(), "class_hash")?;
         let contract_address_salt =
             required_felt(proto.contract_address_salt.as_ref(), "contract_address_salt")?;
+        let version = required_felt(proto.version.as_ref(), "version")?;
+        let is_query = is_query_from_version(version)?;
         let tip = proto.tip.as_ref().map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
 
         let resource_bounds = proto
@@ -183,7 +209,7 @@ impl TryFrom<BroadcastedDeployAccountTransaction> for BroadcastedDeployAccountTx
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
             nonce_data_availability_mode: da_mode_from_string(&proto.nonce_data_availability_mode)?,
-            is_query: proto.is_query,
+            is_query,
         })
     }
 }
@@ -240,6 +266,8 @@ impl TryFrom<BroadcastedDeclareTransaction> for BroadcastedDeclareTx {
         let nonce = required_felt(proto.nonce.as_ref(), "nonce")?;
         let compiled_class_hash =
             required_felt(proto.compiled_class_hash.as_ref(), "compiled_class_hash")?;
+        let version = required_felt(proto.version.as_ref(), "version")?;
+        let is_query = is_query_from_version(version)?;
         let tip = proto.tip.as_ref().map(Felt::try_from).transpose()?.unwrap_or(Felt::ZERO);
 
         let resource_bounds = proto
@@ -266,7 +294,7 @@ impl TryFrom<BroadcastedDeclareTransaction> for BroadcastedDeclareTx {
             resource_bounds: PrimitiveResourceBoundsMapping::try_from(resource_bounds)?,
             fee_data_availability_mode: da_mode_from_string(&proto.fee_data_availability_mode)?,
             nonce_data_availability_mode: da_mode_from_string(&proto.nonce_data_availability_mode)?,
-            is_query: proto.is_query,
+            is_query,
         })
     }
 }
@@ -289,7 +317,7 @@ impl From<&BroadcastedInvokeTx> for BroadcastedInvokeTransaction {
             resource_bounds: Some(ResourceBoundsMapping::from(&tx.resource_bounds)),
             fee_data_availability_mode: da_mode_to_string(tx.fee_data_availability_mode),
             nonce_data_availability_mode: da_mode_to_string(tx.nonce_data_availability_mode),
-            is_query: tx.is_query,
+            version: Some(version_from_is_query(tx.is_query).into()),
         }
     }
 }
@@ -308,7 +336,7 @@ impl From<&BroadcastedDeployAccountTx> for BroadcastedDeployAccountTransaction {
             resource_bounds: Some(ResourceBoundsMapping::from(&tx.resource_bounds)),
             fee_data_availability_mode: da_mode_to_string(tx.fee_data_availability_mode),
             nonce_data_availability_mode: da_mode_to_string(tx.nonce_data_availability_mode),
-            is_query: tx.is_query,
+            version: Some(version_from_is_query(tx.is_query).into()),
         }
     }
 }
@@ -373,7 +401,7 @@ impl From<&BroadcastedDeclareTx> for BroadcastedDeclareTransaction {
             resource_bounds: Some(ResourceBoundsMapping::from(&tx.resource_bounds)),
             fee_data_availability_mode: da_mode_to_string(tx.fee_data_availability_mode),
             nonce_data_availability_mode: da_mode_to_string(tx.nonce_data_availability_mode),
-            is_query: tx.is_query,
+            version: Some(version_from_is_query(tx.is_query).into()),
         }
     }
 }

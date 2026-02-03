@@ -403,7 +403,7 @@ message BroadcastedInvokeTransaction {
     ResourceBoundsMapping resource_bounds = 8;
     string fee_data_availability_mode = 9;
     string nonce_data_availability_mode = 10;
-    bool is_query = 11;
+    Felt version = 11;
 }
 
 // Broadcasted DECLARE transaction - flat structure matching RPC types
@@ -419,7 +419,7 @@ message BroadcastedDeclareTransaction {
     ResourceBoundsMapping resource_bounds = 9;
     string fee_data_availability_mode = 10;
     string nonce_data_availability_mode = 11;
-    bool is_query = 12;
+    Felt version = 12;
 }
 
 // Broadcasted DEPLOY_ACCOUNT transaction - flat structure matching RPC types
@@ -434,7 +434,7 @@ message BroadcastedDeployAccountTransaction {
     ResourceBoundsMapping resource_bounds = 8;
     string fee_data_availability_mode = 9;
     string nonce_data_availability_mode = 10;
-    bool is_query = 11;
+    Felt version = 11;
 }
 
 // ============================================================

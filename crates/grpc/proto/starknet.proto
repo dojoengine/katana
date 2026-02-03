@@ -325,7 +325,7 @@ message GetStorageProofResponse {
 // ============================================================
 
 message AddInvokeTransactionRequest {
-    types.BroadcastedInvokeTransaction invoke_transaction = 1;
+    types.BroadcastedInvokeTransaction transaction = 1;
 }
 
 message AddInvokeTransactionResponse {
@@ -333,7 +333,7 @@ message AddInvokeTransactionResponse {
 }
 
 message AddDeclareTransactionRequest {
-    types.BroadcastedDeclareTransaction declare_transaction = 1;
+    types.BroadcastedDeclareTransaction transaction = 1;
 }
 
 message AddDeclareTransactionResponse {
@@ -342,7 +342,7 @@ message AddDeclareTransactionResponse {
 }
 
 message AddDeployAccountTransactionRequest {
-    types.BroadcastedDeployAccountTransaction deploy_account_transaction = 1;
+    types.BroadcastedDeployAccountTransaction transaction = 1;
 }
 
 message AddDeployAccountTransactionResponse {
