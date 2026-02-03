@@ -820,7 +820,10 @@ where
         }
     }
 
-    async fn events(&self, filter: EventFilterWithPage) -> StarknetApiResult<GetEventsResponse> {
+    pub async fn events(
+        &self,
+        filter: EventFilterWithPage,
+    ) -> StarknetApiResult<GetEventsResponse> {
         let EventFilterWithPage { event_filter, result_page_request } = filter;
         let ResultPageRequest { continuation_token, chunk_size } = result_page_request;
 

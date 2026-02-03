@@ -6,6 +6,7 @@ use katana_primitives::Felt;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::starknet::RPC_SPEC_VERSION;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
+use katana_rpc_types::event::EventFilterWithPage;
 use katana_rpc_types::{BroadcastedTxWithChainId, FunctionCall};
 use tonic::{Request, Response, Status};
 
@@ -411,9 +412,11 @@ where
 
     async fn get_events(
         &self,
-        _request: Request<GetEventsRequest>,
+        request: Request<GetEventsRequest>,
     ) -> Result<Response<GetEventsResponse>, Status> {
-        Err(Status::unimplemented("get_events requires full filter conversion"))
+        let filter = EventFilterWithPage::try_from(request.into_inner())?;
+        let result = self.api.events(filter).await.into_grpc_result()?;
+        Ok(Response::new(result.into()))
     }
 
     async fn get_nonce(

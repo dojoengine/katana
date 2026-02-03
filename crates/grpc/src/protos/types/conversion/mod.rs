@@ -7,12 +7,15 @@
 //! Conversions are implemented using `From` and `TryFrom` traits for idiomatic Rust.
 
 mod block;
+mod event;
 mod receipt;
 mod state;
 mod trace;
 mod transaction;
 
 pub use block::*;
+#[allow(unused_imports)]
+pub use event::*;
 use katana_primitives::Felt;
 // These modules implement From/TryFrom traits for type conversions
 // The types are used via .into() or TryFrom::try_from() calls
