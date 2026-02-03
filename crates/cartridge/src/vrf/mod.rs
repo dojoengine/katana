@@ -1,6 +1,25 @@
+//! VRF (Verifiable Random Function) support for Cartridge.
+//!
+//! This module provides:
+//! - VRF client for communicating with the VRF server
+//! - Bootstrap logic for deploying VRF contracts
+//! - Sidecar process management
+
+pub mod bootstrap;
+pub mod sidecar;
+
+pub use bootstrap::{
+    bootstrap_vrf, derive_vrf_accounts, vrf_account_class_hash, vrf_consumer_class_hash,
+    vrf_secret_key_from_account_key, VrfBootstrap, VrfBootstrapConfig, VrfBootstrapResult,
+    VrfDerivedAccounts, BOOTSTRAP_TIMEOUT, VRF_ACCOUNT_SALT, VRF_CONSUMER_SALT,
+};
 use katana_primitives::Felt;
 use katana_rpc_types::outside_execution::{OutsideExecutionV2, OutsideExecutionV3};
 use serde::{Deserialize, Serialize};
+pub use sidecar::{
+    resolve_executable, start_vrf_sidecar, wait_for_http_ok, VrfSidecarConfig, VrfSidecarInfo,
+    SIDECAR_TIMEOUT, VRF_SERVER_PORT,
+};
 use url::Url;
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]

@@ -2877,14 +2877,20 @@ dependencies = [
 name = "cartridge"
 version = "1.7.0"
 dependencies = [
+ "anyhow",
+ "ark-ff 0.4.2",
  "katana-contracts",
+ "katana-genesis",
  "katana-primitives",
  "katana-rpc-types",
  "lazy_static",
  "reqwest",
  "serde",
  "serde_json",
+ "stark-vrf",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
  "url",
 ]
@@ -5999,8 +6005,8 @@ version = "1.7.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
- "ark-ff 0.4.2",
  "assert_matches",
+ "cartridge",
  "clap",
  "console",
  "futures",
@@ -6026,7 +6032,6 @@ dependencies = [
  "serde-utils",
  "serde_json",
  "shellexpand",
- "stark-vrf",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
  "toml 0.8.23",

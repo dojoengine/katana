@@ -39,7 +39,7 @@ use url::Url;
 use crate::file::NodeArgsConfig;
 use crate::options::*;
 #[cfg(feature = "cartridge")]
-use crate::sidecar::bootstrap_and_start_sidecars;
+use crate::sidecar::{bootstrap_and_start_sidecars, PaymasterSidecarInfo};
 #[cfg(feature = "vrf")]
 use crate::sidecar::{build_vrf_config, VrfSidecarInfo};
 use crate::utils::{self, parse_chain_config_dir, parse_seed};
@@ -180,6 +180,12 @@ impl SequencerNodeArgs {
             None => None,
         };
 
+        #[cfg(feature = "cartridge")]
+        let paymaster_sidecar = match self.paymaster_config(&config.chain)? {
+            Some((_, sidecar)) => sidecar,
+            None => None,
+        };
+
         if config.forking.is_some() {
             let node =
                 Node::build_forked(config.clone()).await.context("failed to build forked node")?;
@@ -191,21 +197,18 @@ impl SequencerNodeArgs {
             // Launch the node
             let handle = node.launch().await.context("failed to launch forked node")?;
 
-            #[cfg(feature = "paymaster")]
-            let mut sidecars = if let Some(paymaster_config) = &config.paymaster {
+            #[cfg(feature = "cartridge")]
+            let mut sidecars = if config.paymaster.is_some() {
                 let sidecars = bootstrap_and_start_sidecars(
-                    &paymaster_config,
+                    paymaster_sidecar.as_ref(),
+                    &self.paymaster,
                     #[cfg(feature = "vrf")]
                     &self.vrf,
                     handle.node().backend(),
-                    handle.node().block_producer(),
-                    handle.node().pool(),
                     handle.rpc().addr(),
                     #[cfg(feature = "vrf")]
                     vrf_sidecar.as_ref(),
                     handle.node().config().dev.fee,
-                    #[cfg(feature = "vrf")]
-                    handle.node().config().chain.genesis().sequencer_address,
                 )
                 .await?;
 
@@ -225,7 +228,7 @@ impl SequencerNodeArgs {
             }
 
             // Shutdown sidecar processes
-            #[cfg(feature = "paymaster")]
+            #[cfg(feature = "cartridge")]
             if let Some(ref mut s) = sidecars {
                 s.shutdown().await;
             }
@@ -238,21 +241,18 @@ impl SequencerNodeArgs {
 
             let handle = node.launch().await.context("failed to launch node")?;
 
-            #[cfg(feature = "paymaster")]
-            let mut sidecars = if let Some(paymaster_config) = &config.paymaster {
+            #[cfg(feature = "cartridge")]
+            let mut sidecars = if config.paymaster.is_some() {
                 let sidecars = bootstrap_and_start_sidecars(
-                    &paymaster_config,
+                    paymaster_sidecar.as_ref(),
+                    &self.paymaster,
                     #[cfg(feature = "vrf")]
                     &self.vrf,
                     handle.node().backend(),
-                    handle.node().block_producer(),
-                    handle.node().pool(),
                     handle.rpc().addr(),
                     #[cfg(feature = "vrf")]
                     vrf_sidecar.as_ref(),
                     handle.node().config().dev.fee,
-                    #[cfg(feature = "vrf")]
-                    handle.node().config().chain.genesis().sequencer_address,
                 )
                 .await?;
 
@@ -272,7 +272,7 @@ impl SequencerNodeArgs {
             }
 
             // Shutdown sidecar processes
-            #[cfg(feature = "paymaster")]
+            #[cfg(feature = "cartridge")]
             if let Some(ref mut s) = sidecars {
                 s.shutdown().await;
             }
@@ -297,7 +297,7 @@ impl SequencerNodeArgs {
         let sequencing = self.sequencer_config();
 
         #[cfg(feature = "cartridge")]
-        let paymaster = self.paymaster_config(&chain)?;
+        let paymaster = self.paymaster_config(&chain)?.map(|(config, _)| config);
 
         #[cfg(feature = "vrf")]
         let vrf = self.vrf_config(&rpc)?.map(|(config, _)| config);
@@ -583,21 +583,23 @@ impl SequencerNodeArgs {
     fn paymaster_config(
         &self,
         chain_spec: &Arc<katana_chain_spec::ChainSpec>,
-    ) -> Result<Option<PaymasterConfig>> {
+    ) -> Result<Option<(PaymasterConfig, Option<PaymasterSidecarInfo>)>> {
         if !self.paymaster.enabled {
             return Ok(None);
         }
 
         use crate::sidecar::DEFAULT_PAYMASTER_API_KEY;
 
-        let mut config = if self.paymaster.is_external() {
+        let (mut config, sidecar_info) = if self.paymaster.is_external() {
             let url = self.paymaster.url.clone().expect("URL must be set in external mode");
             let api_key = self.paymaster.api_key.clone();
-            PaymasterConfig { url, api_key, cartridge_api: None }
+            (PaymasterConfig { url, api_key, cartridge_api: None }, None)
         } else {
             // find free port
             let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-            let url = Url::parse(&format!("{}", listener.local_addr()?))?;
+            let addr = listener.local_addr()?;
+            let port = addr.port();
+            let url = Url::parse(&format!("http://{addr}"))?;
 
             let api_key = self
                 .paymaster
@@ -611,7 +613,11 @@ impl SequencerNodeArgs {
                 );
             }
 
-            PaymasterConfig { url, api_key: Some(api_key), cartridge_api: None }
+            let sidecar_info = PaymasterSidecarInfo { port, api_key: api_key.clone() };
+            (
+                PaymasterConfig { url, api_key: Some(api_key), cartridge_api: None },
+                Some(sidecar_info),
+            )
         };
 
         #[cfg(feature = "cartridge")]
@@ -643,7 +649,7 @@ impl SequencerNodeArgs {
             });
         }
 
-        Ok(Some(config))
+        Ok(Some((config, sidecar_info)))
     }
 
     #[cfg(feature = "vrf")]
