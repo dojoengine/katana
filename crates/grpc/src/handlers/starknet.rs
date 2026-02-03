@@ -103,7 +103,7 @@ where
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithTxHashesResponse>, Status> {
-        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id)?;
         let result = self.api.block_with_tx_hashes(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
@@ -112,7 +112,7 @@ where
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithTxsResponse>, Status> {
-        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id)?;
         let result = self.api.block_with_txs(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
@@ -121,7 +121,7 @@ where
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithReceiptsResponse>, Status> {
-        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id)?;
         let result = self.api.block_with_receipts(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
@@ -130,7 +130,7 @@ where
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetStateUpdateResponse>, Status> {
-        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id)?;
         let result = self.api.state_update(block_id).await.into_grpc_result()?;
         Ok(Response::new(result.into()))
     }
@@ -140,7 +140,7 @@ where
         request: Request<GetStorageAtRequest>,
     ) -> Result<Response<GetStorageAtResponse>, Status> {
         let req = request.into_inner();
-        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id)?;
         let contract_address = Felt::try_from(
             req.contract_address
                 .as_ref()
@@ -209,7 +209,7 @@ where
         request: Request<GetTransactionByBlockIdAndIndexRequest>,
     ) -> Result<Response<GetTransactionByBlockIdAndIndexResponse>, Status> {
         let req = request.into_inner();
-        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id)?;
         let index = req.index;
 
         let tx =
@@ -242,7 +242,7 @@ where
         request: Request<GetClassRequest>,
     ) -> Result<Response<GetClassResponse>, Status> {
         let req = request.into_inner();
-        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id)?;
         let class_hash = Felt::try_from(
             req.class_hash
                 .as_ref()
@@ -269,7 +269,7 @@ where
         request: Request<GetClassHashAtRequest>,
     ) -> Result<Response<GetClassHashAtResponse>, Status> {
         let req = request.into_inner();
-        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id)?;
         let contract_address = Felt::try_from(
             req.contract_address
                 .as_ref()
@@ -290,7 +290,7 @@ where
         request: Request<GetClassAtRequest>,
     ) -> Result<Response<GetClassAtResponse>, Status> {
         let req = request.into_inner();
-        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id)?;
         let contract_address = Felt::try_from(
             req.contract_address
                 .as_ref()
@@ -320,14 +320,14 @@ where
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockTransactionCountResponse>, Status> {
-        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id)?;
         let count = self.api.block_tx_count(block_id).await.into_grpc_result()?;
         Ok(Response::new(GetBlockTransactionCountResponse { count }))
     }
 
     async fn call(&self, request: Request<CallRequest>) -> Result<Response<CallResponse>, Status> {
         let req = request.into_inner();
-        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id)?;
 
         let function_call =
             req.request.ok_or_else(|| Status::invalid_argument("Missing request"))?;
@@ -442,7 +442,7 @@ where
         request: Request<GetNonceRequest>,
     ) -> Result<Response<GetNonceResponse>, Status> {
         let req = request.into_inner();
-        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id)?;
         let contract_address = Felt::try_from(
             req.contract_address
                 .as_ref()
@@ -568,7 +568,7 @@ where
         &self,
         request: Request<TraceBlockTransactionsRequest>,
     ) -> Result<Response<TraceBlockTransactionsResponse>, Status> {
-        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id)?;
 
         // Convert BlockIdOrTag to ConfirmedBlockIdOrTag
         let _confirmed_block_id = match block_id {

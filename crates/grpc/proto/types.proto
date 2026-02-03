@@ -4,11 +4,18 @@ package types;
 
 import "common.proto";
 
+// Block tag for identifying special blocks.
+enum BlockTag {
+  BLOCK_TAG_LATEST = 0;
+  BLOCK_TAG_PRE_CONFIRMED = 1;
+  BLOCK_TAG_L1_ACCEPTED = 2;
+}
+
 message BlockID {
   oneof identifier {
     uint64 number = 1 [json_name = "block_number"];
     common.Felt hash = 2 [json_name = "block_hash"];
-    string tag = 3 [json_name = "block_tag"];
+    BlockTag tag = 3 [json_name = "block_tag"];
   }
 }
 

@@ -13,7 +13,7 @@ use crate::protos::starknet::{
 };
 use crate::protos::types::block_id::Identifier;
 use crate::protos::types::{
-    BlockHeader as ProtoBlockHeader, BlockId as ProtoBlockId,
+    BlockHeader as ProtoBlockHeader, BlockTag as ProtoBlockTag,
     BlockWithReceipts as ProtoBlockWithReceipts, BlockWithTxHashes as ProtoBlockWithTxHashes,
     BlockWithTxs as ProtoBlockWithTxs, FinalityStatus as ProtoFinalityStatus,
     L1DataAvailabilityMode as ProtoL1DataAvailabilityMode,
@@ -40,11 +40,10 @@ fn l1_da_mode_to_proto(mode: L1DataAvailabilityMode) -> i32 {
     }
 }
 
-/// Convert proto BlockId to Katana BlockIdOrTag.
-impl TryFrom<&ProtoBlockId> for BlockIdOrTag {
+impl TryFrom<crate::proto::BlockId> for katana_primitives::block::BlockIdOrTag {
     type Error = Status;
 
-    fn try_from(proto: &ProtoBlockId) -> Result<Self, Self::Error> {
+    fn try_from(proto: crate::proto::BlockId) -> Result<Self, Self::Error> {
         let identifier = proto
             .identifier
             .as_ref()
@@ -52,23 +51,24 @@ impl TryFrom<&ProtoBlockId> for BlockIdOrTag {
 
         match identifier {
             Identifier::Number(num) => Ok(BlockIdOrTag::Number(*num)),
-            Identifier::Hash(hash) => {
-                let felt = Felt::try_from(hash)?;
-                Ok(BlockIdOrTag::Hash(felt))
+            Identifier::Hash(hash) => Ok(BlockIdOrTag::Hash(Felt::try_from(hash)?)),
+            Identifier::Tag(tag) => {
+                let tag = ProtoBlockTag::try_from(*tag)
+                    .map_err(|_| Status::invalid_argument(format!("Unknown block tag: {tag}")))?;
+
+                match tag {
+                    ProtoBlockTag::Latest => Ok(BlockIdOrTag::Latest),
+                    ProtoBlockTag::L1Accepted => Ok(BlockIdOrTag::L1Accepted),
+                    ProtoBlockTag::PreConfirmed => Ok(BlockIdOrTag::PreConfirmed),
+                }
             }
-            Identifier::Tag(tag) => match tag.to_lowercase().as_str() {
-                "latest" => Ok(BlockIdOrTag::Latest),
-                "pending" => Ok(BlockIdOrTag::PreConfirmed),
-                "l1_accepted" | "l1accepted" => Ok(BlockIdOrTag::L1Accepted),
-                _ => Err(Status::invalid_argument(format!("Unknown block tag: {tag}"))),
-            },
         }
     }
 }
 
 /// Helper to convert Option<&ProtoBlockId> to BlockIdOrTag.
 #[allow(clippy::result_large_err)]
-pub fn block_id_from_proto(proto: Option<&ProtoBlockId>) -> Result<BlockIdOrTag, Status> {
+pub fn block_id_from_proto(proto: Option<crate::proto::BlockId>) -> Result<BlockIdOrTag, Status> {
     let proto = proto.ok_or_else(|| Status::invalid_argument("Missing block_id"))?;
     BlockIdOrTag::try_from(proto)
 }
