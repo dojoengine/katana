@@ -36,6 +36,7 @@ fn da_mode_to_string(mode: DataAvailabilityMode) -> String {
 }
 
 /// Parse DataAvailabilityMode from string.
+#[allow(clippy::result_large_err)]
 fn da_mode_from_string(s: &str) -> Result<DataAvailabilityMode, Status> {
     match s.to_uppercase().as_str() {
         "L1" => Ok(DataAvailabilityMode::L1),
@@ -45,6 +46,7 @@ fn da_mode_from_string(s: &str) -> Result<DataAvailabilityMode, Status> {
 }
 
 /// Helper to extract a required Felt field from an Option.
+#[allow(clippy::result_large_err)]
 fn required_felt(field: Option<&ProtoFelt>, field_name: &str) -> Result<Felt, Status> {
     field
         .cloned()
@@ -53,6 +55,7 @@ fn required_felt(field: Option<&ProtoFelt>, field_name: &str) -> Result<Felt, St
 }
 
 /// Derive is_query flag from version field.
+#[allow(clippy::result_large_err)]
 fn is_query_from_version(version: Felt) -> Result<bool, Status> {
     if version == Felt::THREE {
         Ok(false)
