@@ -175,7 +175,7 @@ impl SequencerNodeArgs {
         let config = self.config()?;
 
         #[cfg(feature = "vrf")]
-        let vrf_sidecar = match self.vrf_config(&config.rpc)? {
+        let vrf_sidecar = match self.vrf_config()? {
             Some((_, sidecar)) => sidecar,
             None => None,
         };
@@ -300,7 +300,7 @@ impl SequencerNodeArgs {
         let paymaster = self.paymaster_config(&chain)?.map(|(config, _)| config);
 
         #[cfg(feature = "vrf")]
-        let vrf = self.vrf_config(&rpc)?.map(|(config, _)| config);
+        let vrf = self.vrf_config()?.map(|(config, _)| config);
 
         #[cfg(all(feature = "vrf", feature = "cartridge"))]
         if vrf.is_some() && paymaster.is_none() {
@@ -655,9 +655,8 @@ impl SequencerNodeArgs {
     #[cfg(feature = "vrf")]
     fn vrf_config(
         &self,
-        rpc_config: &RpcConfig,
     ) -> Result<Option<(katana_node::config::paymaster::VrfConfig, Option<VrfSidecarInfo>)>> {
-        build_vrf_config(&self.vrf, Some(rpc_config.socket_addr()))
+        build_vrf_config(&self.vrf)
     }
 
     #[cfg(feature = "tee")]

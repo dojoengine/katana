@@ -1,7 +1,6 @@
-use url::Url;
-
 #[cfg(feature = "cartridge")]
 use katana_primitives::{ContractAddress, Felt};
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaymasterConfig {
@@ -22,8 +21,6 @@ pub struct PaymasterConfig {
 pub struct VrfConfig {
     /// The VRF service URL.
     pub url: Url,
-    /// RPC URL for VRF server to query state (for Nonce-based seed computation).
-    pub rpc_url: Option<Url>,
 }
 
 /// Configuration for connecting to a Cartridge paymaster service.

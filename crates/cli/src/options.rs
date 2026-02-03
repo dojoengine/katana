@@ -641,7 +641,7 @@ impl PaymasterOptions {
 }
 
 #[cfg(feature = "vrf")]
-#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "VRF options")]
 pub struct VrfOptions {
     /// Enable the VRF service.
@@ -660,19 +660,6 @@ pub struct VrfOptions {
     #[serde(default)]
     pub url: Option<Url>,
 
-    /// Port to bind the sidecar VRF service on (vrf-server uses 3000).
-    ///
-    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
-    #[arg(conflicts_with = "vrf_url")]
-    #[arg(
-        long = "vrf.port",
-        value_name = "PORT",
-        id = "vrf_port",
-        default_value_t = default_vrf_port()
-    )]
-    #[serde(default = "default_vrf_port")]
-    pub port: u16,
-
     /// Optional path to the VRF sidecar binary (defaults to `vrf-server` in PATH).
     ///
     /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
@@ -680,13 +667,6 @@ pub struct VrfOptions {
     #[arg(long = "vrf.bin", value_name = "PATH", id = "vrf_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
-}
-
-#[cfg(feature = "vrf")]
-impl Default for VrfOptions {
-    fn default() -> Self {
-        VrfOptions { enabled: false, url: None, port: default_vrf_port(), bin: None }
-    }
 }
 
 #[cfg(feature = "vrf")]
@@ -709,10 +689,6 @@ impl VrfOptions {
 
             if self.url.is_none() {
                 self.url = other.url.clone();
-            }
-
-            if self.port == default_vrf_port() {
-                self.port = other.port;
             }
 
             if self.bin.is_none() {
@@ -865,11 +841,6 @@ where
 #[cfg(feature = "cartridge")]
 fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
-}
-
-#[cfg(feature = "vrf")]
-fn default_vrf_port() -> u16 {
-    3000
 }
 
 #[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]

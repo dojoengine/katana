@@ -5,28 +5,26 @@
 //! - Spawning and managing the paymaster sidecar process
 //! - Generating paymaster configuration profiles
 //!
-//! This crate is self-contained and uses the Starknet RPC client to interact with
-//! the katana node for bootstrap operations.
+//! This crate uses the starknet crate's account abstraction for transaction handling.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
 use anyhow::{anyhow, Context, Result};
-use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
-use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::chain::{ChainId, NamedChainId};
-use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping, Tip};
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_client::starknet::Client;
-use katana_rpc_types::broadcasted::{BroadcastedInvokeTx, BroadcastedTxWithChainId};
-use katana_rpc_types::FunctionCall;
 use serde::Serialize;
+use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
+use starknet::contract::ContractFactory;
+use starknet::core::types::{BlockId, BlockTag, Call, StarknetError};
 use starknet::macros::selector;
-use starknet::signers::{LocalWallet, Signer, SigningKey};
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider, ProviderError};
+use starknet::signers::{LocalWallet, SigningKey};
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -133,10 +131,10 @@ pub struct PaymasterSidecarConfig {
 pub async fn bootstrap_paymaster(
     config: &PaymasterBootstrapConfig,
 ) -> Result<PaymasterBootstrapResult> {
-    let client = Client::new(config.rpc_url.clone());
+    let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(config.rpc_url.clone())));
 
     // Get chain ID from the node
-    let chain_id_felt = client.chain_id().await.context("failed to get chain ID from node")?;
+    let chain_id_felt = provider.chain_id().await.context("failed to get chain ID from node")?;
     let chain_id = ChainId::Id(chain_id_felt);
 
     let forwarder_class_hash = avnu_forwarder_class_hash()?;
@@ -150,180 +148,70 @@ pub async fn bootstrap_paymaster(
     )
     .into();
 
+    // Create the relayer account for transactions
+    let signer = LocalWallet::from(SigningKey::from_secret_scalar(config.relayer_private_key));
+    let mut account = SingleOwnerAccount::new(
+        provider.clone(),
+        signer,
+        config.relayer_address.into(),
+        chain_id_felt,
+        ExecutionEncoding::New,
+    );
+    account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
+
     // Deploy forwarder if not already deployed
-    ensure_deployed(
-        &client,
-        chain_id,
-        DeploymentRequest {
-            sender_address: config.relayer_address,
-            sender_private_key: config.relayer_private_key,
-            target_address: forwarder_address,
-            class_hash: forwarder_class_hash,
-            constructor_calldata: vec![
-                config.relayer_address.into(),
-                config.gas_tank_address.into(),
-            ],
-            salt: Felt::from(FORWARDER_SALT),
-        },
-    )
-    .await?;
+    if !is_deployed(&provider, forwarder_address).await? {
+        #[allow(deprecated)]
+        let factory = ContractFactory::new(forwarder_class_hash, &account);
+        factory
+            .deploy_v3(
+                vec![config.relayer_address.into(), config.gas_tank_address.into()],
+                Felt::from(FORWARDER_SALT),
+                false,
+            )
+            .send()
+            .await
+            .map_err(|e| anyhow!("failed to deploy forwarder: {e}"))?;
+
+        wait_for_contract(&provider, forwarder_address, BOOTSTRAP_TIMEOUT).await?;
+    }
 
     // Whitelist the relayer
-    let whitelist_call = FunctionCall {
-        contract_address: forwarder_address,
-        entry_point_selector: selector!("set_whitelisted_address"),
+    let whitelist_call = Call {
+        to: forwarder_address.into(),
+        selector: selector!("set_whitelisted_address"),
         calldata: vec![config.relayer_address.into(), Felt::ONE],
     };
 
-    submit_invoke(
-        &client,
-        chain_id,
-        config.relayer_address,
-        config.relayer_private_key,
-        vec![whitelist_call],
-    )
-    .await?;
+    account
+        .execute_v3(vec![whitelist_call])
+        .send()
+        .await
+        .map_err(|e| anyhow!("failed to whitelist relayer: {e}"))?;
 
     Ok(PaymasterBootstrapResult { forwarder_address, chain_id })
 }
 
-struct DeploymentRequest {
-    sender_address: ContractAddress,
-    sender_private_key: Felt,
-    target_address: ContractAddress,
-    class_hash: Felt,
-    constructor_calldata: Vec<Felt>,
-    salt: Felt,
-}
-
-async fn ensure_deployed(
-    client: &Client,
-    chain_id: ChainId,
-    request: DeploymentRequest,
-) -> Result<()> {
-    let DeploymentRequest {
-        sender_address,
-        sender_private_key,
-        target_address,
-        class_hash,
-        constructor_calldata,
-        salt,
-    } = request;
-
-    if is_deployed(client, target_address).await? {
-        return Ok(());
-    }
-
-    let deploy_call = FunctionCall {
-        contract_address: DEFAULT_UDC_ADDRESS,
-        entry_point_selector: selector!("deployContract"),
-        calldata: udc_calldata(class_hash, salt, constructor_calldata),
-    };
-
-    submit_invoke(client, chain_id, sender_address, sender_private_key, vec![deploy_call]).await?;
-
-    wait_for_contract(client, target_address, BOOTSTRAP_TIMEOUT).await?;
-    Ok(())
-}
-
-async fn submit_invoke(
-    client: &Client,
-    chain_id: ChainId,
-    sender_address: ContractAddress,
-    sender_private_key: Felt,
-    calls: Vec<FunctionCall>,
-) -> Result<()> {
-    let nonce = client
-        .get_nonce(BlockIdOrTag::PreConfirmed, sender_address)
-        .await
-        .context("failed to get nonce")?;
-
-    let tx = build_and_sign_invoke_tx(chain_id, sender_address, sender_private_key, nonce, calls)?;
-
-    client.add_invoke_transaction(tx).await.context("failed to submit invoke transaction")?;
-
-    Ok(())
-}
-
-fn build_and_sign_invoke_tx(
-    chain_id: ChainId,
-    sender_address: ContractAddress,
-    sender_private_key: Felt,
-    nonce: Felt,
-    calls: Vec<FunctionCall>,
-) -> Result<BroadcastedInvokeTx> {
-    // Build an unsigned transaction to compute the hash
-    let unsigned_tx = BroadcastedInvokeTx {
-        sender_address,
-        calldata: encode_calls(calls),
-        signature: vec![],
-        nonce,
-        paymaster_data: vec![],
-        tip: Tip::new(0),
-        account_deployment_data: vec![],
-        resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
-        fee_data_availability_mode: DataAvailabilityMode::L1,
-        nonce_data_availability_mode: DataAvailabilityMode::L1,
-        is_query: false,
-    };
-
-    // Compute the transaction hash using BroadcastedTxWithChainId
-    let tx_with_chain = BroadcastedTxWithChainId {
-        tx: katana_rpc_types::broadcasted::BroadcastedTx::Invoke(unsigned_tx.clone()),
-        chain: chain_id,
-    };
-    let tx_hash = tx_with_chain.calculate_hash();
-
-    // Sign the transaction hash
-    let signer = LocalWallet::from(SigningKey::from_secret_scalar(sender_private_key));
-    let signature = futures::executor::block_on(signer.sign_hash(&tx_hash))
-        .map_err(|e| anyhow!("failed to sign transaction: {e}"))?;
-
-    // Return signed transaction
-    Ok(BroadcastedInvokeTx { signature: vec![signature.r, signature.s], ..unsigned_tx })
-}
-
-fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
-    let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
-    for call in calls {
-        execute_calldata.push(call.contract_address.into());
-        execute_calldata.push(call.entry_point_selector);
-
-        execute_calldata.push(call.calldata.len().into());
-        execute_calldata.extend_from_slice(&call.calldata);
-    }
-
-    execute_calldata
-}
-
-fn udc_calldata(class_hash: Felt, salt: Felt, constructor_calldata: Vec<Felt>) -> Vec<Felt> {
-    let mut calldata = Vec::with_capacity(4 + constructor_calldata.len());
-    calldata.push(class_hash);
-    calldata.push(salt);
-    calldata.push(Felt::ZERO);
-    calldata.push(Felt::from(constructor_calldata.len()));
-    calldata.extend(constructor_calldata);
-    calldata
-}
-
-async fn is_deployed(client: &Client, address: ContractAddress) -> Result<bool> {
-    match client.get_class_hash_at(BlockIdOrTag::PreConfirmed, address).await {
+async fn is_deployed(
+    provider: &JsonRpcClient<HttpTransport>,
+    address: ContractAddress,
+) -> Result<bool> {
+    let address_felt: Felt = address.into();
+    match provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address_felt).await {
         Ok(_) => Ok(true),
-        Err(katana_rpc_client::starknet::Error::Starknet(
-            katana_rpc_client::starknet::StarknetApiError::ContractNotFound,
-        )) => Ok(false),
+        Err(ProviderError::StarknetError(StarknetError::ContractNotFound)) => Ok(false),
         Err(e) => Err(anyhow!("failed to check contract deployment: {e}")),
     }
 }
 
 async fn wait_for_contract(
-    client: &Client,
+    provider: &JsonRpcClient<HttpTransport>,
     address: ContractAddress,
     timeout: Duration,
 ) -> Result<()> {
     let start = Instant::now();
     loop {
-        if is_deployed(client, address).await? {
+        if is_deployed(provider, address).await? {
             return Ok(());
         }
 

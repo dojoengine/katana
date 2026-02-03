@@ -237,11 +237,16 @@ where
 
                 #[cfg(feature = "vrf")]
                 let vrf = if let Some(vrf) = &config.vrf {
+                    use url::Url;
+
                     let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
+                    let rpc_url = Url::parse(&format!("http://{}", config.rpc.socket_addr()))
+                        .expect("valid rpc url");
+
                     Some(katana_rpc_server::cartridge::VrfServiceConfig {
+                        rpc_url,
                         url: vrf.url.clone(),
                         account_address: derived.vrf_account_address,
-                        rpc_url: vrf.rpc_url.clone(),
                     })
                 } else {
                     None

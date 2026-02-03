@@ -63,7 +63,6 @@ pub struct PaymasterSidecarInfo {
 #[cfg(feature = "vrf")]
 pub fn build_vrf_config(
     options: &VrfOptions,
-    rpc_addr: Option<SocketAddr>,
 ) -> Result<Option<(VrfConfig, Option<VrfSidecarInfo>)>> {
     if !options.is_enabled() {
         return Ok(None);
@@ -77,20 +76,16 @@ pub fn build_vrf_config(
         let url = options.url.clone().expect("URL must be set in external mode");
         (url, None)
     } else {
-        // Sidecar mode: use configured port (VRF server uses fixed port 3000)
-        let port = options.port;
-        let url = Url::parse(&format!("http://127.0.0.1:{port}")).expect("valid url");
+        // Sidecar mode: find a free port dynamically
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let addr = listener.local_addr()?;
+        let port = addr.port();
+        let url = Url::parse(&format!("http://{addr}"))?;
         let sidecar_info = VrfSidecarInfo { port };
         (url, Some(sidecar_info))
     };
 
-    // Construct RPC URL for VRF server to query state
-    let rpc_url =
-        rpc_addr.map(|addr| Url::parse(&format!("http://{addr}"))).transpose().expect("valid URL");
-
-    let config = VrfConfig { url, rpc_url };
-
-    Ok(Some((config, sidecar_info)))
+    Ok(Some((VrfConfig { url }, sidecar_info)))
 }
 
 // ============================================================================

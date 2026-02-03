@@ -13,14 +13,14 @@ use url::Url;
 pub struct VrfServiceConfig {
     pub url: Url,
     pub account_address: ContractAddress,
-    pub rpc_url: Option<Url>,
+    pub rpc_url: Url,
 }
 
 #[derive(Clone)]
 pub struct VrfService {
     client: VrfClient,
     account_address: ContractAddress,
-    rpc_url: Option<Url>,
+    rpc_url: Url,
 }
 
 impl VrfService {
@@ -59,7 +59,7 @@ impl VrfService {
 
         let context = RequestContext {
             chain_id: chain_id.id().to_hex_string(),
-            rpc_url: self.rpc_url.clone(),
+            rpc_url: Some(self.rpc_url.clone()),
         };
 
         self.client.outside_execution(request, context).await.map_err(|err| {

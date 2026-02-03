@@ -210,6 +210,7 @@ where
             let mut user_address: Felt = address.into();
 
             if let Some(vrf_service) = &this.vrf_service {
+                // check first if the outside execution calls include a request_random call
                 if let Some((request_random_call, position)) =
                     request_random_call(&outside_execution)
                 {
