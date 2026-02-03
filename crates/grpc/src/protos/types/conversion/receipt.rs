@@ -6,10 +6,12 @@ use katana_primitives::receipt::{Event, MessageToL1};
 use katana_primitives::Felt;
 
 use super::FeltVecExt;
+use crate::protos::common::Felt as ProtoFelt;
 use crate::protos::types::{
     Event as ProtoEvent, ExecutionResources as ProtoExecutionResources,
-    FeePayment as ProtoFeePayment, Felt as ProtoFelt, MessageToL1 as ProtoMessageToL1,
-    Transaction as ProtoTx, TransactionReceipt as ProtoTransactionReceipt, TransactionWithReceipt,
+    FeePayment as ProtoFeePayment, FinalityStatus as ProtoFinalityStatus,
+    MessageToL1 as ProtoMessageToL1, Transaction as ProtoTx,
+    TransactionReceipt as ProtoTransactionReceipt, TransactionWithReceipt,
 };
 
 /// Convert PriceUnit to string representation for proto.
@@ -20,12 +22,12 @@ fn price_unit_to_string(unit: PriceUnit) -> String {
     }
 }
 
-/// Convert FinalityStatus to string representation for proto.
-fn finality_status_to_string(status: &FinalityStatus) -> String {
+/// Convert FinalityStatus to proto enum.
+fn finality_status_to_proto(status: &FinalityStatus) -> i32 {
     match status {
-        FinalityStatus::AcceptedOnL1 => "ACCEPTED_ON_L1".to_string(),
-        FinalityStatus::AcceptedOnL2 => "ACCEPTED_ON_L2".to_string(),
-        FinalityStatus::PreConfirmed => "PRE_CONFIRMED".to_string(),
+        FinalityStatus::AcceptedOnL2 => ProtoFinalityStatus::AcceptedOnL2 as i32,
+        FinalityStatus::AcceptedOnL1 => ProtoFinalityStatus::AcceptedOnL1 as i32,
+        FinalityStatus::PreConfirmed => ProtoFinalityStatus::PreConfirmed as i32,
     }
 }
 
@@ -105,7 +107,7 @@ fn receipt_from_rpc_receipt(
             amount: Some(receipt.actual_fee().amount.into()),
             unit: price_unit_to_string(receipt.actual_fee().unit),
         }),
-        finality_status: finality_status_to_string(receipt.finality_status()),
+        finality_status: finality_status_to_proto(receipt.finality_status()),
         messages_sent: messages_to_proto(receipt.messages_sent()),
         events: events_to_proto(receipt.events()),
         execution_resources: Some(ProtoExecutionResources::from(receipt.execution_resources())),

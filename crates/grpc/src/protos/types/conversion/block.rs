@@ -6,6 +6,7 @@ use katana_primitives::Felt;
 use tonic::Status;
 
 use super::FeltVecExt;
+use crate::protos::common::Felt as ProtoFelt;
 use crate::protos::starknet::{
     GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, GetBlockWithTxsResponse,
     GetStateUpdateResponse,
@@ -14,27 +15,28 @@ use crate::protos::types::block_id::Identifier;
 use crate::protos::types::{
     BlockHeader as ProtoBlockHeader, BlockId as ProtoBlockId,
     BlockWithReceipts as ProtoBlockWithReceipts, BlockWithTxHashes as ProtoBlockWithTxHashes,
-    BlockWithTxs as ProtoBlockWithTxs, Felt as ProtoFelt,
+    BlockWithTxs as ProtoBlockWithTxs, FinalityStatus as ProtoFinalityStatus,
+    L1DataAvailabilityMode as ProtoL1DataAvailabilityMode,
     PendingBlockWithReceipts as ProtoPendingBlockWithReceipts,
     PendingBlockWithTxHashes as ProtoPendingBlockWithTxHashes,
     PendingBlockWithTxs as ProtoPendingBlockWithTxs, PendingStateUpdate as ProtoPendingStateUpdate,
     ResourcePrice as ProtoResourcePrice, StateUpdate as ProtoStateUpdate,
 };
 
-/// Convert FinalityStatus to string representation for proto.
-fn finality_status_to_string(status: FinalityStatus) -> String {
+/// Convert FinalityStatus to proto enum.
+fn finality_status_to_proto(status: FinalityStatus) -> i32 {
     match status {
-        FinalityStatus::AcceptedOnL1 => "ACCEPTED_ON_L1".to_string(),
-        FinalityStatus::AcceptedOnL2 => "ACCEPTED_ON_L2".to_string(),
-        FinalityStatus::PreConfirmed => "PRE_CONFIRMED".to_string(),
+        FinalityStatus::AcceptedOnL2 => ProtoFinalityStatus::AcceptedOnL2 as i32,
+        FinalityStatus::AcceptedOnL1 => ProtoFinalityStatus::AcceptedOnL1 as i32,
+        FinalityStatus::PreConfirmed => ProtoFinalityStatus::PreConfirmed as i32,
     }
 }
 
-/// Convert L1DataAvailabilityMode to string representation for proto.
-fn l1_da_mode_to_string(mode: L1DataAvailabilityMode) -> String {
+/// Convert L1DataAvailabilityMode to proto enum.
+fn l1_da_mode_to_proto(mode: L1DataAvailabilityMode) -> i32 {
     match mode {
-        L1DataAvailabilityMode::Blob => "BLOB".to_string(),
-        L1DataAvailabilityMode::Calldata => "CALLDATA".to_string(),
+        L1DataAvailabilityMode::Blob => ProtoL1DataAvailabilityMode::Blob as i32,
+        L1DataAvailabilityMode::Calldata => ProtoL1DataAvailabilityMode::Calldata as i32,
     }
 }
 
@@ -81,7 +83,7 @@ impl From<katana_rpc_types::block::GetBlockWithTxHashesResponse> for GetBlockWit
                 result: Some(
                     crate::protos::starknet::get_block_with_tx_hashes_response::Result::Block(
                         ProtoBlockWithTxHashes {
-                            status: finality_status_to_string(block.status),
+                            status: finality_status_to_proto(block.status),
                             header: Some(ProtoBlockHeader::from(&block)),
                             transactions: block.transactions.to_proto_felts(),
                         },
@@ -113,7 +115,7 @@ impl From<katana_rpc_types::block::MaybePreConfirmedBlock> for GetBlockWithTxsRe
             RpcResponse::Confirmed(block) => GetBlockWithTxsResponse {
                 result: Some(crate::protos::starknet::get_block_with_txs_response::Result::Block(
                     ProtoBlockWithTxs {
-                        status: finality_status_to_string(block.status),
+                        status: finality_status_to_proto(block.status),
                         header: Some(ProtoBlockHeader::from(&block)),
                         transactions: block.transactions.into_iter().map(ProtoTx::from).collect(),
                     },
@@ -149,7 +151,7 @@ impl From<katana_rpc_types::block::GetBlockWithReceiptsResponse> for GetBlockWit
                 result: Some(
                     crate::protos::starknet::get_block_with_receipts_response::Result::Block(
                         ProtoBlockWithReceipts {
-                            status: finality_status_to_string(block.status),
+                            status: finality_status_to_proto(block.status),
                             header: Some(ProtoBlockHeader::from(&block)),
                             transactions: block
                                 .transactions
@@ -226,7 +228,7 @@ impl From<&katana_rpc_types::block::BlockWithTxHashes> for ProtoBlockHeader {
             l1_gas_price: Some(ProtoResourcePrice::from(&block.l1_gas_price)),
             l1_data_gas_price: Some(ProtoResourcePrice::from(&block.l1_data_gas_price)),
             l2_gas_price: Some(ProtoResourcePrice::from(&block.l2_gas_price)),
-            l1_da_mode: l1_da_mode_to_string(block.l1_da_mode),
+            l1_da_mode: l1_da_mode_to_proto(block.l1_da_mode),
             starknet_version: block.starknet_version.clone(),
         }
     }
@@ -244,7 +246,7 @@ impl From<&katana_rpc_types::block::BlockWithTxs> for ProtoBlockHeader {
             l1_gas_price: Some(ProtoResourcePrice::from(&block.l1_gas_price)),
             l1_data_gas_price: Some(ProtoResourcePrice::from(&block.l1_data_gas_price)),
             l2_gas_price: Some(ProtoResourcePrice::from(&block.l2_gas_price)),
-            l1_da_mode: l1_da_mode_to_string(block.l1_da_mode),
+            l1_da_mode: l1_da_mode_to_proto(block.l1_da_mode),
             starknet_version: block.starknet_version.clone(),
         }
     }
@@ -262,7 +264,7 @@ impl From<&katana_rpc_types::block::BlockWithReceipts> for ProtoBlockHeader {
             l1_gas_price: Some(ProtoResourcePrice::from(&block.l1_gas_price)),
             l1_data_gas_price: Some(ProtoResourcePrice::from(&block.l1_data_gas_price)),
             l2_gas_price: Some(ProtoResourcePrice::from(&block.l2_gas_price)),
-            l1_da_mode: l1_da_mode_to_string(block.l1_da_mode),
+            l1_da_mode: l1_da_mode_to_proto(block.l1_da_mode),
             starknet_version: block.starknet_version.clone(),
         }
     }
@@ -280,7 +282,7 @@ impl From<&katana_rpc_types::block::PreConfirmedBlockWithTxHashes> for ProtoBloc
             l1_gas_price: Some(ProtoResourcePrice::from(&pending.l1_gas_price)),
             l1_data_gas_price: Some(ProtoResourcePrice::from(&pending.l1_data_gas_price)),
             l2_gas_price: Some(ProtoResourcePrice::from(&pending.l2_gas_price)),
-            l1_da_mode: l1_da_mode_to_string(pending.l1_da_mode),
+            l1_da_mode: l1_da_mode_to_proto(pending.l1_da_mode),
             starknet_version: pending.starknet_version.clone(),
         }
     }
@@ -298,7 +300,7 @@ impl From<&katana_rpc_types::block::PreConfirmedBlockWithTxs> for ProtoBlockHead
             l1_gas_price: Some(ProtoResourcePrice::from(&pending.l1_gas_price)),
             l1_data_gas_price: Some(ProtoResourcePrice::from(&pending.l1_data_gas_price)),
             l2_gas_price: Some(ProtoResourcePrice::from(&pending.l2_gas_price)),
-            l1_da_mode: l1_da_mode_to_string(pending.l1_da_mode),
+            l1_da_mode: l1_da_mode_to_proto(pending.l1_da_mode),
             starknet_version: pending.starknet_version.clone(),
         }
     }
@@ -316,7 +318,7 @@ impl From<&katana_rpc_types::block::PreConfirmedBlockWithReceipts> for ProtoBloc
             l1_gas_price: Some(ProtoResourcePrice::from(&pending.l1_gas_price)),
             l1_data_gas_price: Some(ProtoResourcePrice::from(&pending.l1_data_gas_price)),
             l2_gas_price: Some(ProtoResourcePrice::from(&pending.l2_gas_price)),
-            l1_da_mode: l1_da_mode_to_string(pending.l1_da_mode),
+            l1_da_mode: l1_da_mode_to_proto(pending.l1_da_mode),
             starknet_version: pending.starknet_version.clone(),
         }
     }

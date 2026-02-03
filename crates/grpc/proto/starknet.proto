@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package starknet;
 
+import "common.proto";
 import "types.proto";
 
 // The Starknet service provides read methods for interacting with Starknet.
@@ -146,16 +147,16 @@ message GetStateUpdateResponse {
 
 message GetStorageAtRequest {
     types.BlockID block_id = 1;
-    types.Felt contract_address = 2;
-    types.Felt key = 3;
+    common.Felt contract_address = 2;
+    common.Felt key = 3;
 }
 
 message GetStorageAtResponse {
-    types.Felt value = 1;
+    common.Felt value = 1;
 }
 
 message GetTransactionStatusRequest {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
 }
 
 message GetTransactionStatusResponse {
@@ -164,7 +165,7 @@ message GetTransactionStatusResponse {
 }
 
 message GetTransactionByHashRequest {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
 }
 
 message GetTransactionByHashResponse {
@@ -181,7 +182,7 @@ message GetTransactionByBlockIdAndIndexResponse {
 }
 
 message GetTransactionReceiptRequest {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
 }
 
 message GetTransactionReceiptResponse {
@@ -190,7 +191,7 @@ message GetTransactionReceiptResponse {
 
 message GetClassRequest {
     types.BlockID block_id = 1;
-    types.Felt class_hash = 2;
+    common.Felt class_hash = 2;
 }
 
 message GetClassResponse {
@@ -202,16 +203,16 @@ message GetClassResponse {
 
 message GetClassHashAtRequest {
     types.BlockID block_id = 1;
-    types.Felt contract_address = 2;
+    common.Felt contract_address = 2;
 }
 
 message GetClassHashAtResponse {
-    types.Felt class_hash = 1;
+    common.Felt class_hash = 1;
 }
 
 message GetClassAtRequest {
     types.BlockID block_id = 1;
-    types.Felt contract_address = 2;
+    common.Felt contract_address = 2;
 }
 
 message GetClassAtResponse {
@@ -231,7 +232,7 @@ message CallRequest {
 }
 
 message CallResponse {
-    repeated types.Felt result = 1;
+    repeated common.Felt result = 1;
 }
 
 message EstimateFeeRequest {
@@ -258,7 +259,7 @@ message BlockNumberResponse {
 message BlockHashAndNumberRequest {}
 
 message BlockHashAndNumberResponse {
-    types.Felt block_hash = 1;
+    common.Felt block_hash = 1;
     uint64 block_number = 2;
 }
 
@@ -290,11 +291,11 @@ message GetEventsResponse {
 
 message GetNonceRequest {
     types.BlockID block_id = 1;
-    types.Felt contract_address = 2;
+    common.Felt contract_address = 2;
 }
 
 message GetNonceResponse {
-    types.Felt nonce = 1;
+    common.Felt nonce = 1;
 }
 
 // ============================================================
@@ -302,7 +303,7 @@ message GetNonceResponse {
 // ============================================================
 
 message GetCompiledCasmRequest {
-    types.Felt class_hash = 1;
+    common.Felt class_hash = 1;
 }
 
 message GetCompiledCasmResponse {
@@ -311,8 +312,8 @@ message GetCompiledCasmResponse {
 
 message GetStorageProofRequest {
     types.BlockID block_id = 1;
-    repeated types.Felt class_hashes = 2;
-    repeated types.Felt contract_addresses = 3;
+    repeated common.Felt class_hashes = 2;
+    repeated common.Felt contract_addresses = 3;
     repeated types.ContractStorageKeysRequest contracts_storage_keys = 4;
 }
 
@@ -329,7 +330,7 @@ message AddInvokeTransactionRequest {
 }
 
 message AddInvokeTransactionResponse {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
 }
 
 message AddDeclareTransactionRequest {
@@ -337,8 +338,8 @@ message AddDeclareTransactionRequest {
 }
 
 message AddDeclareTransactionResponse {
-    types.Felt transaction_hash = 1;
-    types.Felt class_hash = 2;
+    common.Felt transaction_hash = 1;
+    common.Felt class_hash = 2;
 }
 
 message AddDeployAccountTransactionRequest {
@@ -346,8 +347,8 @@ message AddDeployAccountTransactionRequest {
 }
 
 message AddDeployAccountTransactionResponse {
-    types.Felt transaction_hash = 1;
-    types.Felt contract_address = 2;
+    common.Felt transaction_hash = 1;
+    common.Felt contract_address = 2;
 }
 
 // ============================================================
@@ -355,7 +356,7 @@ message AddDeployAccountTransactionResponse {
 // ============================================================
 
 message TraceTransactionRequest {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
 }
 
 message TraceTransactionResponse {
@@ -381,6 +382,6 @@ message TraceBlockTransactionsResponse {
 }
 
 message TransactionTraceWithHash {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
     types.TransactionTrace trace_root = 2;
 }

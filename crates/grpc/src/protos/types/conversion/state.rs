@@ -2,8 +2,9 @@
 
 use katana_primitives::Felt;
 
+use crate::protos::common::Felt as ProtoFelt;
 use crate::protos::types::{
-    DeclaredClass, DeployedContract, Felt as ProtoFelt, Nonce as ProtoNonce, ReplacedClass,
+    DeclaredClass, DeployedContract, Nonce as ProtoNonce, ReplacedClass,
     StateDiff as ProtoStateDiff, StorageDiff, StorageEntry,
 };
 

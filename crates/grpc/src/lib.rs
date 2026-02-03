@@ -61,6 +61,7 @@ pub use server::{GrpcServer, GrpcServerHandle};
 pub mod proto {
     pub use super::protos::starknet::*;
     pub use super::protos::types::*;
+    pub use super::protos::*;
 }
 
 // Re-export conversion module for internal use

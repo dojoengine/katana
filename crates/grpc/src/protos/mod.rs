@@ -1,4 +1,7 @@
+mod common;
 pub mod types;
+
+pub use common::*;
 
 /// Starknet service definitions from starknet.proto
 pub mod starknet {

@@ -3,6 +3,7 @@
 use katana_primitives::Felt;
 
 use super::FeltVecExt;
+use crate::protos::common::Felt as ProtoFelt;
 use crate::protos::starknet::{
     SimulateTransactionsResponse, TraceBlockTransactionsResponse, TraceTransactionResponse,
     TransactionTraceWithHash,
@@ -10,7 +11,7 @@ use crate::protos::starknet::{
 use crate::protos::types::transaction_trace::Trace as ProtoTraceVariant;
 use crate::protos::types::{
     DeclareTransactionTrace, DeployAccountTransactionTrace, ExecutionResources,
-    FeeEstimate as ProtoFeeEstimate, Felt as ProtoFelt, FunctionInvocation, InvokeTransactionTrace,
+    FeeEstimate as ProtoFeeEstimate, FunctionInvocation, InvokeTransactionTrace,
     L1HandlerTransactionTrace, OrderedEvent, OrderedL2ToL1Message, SimulatedTransaction,
     TransactionTrace as ProtoTransactionTrace,
 };

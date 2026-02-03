@@ -21,10 +21,10 @@ use crate::proto;
 use crate::proto::{
     BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction,
     BroadcastedInvokeTransaction, ContractClass as ProtoContractClass, DeployAccountTxn,
-    DeployAccountTxnV3, DeployTxn, Felt as ProtoFelt, InvokeTxnV1, InvokeTxnV3, L1HandlerTxn,
-    ResourceBounds, ResourceBoundsMapping, SierraEntryPoint as ProtoSierraEntryPoint,
-    Transaction as ProtoTx,
+    DeployAccountTxnV3, DeployTxn, InvokeTxnV1, InvokeTxnV3, L1HandlerTxn, ResourceBounds,
+    ResourceBoundsMapping, SierraEntryPoint as ProtoSierraEntryPoint, Transaction as ProtoTx,
 };
+use crate::protos::common::Felt as ProtoFelt;
 use crate::protos::types::transaction::Transaction as ProtoTxVariant;
 
 /// Convert DataAvailabilityMode to string representation for proto.
