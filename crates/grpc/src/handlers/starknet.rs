@@ -11,7 +11,7 @@ use katana_rpc_types::trie::ContractStorageKeys;
 use katana_rpc_types::{BroadcastedTxWithChainId, FunctionCall};
 use tonic::{Request, Response, Status};
 
-use crate::conversion::block_id_from_proto;
+use crate::conversion::{block_id_from_proto, confirmed_block_id_from_proto};
 use crate::error::IntoGrpcResult;
 use crate::protos::starknet::starknet_server::Starknet;
 use crate::protos::starknet::starknet_trace_server::StarknetTrace;
@@ -68,7 +68,7 @@ where
     PF: ProviderFactory,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StarknetHandler").finish_non_exhaustive()
+        f.debug_struct("StarknetService").finish_non_exhaustive()
     }
 }
 
@@ -551,14 +551,15 @@ where
         &self,
         request: Request<TraceTransactionRequest>,
     ) -> Result<Response<TraceTransactionResponse>, Status> {
-        let _tx_hash: TxHash = request
+        let tx_hash: TxHash = request
             .into_inner()
             .transaction_hash
             .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?
             .try_into()?;
 
-        // Trace requires access to the executor - not yet implemented
-        Err(Status::unimplemented("trace_transaction not yet implemented for gRPC"))
+        let result = self.api.trace(tx_hash).await.into_grpc_result()?;
+
+        Ok(Response::new(result.into()))
     }
 
     async fn simulate_transactions(
@@ -574,29 +575,10 @@ where
         &self,
         request: Request<TraceBlockTransactionsRequest>,
     ) -> Result<Response<TraceBlockTransactionsResponse>, Status> {
-        let block_id = block_id_from_proto(request.into_inner().block_id)?;
-
-        // Convert BlockIdOrTag to ConfirmedBlockIdOrTag
-        let _confirmed_block_id = match block_id {
-            katana_primitives::block::BlockIdOrTag::Number(n) => {
-                katana_primitives::block::ConfirmedBlockIdOrTag::Number(n)
-            }
-            katana_primitives::block::BlockIdOrTag::Hash(h) => {
-                katana_primitives::block::ConfirmedBlockIdOrTag::Hash(h)
-            }
-            katana_primitives::block::BlockIdOrTag::Latest => {
-                katana_primitives::block::ConfirmedBlockIdOrTag::Latest
-            }
-            katana_primitives::block::BlockIdOrTag::PreConfirmed => {
-                return Err(Status::invalid_argument("Pending block does not have traces"));
-            }
-            katana_primitives::block::BlockIdOrTag::L1Accepted => {
-                katana_primitives::block::ConfirmedBlockIdOrTag::L1Accepted
-            }
-        };
-
-        // Trace requires access to the executor - not yet implemented
-        Err(Status::unimplemented("trace_block_transactions not yet implemented for gRPC"))
+        let block_id = confirmed_block_id_from_proto(request.into_inner().block_id)?;
+        let traces = self.api.block_traces(block_id).await.into_grpc_result()?;
+        let response = katana_rpc_types::trace::TraceBlockTransactionsResponse { traces };
+        Ok(Response::new(response.into()))
     }
 }
 

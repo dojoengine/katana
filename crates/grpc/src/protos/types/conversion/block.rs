@@ -1,6 +1,6 @@
 //! Block type conversions.
 
-use katana_primitives::block::{BlockIdOrTag, FinalityStatus};
+use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag, FinalityStatus};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::Felt;
 use tonic::Status;
@@ -68,6 +68,40 @@ impl TryFrom<crate::proto::BlockId> for katana_primitives::block::BlockIdOrTag {
 pub fn block_id_from_proto(proto: Option<crate::proto::BlockId>) -> Result<BlockIdOrTag, Status> {
     let proto = proto.ok_or_else(|| Status::invalid_argument("Missing block_id"))?;
     BlockIdOrTag::try_from(proto)
+}
+
+impl TryFrom<crate::proto::ConfirmedBlockId> for ConfirmedBlockIdOrTag {
+    type Error = Status;
+
+    fn try_from(proto: crate::proto::ConfirmedBlockId) -> Result<Self, Self::Error> {
+        use crate::protos::types::confirmed_block_id::Identifier;
+        use crate::protos::types::ConfirmedBlockTag as ProtoConfirmedBlockTag;
+
+        let identifier =
+            proto.identifier.ok_or_else(|| Status::invalid_argument("Missing identifier"))?;
+
+        match identifier {
+            Identifier::Number(num) => Ok(ConfirmedBlockIdOrTag::Number(num)),
+            Identifier::Hash(hash) => Ok(ConfirmedBlockIdOrTag::Hash(hash.try_into()?)),
+            Identifier::Tag(tag) => {
+                let tag = ProtoConfirmedBlockTag::try_from(tag)
+                    .map_err(|_| Status::invalid_argument(format!("Unknown block tag: {tag}")))?;
+
+                match tag {
+                    ProtoConfirmedBlockTag::Latest => Ok(ConfirmedBlockIdOrTag::Latest),
+                    ProtoConfirmedBlockTag::L1Accepted => Ok(ConfirmedBlockIdOrTag::L1Accepted),
+                }
+            }
+        }
+    }
+}
+
+#[allow(clippy::result_large_err)]
+pub fn confirmed_block_id_from_proto(
+    proto: Option<crate::proto::ConfirmedBlockId>,
+) -> Result<ConfirmedBlockIdOrTag, Status> {
+    let proto = proto.ok_or_else(|| Status::invalid_argument("Missing block_id"))?;
+    ConfirmedBlockIdOrTag::try_from(proto)
 }
 
 /// Convert block with tx hashes response to proto.

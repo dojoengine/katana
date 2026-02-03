@@ -45,9 +45,5 @@ tower-service.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 hex = "0.4"
 
-[[example]]
-name = "grpc-client"
-path = "examples/client.rs"
-
 [build-dependencies]
 tonic-build.workspace = true

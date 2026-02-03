@@ -19,6 +19,22 @@ message BlockID {
   }
 }
 
+// Block tag for confirmed blocks only (no PRE_CONFIRMED).
+enum ConfirmedBlockTag {
+  CONFIRMED_BLOCK_TAG_LATEST = 0;
+  CONFIRMED_BLOCK_TAG_L1_ACCEPTED = 1;
+}
+
+// Block identifier for confirmed blocks only.
+// Used by trace methods that cannot operate on pending blocks.
+message ConfirmedBlockId {
+  oneof identifier {
+    uint64 number = 1 [json_name = "block_number"];
+    common.Felt hash = 2 [json_name = "block_hash"];
+    ConfirmedBlockTag tag = 3 [json_name = "block_tag"];
+  }
+}
+
 enum SimulationFlag {
   SKIP_FEE_CHARGE = 0;
   SKIP_EXECUTE = 1;
