@@ -1,37 +1,7 @@
-//! For the VRF, the integration works as follows (if an execution from outside is targetting the
-//! VRF provider contract):
-//!
-//! 1. The VRF provider contract is deployed (if not already deployed).
-//!
-//! 2. The Stark VRF proof is generated using the `Source` provided in the call. The seed is
-//!    precomputed to match smart contract behavior <https://github.com/cartridge-gg/vrf/blob/38d71385f939a19829113c122f1ab12dbbe0f877/src/vrf_provider/vrf_provider_component.cairo#L112>.
-//!
-//! 3. The original execution from outside call is then sandwitched between two VRF calls, one for
-//!    submitting the randomness, and one to assert the correct consumption of the randomness.
-//!
-//! 4. When using the VRF, the user has the responsability to add a first call to target the VRF
-//!    provider contract `request_random` entrypoint. This call sets which `Source` will be used
-//!    to generate the randomness.
-//!    <https://docs.cartridge.gg/vrf/overview#executing-vrf-transactions>
-//!
-//! In the current implementation, the VRF contract is deployed with a default private key, or read
-//! from environment variable `KATANA_VRF_PRIVATE_KEY`. It is important to note that changing the
-//! private key will result in a different VRF provider contract address.
-
-use katana_primitives::cairo::ShortString;
-use katana_primitives::{felt, Felt};
+use katana_primitives::Felt;
 use katana_rpc_types::outside_execution::{OutsideExecutionV2, OutsideExecutionV3};
 use serde::{Deserialize, Serialize};
 use url::Url;
-
-// Class hash of the VRF provider contract (fee estimation code commented, since currently Katana
-// returns 0 for the fees): <https://github.com/cartridge-gg/vrf/blob/38d71385f939a19829113c122f1ab12dbbe0f877/src/vrf_provider/vrf_provider_component.cairo#L124>
-// The contract is compiled in
-// `crates/controller/artifacts/cartridge_vrf_VrfProvider.contract_class.json`
-pub const CARTRIDGE_VRF_CLASS_HASH: Felt =
-    felt!("0x07007ea60938ff539f1c0772a9e0f39b4314cfea276d2c22c29a8b64f2a87a58");
-pub const CARTRIDGE_VRF_SALT: ShortString = ShortString::from_ascii("cartridge_vrf");
-pub const CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY: Felt = felt!("0x1");
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StarkVrfProof {
@@ -71,7 +41,7 @@ pub struct InfoResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestContext {
     pub chain_id: String,
-    pub rpc_url: Option<String>,
+    pub rpc_url: Option<Url>,
 }
 
 /// Error type for VRF client operations.
@@ -159,7 +129,7 @@ impl VrfClient {
         request: SignedOutsideExecution,
         context: RequestContext,
     ) -> Result<SignedOutsideExecution, VrfClientError> {
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[derive(Debug, Serialize)]
         struct OutsideExecutionRequest {
             request: SignedOutsideExecution,
             context: RequestContext,

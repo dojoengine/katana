@@ -134,7 +134,8 @@ pub fn build_vrf_config(
     };
 
     // Construct RPC URL for VRF server to query state
-    let rpc_url = rpc_addr.map(|addr| format!("http://{addr}"));
+    let rpc_url =
+        rpc_addr.map(|addr| Url::parse(&format!("http://{addr}"))).transpose().expect("valid URL");
 
     let config = VrfConfig { url, key_source, prefunded_index: options.prefunded_index, rpc_url };
 

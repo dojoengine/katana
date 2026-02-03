@@ -13,14 +13,14 @@ use url::Url;
 pub struct VrfServiceConfig {
     pub url: Url,
     pub account_address: ContractAddress,
-    pub rpc_url: Option<String>,
+    pub rpc_url: Option<Url>,
 }
 
 #[derive(Clone)]
 pub struct VrfService {
     client: VrfClient,
     account_address: ContractAddress,
-    rpc_url: Option<String>,
+    rpc_url: Option<Url>,
 }
 
 impl VrfService {
