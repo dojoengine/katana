@@ -9,6 +9,7 @@ build = "build.rs"
 [dependencies]
 katana-contracts.workspace = true
 katana-genesis.workspace = true
+katana-chain-spec.workspace = true
 katana-primitives.workspace = true
 katana-rpc-types = { path = "../rpc/rpc-types" }
 

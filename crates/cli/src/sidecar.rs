@@ -56,40 +56,26 @@ pub struct VrfSidecarInfo {
     pub port: u16,
 }
 
-/// Build the VRF configuration from CLI options.
-///
-/// Returns `None` if VRF is not enabled.
-/// Returns `(VrfConfig, Option<VrfSidecarInfo>)` where the sidecar info
-/// is `Some` in sidecar mode and `None` in external mode.
-///
-/// The `rpc_addr` parameter is the address the node's RPC server is bound to,
-/// used to construct the RPC URL for the VRF server to query state.
 #[cfg(feature = "vrf")]
-pub fn build_vrf_config(
-    options: &VrfOptions,
-) -> Result<Option<(VrfConfig, Option<VrfSidecarInfo>)>> {
-    if !options.is_enabled() {
+pub fn build_vrf_config(options: &VrfOptions) -> Result<Option<VrfConfig>> {
+    if !options.enabled {
         return Ok(None);
     }
 
-    // Determine mode based on whether URL is provided
-    let is_external = options.is_external();
+    if options.is_external() {
+        let url = options.url.clone().expect("must be set if external");
+        let vrf_account = options.vrf_account_contract.expect("must be set if external");
 
-    let (url, sidecar_info) = if is_external {
-        // External mode: use the provided URL
-        let url = options.url.clone().expect("URL must be set in external mode");
-        (url, None)
+        Ok(Some(VrfConfig { url, vrf_account }))
     } else {
-        // Sidecar mode: find a free port dynamically
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
-        let port = addr.port();
         let url = Url::parse(&format!("http://{addr}"))?;
-        let sidecar_info = VrfSidecarInfo { port };
-        (url, Some(sidecar_info))
-    };
 
-    Ok(Some((VrfConfig { url }, sidecar_info)))
+        todo!("infer vrf contract address")
+
+        // Ok(Some(VrfConfig { url }))
+    }
 }
 
 // ============================================================================
@@ -341,75 +327,4 @@ pub fn local_rpc_url(addr: &SocketAddr) -> Url {
     };
 
     Url::parse(&format!("http://{}:{}", host, addr.port())).expect("valid rpc url")
-}
-
-// ============================================================================
-// High-Level Bootstrap and Start API
-// ============================================================================
-
-/// Bootstrap contracts and start sidecar processes if needed.
-///
-/// This function is called after the node is launched to:
-/// 1. Bootstrap necessary contracts (forwarder, VRF accounts)
-/// 2. Start sidecar processes in sidecar mode
-///
-/// Returns `None` if no sidecars need to be started.
-#[cfg(feature = "cartridge")]
-pub async fn bootstrap_and_start_sidecars(
-    paymaster_sidecar: Option<&PaymasterSidecarInfo>,
-    paymaster_options: &PaymasterOptions,
-    #[cfg(feature = "vrf")] vrf_options: &VrfOptions,
-    chain_spec: &ChainSpec,
-    rpc_addr: &SocketAddr,
-    #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfSidecarInfo>,
-    fee_enabled: bool,
-) -> Result<Option<SidecarProcesses>> {
-    // Build RPC URL for bootstrap
-    let rpc_url = local_rpc_url(rpc_addr);
-
-    // Build and bootstrap VRF service if enabled
-    #[cfg(feature = "vrf")]
-    let vrf_service = if vrf_sidecar.is_some() {
-        // Always use the first genesis account (index 0)
-        let (source_address, source_private_key) = prefunded_account(chain_spec, 0)?;
-
-        let config = VrfServiceConfig {
-            rpc_url: rpc_url.clone(),
-            source_address,
-            source_private_key,
-            program_path: vrf_options.bin.clone(),
-        };
-
-        let mut service = VrfService::new(config);
-        service.bootstrap().await?;
-        Some(service)
-    } else {
-        None
-    };
-
-    // Build bootstrap config for other sidecars (currently only used for fee_enabled tracking)
-    let bootstrap_config = BootstrapConfig { fee_enabled };
-
-    // Bootstrap other contracts (currently a no-op for VRF since we handle it above)
-    let bootstrap = bootstrap_sidecars(&bootstrap_config).await?;
-
-    // Build sidecar start config
-    let paymaster_start_config = paymaster_sidecar.map(|info| PaymasterStartConfig {
-        options: paymaster_options,
-        port: info.port,
-        api_key: info.api_key.clone(),
-        rpc_url: rpc_url.clone(),
-    });
-
-    #[cfg(feature = "vrf")]
-    let vrf_config = vrf_service.map(|service| VrfStartConfig { service });
-
-    let start_config = SidecarStartConfig {
-        #[cfg(feature = "vrf")]
-        vrf: vrf_config,
-    };
-
-    // Start sidecar processes
-    let processes = start_sidecars(start_config, &bootstrap).await?;
-    Ok(Some(processes))
 }

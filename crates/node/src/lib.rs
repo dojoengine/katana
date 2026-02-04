@@ -245,7 +245,7 @@ where
                     Some(katana_rpc_server::cartridge::VrfServiceConfig {
                         rpc_url,
                         service_url: vrf.url.clone(),
-                        vrf_contract: vrf.vrf_contract,
+                        vrf_contract: vrf.vrf_account,
                     })
                 } else {
                     None

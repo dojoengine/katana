@@ -46,7 +46,7 @@ paymaster = [
 	"katana-rpc-server/paymaster",
 ]
 vrf = [
-	"paymaster",
+	"cartridge",
 	"dep:cartridge",
 	"katana-node/vrf",
 	"katana-rpc-server/vrf",
@@ -55,10 +55,9 @@ cartridge = [
 	"katana-node/cartridge",
 	"katana-rpc-server/cartridge",
 	"paymaster",
-	"vrf",
 ]
 grpc = [ "katana-node/grpc" ]
-default = ["cartridge", "server", "tee", "grpc"]
+default = ["server", "tee", "vrf", "paymaster", "cartridge", "grpc"]
 explorer = ["katana-node/explorer", "katana-utils/explorer"]
 native = ["katana-node/native"]
 server = []

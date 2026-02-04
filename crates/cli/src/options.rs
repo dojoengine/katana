@@ -29,6 +29,8 @@ use katana_node::config::rpc::{
 };
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
+#[cfg(feature = "vrf")]
+use katana_primitives::ContractAddress;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
 use katana_tracing::{default_log_file_directory, gcloud, otlp, LogColor, LogFormat, TracerConfig};
@@ -656,14 +658,20 @@ pub struct VrfOptions {
     ///
     /// When provided, the VRF will run in external mode, connecting to this URL
     /// instead of spawning a sidecar process.
+    #[arg(requires_all = ["vrf_enabled", "vrf_account_contract"])]
     #[arg(long = "vrf.url", value_name = "URL", id = "vrf_url")]
     #[serde(default)]
     pub url: Option<Url>,
 
+    #[arg(requires = "vrf_url")]
+    #[arg(long = "vrf.contract", value_name = "ADDRESS", id = "vrf_account_contract")]
+    #[serde(default)]
+    pub vrf_account_contract: Option<ContractAddress>,
+
     /// Optional path to the VRF sidecar binary (defaults to `vrf-server` in PATH).
     ///
     /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
-    #[arg(conflicts_with = "vrf_url")]
+    #[arg(requires = "vrf_enabled", conflicts_with = "vrf_url")]
     #[arg(long = "vrf.bin", value_name = "PATH", id = "vrf_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
@@ -671,11 +679,6 @@ pub struct VrfOptions {
 
 #[cfg(feature = "vrf")]
 impl VrfOptions {
-    /// Returns true if the VRF is enabled (either explicitly or via URL).
-    pub fn is_enabled(&self) -> bool {
-        self.enabled || self.url.is_some()
-    }
-
     /// Returns true if the VRF should run in external mode (URL provided).
     pub fn is_external(&self) -> bool {
         self.url.is_some()

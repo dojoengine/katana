@@ -7,11 +7,14 @@
 //!
 //! This module uses the starknet crate's account abstraction for transaction handling.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use ark_ff::PrimeField;
+use katana_chain_spec::ChainSpec;
+use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::chain::ChainId;
 use katana_primitives::utils::get_contract_address;
@@ -52,9 +55,9 @@ pub struct VrfBootstrapConfig {
     pub rpc_url: Url,
 
     /// Source account address (used to deploy contracts and fund VRF account).
-    pub source_address: ContractAddress,
+    pub bootstrapper_account: ContractAddress,
     /// Source account private key.
-    pub source_private_key: Felt,
+    pub bootstrapper_account_private_key: Felt,
 }
 
 /// Result of VRF bootstrap operations.
@@ -62,11 +65,8 @@ pub struct VrfBootstrapConfig {
 pub struct VrfBootstrapResult {
     /// The VRF secret key (derived from source account).
     pub secret_key: u64,
-    /// The deployed VRF account address.
     pub vrf_account_address: ContractAddress,
-    /// The deployed VRF consumer address.
     pub vrf_consumer_address: ContractAddress,
-    /// The chain ID of the network.
     pub chain_id: ChainId,
 }
 
@@ -122,35 +122,28 @@ pub fn derive_vrf_accounts(
     })
 }
 
-/// Bootstrap the VRF service by deploying necessary contracts via RPC.
-///
-/// This function:
-/// 1. Connects to the node via RPC
-/// 2. Gets the chain ID
-/// 3. Computes the deterministic VRF account and consumer addresses
-/// 4. Deploys the VRF account if not already deployed
-/// 5. Optionally funds the VRF account (when fees are enabled)
-/// 6. Sets the VRF public key on the deployed account
-/// 7. Deploys the VRF consumer if not already deployed
-pub async fn bootstrap_vrf(config: &VrfBootstrapConfig) -> Result<VrfBootstrapResult> {
-    let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(config.rpc_url.clone())));
+pub async fn bootstrap_vrf(rpc_addr: SocketAddr, chain: &ChainSpec) -> Result<VrfBootstrapResult> {
+    let rpc_url = Url::parse(&format!("http://{rpc_addr}"))?;
+    let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(rpc_url.clone())));
+
+    let bootstrapper_account = prefunded_account(chain, 0)?;
 
     // Get chain ID from the node
     let chain_id_felt = provider.chain_id().await.context("failed to get chain ID from node")?;
     let chain_id = ChainId::Id(chain_id_felt);
 
-    let derived = derive_vrf_accounts(config.source_address, config.source_private_key)?;
+    let derived = derive_vrf_accounts(bootstrapper_account.0, bootstrapper_account.1)?;
     let vrf_account_address = derived.vrf_account_address;
     let account_public_key =
-        SigningKey::from_secret_scalar(config.source_private_key).verifying_key().scalar();
+        SigningKey::from_secret_scalar(bootstrapper_account.1).verifying_key().scalar();
     let vrf_account_class_hash = vrf_account_class_hash()?;
 
     // Create the source account for transactions
-    let signer = LocalWallet::from(SigningKey::from_secret_scalar(config.source_private_key));
-    let mut account = SingleOwnerAccount::new(
+    let signer = LocalWallet::from(SigningKey::from_secret_scalar(bootstrapper_account.1));
+    let account = SingleOwnerAccount::new(
         provider.clone(),
         signer,
-        config.source_address.into(),
+        bootstrapper_account.0.into(),
         chain_id_felt,
         ExecutionEncoding::New,
     );
@@ -186,7 +179,7 @@ pub async fn bootstrap_vrf(config: &VrfBootstrapConfig) -> Result<VrfBootstrapRe
 
     // Set VRF public key on the deployed account
     // Create account for the VRF account to call set_vrf_public_key on itself
-    let vrf_signer = LocalWallet::from(SigningKey::from_secret_scalar(config.source_private_key));
+    let vrf_signer = LocalWallet::from(SigningKey::from_secret_scalar(bootstrapper_account.1));
     let mut vrf_account = SingleOwnerAccount::new(
         provider.clone(),
         vrf_signer,
@@ -311,6 +304,21 @@ pub fn vrf_secret_key_from_account_key(value: Felt) -> u64 {
 fn felt_from_field<T: std::fmt::Display>(value: T) -> Result<Felt> {
     let decimal = value.to_string();
     Felt::from_dec_str(&decimal).map_err(|err| anyhow!("invalid field value: {err}"))
+}
+
+fn prefunded_account(chain_spec: &ChainSpec, index: u16) -> Result<(ContractAddress, Felt)> {
+    let (address, allocation) = chain_spec
+        .genesis()
+        .accounts()
+        .nth(index as usize)
+        .ok_or_else(|| anyhow!("prefunded account index {} out of range", index))?;
+
+    let private_key = match allocation {
+        GenesisAccountAlloc::DevAccount(account) => account.private_key,
+        _ => return Err(anyhow!("prefunded account {} has no private key", address)),
+    };
+
+    Ok((*address, private_key))
 }
 
 #[cfg(test)]

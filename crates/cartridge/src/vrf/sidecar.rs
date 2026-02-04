@@ -1,7 +1,3 @@
-//! VRF sidecar process management.
-//!
-//! This module handles spawning and managing the VRF sidecar process.
-
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -11,23 +7,13 @@ use katana_primitives::{ContractAddress, Felt};
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
-use url::Url;
 
 const LOG_TARGET: &str = "katana::cartridge::vrf::sidecar";
 
-/// Fixed port used by vrf-server.
 pub const VRF_SERVER_PORT: u16 = 3000;
-
 const DEFAULT_VRF_SERVICE_PATH: &str = "vrf-service";
-
-/// Default timeout for waiting on sidecar readiness.
 pub const SIDECAR_TIMEOUT: Duration = Duration::from_secs(10);
 
-// ============================================================================
-// Error Types
-// ============================================================================
-
-/// Error type for VRF sidecar operations.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("bootstrap_result not set - call bootstrap() or bootstrap_result()")]
@@ -47,10 +33,6 @@ pub enum Error {
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
-
-// ============================================================================
-// VRF Service
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct VrfServiceConfig {
@@ -124,10 +106,6 @@ impl VrfServiceProcess {
         self.process.kill().await
     }
 }
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
 
 /// Resolve an executable path, searching in PATH if necessary.
 pub fn resolve_executable(path: &Path) -> Result<PathBuf> {

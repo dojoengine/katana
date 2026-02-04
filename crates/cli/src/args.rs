@@ -24,6 +24,8 @@ use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
+#[cfg(feature = "vrf")]
+use katana_node::config::paymaster::VrfConfig;
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
@@ -39,7 +41,7 @@ use url::Url;
 use crate::file::NodeArgsConfig;
 use crate::options::*;
 #[cfg(feature = "vrf")]
-use crate::sidecar::{build_vrf_config, VrfSidecarInfo};
+use crate::sidecar::build_vrf_config;
 use crate::utils::{self, parse_chain_config_dir, parse_seed};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
@@ -172,12 +174,6 @@ impl SequencerNodeArgs {
         // Build the node configuration
         let config = self.config()?;
 
-        #[cfg(feature = "vrf")]
-        let vrf_sidecar = match self.vrf_config()? {
-            Some((_, sidecar)) => sidecar,
-            None => None,
-        };
-
         if config.forking.is_some() {
             let node =
                 Node::build_forked(config.clone()).await.context("failed to build forked node")?;
@@ -189,25 +185,6 @@ impl SequencerNodeArgs {
             // Launch the node
             let handle = node.launch().await.context("failed to launch forked node")?;
 
-            #[cfg(feature = "paymaster")]
-            let mut paymaster = if !self.paymaster.is_external() {
-                use crate::sidecar::bootstrap_paymaster;
-
-                let paymaster = bootstrap_paymaster(
-                    &self.paymaster,
-                    config.paymaster.unwrap().url.clone(),
-                    handle.rpc().addr().clone(),
-                    &handle.node().config().chain,
-                )
-                .await?
-                .start()
-                .await?;
-
-                Some(paymaster)
-            } else {
-                None
-            };
-
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
                 _ = katana_utils::wait_shutdown_signals() => {
@@ -216,11 +193,6 @@ impl SequencerNodeArgs {
                 },
 
                 _ = handle.stopped() => { }
-            }
-
-            #[cfg(feature = "paymaster")]
-            if let Some(ref mut s) = paymaster {
-                s.shutdown().await?;
             }
         } else {
             let node = Node::build(config.clone()).context("failed to build node")?;
@@ -232,7 +204,9 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch node")?;
 
             #[cfg(feature = "paymaster")]
-            let mut paymaster = if !self.paymaster.is_external() {
+            let mut paymaster = if self.paymaster.is_external() {
+                None
+            } else {
                 use crate::sidecar::bootstrap_paymaster;
 
                 let paymaster = bootstrap_paymaster(
@@ -246,7 +220,18 @@ impl SequencerNodeArgs {
                 .await?;
 
                 Some(paymaster)
+            };
+
+            #[cfg(feature = "vrf")]
+            let vrf = if self.vrf.is_external() {
+                None
             } else {
+                use cartridge::bootstrap_vrf;
+
+                let result =
+                    bootstrap_vrf(handle.rpc().addr().clone(), &handle.node().config().chain)
+                        .await?;
+
                 None
             };
 
@@ -288,7 +273,7 @@ impl SequencerNodeArgs {
         let paymaster = self.paymaster_config(&chain)?;
 
         #[cfg(feature = "vrf")]
-        let vrf = self.vrf_config()?.map(|(config, _)| config);
+        let vrf = self.vrf_config()?;
 
         #[cfg(all(feature = "vrf", feature = "cartridge"))]
         if vrf.is_some() && paymaster.is_none() {
@@ -315,8 +300,6 @@ impl SequencerNodeArgs {
             sequencing,
             #[cfg(feature = "cartridge")]
             paymaster,
-            #[cfg(feature = "vrf")]
-            vrf,
             #[cfg(feature = "tee")]
             tee: self.tee_config(),
         })
@@ -363,15 +346,8 @@ impl SequencerNodeArgs {
             // We put it here so that even when the individual api are explicitly specified
             // (ie `--rpc.api`) we guarantee that the cartridge rpc is enabled.
             #[cfg(feature = "cartridge")]
-            {
-                #[cfg(feature = "vrf")]
-                let vrf_enabled = self.vrf.is_enabled();
-                #[cfg(not(feature = "vrf"))]
-                let vrf_enabled = false;
-
-                if self.paymaster.enabled || vrf_enabled {
-                    modules.add(RpcModuleKind::Cartridge);
-                }
+            if self.paymaster.enabled || self.vrf.enabled {
+                modules.add(RpcModuleKind::Cartridge);
             }
 
             // The TEE rpc must be enabled if a TEE provider is specified.
@@ -450,7 +426,7 @@ impl SequencerNodeArgs {
             }
 
             #[cfg(feature = "vrf")]
-            if self.vrf.is_enabled() {
+            if self.vrf.enabled {
                 katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
                 katana_slot_controller::add_vrf_consumer_class(&mut chain_spec.genesis);
             }
@@ -604,6 +580,9 @@ impl SequencerNodeArgs {
 
         #[cfg(feature = "cartridge")]
         if self.paymaster.cartridge_paymaster {
+            #[cfg(feature = "vrf")]
+            let vrf = self.vrf_config()?;
+
             use anyhow::anyhow;
             use katana_genesis::allocation::GenesisAccountAlloc;
             use katana_node::config::paymaster::CartridgeApiConfig;
@@ -625,6 +604,8 @@ impl SequencerNodeArgs {
             };
 
             config.cartridge_api = Some(CartridgeApiConfig {
+                #[cfg(feature = "vrf")]
+                vrf,
                 controller_deployer_address: address,
                 controller_deployer_private_key: private_key,
                 cartridge_api_url: self.paymaster.cartridge_api.clone(),
@@ -635,9 +616,7 @@ impl SequencerNodeArgs {
     }
 
     #[cfg(feature = "vrf")]
-    fn vrf_config(
-        &self,
-    ) -> Result<Option<(katana_node::config::paymaster::VrfConfig, Option<VrfSidecarInfo>)>> {
+    fn vrf_config(&self) -> Result<Option<VrfConfig>> {
         build_vrf_config(&self.vrf)
     }
 

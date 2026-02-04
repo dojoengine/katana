@@ -68,7 +68,7 @@ pub struct VrfClient {
 }
 
 impl VrfClient {
-    /// Creates a new [`VrfClient`] with the given base URL.
+    /// Creates a new [`VrfClient`] with the given URL.
     pub fn new(url: Url) -> Self {
         Self { url, client: reqwest::Client::new() }
     }

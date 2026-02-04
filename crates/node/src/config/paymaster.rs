@@ -8,6 +8,7 @@ pub struct PaymasterConfig {
     pub url: Url,
     /// Optional API key for authentication.
     pub api_key: Option<String>,
+
     #[cfg(feature = "cartridge")]
     pub cartridge_api: Option<CartridgeApiConfig>,
 }
@@ -44,6 +45,6 @@ pub struct CartridgeApiConfig {
 pub struct VrfConfig {
     /// The VRF service URL.
     pub url: Url,
-    /// The address of the VRF contract.
-    pub vrf_contract: ContractAddress,
+    /// The address of the VRF account contract.
+    pub vrf_account: ContractAddress,
 }
