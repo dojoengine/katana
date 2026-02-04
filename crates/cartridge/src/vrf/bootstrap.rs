@@ -55,9 +55,6 @@ pub struct VrfBootstrapConfig {
     pub source_address: ContractAddress,
     /// Source account private key.
     pub source_private_key: Felt,
-
-    /// Whether to fund the VRF account (when fees are enabled).
-    pub fund_account: bool,
 }
 
 /// Result of VRF bootstrap operations.
@@ -172,8 +169,8 @@ pub async fn bootstrap_vrf(config: &VrfBootstrapConfig) -> Result<VrfBootstrapRe
         wait_for_contract(&provider, vrf_account_address, BOOTSTRAP_TIMEOUT).await?;
     }
 
-    // Fund VRF account if fees are enabled
-    if config.fund_account {
+    // Fund VRF account
+    {
         let amount = Felt::from(1_000_000_000_000_000_000u128);
         let transfer_call = Call {
             to: DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(),
