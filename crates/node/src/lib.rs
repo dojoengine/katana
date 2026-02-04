@@ -236,42 +236,41 @@ where
                 );
 
                 #[cfg(feature = "vrf")]
-                let vrf = if let Some(vrf) = &config.vrf {
+                let vrf = if let Some(vrf) = &cartridge_api_cfg.vrf {
                     use url::Url;
 
-                    let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
                     let rpc_url = Url::parse(&format!("http://{}", config.rpc.socket_addr()))
                         .expect("valid rpc url");
 
                     Some(katana_rpc_server::cartridge::VrfServiceConfig {
                         rpc_url,
-                        url: vrf.url.clone(),
-                        account_address: derived.vrf_account_address,
+                        service_url: vrf.url.clone(),
+                        vrf_contract: vrf.vrf_contract,
                     })
                 } else {
                     None
                 };
 
-                #[cfg(not(feature = "vrf"))]
-                let vrf = None;
+                let cartridge_api_config = CartridgeConfig {
+                    paymaster_url: cfg.url.clone(),
+                    paymaster_api_key: cfg.api_key.clone(),
+                    api_url: cartridge_api_cfg.cartridge_api_url.clone(),
+                    controller_deployer_address: cartridge_api_cfg.controller_deployer_address,
+                    controller_deployer_private_key: cartridge_api_cfg
+                        .controller_deployer_private_key,
+                    #[cfg(feature = "vrf")]
+                    vrf,
+                };
 
-                let api = CartridgeApi::new(
+                let cartrige_api = CartridgeApi::new(
                     backend.clone(),
                     block_producer.clone(),
                     pool.clone(),
                     task_spawner.clone(),
-                    CartridgeConfig {
-                        paymaster_url: cfg.url.clone(),
-                        paymaster_api_key: cfg.api_key.clone(),
-                        api_url: cartridge_api_cfg.cartridge_api_url.clone(),
-                        controller_deployer_address: cartridge_api_cfg.controller_deployer_address,
-                        controller_deployer_private_key: cartridge_api_cfg
-                            .controller_deployer_private_key,
-                        vrf,
-                    },
+                    cartridge_api_config,
                 )?;
 
-                rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
+                rpc_modules.merge(CartridgeApiServer::into_rpc(cartrige_api))?;
 
                 Some(CartridgePaymasterConfig {
                     cartridge_api_url: cartridge_api_cfg.cartridge_api_url.clone(),

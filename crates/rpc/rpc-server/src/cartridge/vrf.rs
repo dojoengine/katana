@@ -11,9 +11,9 @@ use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct VrfServiceConfig {
-    pub url: Url,
-    pub account_address: ContractAddress,
     pub rpc_url: Url,
+    pub service_url: Url,
+    pub vrf_contract: ContractAddress,
 }
 
 #[derive(Clone)]
@@ -26,8 +26,8 @@ pub struct VrfService {
 impl VrfService {
     pub fn new(config: VrfServiceConfig) -> Self {
         Self {
-            client: VrfClient::new(config.url),
-            account_address: config.account_address,
+            client: VrfClient::new(config.service_url),
+            account_address: config.vrf_contract,
             rpc_url: config.rpc_url,
         }
     }

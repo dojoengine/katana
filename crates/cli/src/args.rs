@@ -38,8 +38,6 @@ use url::Url;
 
 use crate::file::NodeArgsConfig;
 use crate::options::*;
-#[cfg(feature = "cartridge")]
-use crate::sidecar::bootstrap_and_start_sidecars;
 #[cfg(feature = "vrf")]
 use crate::sidecar::{build_vrf_config, VrfSidecarInfo};
 use crate::utils::{self, parse_chain_config_dir, parse_seed};

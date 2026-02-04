@@ -69,10 +69,6 @@ pub struct Config {
     #[cfg(feature = "paymaster")]
     pub paymaster: Option<paymaster::PaymasterConfig>,
 
-    /// VRF options.
-    #[cfg(feature = "vrf")]
-    pub vrf: Option<paymaster::VrfConfig>,
-
     /// TEE attestation options.
     #[cfg(feature = "tee")]
     pub tee: Option<tee::TeeConfig>,

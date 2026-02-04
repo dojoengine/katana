@@ -286,8 +286,8 @@ pub async fn start_sidecars(
     //         .rpc(paymaster_cfg.rpc_url.clone())
     //         .port(paymaster_cfg.port)
     //         .api_key(paymaster_cfg.api_key.clone())
-    //         .relayer(paymaster_bootstrap.relayer_address, paymaster_bootstrap.relayer_private_key)
-    //         .gas_tank(
+    //         .relayer(paymaster_bootstrap.relayer_address,
+    // paymaster_bootstrap.relayer_private_key)         .gas_tank(
     //             paymaster_bootstrap.gas_tank_address,
     //             paymaster_bootstrap.gas_tank_private_key,
     //         )

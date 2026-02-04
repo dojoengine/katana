@@ -95,7 +95,7 @@ pub fn derive_vrf_accounts(
 ) -> Result<VrfDerivedAccounts> {
     // vrf-server expects a u64 secret, so derive one from the account key.
     let secret_key = vrf_secret_key_from_account_key(source_private_key);
-    let public_key = generate_public_key(scalar_from_felt(Felt::from(secret_key)));
+    let public_key = generate_public_key(scalar_from_felt(secret_key.into()));
     let vrf_public_key_x = felt_from_field(public_key.x)?;
     let vrf_public_key_y = felt_from_field(public_key.y)?;
 
@@ -154,7 +154,6 @@ pub async fn bootstrap_vrf(config: &VrfBootstrapConfig) -> Result<VrfBootstrapRe
         chain_id_felt,
         ExecutionEncoding::New,
     );
-    account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
     // Deploy VRF account if not already deployed
     if !is_deployed(&provider, vrf_account_address).await? {

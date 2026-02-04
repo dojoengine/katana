@@ -2,11 +2,10 @@
 //!
 //! This module handles spawning and managing the VRF sidecar process.
 
-use std::env;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
+use std::{env, io};
 
 use katana_primitives::{ContractAddress, Felt};
 use tokio::process::{Child, Command};
@@ -14,12 +13,12 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use url::Url;
 
-use super::bootstrap::{bootstrap_vrf, VrfBootstrapConfig, VrfBootstrapResult};
-
 const LOG_TARGET: &str = "katana::cartridge::vrf::sidecar";
 
 /// Fixed port used by vrf-server.
 pub const VRF_SERVER_PORT: u16 = 3000;
+
+const DEFAULT_VRF_SERVICE_PATH: &str = "vrf-service";
 
 /// Default timeout for waiting on sidecar readiness.
 pub const SIDECAR_TIMEOUT: Duration = Duration::from_secs(10);
@@ -47,91 +46,51 @@ pub enum Error {
     Bootstrap(#[source] anyhow::Error),
 }
 
-/// Result type alias for VRF sidecar operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
-
-// ============================================================================
-// Configuration Types
-// ============================================================================
-
-/// Configuration for the VRF service.
-#[derive(Debug, Clone)]
-pub struct VrfServiceConfig {
-    /// RPC URL of the katana node (for bootstrap).
-    pub rpc_url: Url,
-    /// Source account address (deploys contracts and funds VRF account).
-    pub source_address: ContractAddress,
-    /// Source account private key.
-    pub source_private_key: Felt,
-    /// Path to the vrf-server binary (None = lookup in PATH).
-    pub program_path: Option<PathBuf>,
-}
 
 // ============================================================================
 // VRF Service
 // ============================================================================
 
-/// VRF service that handles bootstrapping and spawning the sidecar process.
+#[derive(Debug, Clone)]
+pub struct VrfServiceConfig {
+    pub vrf_account_address: ContractAddress,
+    pub vrf_private_key: Felt,
+    pub secret_key: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct VrfService {
     config: VrfServiceConfig,
-    bootstrap_result: Option<VrfBootstrapResult>,
+    path: PathBuf,
 }
 
 impl VrfService {
-    /// Create a new VRF service with the given configuration.
     pub fn new(config: VrfServiceConfig) -> Self {
-        Self { config, bootstrap_result: None }
+        Self { config, path: PathBuf::from(DEFAULT_VRF_SERVICE_PATH) }
     }
 
-    /// Set a pre-existing bootstrap result, skipping the bootstrap step.
+    /// Sets the path to the vrf service program.
     ///
-    /// Use this when the VRF contracts have already been deployed.
-    pub fn bootstrap_result(mut self, result: VrfBootstrapResult) -> Self {
-        self.bootstrap_result = Some(result);
+    /// If no path is set, the default executable name [`DEFAULT_VRF_SERVICE_PATH`] will be used.
+    pub fn path<T: Into<PathBuf>>(mut self, path: T) -> Self {
+        self.path = path.into();
         self
     }
 
-    /// Get the bootstrap result, if set.
-    pub fn get_bootstrap_result(&self) -> Option<&VrfBootstrapResult> {
-        self.bootstrap_result.as_ref()
-    }
-
-    /// Bootstrap the VRF service by deploying necessary contracts.
-    ///
-    /// This deploys the VRF account and consumer contracts via RPC,
-    /// sets up the VRF public key, and optionally funds the account.
-    pub async fn bootstrap(&mut self) -> Result<&VrfBootstrapResult> {
-        let bootstrap_config = VrfBootstrapConfig {
-            rpc_url: self.config.rpc_url.clone(),
-            source_address: self.config.source_address,
-            source_private_key: self.config.source_private_key,
-        };
-
-        let result = bootstrap_vrf(&bootstrap_config).await.map_err(Error::Bootstrap)?;
-        self.bootstrap_result = Some(result);
-
-        Ok(self.bootstrap_result.as_ref().expect("just set"))
-    }
-
-    /// Start the VRF sidecar process.
-    ///
-    /// This spawns the vrf-server binary and waits for it to become ready.
-    /// Returns an error if bootstrap has not been performed.
     pub async fn start(self) -> Result<VrfServiceProcess> {
-        let bootstrap_result = self.bootstrap_result.ok_or(Error::BootstrapResultNotSet)?.clone();
-
-        let bin = self.config.program_path.unwrap_or_else(|| "vrf-server".into());
-        let bin = resolve_executable(Path::new(&bin))?;
+        let bin = resolve_executable(&self.path)?;
 
         let mut command = Command::new(bin);
         command
             .arg("--port")
             .arg(VRF_SERVER_PORT.to_string())
             .arg("--account-address")
+            .arg(self.config.vrf_account_address.to_hex_string())
             .arg("--account-private-key")
+            .arg(self.config.vrf_private_key.to_hex_string())
             .arg("--secret-key")
-            .arg(bootstrap_result.secret_key.to_string())
+            .arg(self.config.secret_key.to_string())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
@@ -141,33 +100,26 @@ impl VrfService {
         let url = format!("http://127.0.0.1:{VRF_SERVER_PORT}/info",);
         wait_for_http_ok(&url, "vrf info", SIDECAR_TIMEOUT).await?;
 
-        Ok(VrfServiceProcess { process, bootstrap_result })
+        Ok(VrfServiceProcess { process, inner: self })
     }
 }
-
-// ============================================================================
-// VRF Sidecar Process
-// ============================================================================
 
 /// A running VRF sidecar process.
 #[derive(Debug)]
 pub struct VrfServiceProcess {
     process: Child,
-    bootstrap_result: VrfBootstrapResult,
+    inner: VrfService,
 }
 
 impl VrfServiceProcess {
-    /// Get a mutable reference to the underlying child process.
     pub fn process(&mut self) -> &mut Child {
         &mut self.process
     }
 
-    /// Get the bootstrap result containing VRF account information.
-    pub fn bootstrap_result(&self) -> &VrfBootstrapResult {
-        &self.bootstrap_result
+    pub fn config(&self) -> &VrfServiceConfig {
+        &self.inner.config
     }
 
-    /// Gracefully shutdown the sidecar process.
     pub async fn shutdown(&mut self) -> io::Result<()> {
         self.process.kill().await
     }
