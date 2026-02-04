@@ -133,7 +133,7 @@ pub struct RollupArgs {
     settlement_chain: Option<SettlementChain>,
     /// The address of the settlement account to be used to configure the core contract.
     #[arg(long = "settlement-account-address")]
-    #[arg(required_unless_present = "sovereign")]
+    #[arg(required_unless_present_any = ["sovereign", "settlement_contract"])]    
     #[arg(requires_all = ["id", "settlement_chain"])]
     settlement_account: Option<ContractAddress>,
 
@@ -228,12 +228,14 @@ impl RollupArgs {
             prompt::prompt_rollup().await?
         };
 
-        let settlement = SettlementLayer::Starknet {
-            account: output.account,
-            rpc_url: output.rpc_url.clone(),
-            id: ChainId::parse(&output.settlement_id)?,
-            block: output.deployment_outcome.block_number,
-            core_contract: output.deployment_outcome.contract_address,
+        let settlement = match &output {
+            AnyOutcome::Persistent(persistent) => SettlementLayer::Starknet {
+                rpc_url: persistent.rpc_url.clone(),
+                id: ChainId::parse(&persistent.settlement_id)?,
+                block: persistent.deployment_outcome.block_number,
+                core_contract: persistent.deployment_outcome.contract_address,
+            },
+            AnyOutcome::Sovereign(_) => SettlementLayer::Sovereign {},
         };
 
         let id = ChainId::parse(&output.id)?;
@@ -279,7 +281,6 @@ impl RollupArgs {
             // These args are all required if at least one of them are specified (incl chain id) and
             // `clap` has already handled that for us, so it's safe to unwrap here.
             let settlement_chain = self.settlement_chain.clone().expect("must present");
-            let settlement_account_address = self.settlement_account.expect("must present");
 
             let settlement_provider = match settlement_chain {
                 SettlementChain::Mainnet => {
@@ -338,6 +339,8 @@ impl RollupArgs {
             // If settlement contract is not provided, then we will deploy it.
             else {
                 let settlement_private_key = self.settlement_account_private_key.expect("must present");
+                let settlement_account_address = self.settlement_account.expect("must present");
+
                 let account = SingleOwnerAccount::new(
                     settlement_provider.clone(),
                     SigningKey::from_secret_scalar(settlement_private_key).into(),
@@ -359,8 +362,7 @@ impl RollupArgs {
                 id,
                 deployment_outcome,
                 rpc_url: settlement_provider.url().clone(),
-                account: settlement_account_address,
-                settlement_id: ShortString::try_from(l1_chain_id).unwrap(),
+                settlement_id: parse_cairo_short_string(&l1_chain_id).unwrap(),
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
             }))
@@ -428,10 +430,6 @@ struct SovereignOutcome {
 
 #[derive(Debug)]
 struct PersistentOutcome {
-    /// the account address that is used to send the transactions for contract
-    /// deployment/initialization.
-    pub account: ContractAddress,
-
     // the id of the new chain to be initialized.
     pub id: ShortString,
 
