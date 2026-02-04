@@ -92,9 +92,6 @@ pub enum SettlementLayer {
         // url for starknet rpc provider
         rpc_url: Url,
 
-        /// account on the starknet network
-        account: ContractAddress,
-
         // - The core appchain contract used to settlement
         core_contract: ContractAddress,
 

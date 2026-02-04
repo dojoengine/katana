@@ -48,7 +48,7 @@ pub struct InitArgs {
 
     /// The address of the settlement account to be used to configure the core contract.
     #[arg(long = "settlement-account-address")]
-    #[arg(required_unless_present = "sovereign")]
+    #[arg(required_unless_present_any = ["sovereign", "settlement_contract"])]    
     #[arg(requires_all = ["id", "settlement_chain"])]
     settlement_account: Option<ContractAddress>,
 
@@ -110,7 +110,6 @@ impl InitArgs {
 
         let settlement = match &output {
             AnyOutcome::Persistent(persistent) => SettlementLayer::Starknet {
-                account: persistent.account,
                 rpc_url: persistent.rpc_url.clone(),
                 id: ChainId::parse(&persistent.settlement_id)?,
                 block: persistent.deployment_outcome.block_number,
@@ -158,7 +157,6 @@ impl InitArgs {
             // These args are all required if at least one of them are specified (incl chain id) and
             // `clap` has already handled that for us, so it's safe to unwrap here.
             let settlement_chain = self.settlement_chain.clone().expect("must present");
-            let settlement_account_address = self.settlement_account.expect("must present");
 
             let settlement_provider = match settlement_chain {
                 SettlementChain::Mainnet => {
@@ -208,6 +206,8 @@ impl InitArgs {
             // If settlement contract is not provided, then we will deploy it.
             else {
                 let settlement_private_key = self.settlement_account_private_key.expect("must present");
+                let settlement_account_address = self.settlement_account.expect("must present");
+
                 let account = SingleOwnerAccount::new(
                     settlement_provider.clone(),
                     SigningKey::from_secret_scalar(settlement_private_key).into(),
@@ -223,7 +223,6 @@ impl InitArgs {
                 id,
                 deployment_outcome,
                 rpc_url: settlement_provider.url().clone(),
-                account: settlement_account_address,
                 settlement_id: parse_cairo_short_string(&l1_chain_id).unwrap(),
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
@@ -269,10 +268,6 @@ struct SovereignOutcome {
 
 #[derive(Debug)]
 struct PersistentOutcome {
-    /// the account address that is used to send the transactions for contract
-    /// deployment/initialization.
-    pub account: ContractAddress,
-
     // the id of the new chain to be initialized.
     pub id: String,
 
