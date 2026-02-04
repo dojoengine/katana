@@ -43,18 +43,18 @@ pub struct InitArgs {
     /// with a known chain is a no-op.
     #[arg(long = "settlement-chain")]
     #[arg(required_unless_present = "sovereign")]
-    #[arg(requires_all = ["id", "settlement_account", "settlement_account_private_key"])]
+    #[arg(requires_all = ["id"])]
     settlement_chain: Option<SettlementChain>,
 
     /// The address of the settlement account to be used to configure the core contract.
     #[arg(long = "settlement-account-address")]
     #[arg(required_unless_present = "sovereign")]
-    #[arg(requires_all = ["id", "settlement_chain", "settlement_account_private_key"])]
+    #[arg(requires_all = ["id", "settlement_chain"])]
     settlement_account: Option<ContractAddress>,
 
     /// The private key of the settlement account to be used to configure the core contract.
     #[arg(long = "settlement-account-private-key")]
-    #[arg(required_unless_present = "sovereign")]
+    #[arg(required_unless_present_any = ["sovereign", "settlement_contract"])]
     #[arg(requires_all = ["id", "settlement_chain", "settlement_account"])]
     settlement_account_private_key: Option<Felt>,
 
@@ -62,7 +62,7 @@ pub struct InitArgs {
     /// If not provided, the contract will be deployed on the settlement chain using the provided
     /// settlement account.
     #[arg(long = "settlement-contract")]
-    #[arg(requires_all = ["id", "settlement_chain", "settlement_account", "settlement_account_private_key", "settlement_contract_deployed_block"])]
+    #[arg(requires_all = ["id", "settlement_chain", "settlement_contract_deployed_block"])]
     settlement_contract: Option<ContractAddress>,
 
     /// The block number of the settlement contract deployment.
@@ -76,7 +76,7 @@ pub struct InitArgs {
     ///
     /// Required if a custom settlement chain is specified.
     #[arg(long = "settlement-facts-registry")]
-    #[arg(requires_all = ["id", "settlement_chain", "settlement_account"])]
+    #[arg(requires_all = ["id", "settlement_chain"])]
     pub settlement_facts_registry_contract: Option<ContractAddress>,
 
     /// Initialize a sovereign chain with no settlement layer, by only publishing the state updates
@@ -159,7 +159,6 @@ impl InitArgs {
             // `clap` has already handled that for us, so it's safe to unwrap here.
             let settlement_chain = self.settlement_chain.clone().expect("must present");
             let settlement_account_address = self.settlement_account.expect("must present");
-            let settlement_private_key = self.settlement_account_private_key.expect("must present");
 
             let settlement_provider = match settlement_chain {
                 SettlementChain::Mainnet => {
@@ -205,8 +204,10 @@ impl InitArgs {
                         .expect("must exist at this point"),
                 }
             }
+
             // If settlement contract is not provided, then we will deploy it.
             else {
+                let settlement_private_key = self.settlement_account_private_key.expect("must present");
                 let account = SingleOwnerAccount::new(
                     settlement_provider.clone(),
                     SigningKey::from_secret_scalar(settlement_private_key).into(),
