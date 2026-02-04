@@ -39,7 +39,7 @@ use url::Url;
 use crate::file::NodeArgsConfig;
 use crate::options::*;
 #[cfg(feature = "cartridge")]
-use crate::sidecar::{bootstrap_and_start_sidecars, PaymasterSidecarInfo};
+use crate::sidecar::bootstrap_and_start_sidecars;
 #[cfg(feature = "vrf")]
 use crate::sidecar::{build_vrf_config, VrfSidecarInfo};
 use crate::utils::{self, parse_chain_config_dir, parse_seed};
@@ -180,12 +180,6 @@ impl SequencerNodeArgs {
             None => None,
         };
 
-        #[cfg(feature = "cartridge")]
-        let paymaster_sidecar = match self.paymaster_config(&config.chain)? {
-            Some((_, sidecar)) => sidecar,
-            None => None,
-        };
-
         if config.forking.is_some() {
             let node =
                 Node::build_forked(config.clone()).await.context("failed to build forked node")?;
@@ -197,22 +191,24 @@ impl SequencerNodeArgs {
             // Launch the node
             let handle = node.launch().await.context("failed to launch forked node")?;
 
-            #[cfg(feature = "cartridge")]
-            let mut sidecars = if config.paymaster.is_some() {
-                let sidecars = bootstrap_and_start_sidecars(
-                    paymaster_sidecar.as_ref(),
+            #[cfg(feature = "paymaster")]
+            let mut paymaster = if !self.paymaster.is_external() {
+                use crate::sidecar::bootstrap_paymaster;
+
+                let rpc_url = Url::parse(&format!("http://{}", handle.rpc().addr()))?;
+                let chain_spec = &handle.node().config().chain;
+
+                let paymaster = bootstrap_paymaster(
                     &self.paymaster,
-                    #[cfg(feature = "vrf")]
-                    &self.vrf,
-                    &handle.node().config().chain,
-                    handle.rpc().addr(),
-                    #[cfg(feature = "vrf")]
-                    vrf_sidecar.as_ref(),
-                    handle.node().config().dev.fee,
+                    config.paymaster.unwrap().url.clone(),
+                    rpc_url,
+                    &chain_spec,
                 )
+                .await?
+                .start()
                 .await?;
 
-                sidecars
+                Some(paymaster)
             } else {
                 None
             };
@@ -227,10 +223,9 @@ impl SequencerNodeArgs {
                 _ = handle.stopped() => { }
             }
 
-            // Shutdown sidecar processes
-            #[cfg(feature = "cartridge")]
-            if let Some(ref mut s) = sidecars {
-                s.shutdown().await;
+            #[cfg(feature = "paymaster")]
+            if let Some(ref mut s) = paymaster {
+                s.shutdown().await?;
             }
         } else {
             let node = Node::build(config.clone()).context("failed to build node")?;
@@ -241,22 +236,24 @@ impl SequencerNodeArgs {
 
             let handle = node.launch().await.context("failed to launch node")?;
 
-            #[cfg(feature = "cartridge")]
-            let mut sidecars = if config.paymaster.is_some() {
-                let sidecars = bootstrap_and_start_sidecars(
-                    paymaster_sidecar.as_ref(),
+            #[cfg(feature = "paymaster")]
+            let mut paymaster = if !self.paymaster.is_external() {
+                use crate::sidecar::bootstrap_paymaster;
+
+                let rpc_url = Url::parse(&format!("http://{}", handle.rpc().addr()))?;
+                let chain_spec = &handle.node().config().chain;
+
+                let paymaster = bootstrap_paymaster(
                     &self.paymaster,
-                    #[cfg(feature = "vrf")]
-                    &self.vrf,
-                    &handle.node().config().chain,
-                    handle.rpc().addr(),
-                    #[cfg(feature = "vrf")]
-                    vrf_sidecar.as_ref(),
-                    handle.node().config().dev.fee,
+                    config.paymaster.unwrap().url.clone(),
+                    rpc_url,
+                    &chain_spec,
                 )
+                .await?
+                .start()
                 .await?;
 
-                sidecars
+                Some(paymaster)
             } else {
                 None
             };
@@ -271,10 +268,9 @@ impl SequencerNodeArgs {
                 _ = handle.stopped() => { }
             }
 
-            // Shutdown sidecar processes
-            #[cfg(feature = "cartridge")]
-            if let Some(ref mut s) = sidecars {
-                s.shutdown().await;
+            #[cfg(feature = "paymaster")]
+            if let Some(ref mut s) = paymaster {
+                s.shutdown().await?;
             }
         }
 
@@ -296,8 +292,8 @@ impl SequencerNodeArgs {
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
 
-        #[cfg(feature = "cartridge")]
-        let paymaster = self.paymaster_config(&chain)?.map(|(config, _)| config);
+        #[cfg(feature = "paymaster")]
+        let paymaster = self.paymaster_config(&chain)?;
 
         #[cfg(feature = "vrf")]
         let vrf = self.vrf_config()?.map(|(config, _)| config);
@@ -583,23 +579,21 @@ impl SequencerNodeArgs {
     fn paymaster_config(
         &self,
         chain_spec: &Arc<katana_chain_spec::ChainSpec>,
-    ) -> Result<Option<(PaymasterConfig, Option<PaymasterSidecarInfo>)>> {
+    ) -> Result<Option<PaymasterConfig>> {
         if !self.paymaster.enabled {
             return Ok(None);
         }
 
         use crate::sidecar::DEFAULT_PAYMASTER_API_KEY;
 
-        let (mut config, sidecar_info) = if self.paymaster.is_external() {
+        let mut config = if self.paymaster.is_external() {
             let url = self.paymaster.url.clone().expect("URL must be set in external mode");
             let api_key = self.paymaster.api_key.clone();
-            (PaymasterConfig { url, api_key, cartridge_api: None }, None)
+            PaymasterConfig { url, api_key, cartridge_api: None }
         } else {
             // find free port
             let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-            let addr = listener.local_addr()?;
-            let port = addr.port();
-            let url = Url::parse(&format!("http://{addr}"))?;
+            let url = Url::parse(&format!("http://{}", listener.local_addr()?))?;
 
             let api_key = self
                 .paymaster
@@ -613,11 +607,7 @@ impl SequencerNodeArgs {
                 );
             }
 
-            let sidecar_info = PaymasterSidecarInfo { port, api_key: api_key.clone() };
-            (
-                PaymasterConfig { url, api_key: Some(api_key), cartridge_api: None },
-                Some(sidecar_info),
-            )
+            PaymasterConfig { url, api_key: Some(api_key), cartridge_api: None }
         };
 
         #[cfg(feature = "cartridge")]
@@ -649,7 +639,7 @@ impl SequencerNodeArgs {
             });
         }
 
-        Ok(Some((config, sidecar_info)))
+        Ok(Some(config))
     }
 
     #[cfg(feature = "vrf")]

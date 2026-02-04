@@ -565,7 +565,7 @@ pub struct PaymasterOptions {
     pub url: Option<Url>,
 
     /// API key to send via `x-paymaster-api-key` when proxying requests.
-    #[arg(requires = "paymaster_enabled")]
+    #[arg(requires = "paymaster_url")]
     #[arg(long = "paymaster.api-key", value_name = "KEY")]
     #[serde(default)]
     pub api_key: Option<String>,

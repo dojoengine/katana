@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
-use katana_paymaster::{wait_for_paymaster_ready, PaymasterConfigBuilder, PaymasterSidecar};
+use katana_paymaster::{wait_for_paymaster_ready, PaymasterService, PaymasterServiceConfigBuilder};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, felt};
 use url::Url;
@@ -27,7 +27,7 @@ async fn test_sidecar_spawn_and_health_check() {
     let api_key = "test-api-key".to_string();
 
     // Build the config using the builder pattern (unchecked since we don't have a real node)
-    let config = PaymasterConfigBuilder::new()
+    let config = PaymasterServiceConfigBuilder::new()
         .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
         .port(port)
         .api_key(api_key.clone())
@@ -40,7 +40,7 @@ async fn test_sidecar_spawn_and_health_check() {
 
     // Create sidecar with forwarder and chain_id set directly (skip bootstrap)
     let sidecar =
-        PaymasterSidecar::new(config).forwarder(address!("0x4")).chain_id(ChainId::SEPOLIA);
+        PaymasterService::new(config).forwarder(address!("0x4")).chain_id(ChainId::SEPOLIA);
 
     // Spawn the sidecar
     let mut process = sidecar.start().await.expect("failed to spawn paymaster sidecar");
@@ -64,7 +64,7 @@ async fn test_sidecar_spawn_binary_not_found() {
     let api_key = "test-api-key".to_string();
 
     // Build the config with a nonexistent binary path
-    let config = PaymasterConfigBuilder::new()
+    let config = PaymasterServiceConfigBuilder::new()
         .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
         .port(port)
         .api_key(api_key)
@@ -77,7 +77,7 @@ async fn test_sidecar_spawn_binary_not_found() {
         .expect("config should build");
 
     let sidecar =
-        PaymasterSidecar::new(config).forwarder(address!("0x4")).chain_id(ChainId::SEPOLIA);
+        PaymasterService::new(config).forwarder(address!("0x4")).chain_id(ChainId::SEPOLIA);
 
     let result = sidecar.start().await;
     assert!(result.is_err(), "should fail when binary not found");
@@ -93,7 +93,7 @@ async fn test_sidecar_spawn_binary_not_found() {
 #[tokio::test]
 async fn test_builder_missing_required_fields() {
     // Missing rpc_url
-    let result = PaymasterConfigBuilder::new()
+    let result = PaymasterServiceConfigBuilder::new()
         .port(3030)
         .api_key("key".to_string())
         .relayer(address!("0x1"), felt!("0x1"))
@@ -106,7 +106,7 @@ async fn test_builder_missing_required_fields() {
     assert!(result.unwrap_err().to_string().contains("rpc_url"), "error should mention rpc_url");
 
     // Missing api_key
-    let result = PaymasterConfigBuilder::new()
+    let result = PaymasterServiceConfigBuilder::new()
         .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
         .port(3030)
         // Missing api_key
@@ -120,7 +120,7 @@ async fn test_builder_missing_required_fields() {
     assert!(result.unwrap_err().to_string().contains("api_key"), "error should mention api_key");
 
     // Missing relayer
-    let result = PaymasterConfigBuilder::new()
+    let result = PaymasterServiceConfigBuilder::new()
         .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
         .port(3030)
         .api_key("key".to_string())
@@ -137,7 +137,7 @@ async fn test_builder_missing_required_fields() {
     );
 
     // Missing tokens
-    let result = PaymasterConfigBuilder::new()
+    let result = PaymasterServiceConfigBuilder::new()
         .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
         .port(3030)
         .api_key("key".to_string())

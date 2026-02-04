@@ -152,7 +152,7 @@ impl PaymasterSidecarProcess {
 /// This struct contains all the configuration needed to start a paymaster sidecar.
 /// Use [`PaymasterConfigBuilder`] to construct this.
 #[derive(Debug, Clone)]
-pub struct PaymasterConfig {
+pub struct PaymasterServiceConfig {
     /// RPC URL of the katana node.
     pub rpc_url: Url,
     /// Port for the paymaster service.
@@ -201,7 +201,7 @@ pub struct PaymasterConfig {
 ///     .await?;
 /// ```
 #[derive(Debug, Default)]
-pub struct PaymasterConfigBuilder {
+pub struct PaymasterServiceConfigBuilder {
     // Required fields
     rpc_url: Option<Url>,
     port: Option<u16>,
@@ -220,7 +220,7 @@ pub struct PaymasterConfigBuilder {
     price_api_key: Option<String>,
 }
 
-impl PaymasterConfigBuilder {
+impl PaymasterServiceConfigBuilder {
     /// Create a new builder with no fields set.
     pub fn new() -> Self {
         Self::default()
@@ -239,8 +239,8 @@ impl PaymasterConfigBuilder {
     }
 
     /// Set the API key for the paymaster service.
-    pub fn api_key(mut self, key: String) -> Self {
-        self.api_key = Some(key);
+    pub fn api_key<T: Into<String>>(mut self, key: T) -> Self {
+        self.api_key = Some(key.into());
         self
     }
 
@@ -293,7 +293,7 @@ impl PaymasterConfigBuilder {
     /// Returns an error if:
     /// - Any required field is missing
     /// - Any account address does not exist on-chain
-    pub async fn build(self) -> Result<PaymasterConfig> {
+    pub async fn build(self) -> Result<PaymasterServiceConfig> {
         // Validate required fields
         let rpc_url = self.rpc_url.ok_or(Error::MissingField("rpc_url"))?;
         let port = self.port.ok_or(Error::MissingField("port"))?;
@@ -333,7 +333,7 @@ impl PaymasterConfigBuilder {
             });
         }
 
-        Ok(PaymasterConfig {
+        Ok(PaymasterServiceConfig {
             rpc_url,
             port,
             api_key,
@@ -359,7 +359,7 @@ impl PaymasterConfigBuilder {
     /// # Errors
     ///
     /// Returns an error if any required field is missing.
-    pub fn build_unchecked(self) -> Result<PaymasterConfig> {
+    pub fn build_unchecked(self) -> Result<PaymasterServiceConfig> {
         // Validate required fields
         let rpc_url = self.rpc_url.ok_or(Error::MissingField("rpc_url"))?;
         let port = self.port.ok_or(Error::MissingField("port"))?;
@@ -381,7 +381,7 @@ impl PaymasterConfigBuilder {
         let strk_token_address =
             self.strk_token_address.ok_or(Error::MissingField("strk_token_address"))?;
 
-        Ok(PaymasterConfig {
+        Ok(PaymasterServiceConfig {
             rpc_url,
             port,
             api_key,
@@ -437,17 +437,17 @@ impl PaymasterConfigBuilder {
 ///     .await?;
 /// ```
 #[derive(Debug, Clone)]
-pub struct PaymasterSidecar {
-    config: PaymasterConfig,
+pub struct PaymasterService {
+    config: PaymasterServiceConfig,
 
     // Bootstrap-derived (can be set directly or via bootstrap)
     forwarder_address: Option<ContractAddress>,
     chain_id: Option<ChainId>,
 }
 
-impl PaymasterSidecar {
+impl PaymasterService {
     /// Create a new sidecar from a validated config.
-    pub fn new(config: PaymasterConfig) -> Self {
+    pub fn new(config: PaymasterServiceConfig) -> Self {
         Self { config, forwarder_address: None, chain_id: None }
     }
 
