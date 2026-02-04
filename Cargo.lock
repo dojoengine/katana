@@ -6477,8 +6477,10 @@ dependencies = [
 name = "katana-paymaster"
 version = "1.7.0"
 dependencies = [
+ "jsonrpsee 0.26.0",
  "katana-genesis",
  "katana-primitives",
+ "paymaster-rpc",
  "reqwest",
  "serde",
  "serde_json",
@@ -6638,11 +6640,11 @@ version = "1.7.0"
 dependencies = [
  "anyhow",
  "jsonrpsee 0.26.0",
+ "katana-paymaster",
  "katana-pool-api",
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc-types",
- "paymaster-rpc",
  "rstest 0.18.2",
  "serde",
  "serde_json",

@@ -7,6 +7,9 @@
 //!
 //! This crate uses the starknet crate's account abstraction for transaction handling.
 
+#[cfg(feature = "rpc")]
+pub mod api;
+
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -565,7 +568,7 @@ impl PaymasterSidecar {
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
 
-        info!(target: "sidecar", profile = %profile_path.display(), "paymaster profile generated");
+        info!(profile = %profile_path.display(), "Paymaster service profile generated");
 
         let process = command.spawn().map_err(Error::Spawn)?;
 
