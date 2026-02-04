@@ -7,6 +7,7 @@
 //! - paymaster-service binary must be installed: ``` git clone https://github.com/avnu-labs/paymaster
 //!   cd paymaster cargo build --release --bin paymaster-service ```
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -28,7 +29,7 @@ async fn test_sidecar_spawn_and_health_check() {
 
     // Build the config using the builder pattern (unchecked since we don't have a real node)
     let config = PaymasterServiceConfigBuilder::new()
-        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+        .rpc(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))
         .port(port)
         .api_key(api_key.clone())
         .relayer(address!("0x1"), felt!("0x1"))
@@ -65,7 +66,7 @@ async fn test_sidecar_spawn_binary_not_found() {
 
     // Build the config with a nonexistent binary path
     let config = PaymasterServiceConfigBuilder::new()
-        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+        .rpc(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))
         .port(port)
         .api_key(api_key)
         .relayer(address!("0x1"), felt!("0x1"))
@@ -107,7 +108,7 @@ async fn test_builder_missing_required_fields() {
 
     // Missing api_key
     let result = PaymasterServiceConfigBuilder::new()
-        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+    	.rpc(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))
         .port(3030)
         // Missing api_key
         .relayer(address!("0x1"), felt!("0x1"))
@@ -121,7 +122,7 @@ async fn test_builder_missing_required_fields() {
 
     // Missing relayer
     let result = PaymasterServiceConfigBuilder::new()
-        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+    	.rpc(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))
         .port(3030)
         .api_key("key".to_string())
         // Missing relayer
@@ -138,7 +139,7 @@ async fn test_builder_missing_required_fields() {
 
     // Missing tokens
     let result = PaymasterServiceConfigBuilder::new()
-        .rpc_url(Url::parse("http://127.0.0.1:5050").unwrap())
+	    .rpc(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))
         .port(3030)
         .api_key("key".to_string())
         .relayer(address!("0x1"), felt!("0x1"))

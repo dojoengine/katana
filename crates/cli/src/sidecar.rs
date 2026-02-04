@@ -154,7 +154,7 @@ pub async fn bootstrap_sidecars(config: &BootstrapConfig) -> Result<BootstrapRes
 pub async fn bootstrap_paymaster(
     options: &PaymasterOptions,
     paymaster_url: Url,
-    rpc_url: Url,
+    rpc_url: SocketAddr,
     chain: &ChainSpec,
 ) -> Result<PaymasterService> {
     let (relayer_addr, relayer_pk) = prefunded_account(chain, 0)?;
@@ -164,7 +164,7 @@ pub async fn bootstrap_paymaster(
     let port = paymaster_url.port().unwrap();
 
     let mut builder = PaymasterServiceConfigBuilder::new()
-        .rpc_url(rpc_url)
+        .rpc(rpc_url)
         .port(port)
         .api_key(DEFAULT_PAYMASTER_API_KEY)
         .relayer(relayer_addr, relayer_pk)
@@ -288,7 +288,7 @@ pub async fn start_sidecars(
     {
         // Build config using the builder pattern (unchecked since accounts are from genesis)
         let mut builder = PaymasterServiceConfigBuilder::new()
-            .rpc_url(paymaster_cfg.rpc_url.clone())
+            .rpc(paymaster_cfg.rpc_url.clone())
             .port(paymaster_cfg.port)
             .api_key(paymaster_cfg.api_key.clone())
             .relayer(paymaster_bootstrap.relayer_address, paymaster_bootstrap.relayer_private_key)

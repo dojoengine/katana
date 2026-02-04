@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
 //! Paymaster sidecar bootstrap and process management.
 //!
 //! This crate handles:
@@ -9,6 +11,7 @@
 
 pub mod api;
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -153,8 +156,8 @@ impl PaymasterSidecarProcess {
 /// Use [`PaymasterConfigBuilder`] to construct this.
 #[derive(Debug, Clone)]
 pub struct PaymasterServiceConfig {
-    /// RPC URL of the katana node.
-    pub rpc_url: Url,
+    /// RPC endpoint of the katana node.
+    pub rpc_socket_addr: SocketAddr,
     /// Port for the paymaster service.
     pub port: u16,
     /// API key for the paymaster service.
@@ -203,7 +206,7 @@ pub struct PaymasterServiceConfig {
 #[derive(Debug, Default)]
 pub struct PaymasterServiceConfigBuilder {
     // Required fields
-    rpc_url: Option<Url>,
+    rpc: Option<SocketAddr>,
     port: Option<u16>,
     api_key: Option<String>,
     relayer_address: Option<ContractAddress>,
@@ -227,8 +230,8 @@ impl PaymasterServiceConfigBuilder {
     }
 
     /// Set the RPC URL of the katana node.
-    pub fn rpc_url(mut self, url: Url) -> Self {
-        self.rpc_url = Some(url);
+    pub fn rpc(mut self, addr: SocketAddr) -> Self {
+        self.rpc = Some(addr);
         self
     }
 
@@ -295,7 +298,7 @@ impl PaymasterServiceConfigBuilder {
     /// - Any account address does not exist on-chain
     pub async fn build(self) -> Result<PaymasterServiceConfig> {
         // Validate required fields
-        let rpc_url = self.rpc_url.ok_or(Error::MissingField("rpc_url"))?;
+        let rpc = self.rpc.ok_or(Error::MissingField("rpc_url"))?;
         let port = self.port.ok_or(Error::MissingField("port"))?;
         let api_key = self.api_key.ok_or(Error::MissingField("api_key"))?;
         let relayer_address = self.relayer_address.ok_or(Error::MissingField("relayer_address"))?;
@@ -316,7 +319,8 @@ impl PaymasterServiceConfigBuilder {
             self.strk_token_address.ok_or(Error::MissingField("strk_token_address"))?;
 
         // Validate accounts exist on-chain
-        let provider = JsonRpcClient::new(HttpTransport::new(rpc_url.clone()));
+        let rpc_url = Url::parse(&format!("http://{rpc}",)).expect("valid url");
+        let provider = JsonRpcClient::new(HttpTransport::new(rpc_url));
 
         if !is_deployed(&provider, relayer_address).await? {
             return Err(Error::AccountNotDeployed { kind: "relayer", address: relayer_address });
@@ -334,7 +338,7 @@ impl PaymasterServiceConfigBuilder {
         }
 
         Ok(PaymasterServiceConfig {
-            rpc_url,
+            rpc_socket_addr: rpc,
             port,
             api_key,
             relayer_address,
@@ -361,7 +365,7 @@ impl PaymasterServiceConfigBuilder {
     /// Returns an error if any required field is missing.
     pub fn build_unchecked(self) -> Result<PaymasterServiceConfig> {
         // Validate required fields
-        let rpc_url = self.rpc_url.ok_or(Error::MissingField("rpc_url"))?;
+        let rpc_socket_addr = self.rpc.ok_or(Error::MissingField("rpc_url"))?;
         let port = self.port.ok_or(Error::MissingField("port"))?;
         let api_key = self.api_key.ok_or(Error::MissingField("api_key"))?;
         let relayer_address = self.relayer_address.ok_or(Error::MissingField("relayer_address"))?;
@@ -382,7 +386,7 @@ impl PaymasterServiceConfigBuilder {
             self.strk_token_address.ok_or(Error::MissingField("strk_token_address"))?;
 
         Ok(PaymasterServiceConfig {
-            rpc_url,
+            rpc_socket_addr,
             port,
             api_key,
             relayer_address,
@@ -479,8 +483,8 @@ impl PaymasterService {
     ///
     /// After calling this method, `forwarder_address` and `chain_id` will be set.
     pub async fn bootstrap(&mut self) -> Result<ContractAddress> {
-        let provider =
-            Arc::new(JsonRpcClient::new(HttpTransport::new(self.config.rpc_url.clone())));
+        let url = Url::parse(&format!("{}", self.config.rpc_socket_addr)).expect("valid url");
+        let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(url)));
 
         // Get chain ID if not already set
         let chain_id_felt = if let Some(chain_id) = &self.chain_id {
@@ -586,6 +590,9 @@ impl PaymasterService {
         let chain_id_str = paymaster_chain_id(chain_id);
         let price_api_key = self.config.price_api_key.clone().unwrap_or_default();
 
+        let starknet_endpoint =
+            Url::parse(&format!("http://{}", self.config.rpc_socket_addr)).expect("valid url");
+
         Ok(PaymasterProfile {
             verbosity: "info".to_string(),
             prometheus: None,
@@ -610,7 +617,7 @@ impl PaymasterService {
             },
             starknet: PaymasterStarknetProfile {
                 chain_id: chain_id_str,
-                endpoint: self.config.rpc_url.clone(),
+                endpoint: starknet_endpoint,
                 timeout: 30,
                 fallbacks: Vec::new(),
             },

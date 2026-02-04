@@ -195,14 +195,11 @@ impl SequencerNodeArgs {
             let mut paymaster = if !self.paymaster.is_external() {
                 use crate::sidecar::bootstrap_paymaster;
 
-                let rpc_url = Url::parse(&format!("http://{}", handle.rpc().addr()))?;
-                let chain_spec = &handle.node().config().chain;
-
                 let paymaster = bootstrap_paymaster(
                     &self.paymaster,
                     config.paymaster.unwrap().url.clone(),
-                    rpc_url,
-                    &chain_spec,
+                    handle.rpc().addr().clone(),
+                    &handle.node().config().chain,
                 )
                 .await?
                 .start()
@@ -240,14 +237,11 @@ impl SequencerNodeArgs {
             let mut paymaster = if !self.paymaster.is_external() {
                 use crate::sidecar::bootstrap_paymaster;
 
-                let rpc_url = Url::parse(&format!("http://{}", handle.rpc().addr()))?;
-                let chain_spec = &handle.node().config().chain;
-
                 let paymaster = bootstrap_paymaster(
                     &self.paymaster,
                     config.paymaster.unwrap().url.clone(),
-                    rpc_url,
-                    &chain_spec,
+                    handle.rpc().addr().clone(),
+                    &handle.node().config().chain,
                 )
                 .await?
                 .start()
