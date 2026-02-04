@@ -94,8 +94,7 @@ qemu-system-x86_64 \
     -initrd output/qemu/initrd.img \
     # Kernel command line (measured when kernel-hashes=on)
     # katana.args passes arguments to katana via init script
-    -append "console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp" \
-    ..
+    -append "console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp"
 ```
 
 ## Running the VM

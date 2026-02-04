@@ -6033,7 +6033,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tower 0.5.2",
- "tower-http",
+ "tower-http 0.6.6",
  "tracing",
 ]
 
@@ -6415,7 +6415,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tower 0.5.2",
- "tower-http",
+ "tower-http 0.6.6",
  "tracing",
  "url",
 ]
@@ -6578,7 +6578,7 @@ dependencies = [
  "rustls 0.23.31",
  "serde",
  "thiserror 1.0.69",
- "tower-http",
+ "tower-http 0.6.6",
  "tracing",
  "tracing-appender",
  "tracing-log 0.1.4",
@@ -8782,7 +8782,7 @@ dependencies = [
  "tokio-rustls 0.26.2",
  "tokio-util",
  "tower 0.5.2",
- "tower-http",
+ "tower-http 0.6.6",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -10720,6 +10720,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tee-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11163,6 +11181,23 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tokio",
  "tokio-util",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tower-http"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
+dependencies = [
+ "bitflags 2.10.0",
+ "bytes",
+ "http 1.3.1",
+ "http-body 1.0.1",
+ "http-body-util",
+ "pin-project-lite",
  "tower-layer",
  "tower-service",
  "tracing",

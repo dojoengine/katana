@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
 	"bin/katana",
+	"bin/tee-agent",
 	"misc/AMDSEV/snp-tools",
 	"crates/cartridge",
 	"crates/chain-spec",
