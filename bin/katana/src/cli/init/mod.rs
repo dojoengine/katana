@@ -122,45 +122,32 @@ pub struct RollupArgs {
     #[arg(requires_all = ["settlement_chain", "settlement_account", "settlement_account_private_key"])]
     id: Option<ShortString>,
 
-    #[arg(
-        long = "settlement-chain",
-        help = "The settlement chain to be used, where the core contract is deployed."
-    )]
-    #[arg(long_help = "The settlement chain to be used, where the core contract is deployed.
-
-Possible values:
-  - `mainnet`, `sn_mainnet`: Starknet mainnet
-  - `sepolia`, `sn_sepolia`: Starknet sepolia")]
-    #[cfg_attr(
-        feature = "init-custom-settlement-chain",
-        arg(long_help = "The settlement chain to be used, where the core contract is deployed.
-
-Possible values:
-  - `mainnet`, `sn_mainnet`: Starknet mainnet
-  - `sepolia`, `sn_sepolia`: Starknet sepolia
-  - <URL>: Custom settlement chain URL (requires --settlement-facts-registry)
-
-If a custom settlement chain is provided, setting a custom facts registry is required using
-the `--settlement-facts-registry` option. Otherwise, setting a custom facts registry
-with a known chain is a no-op for now.")
-    )]
-    #[arg(requires = "id")]
+    /// The settlement chain to be used, where the core contract is deployed.
+    ///
+    /// If a custom settlement chain is provided, setting a custom facts registry is required using
+    /// the `--settlement-facts-registry` option. Otherwise, setting a custom facts registry
+    /// with a known chain is a no-op.
+    #[arg(long = "settlement-chain")]
+    #[arg(required_unless_present = "sovereign")]
+    #[arg(requires_all = ["id"])]
     settlement_chain: Option<SettlementChain>,
     /// The address of the settlement account to be used to configure the core contract.
     #[arg(long = "settlement-account-address")]
-    #[arg(requires = "id")]
+    #[arg(required_unless_present = "sovereign")]
+    #[arg(requires_all = ["id", "settlement_chain"])]
     settlement_account: Option<ContractAddress>,
 
     /// The private key of the settlement account to be used to configure the core contract.
     #[arg(long = "settlement-account-private-key")]
-    #[arg(requires = "id")]
+    #[arg(required_unless_present_any = ["sovereign", "settlement_contract"])]
+    #[arg(requires_all = ["id", "settlement_chain", "settlement_account"])]
     settlement_account_private_key: Option<Felt>,
 
     /// The address of the settlement contract.
     /// If not provided, the contract will be deployed on the settlement chain using the provided
     /// settlement account.
     #[arg(long = "settlement-contract")]
-    #[arg(requires_all = ["id", "settlement_contract_deployed_block"])]
+    #[arg(requires_all = ["id", "settlement_chain", "settlement_contract_deployed_block"])]
     settlement_contract: Option<ContractAddress>,
 
     /// The block number of the settlement contract deployment.
@@ -174,7 +161,18 @@ with a known chain is a no-op for now.")
     ///
     /// Required if a custom settlement chain is specified.
     #[arg(long = "settlement-facts-registry")]
-    settlement_facts_registry_contract: Option<ContractAddress>,
+    #[arg(requires_all = ["id", "settlement_chain"])]
+    pub settlement_facts_registry_contract: Option<ContractAddress>,
+
+    /// Initialize a sovereign chain with no settlement layer, by only publishing the state updates
+    /// and proofs on a Data Availability Layer. By using this flag, no settlement option is
+    /// required.
+    #[arg(long)]
+    #[arg(help = "Initialize a sovereign chain with no settlement layer, by only publishing the \
+                  state updates and proofs on a Data Availability Layer.")]
+    #[arg(requires_all = ["id"])]
+    #[arg(conflicts_with_all = ["settlement_chain", "settlement_account", "settlement_account_private_key", "settlement_contract"])]
+    sovereign: bool,
 
     /// Specify the path of the directory where the configuration files will be stored at.
     #[arg(long)]
@@ -278,7 +276,12 @@ impl RollupArgs {
                 return None; // Fall back to prompting
             };
 
-            let settlement_provider = match &settlement_chain {
+            // These args are all required if at least one of them are specified (incl chain id) and
+            // `clap` has already handled that for us, so it's safe to unwrap here.
+            let settlement_chain = self.settlement_chain.clone().expect("must present");
+            let settlement_account_address = self.settlement_account.expect("must present");
+
+            let settlement_provider = match settlement_chain {
                 SettlementChain::Mainnet => {
                     let mut provider = SettlementChainProvider::sn_mainnet();
                     if let Some(fact_registry) = self.settlement_facts_registry_contract {
@@ -331,8 +334,10 @@ impl RollupArgs {
                         .expect("must exist at this point"),
                 }
             }
+
             // If settlement contract is not provided, then we will deploy it.
             else {
+                let settlement_private_key = self.settlement_account_private_key.expect("must present");
                 let account = SingleOwnerAccount::new(
                     settlement_provider.clone(),
                     SigningKey::from_secret_scalar(settlement_private_key).into(),
