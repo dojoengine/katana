@@ -551,14 +551,11 @@ impl PaymasterSidecar {
     ///
     /// Returns a wrapper containing the process handle and resolved configuration.
     pub async fn start(self) -> Result<PaymasterSidecarProcess> {
-        let forwarder_address = self.forwarder_address.ok_or(Error::ForwarderNotSet)?;
-        let chain_id = self.chain_id.ok_or(Error::ChainIdNotSet)?;
-
         // Build profile and spawn process
         let bin =
             self.config.program_path.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
         let bin = resolve_executable(&bin)?;
-        let profile = build_paymaster_profile(&self.config, forwarder_address, chain_id);
+        let profile = self.build_paymaster_profile()?;
         let profile_path = write_paymaster_profile(&profile)?;
 
         let mut command = Command::new(bin);
@@ -576,6 +573,54 @@ impl PaymasterSidecar {
         wait_for_paymaster_ready(&url, Some(&self.config.api_key), BOOTSTRAP_TIMEOUT).await?;
 
         Ok(PaymasterSidecarProcess { process, profile })
+    }
+
+    fn build_paymaster_profile(&self) -> Result<PaymasterProfile> {
+        let forwarder_address = self.forwarder_address.ok_or(Error::ForwarderNotSet)?;
+        let chain_id = self.chain_id.ok_or(Error::ChainIdNotSet)?;
+
+        let chain_id_str = paymaster_chain_id(chain_id);
+        let price_api_key = self.config.price_api_key.clone().unwrap_or_default();
+
+        Ok(PaymasterProfile {
+            verbosity: "info".to_string(),
+            prometheus: None,
+            rpc: PaymasterRpcProfile { port: self.config.port },
+            forwarder: forwarder_address,
+            supported_tokens: vec![self.config.eth_token_address, self.config.strk_token_address],
+            max_fee_multiplier: 3.0,
+            provider_fee_overhead: 0.1,
+            estimate_account: PaymasterAccountProfile {
+                address: self.config.estimate_account_address,
+                private_key: self.config.estimate_account_private_key,
+            },
+            gas_tank: PaymasterAccountProfile {
+                address: self.config.gas_tank_address,
+                private_key: self.config.gas_tank_private_key,
+            },
+            relayers: PaymasterRelayersProfile {
+                private_key: self.config.relayer_private_key,
+                addresses: vec![self.config.relayer_address],
+                min_relayer_balance: Felt::ZERO,
+                lock: PaymasterLockProfile { mode: "seggregated".to_string(), retry_timeout: 5 },
+            },
+            starknet: PaymasterStarknetProfile {
+                chain_id: chain_id_str,
+                endpoint: self.config.rpc_url.clone(),
+                timeout: 30,
+                fallbacks: Vec::new(),
+            },
+            price: PaymasterPriceProfile {
+                provider: "avnu".to_string(),
+                endpoint: Url::parse(DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT).expect("valid url"),
+                api_key: price_api_key,
+            },
+            sponsoring: PaymasterSponsoringProfile {
+                mode: "self".to_string(),
+                api_key: self.config.api_key.clone(),
+                sponsor_metadata: Vec::new(),
+            },
+        })
     }
 }
 
@@ -786,55 +831,6 @@ mod ser {
             seq.serialize_element(value.as_str())?;
         }
         seq.end()
-    }
-}
-
-fn build_paymaster_profile(
-    config: &PaymasterConfig,
-    forwarder_address: ContractAddress,
-    chain_id: ChainId,
-) -> PaymasterProfile {
-    let chain_id_str = paymaster_chain_id(chain_id);
-    let price_api_key = config.price_api_key.clone().unwrap_or_default();
-
-    PaymasterProfile {
-        verbosity: "info".to_string(),
-        prometheus: None,
-        rpc: PaymasterRpcProfile { port: config.port },
-        forwarder: forwarder_address,
-        supported_tokens: vec![config.eth_token_address, config.strk_token_address],
-        max_fee_multiplier: 3.0,
-        provider_fee_overhead: 0.1,
-        estimate_account: PaymasterAccountProfile {
-            address: config.estimate_account_address,
-            private_key: config.estimate_account_private_key,
-        },
-        gas_tank: PaymasterAccountProfile {
-            address: config.gas_tank_address,
-            private_key: config.gas_tank_private_key,
-        },
-        relayers: PaymasterRelayersProfile {
-            private_key: config.relayer_private_key,
-            addresses: vec![config.relayer_address],
-            min_relayer_balance: Felt::ZERO,
-            lock: PaymasterLockProfile { mode: "seggregated".to_string(), retry_timeout: 5 },
-        },
-        starknet: PaymasterStarknetProfile {
-            chain_id: chain_id_str,
-            endpoint: config.rpc_url.clone(),
-            timeout: 30,
-            fallbacks: Vec::new(),
-        },
-        price: PaymasterPriceProfile {
-            provider: "avnu".to_string(),
-            endpoint: Url::parse(DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT).expect("valid url"),
-            api_key: price_api_key,
-        },
-        sponsoring: PaymasterSponsoringProfile {
-            mode: "self".to_string(),
-            api_key: config.api_key.clone(),
-            sponsor_metadata: Vec::new(),
-        },
     }
 }
 
