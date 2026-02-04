@@ -445,6 +445,7 @@ impl PaymasterSidecar {
         if !is_deployed(&provider, forwarder_address).await? {
             #[allow(deprecated)]
             let factory = ContractFactory::new(forwarder_class_hash, &account);
+
             factory
                 .deploy_v3(
                     vec![self.config.relayer_address.into(), self.config.gas_tank_address.into()],
@@ -587,8 +588,10 @@ pub struct PaymasterProfile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prometheus: Option<PaymasterPrometheusProfile>,
     pub rpc: PaymasterRpcProfile,
-    pub forwarder: String,
-    pub supported_tokens: Vec<String>,
+    #[serde(serialize_with = "ser::contract_address")]
+    pub forwarder: ContractAddress,
+    #[serde(serialize_with = "ser::contract_address_vec")]
+    pub supported_tokens: Vec<ContractAddress>,
     pub max_fee_multiplier: f32,
     pub provider_fee_overhead: f32,
     pub estimate_account: PaymasterAccountProfile,
@@ -601,25 +604,31 @@ pub struct PaymasterProfile {
 
 #[derive(Debug, Serialize)]
 pub struct PaymasterPrometheusProfile {
-    pub endpoint: String,
+    #[serde(serialize_with = "ser::url")]
+    pub endpoint: Url,
 }
 
 #[derive(Debug, Serialize)]
 pub struct PaymasterRpcProfile {
-    pub port: u64,
+    pub port: u16,
 }
 
 #[derive(Debug, Serialize)]
 pub struct PaymasterAccountProfile {
-    pub address: String,
-    pub private_key: String,
+    #[serde(serialize_with = "ser::contract_address")]
+    pub address: ContractAddress,
+    #[serde(serialize_with = "ser::felt")]
+    pub private_key: Felt,
 }
 
 #[derive(Debug, Serialize)]
 pub struct PaymasterRelayersProfile {
-    pub private_key: String,
-    pub addresses: Vec<String>,
-    pub min_relayer_balance: String,
+    #[serde(serialize_with = "ser::felt")]
+    pub private_key: Felt,
+    #[serde(serialize_with = "ser::contract_address_vec")]
+    pub addresses: Vec<ContractAddress>,
+    #[serde(serialize_with = "ser::felt")]
+    pub min_relayer_balance: Felt,
     pub lock: PaymasterLockProfile,
 }
 
@@ -632,15 +641,18 @@ pub struct PaymasterLockProfile {
 #[derive(Debug, Serialize)]
 pub struct PaymasterStarknetProfile {
     pub chain_id: String,
-    pub endpoint: String,
+    #[serde(serialize_with = "ser::url")]
+    pub endpoint: Url,
     pub timeout: u64,
-    pub fallbacks: Vec<String>,
+    #[serde(serialize_with = "ser::url_vec")]
+    pub fallbacks: Vec<Url>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct PaymasterPriceProfile {
     pub provider: String,
-    pub endpoint: String,
+    #[serde(serialize_with = "ser::url")]
+    pub endpoint: Url,
     pub api_key: String,
 }
 
@@ -648,7 +660,68 @@ pub struct PaymasterPriceProfile {
 pub struct PaymasterSponsoringProfile {
     pub mode: String,
     pub api_key: String,
+    #[serde(serialize_with = "ser::felt_vec")]
     pub sponsor_metadata: Vec<Felt>,
+}
+
+/// Custom serializers for paymaster profile types.
+mod ser {
+    use katana_primitives::{ContractAddress, Felt};
+    use serde::Serializer;
+    use url::Url;
+
+    /// Serialize a Felt as a hex string with 0x prefix.
+    pub fn felt<S: Serializer>(value: &Felt, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("{value:#x}"))
+    }
+
+    /// Serialize a Vec<Felt> as a vec of hex strings.
+    pub fn felt_vec<S: Serializer>(values: &[Felt], serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(values.len()))?;
+        for value in values {
+            seq.serialize_element(&format!("{value:#x}"))?;
+        }
+        seq.end()
+    }
+
+    /// Serialize a ContractAddress as a hex string with 0x prefix.
+    pub fn contract_address<S: Serializer>(
+        value: &ContractAddress,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let felt: Felt = (*value).into();
+        serializer.serialize_str(&format!("{felt:#x}"))
+    }
+
+    /// Serialize a Vec<ContractAddress> as a vec of hex strings.
+    pub fn contract_address_vec<S: Serializer>(
+        values: &[ContractAddress],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(values.len()))?;
+        for value in values {
+            let felt: Felt = (*value).into();
+            seq.serialize_element(&format!("{felt:#x}"))?;
+        }
+        seq.end()
+    }
+
+    /// Serialize a Url as a string.
+    pub fn url<S: Serializer>(value: &Url, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(value.as_str())
+    }
+
+    /// Serialize a Vec<Url> as a vec of strings.
+    pub fn url_vec<S: Serializer>(values: &[Url], serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(values.len()))?;
+        for value in values {
+            seq.serialize_element(value.as_str())?;
+        }
+        seq.end()
+    }
 }
 
 fn build_paymaster_profile(
@@ -657,43 +730,39 @@ fn build_paymaster_profile(
     chain_id: ChainId,
 ) -> Result<PaymasterProfile> {
     let chain_id_str = paymaster_chain_id(chain_id)?;
-    let price_endpoint = DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT;
     let price_api_key = config.price_api_key.clone().unwrap_or_default();
-
-    let eth_token = format_felt(config.eth_token_address.into());
-    let strk_token = format_felt(config.strk_token_address.into());
 
     Ok(PaymasterProfile {
         verbosity: "info".to_string(),
         prometheus: None,
-        rpc: PaymasterRpcProfile { port: config.port as u64 },
-        forwarder: format_felt(forwarder_address.into()),
-        supported_tokens: vec![eth_token, strk_token],
+        rpc: PaymasterRpcProfile { port: config.port },
+        forwarder: forwarder_address,
+        supported_tokens: vec![config.eth_token_address, config.strk_token_address],
         max_fee_multiplier: 3.0,
         provider_fee_overhead: 0.1,
         estimate_account: PaymasterAccountProfile {
-            address: format_felt(config.estimate_account_address.into()),
-            private_key: format_felt(config.estimate_account_private_key),
+            address: config.estimate_account_address,
+            private_key: config.estimate_account_private_key,
         },
         gas_tank: PaymasterAccountProfile {
-            address: format_felt(config.gas_tank_address.into()),
-            private_key: format_felt(config.gas_tank_private_key),
+            address: config.gas_tank_address,
+            private_key: config.gas_tank_private_key,
         },
         relayers: PaymasterRelayersProfile {
-            private_key: format_felt(config.relayer_private_key),
-            addresses: vec![format_felt(config.relayer_address.into())],
-            min_relayer_balance: format_felt(Felt::ZERO),
+            private_key: config.relayer_private_key,
+            addresses: vec![config.relayer_address],
+            min_relayer_balance: Felt::ZERO,
             lock: PaymasterLockProfile { mode: "seggregated".to_string(), retry_timeout: 5 },
         },
         starknet: PaymasterStarknetProfile {
             chain_id: chain_id_str,
-            endpoint: config.rpc_url.to_string(),
+            endpoint: config.rpc_url.clone(),
             timeout: 30,
             fallbacks: Vec::new(),
         },
         price: PaymasterPriceProfile {
             provider: "avnu".to_string(),
-            endpoint: price_endpoint.to_string(),
+            endpoint: Url::parse(DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT).expect("valid url"),
             api_key: price_api_key,
         },
         sponsoring: PaymasterSponsoringProfile {
