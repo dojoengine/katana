@@ -141,10 +141,6 @@ pub struct SequencerNodeArgs {
     #[command(flatten)]
     pub paymaster: PaymasterOptions,
 
-    #[cfg(feature = "vrf")]
-    #[command(flatten)]
-    pub vrf: VrfOptions,
-
     #[cfg(feature = "tee")]
     #[command(flatten)]
     pub tee: TeeOptions,
@@ -223,26 +219,21 @@ impl SequencerNodeArgs {
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.vrf.is_external() {
+            let mut vrf = if self.paymaster.vrf.is_external() {
                 None
             } else {
-                use cartridge::{VrfService, VrfServiceConfig};
+                use crate::sidecar::bootstrap_vrf;
 
-                let result = cartridge::bootstrap_vrf(
+                let vrf = bootstrap_vrf(
+                    &self.paymaster.vrf,
                     handle.rpc().addr().clone(),
                     &handle.node().config().chain,
                 )
-                .await?;
-
-                let vrf_process = VrfService::new(VrfServiceConfig {
-                    secret_key: result.secret_key,
-                    vrf_account_address: result.vrf_account_address,
-                    vrf_private_key: result.vrf_account_private_key,
-                })
+                .await?
                 .start()
                 .await?;
 
-                Some(vrf_process)
+                Some(vrf)
             };
 
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
@@ -286,14 +277,6 @@ impl SequencerNodeArgs {
 
         #[cfg(feature = "paymaster")]
         let paymaster = self.paymaster_config(&chain)?;
-
-        #[cfg(feature = "vrf")]
-        let vrf = self.vrf_config()?;
-
-        #[cfg(all(feature = "vrf", feature = "cartridge"))]
-        if vrf.is_some() && paymaster.is_none() {
-            return Err(anyhow::anyhow!("--vrf requires paymaster; enable --paymaster"));
-        }
 
         // the `katana init` will automatically generate a messaging config. so if katana is run
         // with `--chain` then the `--messaging` flag is not required. this is temporary and
@@ -361,7 +344,7 @@ impl SequencerNodeArgs {
             // We put it here so that even when the individual api are explicitly specified
             // (ie `--rpc.api`) we guarantee that the cartridge rpc is enabled.
             #[cfg(feature = "cartridge")]
-            if self.paymaster.enabled || self.vrf.enabled {
+            if self.paymaster.enabled || self.paymaster.vrf.enabled {
                 modules.add(RpcModuleKind::Cartridge);
             }
 
@@ -441,7 +424,7 @@ impl SequencerNodeArgs {
             }
 
             #[cfg(feature = "vrf")]
-            if self.vrf.enabled {
+            if self.paymaster.vrf.enabled {
                 katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
                 katana_slot_controller::add_vrf_consumer_class(&mut chain_spec.genesis);
             }
@@ -632,7 +615,7 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "vrf")]
     fn vrf_config(&self) -> Result<Option<VrfConfig>> {
-        build_vrf_config(&self.vrf)
+        build_vrf_config(&self.paymaster.vrf)
     }
 
     #[cfg(feature = "tee")]
@@ -714,11 +697,6 @@ impl SequencerNodeArgs {
         #[cfg(feature = "paymaster")]
         {
             self.paymaster.merge(config.paymaster.as_ref());
-        }
-
-        #[cfg(feature = "vrf")]
-        {
-            self.vrf.merge(config.vrf.as_ref());
         }
 
         #[cfg(feature = "explorer")]

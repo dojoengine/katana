@@ -608,6 +608,10 @@ pub struct PaymasterOptions {
     #[arg(requires_all = ["paymaster_enabled", "cartridge_paymaster"])]
     #[serde(default = "default_api_url")]
     pub cartridge_api: Url,
+
+    #[cfg(feature = "vrf")]
+    #[command(flatten)]
+    pub vrf: VrfOptions,
 }
 
 #[cfg(feature = "paymaster")]
@@ -638,6 +642,10 @@ impl PaymasterOptions {
             if self.bin.is_none() {
                 self.bin = other.bin.clone();
             }
+
+            if self.vrf == VrfOptions::default() {
+                self.vrf = other.vrf.clone();
+            }
         }
     }
 }
@@ -650,7 +658,10 @@ pub struct VrfOptions {
     ///
     /// By default, the VRF runs as a sidecar process. If `--vrf.url` is provided,
     /// it will connect to an external VRF service instead.
+    ///
+    /// Requires the Cartridge paymaster to be enabled i.e., `--paymaster.cartridge`.
     #[arg(long = "vrf", id = "vrf_enabled")]
+    #[arg(requires = "cartridge_paymaster")]
     #[serde(default)]
     pub enabled: bool,
 
@@ -730,6 +741,8 @@ impl Default for PaymasterOptions {
             price_api_key: None,
             cartridge_paymaster: false,
             cartridge_api: default_api_url(),
+            #[cfg(feature = "vrf")]
+            vrf: VrfOptions::default(),
         }
     }
 }
