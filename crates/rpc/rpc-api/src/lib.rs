@@ -9,7 +9,9 @@ pub mod starknet_ext;
 pub mod cartridge;
 
 #[cfg(feature = "paymaster")]
-pub mod paymaster;
+pub mod paymaster {
+    pub use katana_paymaster::api::*;
+}
 
 #[cfg(feature = "tee")]
 pub mod tee;
