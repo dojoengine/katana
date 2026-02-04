@@ -7,7 +7,6 @@
 //!
 //! This crate uses the starknet crate's account abstraction for transaction handling.
 
-#[cfg(feature = "rpc")]
 pub mod api;
 
 use std::path::{Path, PathBuf};
@@ -33,6 +32,8 @@ use tokio::process::{Child, Command};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use url::Url;
+
+use crate::api::PaymasterApiClient;
 
 const FORWARDER_SALT: u64 = 0x12345;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -864,39 +865,29 @@ pub async fn wait_for_paymaster_ready(
     api_key: Option<&str>,
     timeout: Duration,
 ) -> Result<()> {
-    let client = reqwest::Client::new();
+    use http::HeaderValue;
+    use jsonrpsee::http_client::HttpClientBuilder;
+
     let start = Instant::now();
 
-    let payload = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "paymaster_health",
-        "params": [],
-    });
+    let client = {
+        let mut builder = HttpClientBuilder::default();
+        if let Some(key) = api_key {
+            let mut headers = http::HeaderMap::new();
+            headers.insert(
+                "x-paymaster-api-key",
+                HeaderValue::from_str(key).expect("valid header value"),
+            );
+            builder = builder.set_headers(headers);
+        }
+        builder.build(url.as_str()).expect("valid url")
+    };
 
     loop {
-        let mut request = client.post(url.as_str()).json(&payload);
-        if let Some(key) = api_key {
-            request = request.header("x-paymaster-api-key", key);
-        }
-
-        match request.send().await {
-            Ok(resp) if resp.status().is_success() => {
-                match resp.json::<serde_json::Value>().await {
-                    Ok(body) => {
-                        if body.get("error").is_none() {
-                            info!(target: "sidecar", name = "paymaster health", "sidecar ready");
-                            return Ok(());
-                        }
-                        debug!(target: "sidecar", name = "paymaster health", "paymaster not ready yet");
-                    }
-                    Err(err) => {
-                        debug!(target: "sidecar", name = "paymaster health", error = %err, "waiting for sidecar");
-                    }
-                }
-            }
-            Ok(resp) => {
-                debug!(target: "sidecar", name = "paymaster health", status = %resp.status(), "waiting for sidecar");
+        match client.health().await {
+            Ok(_) => {
+                info!(target: "sidecar", name = "paymaster health", "sidecar ready");
+                return Ok(());
             }
             Err(err) => {
                 debug!(target: "sidecar", name = "paymaster health", error = %err, "waiting for sidecar");

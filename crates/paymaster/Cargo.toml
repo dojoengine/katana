@@ -8,9 +8,9 @@ version.workspace = true
 [dependencies]
 katana-primitives.workspace = true
 
-jsonrpsee = { workspace = true, features = ["macros", "server", "client"], optional = true }
-paymaster-rpc = { workspace = true, optional = true }
-reqwest.workspace = true
+http.workspace = true
+jsonrpsee = { workspace = true, features = ["macros", "server", "client", "http-client"] }
+paymaster-rpc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 starknet.workspace = true
@@ -22,7 +22,3 @@ url.workspace = true
 [dev-dependencies]
 katana-genesis.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-
-[features]
-default = []
-rpc = ["dep:jsonrpsee", "dep:paymaster-rpc"]
