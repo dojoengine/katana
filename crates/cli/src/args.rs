@@ -223,16 +223,26 @@ impl SequencerNodeArgs {
             };
 
             #[cfg(feature = "vrf")]
-            let vrf = if self.vrf.is_external() {
+            let mut vrf = if self.vrf.is_external() {
                 None
             } else {
-                use cartridge::bootstrap_vrf;
+                use cartridge::{VrfService, VrfServiceConfig};
 
-                let result =
-                    bootstrap_vrf(handle.rpc().addr().clone(), &handle.node().config().chain)
-                        .await?;
+                let result = cartridge::bootstrap_vrf(
+                    handle.rpc().addr().clone(),
+                    &handle.node().config().chain,
+                )
+                .await?;
 
-                None
+                let vrf_process = VrfService::new(VrfServiceConfig {
+                    secret_key: result.secret_key,
+                    vrf_account_address: result.vrf_account_address,
+                    vrf_private_key: result.vrf_account_private_key,
+                })
+                .start()
+                .await?;
+
+                Some(vrf_process)
             };
 
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
@@ -247,6 +257,11 @@ impl SequencerNodeArgs {
 
             #[cfg(feature = "paymaster")]
             if let Some(ref mut s) = paymaster {
+                s.shutdown().await?;
+            }
+
+            #[cfg(feature = "vrf")]
+            if let Some(ref mut s) = vrf {
                 s.shutdown().await?;
             }
         }

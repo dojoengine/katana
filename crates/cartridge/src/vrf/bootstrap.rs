@@ -66,6 +66,7 @@ pub struct VrfBootstrapResult {
     /// The VRF secret key (derived from source account).
     pub secret_key: u64,
     pub vrf_account_address: ContractAddress,
+    pub vrf_account_private_key: Felt,
     pub vrf_consumer_address: ContractAddress,
     pub chain_id: ChainId,
 }
@@ -227,9 +228,11 @@ pub async fn bootstrap_vrf(rpc_addr: SocketAddr, chain: &ChainSpec) -> Result<Vr
 
     Ok(VrfBootstrapResult {
         secret_key: derived.secret_key,
-        vrf_account_address,
         vrf_consumer_address,
         chain_id,
+        vrf_account_address,
+        // right now, we take the bootstrapper account private key as the vrf account's private key
+        vrf_account_private_key: bootstrapper_account.1,
     })
 }
 
