@@ -1,0 +1,29 @@
+[Unit]
+Description=Katana TEE Agent - HTTP API for managing Katana TEE VM
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# Path to the tee-agent binary (adjust as needed)
+ExecStart=/usr/local/bin/tee-agent --boot-dir /opt/katana-tee/boot --port 8080
+
+# Environment
+Environment=RUST_LOG=info
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+
+# Security hardening (basic)
+NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+
+# Note: tee-agent needs root for KVM access and SEV-SNP
+# These security settings are relaxed accordingly
+
+[Install]
+WantedBy=multi-user.target

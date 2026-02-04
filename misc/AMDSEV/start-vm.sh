@@ -50,7 +50,7 @@ BOOT_DIR="${1:-$SCRIPT_DIR/output/qemu}"
 OVMF_FILE="$BOOT_DIR/OVMF.fd"
 KERNEL_FILE="$BOOT_DIR/vmlinuz"
 INITRD_FILE="$BOOT_DIR/initrd.img"
-KERNEL_CMDLINE="console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp"
+KERNEL_CMDLINE="console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp,--fork.block,6177441,--fork.provider,https://pathfinder-sepolia.d.karnot.xyz/"
 
 # SEV-SNP guest configuration
 GUEST_POLICY="0x30000"

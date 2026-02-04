@@ -319,6 +319,17 @@ ip link set eth0 up 2>/dev/null || true
 ip addr add 10.0.2.15/24 dev eth0 2>/dev/null || true
 ip route add default via 10.0.2.2 2>/dev/null || true
 
+# Configure DNS (QEMU user-mode provides DNS on 10.0.2.3)
+mkdir -p /etc
+echo "nameserver 10.0.2.3" > /etc/resolv.conf
+log "DNS configured (10.0.2.3)"
+
+# Configure SSL/TLS certificates for HTTPS
+if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    log "CA certificates configured for HTTPS"
+fi
+
 # Parse katana args from cmdline
 CMDLINE="$(cat /proc/cmdline 2>/dev/null || true)"
 KATANA_ARGS=""
@@ -356,6 +367,20 @@ echo "[OK] Init script created"
 echo "Creating /etc files..."
 echo "root:x:0:0:root:/root:/bin/sh" > etc/passwd
 echo "root:x:0:" > etc/group
+
+# Copy CA certificates for HTTPS/TLS support
+echo "Installing CA certificates..."
+mkdir -p etc/ssl/certs
+if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    cp /etc/ssl/certs/ca-certificates.crt etc/ssl/certs/ca-certificates.crt
+    echo "[OK] CA certificates installed from /etc/ssl/certs/ca-certificates.crt"
+elif [ -f /usr/share/ca-certificates/ca-certificates.crt ]; then
+    cp /usr/share/ca-certificates/ca-certificates.crt etc/ssl/certs/ca-certificates.crt
+    echo "[OK] CA certificates installed from /usr/share/ca-certificates/ca-certificates.crt"
+else
+    echo "[WARN] CA certificates not found on host - HTTPS connections may fail"
+fi
+
 echo "[OK] /etc files created"
 
 # ==============================================================================
