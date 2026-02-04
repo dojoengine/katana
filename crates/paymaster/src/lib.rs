@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::{env, fs};
+use std::{env, fs, io};
 
-use anyhow::{anyhow, Context, Result};
 use katana_primitives::chain::{ChainId, NamedChainId};
+use katana_primitives::class::ComputeClassHashError;
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
 use serde::Serialize;
@@ -25,6 +25,7 @@ use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
+use thiserror::Error;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -33,6 +34,89 @@ use url::Url;
 const FORWARDER_SALT: u64 = 0x12345;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
+/// Result type for paymaster operations.
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Errors that can occur during paymaster operations.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// A required configuration field is missing.
+    #[error("missing required field: {0}")]
+    MissingField(&'static str),
+
+    /// An account does not exist on chain.
+    #[error("{kind} account {address} does not exist on chain")]
+    AccountNotDeployed { kind: &'static str, address: ContractAddress },
+
+    /// Forwarder address not set before starting.
+    #[error("forwarder_address not set - call bootstrap() or forwarder()")]
+    ForwarderNotSet,
+
+    /// Chain ID not set before starting.
+    #[error("chain_id not set - call bootstrap() or chain_id()")]
+    ChainIdNotSet,
+
+    /// Failed to get chain ID from the provider.
+    #[error("failed to get chain ID from node")]
+    ChainId(#[source] Box<ProviderError>),
+
+    /// Failed to check if a contract is deployed.
+    #[error("failed to check contract deployment at {0}")]
+    ContractCheck(ContractAddress, #[source] Box<ProviderError>),
+
+    /// Failed to deploy the forwarder contract.
+    #[error("failed to deploy forwarder: {0}")]
+    ForwarderDeploy(String),
+
+    /// Failed to whitelist the relayer.
+    #[error("failed to whitelist relayer: {0}")]
+    WhitelistRelayer(String),
+
+    /// Contract was not deployed within the timeout period.
+    #[error("contract {0} not deployed before timeout")]
+    ContractDeployTimeout(ContractAddress),
+
+    /// Sidecar binary not found.
+    #[error("sidecar binary not found at {0}")]
+    BinaryNotFound(PathBuf),
+
+    /// Sidecar binary not found in PATH.
+    #[error("sidecar binary '{0}' not found in PATH")]
+    BinaryNotInPath(PathBuf),
+
+    /// PATH environment variable is not set.
+    #[error("PATH environment variable is not set")]
+    PathNotSet,
+
+    /// Failed to spawn the sidecar process.
+    #[error("failed to spawn paymaster sidecar")]
+    Spawn(#[source] io::Error),
+
+    /// Failed to compute the forwarder class hash.
+    #[error("failed to compute forwarder class hash")]
+    ClassHash(#[source] ComputeClassHashError),
+
+    /// Failed to parse the forwarder contract class.
+    #[error("failed to parse forwarder contract class")]
+    ClassParse(#[source] serde_json::Error),
+
+    /// Failed to serialize the paymaster profile.
+    #[error("failed to serialize paymaster profile")]
+    ProfileSerialize(#[source] serde_json::Error),
+
+    /// Failed to write the paymaster profile to disk.
+    #[error("failed to write paymaster profile")]
+    ProfileWrite(#[source] io::Error),
+
+    /// Paymaster did not become ready within the timeout period.
+    #[error("paymaster did not become ready before timeout")]
+    SidecarTimeout,
+}
 
 #[derive(Debug)]
 pub struct PaymasterSidecarProcess {
@@ -50,9 +134,8 @@ impl PaymasterSidecarProcess {
     }
 
     /// Gracefully shutdown the sidecar process.
-    pub async fn shutdown(&mut self) -> Result<()> {
-        self.process.kill().await?;
-        Ok(())
+    pub async fn shutdown(&mut self) -> std::io::Result<()> {
+        self.process.kill().await
     }
 }
 
@@ -208,49 +291,42 @@ impl PaymasterConfigBuilder {
     /// - Any account address does not exist on-chain
     pub async fn build(self) -> Result<PaymasterConfig> {
         // Validate required fields
-        let rpc_url = self.rpc_url.ok_or_else(|| anyhow!("missing required field: rpc_url"))?;
-        let port = self.port.ok_or_else(|| anyhow!("missing required field: port"))?;
-        let api_key = self.api_key.ok_or_else(|| anyhow!("missing required field: api_key"))?;
-        let relayer_address = self
-            .relayer_address
-            .ok_or_else(|| anyhow!("missing required field: relayer_address"))?;
-        let relayer_private_key = self
-            .relayer_private_key
-            .ok_or_else(|| anyhow!("missing required field: relayer_private_key"))?;
-        let gas_tank_address = self
-            .gas_tank_address
-            .ok_or_else(|| anyhow!("missing required field: gas_tank_address"))?;
-        let gas_tank_private_key = self
-            .gas_tank_private_key
-            .ok_or_else(|| anyhow!("missing required field: gas_tank_private_key"))?;
-        let estimate_account_address = self
-            .estimate_account_address
-            .ok_or_else(|| anyhow!("missing required field: estimate_account_address"))?;
+        let rpc_url = self.rpc_url.ok_or(Error::MissingField("rpc_url"))?;
+        let port = self.port.ok_or(Error::MissingField("port"))?;
+        let api_key = self.api_key.ok_or(Error::MissingField("api_key"))?;
+        let relayer_address = self.relayer_address.ok_or(Error::MissingField("relayer_address"))?;
+        let relayer_private_key =
+            self.relayer_private_key.ok_or(Error::MissingField("relayer_private_key"))?;
+        let gas_tank_address =
+            self.gas_tank_address.ok_or(Error::MissingField("gas_tank_address"))?;
+        let gas_tank_private_key =
+            self.gas_tank_private_key.ok_or(Error::MissingField("gas_tank_private_key"))?;
+        let estimate_account_address =
+            self.estimate_account_address.ok_or(Error::MissingField("estimate_account_address"))?;
         let estimate_account_private_key = self
             .estimate_account_private_key
-            .ok_or_else(|| anyhow!("missing required field: estimate_account_private_key"))?;
-        let eth_token_address = self
-            .eth_token_address
-            .ok_or_else(|| anyhow!("missing required field: eth_token_address"))?;
-        let strk_token_address = self
-            .strk_token_address
-            .ok_or_else(|| anyhow!("missing required field: strk_token_address"))?;
+            .ok_or(Error::MissingField("estimate_account_private_key"))?;
+        let eth_token_address =
+            self.eth_token_address.ok_or(Error::MissingField("eth_token_address"))?;
+        let strk_token_address =
+            self.strk_token_address.ok_or(Error::MissingField("strk_token_address"))?;
 
         // Validate accounts exist on-chain
         let provider = JsonRpcClient::new(HttpTransport::new(rpc_url.clone()));
 
         if !is_deployed(&provider, relayer_address).await? {
-            return Err(anyhow!("relayer account {relayer_address} does not exist on chain"));
+            return Err(Error::AccountNotDeployed { kind: "relayer", address: relayer_address });
         }
 
         if !is_deployed(&provider, gas_tank_address).await? {
-            return Err(anyhow!("gas tank account {gas_tank_address} does not exist on chain"));
+            return Err(Error::AccountNotDeployed { kind: "gas tank", address: gas_tank_address });
         }
 
         if !is_deployed(&provider, estimate_account_address).await? {
-            return Err(anyhow!(
-                "estimate account {estimate_account_address} does not exist on chain"
-            ));
+            return Err(Error::AccountNotDeployed {
+                kind: "estimate",
+                address: estimate_account_address,
+            });
         }
 
         Ok(PaymasterConfig {
@@ -281,33 +357,25 @@ impl PaymasterConfigBuilder {
     /// Returns an error if any required field is missing.
     pub fn build_unchecked(self) -> Result<PaymasterConfig> {
         // Validate required fields
-        let rpc_url = self.rpc_url.ok_or_else(|| anyhow!("missing required field: rpc_url"))?;
-        let port = self.port.ok_or_else(|| anyhow!("missing required field: port"))?;
-        let api_key = self.api_key.ok_or_else(|| anyhow!("missing required field: api_key"))?;
-        let relayer_address = self
-            .relayer_address
-            .ok_or_else(|| anyhow!("missing required field: relayer_address"))?;
-        let relayer_private_key = self
-            .relayer_private_key
-            .ok_or_else(|| anyhow!("missing required field: relayer_private_key"))?;
-        let gas_tank_address = self
-            .gas_tank_address
-            .ok_or_else(|| anyhow!("missing required field: gas_tank_address"))?;
-        let gas_tank_private_key = self
-            .gas_tank_private_key
-            .ok_or_else(|| anyhow!("missing required field: gas_tank_private_key"))?;
-        let estimate_account_address = self
-            .estimate_account_address
-            .ok_or_else(|| anyhow!("missing required field: estimate_account_address"))?;
+        let rpc_url = self.rpc_url.ok_or(Error::MissingField("rpc_url"))?;
+        let port = self.port.ok_or(Error::MissingField("port"))?;
+        let api_key = self.api_key.ok_or(Error::MissingField("api_key"))?;
+        let relayer_address = self.relayer_address.ok_or(Error::MissingField("relayer_address"))?;
+        let relayer_private_key =
+            self.relayer_private_key.ok_or(Error::MissingField("relayer_private_key"))?;
+        let gas_tank_address =
+            self.gas_tank_address.ok_or(Error::MissingField("gas_tank_address"))?;
+        let gas_tank_private_key =
+            self.gas_tank_private_key.ok_or(Error::MissingField("gas_tank_private_key"))?;
+        let estimate_account_address =
+            self.estimate_account_address.ok_or(Error::MissingField("estimate_account_address"))?;
         let estimate_account_private_key = self
             .estimate_account_private_key
-            .ok_or_else(|| anyhow!("missing required field: estimate_account_private_key"))?;
-        let eth_token_address = self
-            .eth_token_address
-            .ok_or_else(|| anyhow!("missing required field: eth_token_address"))?;
-        let strk_token_address = self
-            .strk_token_address
-            .ok_or_else(|| anyhow!("missing required field: strk_token_address"))?;
+            .ok_or(Error::MissingField("estimate_account_private_key"))?;
+        let eth_token_address =
+            self.eth_token_address.ok_or(Error::MissingField("eth_token_address"))?;
+        let strk_token_address =
+            self.strk_token_address.ok_or(Error::MissingField("strk_token_address"))?;
 
         Ok(PaymasterConfig {
             rpc_url,
@@ -415,7 +483,7 @@ impl PaymasterSidecar {
             chain_id.id()
         } else {
             let chain_id_felt =
-                provider.chain_id().await.context("failed to get chain ID from node")?;
+                provider.chain_id().await.map_err(|e| Error::ChainId(Box::new(e)))?;
             self.chain_id = Some(ChainId::Id(chain_id_felt));
             chain_id_felt
         };
@@ -454,7 +522,7 @@ impl PaymasterSidecar {
                 )
                 .send()
                 .await
-                .map_err(|e| anyhow!("failed to deploy forwarder: {e}"))?;
+                .map_err(|e| Error::ForwarderDeploy(e.to_string()))?;
 
             wait_for_contract(&provider, forwarder_address, BOOTSTRAP_TIMEOUT).await?;
         }
@@ -470,7 +538,7 @@ impl PaymasterSidecar {
             .execute_v3(vec![whitelist_call])
             .send()
             .await
-            .map_err(|e| anyhow!("failed to whitelist relayer: {e}"))?;
+            .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
 
         self.forwarder_address = Some(forwarder_address);
         Ok(forwarder_address)
@@ -483,18 +551,14 @@ impl PaymasterSidecar {
     ///
     /// Returns a wrapper containing the process handle and resolved configuration.
     pub async fn start(self) -> Result<PaymasterSidecarProcess> {
-        let forwarder_address = self.forwarder_address.ok_or_else(|| {
-            anyhow!("forwarder_address not set - call bootstrap() or forwarder()")
-        })?;
-        let chain_id = self
-            .chain_id
-            .ok_or_else(|| anyhow!("chain_id not set - call bootstrap() or chain_id()"))?;
+        let forwarder_address = self.forwarder_address.ok_or(Error::ForwarderNotSet)?;
+        let chain_id = self.chain_id.ok_or(Error::ChainIdNotSet)?;
 
         // Build profile and spawn process
         let bin =
             self.config.program_path.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
         let bin = resolve_executable(&bin)?;
-        let profile = build_paymaster_profile(&self.config, forwarder_address, chain_id)?;
+        let profile = build_paymaster_profile(&self.config, forwarder_address, chain_id);
         let profile_path = write_paymaster_profile(&profile)?;
 
         let mut command = Command::new(bin);
@@ -506,7 +570,7 @@ impl PaymasterSidecar {
 
         info!(target: "sidecar", profile = %profile_path.display(), "paymaster profile generated");
 
-        let process = command.spawn().context("failed to spawn paymaster sidecar")?;
+        let process = command.spawn().map_err(Error::Spawn)?;
 
         let url = Url::parse(&format!("http://127.0.0.1:{}", self.config.port)).expect("valid url");
         wait_for_paymaster_ready(&url, Some(&self.config.api_key), BOOTSTRAP_TIMEOUT).await?;
@@ -527,7 +591,7 @@ async fn is_deployed(
     match provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address_felt).await {
         Ok(_) => Ok(true),
         Err(ProviderError::StarknetError(StarknetError::ContractNotFound)) => Ok(false),
-        Err(e) => Err(anyhow!("failed to check contract deployment: {e}")),
+        Err(e) => Err(Error::ContractCheck(address, Box::new(e))),
     }
 }
 
@@ -543,7 +607,7 @@ async fn wait_for_contract(
         }
 
         if start.elapsed() > timeout {
-            return Err(anyhow!("contract {address} not deployed before timeout"));
+            return Err(Error::ContractDeployTimeout(address));
         }
 
         sleep(Duration::from_millis(200)).await;
@@ -554,8 +618,9 @@ fn avnu_forwarder_class_hash() -> Result<Felt> {
     let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../controller/classes/avnu_Forwarder.contract_class.json"
-    )))?;
-    class.class_hash().context("failed to compute forwarder class hash")
+    )))
+    .map_err(Error::ClassParse)?;
+    class.class_hash().map_err(Error::ClassHash)
 }
 
 fn resolve_executable(path: &Path) -> Result<PathBuf> {
@@ -563,11 +628,11 @@ fn resolve_executable(path: &Path) -> Result<PathBuf> {
         return if path.is_file() {
             Ok(path.to_path_buf())
         } else {
-            Err(anyhow!("sidecar binary not found at {}", path.display()))
+            Err(Error::BinaryNotFound(path.to_path_buf()))
         };
     }
 
-    let path_var = env::var_os("PATH").ok_or_else(|| anyhow!("PATH is not set"))?;
+    let path_var = env::var_os("PATH").ok_or(Error::PathNotSet)?;
     for dir in env::split_paths(&path_var) {
         let candidate = dir.join(path);
         if candidate.is_file() {
@@ -575,7 +640,7 @@ fn resolve_executable(path: &Path) -> Result<PathBuf> {
         }
     }
 
-    Err(anyhow!("sidecar binary '{}' not found in PATH", path.display()))
+    Err(Error::BinaryNotInPath(path.to_path_buf()))
 }
 
 // ============================================================================
@@ -728,11 +793,11 @@ fn build_paymaster_profile(
     config: &PaymasterConfig,
     forwarder_address: ContractAddress,
     chain_id: ChainId,
-) -> Result<PaymasterProfile> {
-    let chain_id_str = paymaster_chain_id(chain_id)?;
+) -> PaymasterProfile {
+    let chain_id_str = paymaster_chain_id(chain_id);
     let price_api_key = config.price_api_key.clone().unwrap_or_default();
 
-    Ok(PaymasterProfile {
+    PaymasterProfile {
         verbosity: "info".to_string(),
         prometheus: None,
         rpc: PaymasterRpcProfile { port: config.port },
@@ -770,24 +835,27 @@ fn build_paymaster_profile(
             api_key: config.api_key.clone(),
             sponsor_metadata: Vec::new(),
         },
-    })
+    }
 }
 
 fn write_paymaster_profile(profile: &PaymasterProfile) -> Result<PathBuf> {
-    let payload = serde_json::to_string_pretty(profile).context("serialize paymaster profile")?;
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+    let payload = serde_json::to_string_pretty(profile).map_err(Error::ProfileSerialize)?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before unix epoch")
+        .as_millis();
     let pid = std::process::id();
 
     let mut path = env::temp_dir();
     path.push(format!("katana-paymaster-profile-{timestamp}-{pid}.json"));
-    fs::write(&path, payload).context("write paymaster profile")?;
+    fs::write(&path, payload).map_err(Error::ProfileWrite)?;
     Ok(path)
 }
 
-fn paymaster_chain_id(chain_id: ChainId) -> Result<String> {
+fn paymaster_chain_id(chain_id: ChainId) -> String {
     match chain_id {
-        ChainId::Named(NamedChainId::Mainnet) => Ok("mainnet".to_string()),
-        _ => Ok("sepolia".to_string()),
+        ChainId::Named(NamedChainId::Mainnet) => "mainnet".to_string(),
+        _ => "sepolia".to_string(),
     }
 }
 
@@ -838,7 +906,7 @@ pub async fn wait_for_paymaster_ready(
 
         if start.elapsed() > timeout {
             warn!(target: "sidecar", name = "paymaster health", "sidecar did not become ready in time");
-            return Err(anyhow!("paymaster did not become ready before timeout"));
+            return Err(Error::SidecarTimeout);
         }
 
         sleep(Duration::from_millis(200)).await;

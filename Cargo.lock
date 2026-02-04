@@ -6477,13 +6477,13 @@ dependencies = [
 name = "katana-paymaster"
 version = "1.7.0"
 dependencies = [
- "anyhow",
  "katana-genesis",
  "katana-primitives",
  "reqwest",
  "serde",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "url",

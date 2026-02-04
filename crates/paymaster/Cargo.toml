@@ -8,11 +8,11 @@ version.workspace = true
 [dependencies]
 katana-primitives.workspace = true
 
-anyhow.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 starknet.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
