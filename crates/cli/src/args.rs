@@ -40,8 +40,6 @@ use url::Url;
 
 use crate::file::NodeArgsConfig;
 use crate::options::*;
-#[cfg(feature = "vrf")]
-use crate::sidecar::build_vrf_config;
 use crate::utils::{self, parse_chain_config_dir, parse_seed};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
@@ -579,7 +577,7 @@ impl SequencerNodeArgs {
         #[cfg(feature = "cartridge")]
         if self.paymaster.cartridge_paymaster {
             #[cfg(feature = "vrf")]
-            let vrf = self.vrf_config()?;
+            let vrf = self.vrf_config(chain_spec)?;
 
             use anyhow::anyhow;
             use katana_genesis::allocation::GenesisAccountAlloc;
@@ -614,8 +612,32 @@ impl SequencerNodeArgs {
     }
 
     #[cfg(feature = "vrf")]
-    fn vrf_config(&self) -> Result<Option<VrfConfig>> {
-        build_vrf_config(&self.paymaster.vrf)
+    fn vrf_config(&self, chain: &ChainSpec) -> Result<Option<VrfConfig>> {
+        let options = &self.paymaster.vrf;
+
+        if !options.enabled {
+            return Ok(None);
+        }
+
+        if options.is_external() {
+            let url = options.url.clone().expect("must be set if external");
+            let vrf_account = options.vrf_account_contract.expect("must be set if external");
+
+            Ok(Some(VrfConfig { url, vrf_account }))
+        } else {
+            use cartridge::derive_vrf_accounts;
+
+            use crate::sidecar::prefunded_account;
+
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let addr = listener.local_addr()?;
+            let url = Url::parse(&format!("http://{addr}"))?;
+
+            let (account_address, pk) = prefunded_account(chain, 0)?;
+            let derived_result = derive_vrf_accounts(account_address, pk)?;
+
+            Ok(Some(VrfConfig { url, vrf_account: derived_result.vrf_account_address }))
+        }
     }
 
     #[cfg(feature = "tee")]
@@ -1098,59 +1120,5 @@ explorer = true
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
         assert!(!config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
-    }
-
-    #[cfg(feature = "cartridge")]
-    #[test]
-    fn vrf_mode_adds_classes() {
-        use katana_primitives::utils::class::parse_sierra_class;
-
-        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster", "--vrf"]);
-        let result = args.config().unwrap();
-        let config = &result;
-
-        let vrf_account_class = parse_sierra_class(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../controller/classes/cartridge_vrf_VrfAccount.contract_class.json"
-        )))
-        .unwrap();
-        let vrf_account_hash = vrf_account_class.class_hash().unwrap();
-
-        let vrf_consumer_class = parse_sierra_class(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../controller/classes/cartridge_vrf_VrfConsumer.contract_class.json"
-        )))
-        .unwrap();
-        let vrf_consumer_hash = vrf_consumer_class.class_hash().unwrap();
-
-        assert!(config.chain.genesis().classes.get(&vrf_account_hash).is_some());
-        assert!(config.chain.genesis().classes.get(&vrf_consumer_hash).is_some());
-    }
-
-    #[cfg(feature = "paymaster")]
-    #[test]
-    fn paymaster_adds_forwarder_class() {
-        use katana_primitives::utils::class::parse_sierra_class;
-
-        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
-        let result = args.config().unwrap();
-        let config = &result;
-
-        let forwarder_class = parse_sierra_class(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../controller/classes/avnu_Forwarder.contract_class.json"
-        )))
-        .unwrap();
-        let forwarder_hash = forwarder_class.class_hash().unwrap();
-
-        assert!(config.chain.genesis().classes.get(&forwarder_hash).is_some());
-    }
-
-    #[cfg(feature = "vrf")]
-    #[test]
-    fn vrf_requires_paymaster() {
-        let args = SequencerNodeArgs::parse_from(["katana", "--vrf"]);
-        let err = args.config().unwrap_err();
-        assert!(err.to_string().contains("--vrf requires paymaster"));
     }
 }

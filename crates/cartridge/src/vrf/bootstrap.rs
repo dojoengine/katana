@@ -88,17 +88,17 @@ pub struct VrfDerivedAccounts {
 /// This computes the deterministic VRF account address and VRF key pair
 /// from the source account's private key.
 pub fn derive_vrf_accounts(
-    source_address: ContractAddress,
-    source_private_key: Felt,
+    bootstrapper_address: ContractAddress,
+    bootstrapper_private_key: Felt,
 ) -> Result<VrfDerivedAccounts> {
     // vrf-server expects a u64 secret, so derive one from the account key.
-    let secret_key = vrf_secret_key_from_account_key(source_private_key);
+    let secret_key = vrf_secret_key_from_account_key(bootstrapper_private_key);
     let public_key = generate_public_key(scalar_from_felt(secret_key.into()));
     let vrf_public_key_x = felt_from_field(public_key.x)?;
     let vrf_public_key_y = felt_from_field(public_key.y)?;
 
     let account_public_key =
-        SigningKey::from_secret_scalar(source_private_key).verifying_key().scalar();
+        SigningKey::from_secret_scalar(bootstrapper_private_key).verifying_key().scalar();
     let vrf_account_class_hash = katana_contracts::vrf::CartridgeVrfAccount::HASH;
     // When using UDC with unique=0 (non-unique deployment), the deployer_address
     // used in address computation is 0, not the actual deployer or UDC address.
@@ -111,8 +111,8 @@ pub fn derive_vrf_accounts(
     .into();
 
     Ok(VrfDerivedAccounts {
-        source_address,
-        source_private_key,
+        source_address: bootstrapper_address,
+        source_private_key: bootstrapper_private_key,
         vrf_account_address,
         vrf_public_key_x,
         vrf_public_key_y,

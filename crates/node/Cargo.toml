@@ -22,7 +22,6 @@ katana-pool.workspace = true
 katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-genesis = { workspace = true, optional = true }
 katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-client.workspace = true
@@ -42,27 +41,19 @@ parking_lot.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 url.workspace = true
-ark-ff = { version = "0.4.2", optional = true }
 
 strum.workspace = true
 strum_macros.workspace = true
-
-stark-vrf = { workspace = true, optional = true }
-starknet = { workspace = true, optional = true }
 
 tokio = { workspace = true, features = [ "time" ] }
 
 [features]
 paymaster = [
-	"dep:katana-genesis",
-	"dep:starknet",
 	"katana-rpc-api/paymaster",
 	"katana-rpc-server/paymaster",
 ]
 vrf = [
 	"katana-rpc-server/vrf",
-	"dep:stark-vrf",
-	"dep:ark-ff",
 	"cartridge",
 ]
 cartridge = [

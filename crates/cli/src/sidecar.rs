@@ -9,8 +9,6 @@ pub use cartridge::vrf::{
 use katana_chain_spec::ChainSpec;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
-#[cfg(feature = "vrf")]
-use katana_node::config::paymaster::VrfConfig;
 pub use katana_paymaster::{
     format_felt, wait_for_paymaster_ready, PaymasterService, PaymasterServiceConfig,
     PaymasterServiceConfigBuilder, PaymasterSidecarProcess,
@@ -24,28 +22,6 @@ use crate::options::VrfOptions;
 
 /// Default API key for the paymaster sidecar.
 pub const DEFAULT_PAYMASTER_API_KEY: &str = "paymaster_katana";
-
-#[cfg(feature = "vrf")]
-pub fn build_vrf_config(options: &VrfOptions) -> Result<Option<VrfConfig>> {
-    if !options.enabled {
-        return Ok(None);
-    }
-
-    if options.is_external() {
-        let url = options.url.clone().expect("must be set if external");
-        let vrf_account = options.vrf_account_contract.expect("must be set if external");
-
-        Ok(Some(VrfConfig { url, vrf_account }))
-    } else {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-        let addr = listener.local_addr()?;
-        let url = Url::parse(&format!("http://{addr}"))?;
-
-        todo!("infer vrf contract address")
-
-        // Ok(Some(VrfConfig { url }))
-    }
-}
 
 pub async fn bootstrap_paymaster(
     options: &PaymasterOptions,
@@ -101,7 +77,7 @@ pub async fn bootstrap_vrf(
     Ok(vrf_service)
 }
 
-fn prefunded_account(chain_spec: &ChainSpec, index: u16) -> Result<(ContractAddress, Felt)> {
+pub fn prefunded_account(chain_spec: &ChainSpec, index: u16) -> Result<(ContractAddress, Felt)> {
     let (address, allocation) = chain_spec
         .genesis()
         .accounts()

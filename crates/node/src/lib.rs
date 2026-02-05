@@ -4,8 +4,6 @@ pub mod full;
 
 pub mod config;
 pub mod exit;
-#[cfg(feature = "vrf")]
-pub mod sidecar;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
