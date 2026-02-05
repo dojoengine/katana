@@ -1,8 +1,5 @@
 //! Integration tests for the Starknet gRPC server.
 //!
-//! These tests spin up a TestNode and use the gRPC read APIs to fetch and verify data.
-//! Some tests use the spawn-and-move dojo example to verify transaction/event-related APIs.
-//!
 //! Requirements:
 //! - `git`, `asdf`, `scarb`, and `sozo` must be installed and properly configured
 //! - Run with `cargo nextest run -p katana-grpc --features grpc`
@@ -30,24 +27,9 @@ fn proto_to_felt(proto: &katana_grpc::proto::Felt) -> Felt {
     Felt::from_bytes_be_slice(&proto.value)
 }
 
-/// Setup helper that creates a TestNode with the spawn-and-move example migrated.
-/// Requires external tools: git, asdf, scarb, sozo
-#[allow(dead_code)]
-async fn setup_with_migration() -> (TestNode, GrpcClient) {
-    let node = TestNode::new().await;
-    node.migrate_spawn_and_move().await.expect("migration failed");
-
-    let grpc_addr = node.grpc_addr().expect("grpc not enabled");
-    let client = GrpcClient::connect(format!("http://{}", grpc_addr))
-        .await
-        .expect("failed to connect to gRPC server");
-
-    (node, client)
-}
-
-/// Setup helper that creates a TestNode without migration.
 async fn setup() -> (TestNode, GrpcClient) {
     let node = TestNode::new().await;
+    node.migrate_spawn_and_move().await.expect("migration failed");
 
     let grpc_addr = node.grpc_addr().expect("grpc not enabled");
     let client = GrpcClient::connect(format!("http://{}", grpc_addr))
@@ -80,8 +62,8 @@ async fn test_block_number() {
         .expect("block_number call failed");
 
     let block_number = response.into_inner().block_number;
-    // Genesis block is block 0
-    assert_eq!(block_number, 0, "Expected genesis block 0");
+    // After migration, block number should be greater than 0
+    assert!(block_number > 0, "Expected block number > 0 after migration");
 }
 
 #[tokio::test]
@@ -97,9 +79,7 @@ async fn test_block_hash_and_number() {
     let block_number = inner.block_number;
     let block_hash = inner.block_hash.expect("block_hash should be present");
 
-    // Genesis block is block 0
-    assert_eq!(block_number, 0, "Expected genesis block 0");
-    // Block hash should be non-zero
+    assert!(block_number > 0, "Expected block number > 0 after migration");
     let hash_felt = proto_to_felt(&block_hash);
     assert_ne!(hash_felt, Felt::ZERO, "Block hash should not be zero");
 }
@@ -121,7 +101,6 @@ async fn test_get_block_with_txs() {
         .expect("get_block_with_txs call failed");
 
     let inner = response.into_inner();
-    // The response should contain a block
     assert!(inner.result.is_some(), "Expected a block in the response");
 }
 
@@ -142,7 +121,6 @@ async fn test_get_block_with_tx_hashes() {
         .expect("get_block_with_tx_hashes call failed");
 
     let inner = response.into_inner();
-    // The response should contain a block
     assert!(inner.result.is_some(), "Expected a block in the response");
 }
 
@@ -165,7 +143,6 @@ async fn test_get_block_with_txs_latest() {
         .expect("get_block_with_txs call failed");
 
     let inner = response.into_inner();
-    // The response should contain a block
     assert!(inner.result.is_some(), "Expected a block in the response");
 }
 
@@ -190,7 +167,6 @@ async fn test_get_class_at() {
         client.get_class_at(Request::new(request)).await.expect("get_class_at call failed");
 
     let inner = response.into_inner();
-    // The response should contain a contract class
     assert!(inner.result.is_some(), "Expected a contract class in the response");
 }
 
@@ -219,7 +195,6 @@ async fn test_get_class_hash_at() {
     let inner = response.into_inner();
     let class_hash = inner.class_hash.expect("class_hash should be present");
     let hash_felt = proto_to_felt(&class_hash);
-    // Class hash should be non-zero for a deployed contract
     assert_ne!(hash_felt, Felt::ZERO, "Class hash should not be zero");
 }
 
@@ -248,7 +223,6 @@ async fn test_get_storage_at() {
         client.get_storage_at(Request::new(request)).await.expect("get_storage_at call failed");
 
     let inner = response.into_inner();
-    // The call should succeed, though the value may be zero
     assert!(inner.value.is_some(), "Expected a storage value in the response");
 }
 
@@ -272,8 +246,10 @@ async fn test_get_nonce() {
     let response = client.get_nonce(Request::new(request)).await.expect("get_nonce call failed");
 
     let inner = response.into_inner();
-    // Nonce should be present (could be zero for unused account)
-    assert!(inner.nonce.is_some(), "Expected a nonce in the response");
+    let nonce = inner.nonce.expect("nonce should be present");
+    let nonce_felt = proto_to_felt(&nonce);
+    // After migration, the account should have used some nonce
+    assert!(nonce_felt > Felt::ZERO, "Nonce should be greater than zero after migration");
 }
 
 #[tokio::test]
@@ -286,7 +262,6 @@ async fn test_spec_version() {
         .expect("spec_version call failed");
 
     let version = response.into_inner().version;
-    // The spec version should be a non-empty string
     assert!(!version.is_empty(), "Expected a non-empty spec version");
 }
 
@@ -298,7 +273,6 @@ async fn test_syncing() {
         client.syncing(Request::new(SyncingRequest {})).await.expect("syncing call failed");
 
     let inner = response.into_inner();
-    // For a local node, it should not be syncing
     assert!(inner.result.is_some(), "Expected a syncing result");
 }
 
@@ -338,15 +312,14 @@ async fn test_get_state_update() {
         client.get_state_update(Request::new(request)).await.expect("get_state_update call failed");
 
     let inner = response.into_inner();
-    // The response should contain a state update
     assert!(inner.result.is_some(), "Expected a state update in the response");
 }
 
 #[tokio::test]
-async fn test_get_events_empty() {
+async fn test_get_events() {
     let (_node, mut client) = setup().await;
 
-    // Query events from genesis block with no filters
+    // Query events from block 0 to latest with no filters
     let request = GetEventsRequest {
         filter: Some(EventFilter {
             from_block: Some(katana_grpc::proto::BlockId {
@@ -366,45 +339,16 @@ async fn test_get_events_empty() {
 
     let response = client.get_events(Request::new(request)).await.expect("get_events call failed");
 
-    // Response should succeed even if no events
-    let _inner = response.into_inner();
-}
-
-// ============================================================
-// Tests that require migration (need external tools)
-// ============================================================
-
-#[tokio::test]
-async fn test_get_nonce_after_migration() {
-    let (node, mut client) = setup_with_migration().await;
-
-    // Get a genesis account address
-    let (address, _) =
-        node.backend().chain_spec.genesis().accounts().next().expect("must have genesis account");
-
-    let request = GetNonceRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
-                BlockTag::Latest as i32,
-            )),
-        }),
-        contract_address: Some(felt_to_proto((*address).into())),
-    };
-
-    let response = client.get_nonce(Request::new(request)).await.expect("get_nonce call failed");
-
     let inner = response.into_inner();
-    let nonce = inner.nonce.expect("nonce should be present");
-    let nonce_felt = proto_to_felt(&nonce);
-    // After migration, the account should have used some nonce
-    assert!(nonce_felt > Felt::ZERO, "Nonce should be greater than zero after migration");
+    // After migration, there should be events emitted
+    assert!(!inner.events.is_empty(), "Expected events after migration");
 }
 
 #[tokio::test]
 async fn test_get_transaction_by_hash() {
-    let (_node, mut client) = setup_with_migration().await;
+    let (_node, mut client) = setup().await;
 
-    // First get the latest block to find a transaction hash
+    // Get block 1 to find a transaction hash
     let block_request = GetBlockRequest {
         block_id: Some(katana_grpc::proto::BlockId {
             identifier: Some(katana_grpc::proto::block_id::Identifier::Number(1)),
@@ -445,9 +389,9 @@ async fn test_get_transaction_by_hash() {
 
 #[tokio::test]
 async fn test_get_transaction_receipt() {
-    let (_node, mut client) = setup_with_migration().await;
+    let (_node, mut client) = setup().await;
 
-    // First get the latest block to find a transaction hash
+    // Get block 1 to find a transaction hash
     let block_request = GetBlockRequest {
         block_id: Some(katana_grpc::proto::BlockId {
             identifier: Some(katana_grpc::proto::block_id::Identifier::Number(1)),
@@ -484,33 +428,4 @@ async fn test_get_transaction_receipt() {
 
     let inner = response.into_inner();
     assert!(inner.receipt.is_some(), "Expected a receipt in the response");
-}
-
-#[tokio::test]
-async fn test_get_events() {
-    let (_node, mut client) = setup_with_migration().await;
-
-    // Query events from block 0 to latest with no filters
-    let request = GetEventsRequest {
-        filter: Some(EventFilter {
-            from_block: Some(katana_grpc::proto::BlockId {
-                identifier: Some(katana_grpc::proto::block_id::Identifier::Number(0)),
-            }),
-            to_block: Some(katana_grpc::proto::BlockId {
-                identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
-                    BlockTag::Latest as i32,
-                )),
-            }),
-            address: None,
-            keys: vec![],
-        }),
-        chunk_size: 100,
-        continuation_token: String::new(),
-    };
-
-    let response = client.get_events(Request::new(request)).await.expect("get_events call failed");
-
-    let inner = response.into_inner();
-    // After migration, there should be events emitted
-    assert!(!inner.events.is_empty(), "Expected events after migration");
 }
