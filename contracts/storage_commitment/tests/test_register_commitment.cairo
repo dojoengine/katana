@@ -18,22 +18,20 @@ fn test_contract_address() -> ContractAddress {
 /// Compute commitment hash the same way as the contract does
 /// This simulates what SP1 verifier produces
 fn compute_commitment(
-    storage_commitment: u256,
+    storage_commitment: felt252,
     contract_address: ContractAddress,
     nonce: u64,
-    storage_state_root: u256,
-) -> u256 {
+    storage_state_root: felt252,
+) -> felt252 {
     let mut data: Array<felt252> = ArrayTrait::new();
 
-    data.append(storage_commitment.low.into());
-    data.append(storage_commitment.high.into());
+    data.append(storage_commitment);
     data.append(contract_address.into());
     data.append(nonce.into());
-    data.append(storage_state_root.low.into());
-    data.append(storage_state_root.high.into());
+    data.append(storage_state_root);
 
     let hash: felt252 = poseidon_hash_span(data.span());
-    hash.into()
+    hash
 }
 
 #[test]

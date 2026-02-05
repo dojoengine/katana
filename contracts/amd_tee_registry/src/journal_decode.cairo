@@ -107,7 +107,7 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
         certs,
         cert_serials,
         trusted_certs_prefix_len,
-        storage_commitment,
+        storage_commitment: u256_to_felt(storage_commitment),
     }
 }
 

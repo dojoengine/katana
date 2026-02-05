@@ -1,7 +1,7 @@
 use starknet_rust_core::crypto::HashFunction;
 use starknet_rust_core::types::Felt;
 use alloy_primitives::{Bytes, B256};
-use amd_sev_snp_attestation_verifier::compute_commitment;
+use amd_sev_snp_attestation_verifier::compute_storage_commitment;
 
 #[test]
 fn test_commitment_matches_cairo() {
@@ -20,7 +20,7 @@ fn test_commitment_matches_cairo() {
     let key_bytes = Bytes::from(hex::decode("007ebcc807b5c7e19f245995a55aed6f46f5f582f476a886b91b834b0ddf5854").unwrap());
     let value_bytes = Bytes::from(hex::decode("0000000000000000000000000000000000000000000000000000000000000003").unwrap());
 
-    let verifier_commitment = compute_commitment(&[key_bytes], &[value_bytes]);
+    let verifier_commitment = compute_storage_commitment(&[key_bytes], &[value_bytes]);
     println!("Verifier compute_commitment: {:#x}", verifier_commitment);
 
     // Convert to B256 (same as in sp1-verifier/src/main.rs)

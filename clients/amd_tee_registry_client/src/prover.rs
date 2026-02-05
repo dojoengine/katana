@@ -68,14 +68,29 @@ use x509_verifier_rust_crypto::CertChain;
 // Re-export OnchainProof for convenience
 pub use amd_sev_snp_attestation_prover::OnchainProof;
 
-/// Optional storage proof data for ZK circuit. When set, the circuit verifies the proof
-/// and commits `keccak256(abi.encode(keys, values))` to the journal.
+/// Optional storage proof data for ZK circuit. When set, the circuit verifies:
+/// 1. global_state_root = hash("STARKNET_STATE_V0", contracts_tree_root, classes_tree_root)
+/// 2. Contract with storage_root is in contracts_tree at contract_address
+/// 3. Storage keys/values are in contract's storage trie
+/// Then commits poseidon_hash(storage_commitment, contract_address, nonce, global_state_root).
 #[derive(Debug, Clone, Default)]
 pub struct StorageProofParams {
-    pub state_root: B256,
+    // Global state verification (matches attestation)
+    pub global_state_root: B256,
+    pub contracts_tree_root: B256,
+    pub classes_tree_root: B256,
+    // Contracts tree proof
+    pub contracts_proof_nodes: Vec<Bytes>,
+    pub contract_storage_root: B256,
+    pub contract_class_hash: B256,
+    pub contract_leaf_nonce: u64,
+    // Storage proof
     pub keys: Vec<Bytes>,
     pub values: Vec<Bytes>,
-    pub proof_nodes: Vec<Bytes>,
+    pub storage_proof_nodes: Vec<Bytes>,
+    // Replay protection
+    pub contract_address: B256,
+    pub nonce: u64,
 }
 
 /// Proof result with cache metadata for transparency
@@ -354,16 +369,36 @@ pub fn prepare_verifier_input_with_storage(
         trustedCertsPrefixLen: trusted_certs_prefix_len,
         rawReport: raw_report,
         vekDerChain: vek_der_chain,
-        storageStateRoot: B256::ZERO,
+        // Global state verification
+        globalStateRoot: B256::ZERO,
+        contractsTreeRoot: B256::ZERO,
+        classesTreeRoot: B256::ZERO,
+        // Contracts tree proof
+        contractsProofNodes: vec![],
+        contractStorageRoot: B256::ZERO,
+        contractClassHash: B256::ZERO,
+        contractLeafNonce: 0,
+        // Storage proof
         storageKeys: vec![],
         storageValues: vec![],
         storageProofNodes: vec![],
+        // Replay protection
+        contractAddress: B256::ZERO,
+        nonce: 0,
     };
     if let Some(s) = storage {
-        input.storageStateRoot = s.state_root;
+        input.globalStateRoot = s.global_state_root;
+        input.contractsTreeRoot = s.contracts_tree_root;
+        input.classesTreeRoot = s.classes_tree_root;
+        input.contractsProofNodes = s.contracts_proof_nodes;
+        input.contractStorageRoot = s.contract_storage_root;
+        input.contractClassHash = s.contract_class_hash;
+        input.contractLeafNonce = s.contract_leaf_nonce;
         input.storageKeys = s.keys;
         input.storageValues = s.values;
-        input.storageProofNodes = s.proof_nodes;
+        input.storageProofNodes = s.storage_proof_nodes;
+        input.contractAddress = s.contract_address;
+        input.nonce = s.nonce;
     }
     input
 }
