@@ -252,9 +252,8 @@ where
                 info!(genesis_hash = %local_hash, "Genesis has already been initialized");
             }
 
-            _ => {
-                // Initialize the dev genesis block
-
+            // No genesis yet and we're NOT forking → initialize
+            (None, false) => {
                 let block = chain_spec.block();
                 let states = chain_spec.state_updates();
 
@@ -272,6 +271,11 @@ where
                 )?;
 
                 info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+            }
+
+            // Forking mode → NEVER touch genesis
+            (_, true) => {
+                info!("Forking mode enabled — skipping dev genesis initialization");
             }
         }
 
