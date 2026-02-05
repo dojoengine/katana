@@ -49,8 +49,3 @@ katana-utils = { workspace = true, features = ["grpc"] }
 
 [build-dependencies]
 tonic-build.workspace = true
-
-[features]
-default = []
-# Enable gRPC integration tests - requires full node to be built with gRPC support
-grpc = []
