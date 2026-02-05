@@ -6634,6 +6634,7 @@ dependencies = [
  "katana-utils-macro",
  "rand 0.8.5",
  "starknet",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
 ]

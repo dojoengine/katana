@@ -1,4 +1,6 @@
 use std::net::SocketAddr;
+use std::path::Path;
+use std::process::Command;
 use std::sync::Arc;
 
 use katana_chain_spec::{dev, ChainSpec};
@@ -22,6 +24,23 @@ use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Url};
 pub use starknet::providers::{Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
+
+/// Errors that can occur when migrating contracts to a test node.
+#[derive(Debug, thiserror::Error)]
+pub enum MigrateError {
+    #[error("Failed to create temp directory: {0}")]
+    TempDir(#[from] std::io::Error),
+    #[error("Git clone failed: {0}")]
+    GitClone(String),
+    #[error("Scarb build failed: {0}")]
+    ScarbBuild(String),
+    #[error("Sozo migrate failed: {0}")]
+    SozoMigrate(String),
+    #[error("Missing genesis account private key")]
+    MissingPrivateKey,
+    #[error("Spawn blocking task failed: {0}")]
+    SpawnBlocking(#[from] tokio::task::JoinError),
+}
 
 pub type ForkTestNode = TestNode<ForkProviderFactory>;
 
@@ -124,6 +143,138 @@ where
         let client = self.rpc_http_client();
         katana_rpc_client::starknet::Client::new_with_client(client)
     }
+
+    /// Migrates the `spawn-and-move` example contracts from the dojo repository.
+    ///
+    /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
+    /// The scarb version is managed by asdf using the `.tool-versions` file
+    /// in the dojo repository.
+    pub async fn migrate_spawn_and_move(&self) -> Result<(), MigrateError> {
+        self.migrate_example("spawn-and-move").await
+    }
+
+    /// Migrates the `simple` example contracts from the dojo repository.
+    ///
+    /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
+    /// The scarb version is managed by asdf using the `.tool-versions` file
+    /// in the dojo repository.
+    pub async fn migrate_simple(&self) -> Result<(), MigrateError> {
+        self.migrate_example("simple").await
+    }
+
+    /// Migrates contracts from a dojo example project.
+    ///
+    /// Clones the dojo repository, builds contracts with `scarb`, and deploys
+    /// them with `sozo migrate`.
+    ///
+    /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
+    /// The scarb version is managed by asdf using the `.tool-versions` file
+    /// in the dojo repository.
+    async fn migrate_example(&self, example: &str) -> Result<(), MigrateError> {
+        let rpc_url = format!("http://{}", self.rpc_addr());
+
+        let (address, account) = self
+            .backend()
+            .chain_spec
+            .genesis()
+            .accounts()
+            .next()
+            .expect("must have at least one genesis account");
+        let private_key = account.private_key().ok_or(MigrateError::MissingPrivateKey)?;
+
+        let address_hex = address.to_string();
+        let private_key_hex = format!("{private_key:#x}");
+        let example_path = format!("dojo/examples/{example}");
+
+        tokio::task::spawn_blocking(move || {
+            let temp_dir = tempfile::tempdir()?;
+
+            // Clone dojo repository at v1.7.0
+            run_git_clone(temp_dir.path())?;
+
+            let project_dir = temp_dir.path().join(&example_path);
+
+            // Build contracts using asdf to ensure correct scarb version
+            run_scarb_build(&project_dir)?;
+
+            // Deploy contracts to the katana node
+            run_sozo_migrate(&project_dir, &rpc_url, &address_hex, &private_key_hex)?;
+
+            Ok(())
+        })
+        .await?
+    }
+}
+
+fn run_git_clone(temp_dir: &Path) -> Result<(), MigrateError> {
+    let output = Command::new("git")
+        .args(["clone", "--depth", "1", "--branch", "v1.7.0", "https://github.com/dojoengine/dojo"])
+        .current_dir(temp_dir)
+        .output()
+        .map_err(|e| MigrateError::GitClone(e.to_string()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(MigrateError::GitClone(stderr.to_string()));
+    }
+    Ok(())
+}
+
+fn run_scarb_build(project_dir: &Path) -> Result<(), MigrateError> {
+    let output = Command::new("asdf")
+        .args(["exec", "scarb", "build"])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| MigrateError::ScarbBuild(e.to_string()))?;
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        let lines: Vec<&str> = combined.lines().collect();
+        let last_50: String =
+            lines.iter().rev().take(50).rev().cloned().collect::<Vec<_>>().join("\n");
+
+        return Err(MigrateError::ScarbBuild(last_50));
+    }
+    Ok(())
+}
+
+fn run_sozo_migrate(
+    project_dir: &Path,
+    rpc_url: &str,
+    address: &str,
+    private_key: &str,
+) -> Result<(), MigrateError> {
+    let output = Command::new("sozo")
+        .args([
+            "migrate",
+            "--rpc-url",
+            rpc_url,
+            "--account-address",
+            address,
+            "--private-key",
+            private_key,
+        ])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| MigrateError::SozoMigrate(e.to_string()))?;
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        let lines: Vec<&str> = combined.lines().collect();
+        let last_50: String =
+            lines.iter().rev().take(50).rev().cloned().collect::<Vec<_>>().join("\n");
+
+        eprintln!("sozo migrate failed. Last 50 lines of output:\n{last_50}");
+
+        return Err(MigrateError::SozoMigrate(last_50));
+    }
+    Ok(())
 }
 
 pub fn test_config() -> Config {

@@ -25,6 +25,7 @@ async-trait.workspace = true
 futures.workspace = true
 rand.workspace = true
 starknet.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [ "macros", "signal", "time" ], default-features = false }
 
