@@ -144,13 +144,33 @@ where
         katana_rpc_client::starknet::Client::new_with_client(client)
     }
 
-    /// Populates the node with contracts by cloning the dojo repository,
-    /// building contracts with `scarb`, and deploying them with `sozo migrate`.
+    /// Populates the node with the `spawn-and-move` example contracts from the dojo repository.
     ///
     /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
     /// The scarb version is managed by asdf using the `.tool-versions` file
     /// in the dojo repository.
     pub async fn populate(&self) -> Result<(), PopulateError> {
+        self.populate_example("spawn-and-move").await
+    }
+
+    /// Populates the node with the `simple` example contracts from the dojo repository.
+    ///
+    /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
+    /// The scarb version is managed by asdf using the `.tool-versions` file
+    /// in the dojo repository.
+    pub async fn populate_simple(&self) -> Result<(), PopulateError> {
+        self.populate_example("simple").await
+    }
+
+    /// Populates the node with contracts from a dojo example project.
+    ///
+    /// Clones the dojo repository, builds contracts with `scarb`, and deploys
+    /// them with `sozo migrate`.
+    ///
+    /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
+    /// The scarb version is managed by asdf using the `.tool-versions` file
+    /// in the dojo repository.
+    async fn populate_example(&self, example: &str) -> Result<(), PopulateError> {
         let rpc_url = format!("http://{}", self.rpc_addr());
 
         let (address, account) = self
@@ -164,6 +184,7 @@ where
 
         let address_hex = address.to_string();
         let private_key_hex = format!("{private_key:#x}");
+        let example_path = format!("dojo/examples/{example}");
 
         tokio::task::spawn_blocking(move || {
             let temp_dir = tempfile::tempdir()?;
@@ -171,7 +192,7 @@ where
             // Clone dojo repository at v1.7.0
             run_git_clone(temp_dir.path())?;
 
-            let project_dir = temp_dir.path().join("dojo/examples/spawn-and-move");
+            let project_dir = temp_dir.path().join(&example_path);
 
             // Build contracts using asdf to ensure correct scarb version
             run_scarb_build(&project_dir)?;
