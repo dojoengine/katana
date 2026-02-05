@@ -150,10 +150,14 @@ fn build_vrf_contracts(vrf_dir: &Path) {
 }
 
 fn build_avnu_contracts(avnu_dir: &Path) {
-    println!("cargo:warning=Building AVNU contracts with scarb...");
+    // AVNU contracts require scarb 2.11.4 (cairo-version = "2.11.4" in Scarb.toml)
+    const AVNU_SCARB_VERSION: &str = "2.11.4";
+
+    println!("cargo:warning=Building AVNU contracts with scarb {AVNU_SCARB_VERSION}...");
 
     let output = Command::new("asdf")
         .args(["exec", "scarb", "build"])
+        .env("ASDF_SCARB_VERSION", AVNU_SCARB_VERSION)
         .current_dir(avnu_dir)
         .output()
         .expect("Failed to execute scarb build for AVNU contracts");
