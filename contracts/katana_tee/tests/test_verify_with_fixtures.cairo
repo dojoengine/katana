@@ -214,7 +214,7 @@ fn test_verify_and_update_state() {
     let storage_commitment = u256 { low: commitment_low, high: commitment_high };
 
     println!("Checking storage commitment: {:x}", storage_commitment);
-    assert(storage_commitment_dispatcher.is_verified(storage_commitment), 'Storage commitment not verified');
+    assert(storage_commitment_dispatcher.is_registered(storage_commitment), 'Commitment not registered');
 }
 
 use core::poseidon::poseidon_hash_span;
