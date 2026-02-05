@@ -295,7 +295,7 @@ fn run_sozo_migrate(
     address: &str,
     private_key: &str,
 ) -> Result<(), MigrateError> {
-    let output = Command::new("sozo")
+    let status = Command::new("sozo")
         .args([
             "migrate",
             "--rpc-url",
@@ -306,21 +306,15 @@ fn run_sozo_migrate(
             private_key,
         ])
         .current_dir(project_dir)
-        .output()
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
         .map_err(|e| MigrateError::SozoMigrate(e.to_string()))?;
 
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{stdout}\n{stderr}");
-
-        let lines: Vec<&str> = combined.lines().collect();
-        let last_50: String =
-            lines.iter().rev().take(50).rev().cloned().collect::<Vec<_>>().join("\n");
-
-        eprintln!("sozo migrate failed. Last 50 lines of output:\n{last_50}");
-
-        return Err(MigrateError::SozoMigrate(last_50));
+    if !status.success() {
+        return Err(MigrateError::SozoMigrate(format!(
+            "sozo migrate exited with status: {status}"
+        )));
     }
     Ok(())
 }
