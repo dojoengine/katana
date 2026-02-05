@@ -536,15 +536,6 @@ pub struct GasPriceOracleOptions {
     pub l1_strk_data_gas_price: Option<GasPrice>,
 }
 
-#[cfg(feature = "cartridge")]
-#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
-#[command(next_help_heading = "Cartridge options")]
-pub struct CartridgeOptions {
-    /// Declare all versions of the Controller class at genesis.
-    #[arg(long = "cartridge.controllers")]
-    pub controllers: bool,
-}
-
 #[cfg(feature = "paymaster")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Paymaster options")]
@@ -589,29 +580,6 @@ pub struct PaymasterOptions {
     #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
-
-    /// Enable Cartridge paymaster
-    #[cfg(feature = "cartridge")]
-    #[arg(requires = "paymaster_enabled")]
-    #[arg(long = "paymaster.cartridge")]
-    #[serde(default)]
-    pub cartridge_paymaster: bool,
-
-    /// The base URL for the Cartridge API.
-    ///
-    /// This is used to fetch the calldata for the constructor of the given controller
-    /// address (at the moment). Must be configurable for local development
-    /// with local cartridge API.
-    #[cfg(feature = "cartridge")]
-    #[arg(long = "paymaster.cartridge-api")]
-    #[arg(default_value = "https://api.cartridge.gg")]
-    #[arg(requires_all = ["paymaster_enabled", "cartridge_paymaster"])]
-    #[serde(default = "default_api_url")]
-    pub cartridge_api: Url,
-
-    #[cfg(feature = "vrf")]
-    #[command(flatten)]
-    pub vrf: VrfOptions,
 }
 
 #[cfg(feature = "paymaster")]
@@ -642,6 +610,47 @@ impl PaymasterOptions {
             if self.bin.is_none() {
                 self.bin = other.bin.clone();
             }
+        }
+    }
+}
+
+#[cfg(feature = "cartridge")]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Cartridge options")]
+pub struct CartridgeOptions {
+    /// Declare all versions of the Controller class at genesis.
+    #[arg(long = "cartridge.controllers")]
+    pub controllers: bool,
+
+    /// Enable Cartridge paymaster
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(long = "cartridge.paymaster", id = "cartridge_paymaster")]
+    #[serde(default)]
+    pub paymaster: bool,
+
+    /// The base URL for the Cartridge API.
+    ///
+    /// This is used to fetch the calldata for the constructor of the given controller
+    /// address (at the moment). Must be configurable for local development
+    /// with local cartridge API.
+    #[arg(long = "cartridge.api")]
+    #[arg(default_value = "https://api.cartridge.gg")]
+    #[arg(requires = "cartridge_paymaster")]
+    #[serde(default = "default_api_url")]
+    pub cartridge_api: Url,
+
+    #[cfg(feature = "vrf")]
+    #[command(flatten)]
+    pub vrf: VrfOptions,
+}
+
+#[cfg(feature = "cartridge")]
+impl CartridgeOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.controllers {
+                self.controllers = other.controllers;
+            }
 
             if self.vrf == VrfOptions::default() {
                 self.vrf = other.vrf.clone();
@@ -650,11 +659,24 @@ impl PaymasterOptions {
     }
 }
 
+#[cfg(feature = "cartridge")]
+impl Default for CartridgeOptions {
+    fn default() -> Self {
+        CartridgeOptions {
+            controllers: false,
+            paymaster: false,
+            cartridge_api: default_api_url(),
+            #[cfg(feature = "vrf")]
+            vrf: VrfOptions::default(),
+        }
+    }
+}
+
 #[cfg(feature = "vrf")]
 #[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
-#[command(next_help_heading = "VRF options")]
+#[command(next_help_heading = "Cartridge VRF options")]
 pub struct VrfOptions {
-    /// Enable the VRF service.
+    /// Enable the Cartridge VRF service.
     ///
     /// By default, the VRF runs as a sidecar process. If `--vrf.url` is provided,
     /// it will connect to an external VRF service instead.
@@ -712,38 +734,10 @@ impl VrfOptions {
     }
 }
 
-#[cfg(feature = "cartridge")]
-impl CartridgeOptions {
-    pub fn merge(&mut self, other: Option<&Self>) {
-        if let Some(other) = other {
-            if !self.controllers {
-                self.controllers = other.controllers;
-            }
-        }
-    }
-}
-
-#[cfg(feature = "cartridge")]
-impl Default for CartridgeOptions {
-    fn default() -> Self {
-        CartridgeOptions { controllers: false }
-    }
-}
-
 #[cfg(feature = "paymaster")]
 impl Default for PaymasterOptions {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            url: None,
-            api_key: None,
-            bin: None,
-            price_api_key: None,
-            cartridge_paymaster: false,
-            cartridge_api: default_api_url(),
-            #[cfg(feature = "vrf")]
-            vrf: VrfOptions::default(),
-        }
+        Self { enabled: false, url: None, api_key: None, bin: None, price_api_key: None }
     }
 }
 

@@ -131,13 +131,13 @@ pub struct SequencerNodeArgs {
     #[command(flatten)]
     pub explorer: ExplorerOptions,
 
-    #[cfg(feature = "cartridge")]
-    #[command(flatten)]
-    pub cartridge: CartridgeOptions,
-
     #[cfg(feature = "paymaster")]
     #[command(flatten)]
     pub paymaster: PaymasterOptions,
+
+    #[cfg(feature = "cartridge")]
+    #[command(flatten)]
+    pub cartridge: CartridgeOptions,
 
     #[cfg(feature = "tee")]
     #[command(flatten)]
@@ -217,13 +217,13 @@ impl SequencerNodeArgs {
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.paymaster.vrf.is_external() {
+            let mut vrf = if self.cartridge.vrf.is_external() {
                 None
             } else {
                 use crate::sidecar::bootstrap_vrf;
 
                 let vrf = bootstrap_vrf(
-                    &self.paymaster.vrf,
+                    &self.cartridge.vrf,
                     handle.rpc().addr().clone(),
                     &handle.node().config().chain,
                 )
@@ -342,7 +342,7 @@ impl SequencerNodeArgs {
             // We put it here so that even when the individual api are explicitly specified
             // (ie `--rpc.api`) we guarantee that the cartridge rpc is enabled.
             #[cfg(feature = "cartridge")]
-            if self.paymaster.enabled || self.paymaster.vrf.enabled {
+            if self.cartridge.paymaster {
                 modules.add(RpcModuleKind::Cartridge);
             }
 
@@ -422,7 +422,7 @@ impl SequencerNodeArgs {
             }
 
             #[cfg(feature = "vrf")]
-            if self.paymaster.vrf.enabled {
+            if self.cartridge.vrf.enabled {
                 katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
                 katana_slot_controller::add_vrf_consumer_class(&mut chain_spec.genesis);
             }
@@ -575,7 +575,7 @@ impl SequencerNodeArgs {
         };
 
         #[cfg(feature = "cartridge")]
-        if self.paymaster.cartridge_paymaster {
+        if self.cartridge.paymaster {
             #[cfg(feature = "vrf")]
             let vrf = self.vrf_config(chain_spec)?;
 
@@ -604,7 +604,7 @@ impl SequencerNodeArgs {
                 vrf,
                 controller_deployer_address: address,
                 controller_deployer_private_key: private_key,
-                cartridge_api_url: self.paymaster.cartridge_api.clone(),
+                cartridge_api_url: self.cartridge.cartridge_api.clone(),
             });
         }
 
@@ -613,7 +613,7 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "vrf")]
     fn vrf_config(&self, chain: &ChainSpec) -> Result<Option<VrfConfig>> {
-        let options = &self.paymaster.vrf;
+        let options = &self.cartridge.vrf;
 
         if !options.enabled {
             return Ok(None);
