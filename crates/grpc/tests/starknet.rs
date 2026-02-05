@@ -1,431 +1,589 @@
 //! Integration tests for the Starknet gRPC server.
 //!
+//! All tests share a single TestNode instance that is created and migrated
+//! once. Each test creates its own gRPC and JSON-RPC clients to the shared
+//! node, then compares results from both endpoints.
+//!
 //! Requirements:
 //! - `git`, `asdf`, `scarb`, and `sozo` must be installed and properly configured
 //! - Run with `cargo nextest run -p katana-grpc --features grpc`
 
-#![cfg(feature = "grpc")]
+use std::net::SocketAddr;
+use std::sync::OnceLock;
 
 use katana_grpc::proto::{
-    BlockHashAndNumberRequest, BlockNumberRequest, BlockTag, ChainIdRequest, EventFilter,
-    GetBlockRequest, GetClassAtRequest, GetClassHashAtRequest, GetEventsRequest, GetNonceRequest,
+    BlockHashAndNumberRequest, BlockNumberRequest, BlockTag, ChainIdRequest, GetBlockRequest,
+    GetClassAtRequest, GetClassHashAtRequest, GetEventsRequest, GetNonceRequest,
     GetStorageAtRequest, GetTransactionByHashRequest, GetTransactionReceiptRequest,
     SpecVersionRequest, SyncingRequest,
 };
 use katana_grpc::GrpcClient;
 use katana_primitives::Felt;
 use katana_utils::node::TestNode;
+use starknet::core::types::{BlockId, BlockTag as StarknetBlockTag, EventFilter};
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider, Url};
 use tonic::Request;
 
-/// Helper function to convert a Felt to a proto Felt.
+/// Shared test context initialized once for all tests.
+struct TestContext {
+    /// Keeps the tokio runtime (and thus the node) alive for the test suite.
+    _runtime: tokio::runtime::Runtime,
+    grpc_addr: SocketAddr,
+    rpc_addr: SocketAddr,
+    genesis_address: Felt,
+    chain_id: Felt,
+}
+
+static TEST_CTX: OnceLock<TestContext> = OnceLock::new();
+
+fn test_context() -> &'static TestContext {
+    TEST_CTX.get_or_init(|| {
+        // Spawn initialization on a separate thread to avoid "cannot start a
+        // runtime from within a runtime" when called from #[tokio::test].
+        std::thread::spawn(|| {
+            let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+
+            let (grpc_addr, rpc_addr, genesis_address, chain_id) = runtime.block_on(async {
+                let node = TestNode::new().await;
+                node.migrate_spawn_and_move().await.expect("migration failed");
+
+                let grpc_addr = *node.grpc_addr().expect("grpc not enabled");
+                let rpc_addr = *node.rpc_addr();
+                let (address, _) = node
+                    .backend()
+                    .chain_spec
+                    .genesis()
+                    .accounts()
+                    .next()
+                    .expect("must have genesis account");
+                let genesis_address: Felt = (*address).into();
+                let chain_id = node.backend().chain_spec.id().id();
+
+                // Leak the node so the servers stay alive for the entire test suite.
+                std::mem::forget(node);
+
+                (grpc_addr, rpc_addr, genesis_address, chain_id)
+            });
+
+            TestContext { _runtime: runtime, grpc_addr, rpc_addr, genesis_address, chain_id }
+        })
+        .join()
+        .expect("test context initialization thread panicked")
+    })
+}
+
+/// Creates fresh gRPC and JSON-RPC clients connected to the shared node.
+async fn setup() -> (GrpcClient, JsonRpcClient<HttpTransport>) {
+    let ctx = test_context();
+
+    let grpc = GrpcClient::connect(format!("http://{}", ctx.grpc_addr))
+        .await
+        .expect("failed to connect to gRPC server");
+
+    let url = Url::parse(&format!("http://{}", ctx.rpc_addr)).expect("failed to parse url");
+    let rpc = JsonRpcClient::new(HttpTransport::new(url));
+
+    (grpc, rpc)
+}
+
 fn felt_to_proto(felt: Felt) -> katana_grpc::proto::Felt {
     katana_grpc::proto::Felt { value: felt.to_bytes_be().to_vec() }
 }
 
-/// Helper function to convert a proto Felt to a Felt.
 fn proto_to_felt(proto: &katana_grpc::proto::Felt) -> Felt {
     Felt::from_bytes_be_slice(&proto.value)
 }
 
-async fn setup() -> (TestNode, GrpcClient) {
-    let node = TestNode::new().await;
-    node.migrate_spawn_and_move().await.expect("migration failed");
+fn grpc_block_id_number(n: u64) -> Option<katana_grpc::proto::BlockId> {
+    Some(katana_grpc::proto::BlockId {
+        identifier: Some(katana_grpc::proto::block_id::Identifier::Number(n)),
+    })
+}
 
-    let grpc_addr = node.grpc_addr().expect("grpc not enabled");
-    let client = GrpcClient::connect(format!("http://{}", grpc_addr))
-        .await
-        .expect("failed to connect to gRPC server");
-
-    (node, client)
+fn grpc_block_id_latest() -> Option<katana_grpc::proto::BlockId> {
+    Some(katana_grpc::proto::BlockId {
+        identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(BlockTag::Latest as i32)),
+    })
 }
 
 #[tokio::test]
 async fn test_chain_id() {
-    let (node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
+    let ctx = test_context();
 
-    let response =
-        client.chain_id(Request::new(ChainIdRequest {})).await.expect("chain_id call failed");
-    let chain_id = response.into_inner().chain_id;
+    let rpc_chain_id = rpc.chain_id().await.expect("rpc chain_id failed");
 
-    // The test config uses SEPOLIA chain ID
-    let expected_chain_id = node.backend().chain_spec.id();
-    assert_eq!(chain_id, format!("{:#x}", expected_chain_id.id()));
+    let grpc_chain_id = grpc
+        .chain_id(Request::new(ChainIdRequest {}))
+        .await
+        .expect("grpc chain_id failed")
+        .into_inner()
+        .chain_id;
+
+    assert_eq!(rpc_chain_id, ctx.chain_id);
+    assert_eq!(grpc_chain_id, format!("{:#x}", ctx.chain_id));
 }
 
 #[tokio::test]
 async fn test_block_number() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    let response = client
+    let rpc_block_number = rpc.block_number().await.expect("rpc block_number failed");
+
+    let grpc_block_number = grpc
         .block_number(Request::new(BlockNumberRequest {}))
         .await
-        .expect("block_number call failed");
+        .expect("grpc block_number failed")
+        .into_inner()
+        .block_number;
 
-    let block_number = response.into_inner().block_number;
-    // After migration, block number should be greater than 0
-    assert!(block_number > 0, "Expected block number > 0 after migration");
+    assert_eq!(grpc_block_number, rpc_block_number);
+    assert!(rpc_block_number > 0, "Expected block number > 0 after migration");
 }
 
 #[tokio::test]
 async fn test_block_hash_and_number() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    let response = client
+    let rpc_result = rpc.block_hash_and_number().await.expect("rpc block_hash_and_number failed");
+
+    let grpc_result = grpc
         .block_hash_and_number(Request::new(BlockHashAndNumberRequest {}))
         .await
-        .expect("block_hash_and_number call failed");
+        .expect("grpc block_hash_and_number failed")
+        .into_inner();
 
-    let inner = response.into_inner();
-    let block_number = inner.block_number;
-    let block_hash = inner.block_hash.expect("block_hash should be present");
-
-    assert!(block_number > 0, "Expected block number > 0 after migration");
-    let hash_felt = proto_to_felt(&block_hash);
-    assert_ne!(hash_felt, Felt::ZERO, "Block hash should not be zero");
+    assert_eq!(grpc_result.block_number, rpc_result.block_number);
+    let grpc_hash = proto_to_felt(&grpc_result.block_hash.expect("grpc missing block_hash"));
+    assert_eq!(grpc_hash, rpc_result.block_hash);
 }
 
 #[tokio::test]
 async fn test_get_block_with_txs() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    // Get the genesis block (block 0)
-    let request = GetBlockRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Number(0)),
-        }),
+    let rpc_block = rpc.get_block_with_txs(BlockId::Number(0)).await.expect("rpc failed");
+
+    let grpc_result = grpc
+        .get_block_with_txs(Request::new(GetBlockRequest { block_id: grpc_block_id_number(0) }))
+        .await
+        .expect("grpc failed")
+        .into_inner();
+
+    let rpc_block = match rpc_block {
+        starknet::core::types::MaybePreConfirmedBlockWithTxs::Block(b) => b,
+        _ => panic!("Expected confirmed block from rpc"),
     };
 
-    let response = client
-        .get_block_with_txs(Request::new(request))
-        .await
-        .expect("get_block_with_txs call failed");
+    let grpc_block = match grpc_result.result {
+        Some(katana_grpc::proto::get_block_with_txs_response::Result::Block(b)) => b,
+        _ => panic!("Expected confirmed block from grpc"),
+    };
 
-    let inner = response.into_inner();
-    assert!(inner.result.is_some(), "Expected a block in the response");
+    let grpc_header = grpc_block.header.expect("grpc missing block header");
+    assert_eq!(grpc_header.block_number, rpc_block.block_number);
+    assert_eq!(
+        proto_to_felt(&grpc_header.block_hash.expect("grpc missing block_hash")),
+        rpc_block.block_hash
+    );
+    assert_eq!(grpc_block.transactions.len(), rpc_block.transactions.len());
 }
 
 #[tokio::test]
 async fn test_get_block_with_tx_hashes() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    // Get the genesis block (block 0)
-    let request = GetBlockRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Number(0)),
-        }),
+    let rpc_block = rpc.get_block_with_tx_hashes(BlockId::Number(0)).await.expect("rpc failed");
+
+    let grpc_result = grpc
+        .get_block_with_tx_hashes(Request::new(GetBlockRequest {
+            block_id: grpc_block_id_number(0),
+        }))
+        .await
+        .expect("grpc failed")
+        .into_inner();
+
+    let rpc_block = match rpc_block {
+        starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) => b,
+        _ => panic!("Expected confirmed block from rpc"),
     };
 
-    let response = client
-        .get_block_with_tx_hashes(Request::new(request))
-        .await
-        .expect("get_block_with_tx_hashes call failed");
+    let grpc_block = match grpc_result.result {
+        Some(katana_grpc::proto::get_block_with_tx_hashes_response::Result::Block(b)) => b,
+        _ => panic!("Expected confirmed block from grpc"),
+    };
 
-    let inner = response.into_inner();
-    assert!(inner.result.is_some(), "Expected a block in the response");
+    let grpc_header = grpc_block.header.expect("grpc missing block header");
+    assert_eq!(grpc_header.block_number, rpc_block.block_number);
+    assert_eq!(
+        proto_to_felt(&grpc_header.block_hash.expect("grpc missing block_hash")),
+        rpc_block.block_hash
+    );
+    assert_eq!(grpc_block.transactions.len(), rpc_block.transactions.len());
+
+    for (grpc_tx_hash, rpc_tx_hash) in
+        grpc_block.transactions.iter().zip(rpc_block.transactions.iter())
+    {
+        assert_eq!(proto_to_felt(grpc_tx_hash), *rpc_tx_hash);
+    }
 }
 
 #[tokio::test]
 async fn test_get_block_with_txs_latest() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    // Get the latest block
-    let request = GetBlockRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
-                BlockTag::Latest as i32,
-            )),
-        }),
+    let rpc_block =
+        rpc.get_block_with_txs(BlockId::Tag(StarknetBlockTag::Latest)).await.expect("rpc failed");
+
+    let grpc_result = grpc
+        .get_block_with_txs(Request::new(GetBlockRequest { block_id: grpc_block_id_latest() }))
+        .await
+        .expect("grpc failed")
+        .into_inner();
+
+    let rpc_block = match rpc_block {
+        starknet::core::types::MaybePreConfirmedBlockWithTxs::Block(b) => b,
+        _ => panic!("Expected confirmed block from rpc"),
     };
 
-    let response = client
-        .get_block_with_txs(Request::new(request))
-        .await
-        .expect("get_block_with_txs call failed");
+    let grpc_block = match grpc_result.result {
+        Some(katana_grpc::proto::get_block_with_txs_response::Result::Block(b)) => b,
+        _ => panic!("Expected confirmed block from grpc"),
+    };
 
-    let inner = response.into_inner();
-    assert!(inner.result.is_some(), "Expected a block in the response");
+    let grpc_header = grpc_block.header.expect("grpc missing block header");
+    assert_eq!(grpc_header.block_number, rpc_block.block_number);
+    assert_eq!(grpc_block.transactions.len(), rpc_block.transactions.len());
 }
 
 #[tokio::test]
 async fn test_get_class_at() {
-    let (node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
+    let ctx = test_context();
 
-    // Get a genesis account address
-    let (address, _) =
-        node.backend().chain_spec.genesis().accounts().next().expect("must have genesis account");
+    let rpc_class = rpc
+        .get_class_at(BlockId::Tag(StarknetBlockTag::Latest), ctx.genesis_address)
+        .await
+        .expect("rpc get_class_at failed");
 
-    let request = GetClassAtRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
-                BlockTag::Latest as i32,
-            )),
-        }),
-        contract_address: Some(felt_to_proto((*address).into())),
-    };
+    let grpc_result = grpc
+        .get_class_at(Request::new(GetClassAtRequest {
+            block_id: grpc_block_id_latest(),
+            contract_address: Some(felt_to_proto(ctx.genesis_address)),
+        }))
+        .await
+        .expect("grpc get_class_at failed")
+        .into_inner();
 
-    let response =
-        client.get_class_at(Request::new(request)).await.expect("get_class_at call failed");
-
-    let inner = response.into_inner();
-    assert!(inner.result.is_some(), "Expected a contract class in the response");
+    // Verify both return a Sierra class (not Legacy)
+    assert!(
+        matches!(rpc_class, starknet::core::types::ContractClass::Sierra(_)),
+        "Expected Sierra class from rpc"
+    );
+    assert!(
+        matches!(
+            grpc_result.result,
+            Some(katana_grpc::proto::get_class_at_response::Result::ContractClass(_))
+        ),
+        "Expected Sierra class from grpc"
+    );
 }
 
 #[tokio::test]
 async fn test_get_class_hash_at() {
-    let (node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
+    let ctx = test_context();
 
-    // Get a genesis account address
-    let (address, _) =
-        node.backend().chain_spec.genesis().accounts().next().expect("must have genesis account");
-
-    let request = GetClassHashAtRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
-                BlockTag::Latest as i32,
-            )),
-        }),
-        contract_address: Some(felt_to_proto((*address).into())),
-    };
-
-    let response = client
-        .get_class_hash_at(Request::new(request))
+    let rpc_class_hash = rpc
+        .get_class_hash_at(BlockId::Tag(StarknetBlockTag::Latest), ctx.genesis_address)
         .await
-        .expect("get_class_hash_at call failed");
+        .expect("rpc get_class_hash_at failed");
 
-    let inner = response.into_inner();
-    let class_hash = inner.class_hash.expect("class_hash should be present");
-    let hash_felt = proto_to_felt(&class_hash);
-    assert_ne!(hash_felt, Felt::ZERO, "Class hash should not be zero");
+    let grpc_result = grpc
+        .get_class_hash_at(Request::new(GetClassHashAtRequest {
+            block_id: grpc_block_id_latest(),
+            contract_address: Some(felt_to_proto(ctx.genesis_address)),
+        }))
+        .await
+        .expect("grpc get_class_hash_at failed")
+        .into_inner();
+
+    let grpc_class_hash = proto_to_felt(&grpc_result.class_hash.expect("grpc missing class_hash"));
+    assert_eq!(grpc_class_hash, rpc_class_hash);
 }
 
 #[tokio::test]
 async fn test_get_storage_at() {
-    let (node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
+    let ctx = test_context();
 
-    // Get a genesis account address
-    let (address, _) =
-        node.backend().chain_spec.genesis().accounts().next().expect("must have genesis account");
+    let rpc_value = rpc
+        .get_storage_at(ctx.genesis_address, Felt::ZERO, BlockId::Tag(StarknetBlockTag::Latest))
+        .await
+        .expect("rpc get_storage_at failed");
 
-    // Storage key 0 is a common key to test
-    let storage_key = Felt::ZERO;
+    let grpc_result = grpc
+        .get_storage_at(Request::new(GetStorageAtRequest {
+            block_id: grpc_block_id_latest(),
+            contract_address: Some(felt_to_proto(ctx.genesis_address)),
+            key: Some(felt_to_proto(Felt::ZERO)),
+        }))
+        .await
+        .expect("grpc get_storage_at failed")
+        .into_inner();
 
-    let request = GetStorageAtRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
-                BlockTag::Latest as i32,
-            )),
-        }),
-        contract_address: Some(felt_to_proto((*address).into())),
-        key: Some(felt_to_proto(storage_key)),
-    };
-
-    let response =
-        client.get_storage_at(Request::new(request)).await.expect("get_storage_at call failed");
-
-    let inner = response.into_inner();
-    assert!(inner.value.is_some(), "Expected a storage value in the response");
+    let grpc_value = proto_to_felt(&grpc_result.value.expect("grpc missing value"));
+    assert_eq!(grpc_value, rpc_value);
 }
 
 #[tokio::test]
 async fn test_get_nonce() {
-    let (node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
+    let ctx = test_context();
 
-    // Get a genesis account address
-    let (address, _) =
-        node.backend().chain_spec.genesis().accounts().next().expect("must have genesis account");
+    let rpc_nonce = rpc
+        .get_nonce(BlockId::Tag(StarknetBlockTag::Latest), ctx.genesis_address)
+        .await
+        .expect("rpc get_nonce failed");
 
-    let request = GetNonceRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
-                BlockTag::Latest as i32,
-            )),
-        }),
-        contract_address: Some(felt_to_proto((*address).into())),
-    };
+    let grpc_result = grpc
+        .get_nonce(Request::new(GetNonceRequest {
+            block_id: grpc_block_id_latest(),
+            contract_address: Some(felt_to_proto(ctx.genesis_address)),
+        }))
+        .await
+        .expect("grpc get_nonce failed")
+        .into_inner();
 
-    let response = client.get_nonce(Request::new(request)).await.expect("get_nonce call failed");
-
-    let inner = response.into_inner();
-    let nonce = inner.nonce.expect("nonce should be present");
-    let nonce_felt = proto_to_felt(&nonce);
-    // After migration, the account should have used some nonce
-    assert!(nonce_felt > Felt::ZERO, "Nonce should be greater than zero after migration");
+    let grpc_nonce = proto_to_felt(&grpc_result.nonce.expect("grpc missing nonce"));
+    assert_eq!(grpc_nonce, rpc_nonce);
+    assert!(rpc_nonce > Felt::ZERO, "Nonce should be > 0 after migration");
 }
 
 #[tokio::test]
 async fn test_spec_version() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    let response = client
+    let rpc_version = rpc.spec_version().await.expect("rpc spec_version failed");
+
+    let grpc_version = grpc
         .spec_version(Request::new(SpecVersionRequest {}))
         .await
-        .expect("spec_version call failed");
+        .expect("grpc spec_version failed")
+        .into_inner()
+        .version;
 
-    let version = response.into_inner().version;
-    assert!(!version.is_empty(), "Expected a non-empty spec version");
+    assert_eq!(grpc_version, rpc_version);
 }
 
 #[tokio::test]
 async fn test_syncing() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    let response =
-        client.syncing(Request::new(SyncingRequest {})).await.expect("syncing call failed");
+    let rpc_syncing = rpc.syncing().await.expect("rpc syncing failed");
 
-    let inner = response.into_inner();
-    assert!(inner.result.is_some(), "Expected a syncing result");
+    let grpc_syncing = grpc
+        .syncing(Request::new(SyncingRequest {}))
+        .await
+        .expect("grpc syncing failed")
+        .into_inner();
+
+    assert!(
+        matches!(rpc_syncing, starknet::core::types::SyncStatusType::NotSyncing),
+        "Expected rpc to report not syncing"
+    );
+    assert!(
+        matches!(
+            grpc_syncing.result,
+            Some(katana_grpc::proto::syncing_response::Result::NotSyncing(true))
+        ),
+        "Expected grpc to report not syncing"
+    );
 }
 
 #[tokio::test]
 async fn test_get_block_transaction_count() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    // Get transaction count for genesis block (block 0)
-    let request = GetBlockRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Number(0)),
-        }),
-    };
-
-    let response = client
-        .get_block_transaction_count(Request::new(request))
+    let rpc_count = rpc
+        .get_block_transaction_count(BlockId::Number(0))
         .await
-        .expect("get_block_transaction_count call failed");
+        .expect("rpc get_block_transaction_count failed");
 
-    let count = response.into_inner().count;
-    // Genesis block has no transactions
-    assert_eq!(count, 0, "Expected no transactions in genesis block");
+    let grpc_count = grpc
+        .get_block_transaction_count(Request::new(GetBlockRequest {
+            block_id: grpc_block_id_number(0),
+        }))
+        .await
+        .expect("grpc get_block_transaction_count failed")
+        .into_inner()
+        .count;
+
+    assert_eq!(grpc_count, rpc_count);
 }
 
 #[tokio::test]
 async fn test_get_state_update() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    // Get state update for genesis block (block 0)
-    let request = GetBlockRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Number(0)),
-        }),
+    let rpc_state =
+        rpc.get_state_update(BlockId::Number(0)).await.expect("rpc get_state_update failed");
+
+    let grpc_result = grpc
+        .get_state_update(Request::new(GetBlockRequest { block_id: grpc_block_id_number(0) }))
+        .await
+        .expect("grpc get_state_update failed")
+        .into_inner();
+
+    let rpc_state = match rpc_state {
+        starknet::core::types::MaybePreConfirmedStateUpdate::Update(s) => s,
+        _ => panic!("Expected confirmed state update from rpc"),
     };
 
-    let response =
-        client.get_state_update(Request::new(request)).await.expect("get_state_update call failed");
+    let grpc_state = match grpc_result.result {
+        Some(katana_grpc::proto::get_state_update_response::Result::StateUpdate(s)) => s,
+        _ => panic!("Expected confirmed state update from grpc"),
+    };
 
-    let inner = response.into_inner();
-    assert!(inner.result.is_some(), "Expected a state update in the response");
+    assert_eq!(
+        proto_to_felt(&grpc_state.block_hash.expect("grpc missing block_hash")),
+        rpc_state.block_hash
+    );
+    assert_eq!(
+        proto_to_felt(&grpc_state.new_root.expect("grpc missing new_root")),
+        rpc_state.new_root
+    );
+    assert_eq!(
+        proto_to_felt(&grpc_state.old_root.expect("grpc missing old_root")),
+        rpc_state.old_root
+    );
 }
 
 #[tokio::test]
 async fn test_get_events() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    // Query events from block 0 to latest with no filters
-    let request = GetEventsRequest {
-        filter: Some(EventFilter {
-            from_block: Some(katana_grpc::proto::BlockId {
-                identifier: Some(katana_grpc::proto::block_id::Identifier::Number(0)),
+    let rpc_events = rpc
+        .get_events(
+            EventFilter {
+                from_block: Some(BlockId::Number(0)),
+                to_block: Some(BlockId::Tag(StarknetBlockTag::Latest)),
+                address: None,
+                keys: None,
+            },
+            None,
+            100,
+        )
+        .await
+        .expect("rpc get_events failed");
+
+    let grpc_events = grpc
+        .get_events(Request::new(GetEventsRequest {
+            filter: Some(katana_grpc::proto::EventFilter {
+                from_block: grpc_block_id_number(0),
+                to_block: grpc_block_id_latest(),
+                address: None,
+                keys: vec![],
             }),
-            to_block: Some(katana_grpc::proto::BlockId {
-                identifier: Some(katana_grpc::proto::block_id::Identifier::Tag(
-                    BlockTag::Latest as i32,
-                )),
-            }),
-            address: None,
-            keys: vec![],
-        }),
-        chunk_size: 100,
-        continuation_token: String::new(),
-    };
+            chunk_size: 100,
+            continuation_token: String::new(),
+        }))
+        .await
+        .expect("grpc get_events failed")
+        .into_inner();
 
-    let response = client.get_events(Request::new(request)).await.expect("get_events call failed");
+    assert_eq!(grpc_events.events.len(), rpc_events.events.len());
+    assert!(!rpc_events.events.is_empty(), "Expected events after migration");
 
-    let inner = response.into_inner();
-    // After migration, there should be events emitted
-    assert!(!inner.events.is_empty(), "Expected events after migration");
+    let rpc_event = &rpc_events.events[0];
+    let grpc_event = &grpc_events.events[0];
+
+    assert_eq!(
+        proto_to_felt(grpc_event.from_address.as_ref().expect("grpc missing from_address")),
+        rpc_event.from_address
+    );
+    assert_eq!(
+        proto_to_felt(grpc_event.transaction_hash.as_ref().expect("grpc missing tx_hash")),
+        rpc_event.transaction_hash
+    );
+    assert_eq!(grpc_event.keys.len(), rpc_event.keys.len());
+    assert_eq!(grpc_event.data.len(), rpc_event.data.len());
 }
 
 #[tokio::test]
 async fn test_get_transaction_by_hash() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    // Get block 1 to find a transaction hash
-    let block_request = GetBlockRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Number(1)),
-        }),
-    };
+    // Get a transaction hash from block 1
+    let rpc_block =
+        rpc.get_block_with_tx_hashes(BlockId::Number(1)).await.expect("rpc get_block failed");
 
-    let block_response = client
-        .get_block_with_tx_hashes(Request::new(block_request))
-        .await
-        .expect("get_block_with_tx_hashes call failed");
-
-    let block_inner = block_response.into_inner();
-
-    // Extract a transaction hash from the block
-    let tx_hash = match block_inner.result {
-        Some(katana_grpc::proto::get_block_with_tx_hashes_response::Result::Block(block)) => {
-            block.transactions.first().cloned()
+    let tx_hash = match rpc_block {
+        starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) => {
+            *b.transactions.first().expect("no transactions in block 1")
         }
-        Some(katana_grpc::proto::get_block_with_tx_hashes_response::Result::PendingBlock(
-            pending,
-        )) => pending.transactions.first().cloned(),
-        None => None,
+        _ => panic!("Expected confirmed block"),
     };
 
-    let tx_hash = tx_hash.expect("Expected at least one transaction in the block");
+    // Fetch via JSON-RPC
+    let rpc_tx =
+        rpc.get_transaction_by_hash(tx_hash).await.expect("rpc get_transaction_by_hash failed");
 
-    // Now fetch the transaction by hash
-    let request = GetTransactionByHashRequest { transaction_hash: Some(tx_hash) };
-
-    let response = client
-        .get_transaction_by_hash(Request::new(request))
+    // Fetch via gRPC
+    let grpc_result = grpc
+        .get_transaction_by_hash(Request::new(GetTransactionByHashRequest {
+            transaction_hash: Some(felt_to_proto(tx_hash)),
+        }))
         .await
-        .expect("get_transaction_by_hash call failed");
+        .expect("grpc get_transaction_by_hash failed")
+        .into_inner();
 
-    let inner = response.into_inner();
-    assert!(inner.transaction.is_some(), "Expected a transaction in the response");
+    // Verify RPC returned the correct hash
+    assert_eq!(*rpc_tx.transaction_hash(), tx_hash);
+
+    // Verify gRPC returned a valid transaction
+    let grpc_tx = grpc_result.transaction.expect("grpc missing transaction");
+    assert!(grpc_tx.transaction.is_some(), "grpc transaction should have a variant");
 }
 
 #[tokio::test]
 async fn test_get_transaction_receipt() {
-    let (_node, mut client) = setup().await;
+    let (mut grpc, rpc) = setup().await;
 
-    // Get block 1 to find a transaction hash
-    let block_request = GetBlockRequest {
-        block_id: Some(katana_grpc::proto::BlockId {
-            identifier: Some(katana_grpc::proto::block_id::Identifier::Number(1)),
-        }),
-    };
+    // Get a transaction hash from block 1
+    let rpc_block =
+        rpc.get_block_with_tx_hashes(BlockId::Number(1)).await.expect("rpc get_block failed");
 
-    let block_response = client
-        .get_block_with_tx_hashes(Request::new(block_request))
-        .await
-        .expect("get_block_with_tx_hashes call failed");
-
-    let block_inner = block_response.into_inner();
-
-    // Extract a transaction hash from the block
-    let tx_hash = match block_inner.result {
-        Some(katana_grpc::proto::get_block_with_tx_hashes_response::Result::Block(block)) => {
-            block.transactions.first().cloned()
+    let tx_hash = match rpc_block {
+        starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) => {
+            *b.transactions.first().expect("no transactions in block 1")
         }
-        Some(katana_grpc::proto::get_block_with_tx_hashes_response::Result::PendingBlock(
-            pending,
-        )) => pending.transactions.first().cloned(),
-        None => None,
+        _ => panic!("Expected confirmed block"),
     };
 
-    let tx_hash = tx_hash.expect("Expected at least one transaction in the block");
+    // Fetch receipt via JSON-RPC
+    let rpc_receipt =
+        rpc.get_transaction_receipt(tx_hash).await.expect("rpc get_transaction_receipt failed");
 
-    // Now fetch the transaction receipt
-    let request = GetTransactionReceiptRequest { transaction_hash: Some(tx_hash) };
-
-    let response = client
-        .get_transaction_receipt(Request::new(request))
+    // Fetch receipt via gRPC
+    let grpc_result = grpc
+        .get_transaction_receipt(Request::new(GetTransactionReceiptRequest {
+            transaction_hash: Some(felt_to_proto(tx_hash)),
+        }))
         .await
-        .expect("get_transaction_receipt call failed");
+        .expect("grpc get_transaction_receipt failed")
+        .into_inner();
 
-    let inner = response.into_inner();
-    assert!(inner.receipt.is_some(), "Expected a receipt in the response");
+    let grpc_receipt = grpc_result.receipt.expect("grpc missing receipt");
+
+    // Compare transaction hash
+    assert_eq!(*rpc_receipt.receipt.transaction_hash(), tx_hash);
+    assert_eq!(
+        proto_to_felt(&grpc_receipt.transaction_hash.expect("grpc missing tx_hash")),
+        tx_hash
+    );
+
+    // Compare block number
+    assert_eq!(grpc_receipt.block_number, rpc_receipt.block.block_number());
 }
