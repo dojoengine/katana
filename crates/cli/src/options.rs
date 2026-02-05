@@ -835,3 +835,77 @@ impl TeeOptions {
         }
     }
 }
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "gRPC server options")]
+pub struct GrpcOptions {
+    /// Enable the gRPC server.
+    ///
+    /// When enabled, the gRPC server will start alongside the JSON-RPC server,
+    /// providing high-performance endpoints for Starknet operations.
+    #[arg(long = "grpc")]
+    #[serde(default)]
+    pub grpc_enable: bool,
+
+    /// gRPC server listening interface.
+    #[arg(requires = "grpc_enable")]
+    #[arg(long = "grpc.addr", value_name = "ADDRESS")]
+    #[arg(default_value_t = default_grpc_addr())]
+    #[serde(default = "default_grpc_addr")]
+    pub grpc_addr: IpAddr,
+
+    /// gRPC server listening port.
+    #[arg(requires = "grpc_enable")]
+    #[arg(long = "grpc.port", value_name = "PORT")]
+    #[arg(default_value_t = default_grpc_port())]
+    #[serde(default = "default_grpc_port")]
+    pub grpc_port: u16,
+
+    /// gRPC request timeout in seconds.
+    #[arg(requires = "grpc_enable")]
+    #[arg(long = "grpc.timeout", value_name = "TIMEOUT")]
+    pub grpc_timeout: Option<u64>,
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+impl Default for GrpcOptions {
+    fn default() -> Self {
+        GrpcOptions {
+            grpc_enable: false,
+            grpc_addr: default_grpc_addr(),
+            grpc_port: default_grpc_port(),
+            grpc_timeout: None,
+        }
+    }
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+impl GrpcOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.grpc_enable {
+                self.grpc_enable = other.grpc_enable;
+            }
+            if self.grpc_addr == default_grpc_addr() {
+                self.grpc_addr = other.grpc_addr;
+            }
+            if self.grpc_port == default_grpc_port() {
+                self.grpc_port = other.grpc_port;
+            }
+            if self.grpc_timeout.is_none() {
+                self.grpc_timeout = other.grpc_timeout;
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+fn default_grpc_addr() -> IpAddr {
+    katana_node::config::grpc::DEFAULT_GRPC_ADDR
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+fn default_grpc_port() -> u16 {
+    katana_node::config::grpc::DEFAULT_GRPC_PORT
+}

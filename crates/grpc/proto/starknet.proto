@@ -2,9 +2,10 @@ syntax = "proto3";
 
 package starknet;
 
+import "common.proto";
 import "types.proto";
 
-// The Starknet service provides methods for interacting with Starknet.
+// The Starknet service provides read methods for interacting with Starknet.
 service Starknet {
     // Returns the version of the Starknet JSON-RPC specification being used
     rpc SpecVersion(SpecVersionRequest) returns (SpecVersionResponse);
@@ -74,6 +75,36 @@ service Starknet {
 
     // Get the nonce associated with the given address in the given block
     rpc GetNonce(GetNonceRequest) returns (GetNonceResponse);
+
+    // Get the compiled CASM for a given class hash
+    rpc GetCompiledCasm(GetCompiledCasmRequest) returns (GetCompiledCasmResponse);
+
+    // Get Merkle paths in the state tries for a set of classes, contracts, and storage keys
+    rpc GetStorageProof(GetStorageProofRequest) returns (GetStorageProofResponse);
+}
+
+// The StarknetWrite service provides write methods for submitting transactions.
+service StarknetWrite {
+    // Submit a new invoke transaction
+    rpc AddInvokeTransaction(AddInvokeTransactionRequest) returns (AddInvokeTransactionResponse);
+
+    // Submit a new declare transaction
+    rpc AddDeclareTransaction(AddDeclareTransactionRequest) returns (AddDeclareTransactionResponse);
+
+    // Submit a new deploy account transaction
+    rpc AddDeployAccountTransaction(AddDeployAccountTransactionRequest) returns (AddDeployAccountTransactionResponse);
+}
+
+// The StarknetTrace service provides trace methods for debugging and simulation.
+service StarknetTrace {
+    // Get the trace for a specific transaction
+    rpc TraceTransaction(TraceTransactionRequest) returns (TraceTransactionResponse);
+
+    // Simulate a list of transactions and return their execution traces and fee estimations
+    rpc SimulateTransactions(SimulateTransactionsRequest) returns (SimulateTransactionsResponse);
+
+    // Get the traces for all transactions in a block
+    rpc TraceBlockTransactions(TraceBlockTransactionsRequest) returns (TraceBlockTransactionsResponse);
 }
 
 message SpecVersionRequest {}
@@ -116,16 +147,16 @@ message GetStateUpdateResponse {
 
 message GetStorageAtRequest {
     types.BlockID block_id = 1;
-    types.Felt contract_address = 2;
-    types.Felt key = 3;
+    common.Felt contract_address = 2;
+    common.Felt key = 3;
 }
 
 message GetStorageAtResponse {
-    types.Felt value = 1;
+    common.Felt value = 1;
 }
 
 message GetTransactionStatusRequest {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
 }
 
 message GetTransactionStatusResponse {
@@ -134,7 +165,7 @@ message GetTransactionStatusResponse {
 }
 
 message GetTransactionByHashRequest {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
 }
 
 message GetTransactionByHashResponse {
@@ -151,7 +182,7 @@ message GetTransactionByBlockIdAndIndexResponse {
 }
 
 message GetTransactionReceiptRequest {
-    types.Felt transaction_hash = 1;
+    common.Felt transaction_hash = 1;
 }
 
 message GetTransactionReceiptResponse {
@@ -160,7 +191,7 @@ message GetTransactionReceiptResponse {
 
 message GetClassRequest {
     types.BlockID block_id = 1;
-    types.Felt class_hash = 2;
+    common.Felt class_hash = 2;
 }
 
 message GetClassResponse {
@@ -172,16 +203,16 @@ message GetClassResponse {
 
 message GetClassHashAtRequest {
     types.BlockID block_id = 1;
-    types.Felt contract_address = 2;
+    common.Felt contract_address = 2;
 }
 
 message GetClassHashAtResponse {
-    types.Felt class_hash = 1;
+    common.Felt class_hash = 1;
 }
 
 message GetClassAtRequest {
     types.BlockID block_id = 1;
-    types.Felt contract_address = 2;
+    common.Felt contract_address = 2;
 }
 
 message GetClassAtResponse {
@@ -201,7 +232,7 @@ message CallRequest {
 }
 
 message CallResponse {
-    repeated types.Felt result = 1;
+    repeated common.Felt result = 1;
 }
 
 message EstimateFeeRequest {
@@ -228,7 +259,7 @@ message BlockNumberResponse {
 message BlockHashAndNumberRequest {}
 
 message BlockHashAndNumberResponse {
-    types.Felt block_hash = 1;
+    common.Felt block_hash = 1;
     uint64 block_number = 2;
 }
 
@@ -260,9 +291,97 @@ message GetEventsResponse {
 
 message GetNonceRequest {
     types.BlockID block_id = 1;
-    types.Felt contract_address = 2;
+    common.Felt contract_address = 2;
 }
 
 message GetNonceResponse {
-    types.Felt nonce = 1;
+    common.Felt nonce = 1;
+}
+
+// ============================================================
+// Additional Read Methods
+// ============================================================
+
+message GetCompiledCasmRequest {
+    common.Felt class_hash = 1;
+}
+
+message GetCompiledCasmResponse {
+    types.CasmContractClass casm_class = 1;
+}
+
+message GetStorageProofRequest {
+    types.BlockID block_id = 1;
+    repeated common.Felt class_hashes = 2;
+    repeated common.Felt contract_addresses = 3;
+    repeated types.ContractStorageKeysRequest contracts_storage_keys = 4;
+}
+
+message GetStorageProofResponse {
+    types.StorageProof proof = 1;
+}
+
+// ============================================================
+// Write Methods (StarknetWrite service)
+// ============================================================
+
+message AddInvokeTransactionRequest {
+    types.BroadcastedInvokeTransaction transaction = 1;
+}
+
+message AddInvokeTransactionResponse {
+    common.Felt transaction_hash = 1;
+}
+
+message AddDeclareTransactionRequest {
+    types.BroadcastedDeclareTransaction transaction = 1;
+}
+
+message AddDeclareTransactionResponse {
+    common.Felt transaction_hash = 1;
+    common.Felt class_hash = 2;
+}
+
+message AddDeployAccountTransactionRequest {
+    types.BroadcastedDeployAccountTransaction transaction = 1;
+}
+
+message AddDeployAccountTransactionResponse {
+    common.Felt transaction_hash = 1;
+    common.Felt contract_address = 2;
+}
+
+// ============================================================
+// Trace Methods (StarknetTrace service)
+// ============================================================
+
+message TraceTransactionRequest {
+    common.Felt transaction_hash = 1;
+}
+
+message TraceTransactionResponse {
+    types.TransactionTrace trace = 1;
+}
+
+message SimulateTransactionsRequest {
+    types.BlockID block_id = 1;
+    repeated types.Transaction transactions = 2;
+    repeated string simulation_flags = 3;
+}
+
+message SimulateTransactionsResponse {
+    repeated types.SimulatedTransaction simulated_transactions = 1;
+}
+
+message TraceBlockTransactionsRequest {
+    types.ConfirmedBlockId block_id = 1;
+}
+
+message TraceBlockTransactionsResponse {
+    repeated TransactionTraceWithHash traces = 1;
+}
+
+message TransactionTraceWithHash {
+    common.Felt transaction_hash = 1;
+    types.TransactionTrace trace_root = 2;
 }

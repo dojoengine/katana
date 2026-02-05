@@ -81,7 +81,7 @@ where
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
-        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await?
+        Ok(self.block_hash_and_number().await?)
     }
 
     async fn get_block_with_tx_hashes(
@@ -146,24 +146,7 @@ where
     }
 
     async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse> {
-        self.on_io_blocking_task(move |this| {
-            // get the state and block env at the specified block for function call execution
-            let state = this.state(&block_id)?;
-            let env = this.block_env_at(&block_id)?;
-            let cfg_env = this.inner.config.versioned_constant_overrides.as_ref();
-            let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
-
-            let result = super::blockifier::call(
-                this.inner.chain_spec.as_ref(),
-                state,
-                env,
-                cfg_env,
-                request,
-                max_call_gas,
-            )?;
-            Ok(CallResponse { result })
-        })
-        .await?
+        Ok(self.call_contract(request, block_id).await?)
     }
 
     async fn get_storage_at(
@@ -172,11 +155,7 @@ where
         key: StorageKey,
         block_id: BlockIdOrTag,
     ) -> RpcResult<StorageValue> {
-        self.on_io_blocking_task(move |this| {
-            let value = this.storage_at(contract_address, key, block_id)?;
-            Ok(value)
-        })
-        .await?
+        Ok(self.storage_at(contract_address, key, block_id).await?)
     }
 
     async fn estimate_fee(

@@ -6,9 +6,44 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+# Internal dependencies
+katana-primitives.workspace = true
+katana-provider.workspace = true
+katana-pool.workspace = true
+katana-rpc-types.workspace = true
+katana-rpc-server.workspace = true
+katana-rpc-api.workspace = true
+
+# gRPC dependencies
 tonic.workspace = true
+tonic-reflection = "0.11"
+prost.workspace = true
+http = "0.2"
+
+# Async runtime
+tokio.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Serialization
+serde_json.workspace = true
+
+# Starknet types
+starknet.workspace = true
+
+# Cairo types
+cairo-lang-starknet-classes.workspace = true
+num-bigint.workspace = true
+
+tower-service.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+hex = "0.4"
 
 [build-dependencies]
 tonic-build.workspace = true

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
 use katana_core::utils::get_current_timestamp;
+use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
@@ -13,14 +14,18 @@ use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
-use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
+use katana_primitives::execution::TypedTransactionExecutionInfo;
+use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::Felt;
-use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
+use katana_provider::api::block::{
+    BlockHashProvider, BlockIdReader, BlockNumberProvider, BlockProvider,
+};
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
 use katana_provider::api::transaction::{
-    ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
+    ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
+    TransactionsProviderExt,
 };
 use katana_provider::api::ProviderError;
 use katana_provider::{ProviderFactory, ProviderRO};
@@ -44,7 +49,11 @@ use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
     GetStorageProofResponse, GlobalRoots, Nodes,
 };
-use katana_rpc_types::{FeeEstimate, TxStatus};
+use katana_rpc_types::{
+    to_rpc_fee_estimate, BroadcastedTx, BroadcastedTxWithChainId, CallResponse,
+    ConfirmedBlockIdOrTag, FeeEstimate, FunctionCall, SimulatedTransactions, SimulationFlag,
+    TxStatus, TxTrace, TxTraceWithHash,
+};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 
@@ -170,6 +179,11 @@ where
 
     pub fn config(&self) -> &StarknetApiConfig {
         &self.inner.config
+    }
+
+    /// Returns the chain ID.
+    pub fn chain_id(&self) -> Felt {
+        self.inner.chain_spec.id().id()
     }
 }
 
@@ -338,11 +352,14 @@ where
         env.ok_or(StarknetApiError::BlockNotFound)
     }
 
-    fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
-        let provider = self.storage().provider();
-        let hash = provider.latest_hash()?;
-        let number = provider.latest_number()?;
-        Ok(BlockHashAndNumberResponse::new(hash, number))
+    pub async fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
+        self.on_io_blocking_task(move |this| {
+            let provider = this.storage().provider();
+            let hash = provider.latest_hash()?;
+            let number = provider.latest_number()?;
+            Ok(BlockHashAndNumberResponse::new(hash, number))
+        })
+        .await?
     }
 
     pub async fn class_at_hash(
@@ -415,28 +432,57 @@ where
         .await?
     }
 
-    pub fn storage_at(
+    pub async fn call_contract(
+        &self,
+        request: FunctionCall,
+        block_id: BlockIdOrTag,
+    ) -> StarknetApiResult<CallResponse> {
+        self.on_io_blocking_task(move |this| {
+            // get the state and block env at the specified block for function call execution
+            let state = this.state(&block_id)?;
+            let env = this.block_env_at(&block_id)?;
+            let cfg_env = this.inner.config.versioned_constant_overrides.as_ref();
+            let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
+
+            let result = self::blockifier::call(
+                this.inner.chain_spec.as_ref(),
+                state,
+                env,
+                cfg_env,
+                request,
+                max_call_gas,
+            )?;
+
+            Ok(CallResponse { result })
+        })
+        .await?
+    }
+
+    pub async fn storage_at(
         &self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<StorageValue> {
-        let state = self.state(&block_id)?;
+        self.on_io_blocking_task(move |this| {
+            let state = this.state(&block_id)?;
 
-        // Check that contract exist by checking the class hash of the contract,
-        // unless its address 0x1 or 0x2 which are special system contracts and does not
-        // have a class.
-        //
-        // See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
-        if contract_address != ContractAddress::ONE
-            && contract_address != ContractAddress::TWO
-            && state.class_hash_of_contract(contract_address)?.is_none()
-        {
-            return Err(StarknetApiError::ContractNotFound);
-        }
+            // Check that contract exist by checking the class hash of the contract,
+            // unless its address 0x1 or 0x2 which are special system contracts and does not
+            // have a class.
+            //
+            // See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
+            if contract_address != ContractAddress::ONE
+                && contract_address != ContractAddress::TWO
+                && state.class_hash_of_contract(contract_address)?.is_none()
+            {
+                return Err(StarknetApiError::ContractNotFound);
+            }
 
-        let value = state.storage(contract_address, storage_key)?;
-        Ok(value.unwrap_or_default())
+            let value = state.storage(contract_address, storage_key)?;
+            Ok(value.unwrap_or_default())
+        })
+        .await?
     }
 
     pub async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
@@ -473,7 +519,7 @@ where
         }
     }
 
-    async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
+    pub async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
         self.on_io_blocking_task(move |this| {
             let block_number = this.storage().provider().latest_number()?;
             Ok(BlockNumberResponse { block_number })
@@ -504,7 +550,7 @@ where
         .await?
     }
 
-    async fn transaction_by_block_id_and_index(
+    pub async fn transaction_by_block_id_and_index(
         &self,
         block_id: BlockIdOrTag,
         index: u64,
@@ -538,7 +584,7 @@ where
         }
     }
 
-    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
+    pub async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
                 if let pending_tx @ Some(..) =
@@ -564,7 +610,7 @@ where
         }
     }
 
-    async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
+    pub async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
         let receipt = self
             .on_io_blocking_task(move |this| {
                 if let pending_receipt @ Some(..) =
@@ -585,7 +631,7 @@ where
         }
     }
 
-    async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
+    pub async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
             .on_io_blocking_task(move |this| {
                 let provider = this.storage().provider();
@@ -670,7 +716,7 @@ where
         }
     }
 
-    async fn block_with_receipts(
+    pub async fn block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetBlockWithReceiptsResponse> {
@@ -783,7 +829,10 @@ where
         }
     }
 
-    async fn events(&self, filter: EventFilterWithPage) -> StarknetApiResult<GetEventsResponse> {
+    pub async fn events(
+        &self,
+        filter: EventFilterWithPage,
+    ) -> StarknetApiResult<GetEventsResponse> {
         let EventFilterWithPage { event_filter, result_page_request } = filter;
         let ResultPageRequest { continuation_token, chunk_size } = result_page_request;
 
@@ -974,7 +1023,7 @@ where
         Ok(id)
     }
 
-    async fn get_proofs(
+    pub async fn get_proofs(
         &self,
         block_id: BlockIdOrTag,
         class_hashes: Option<Vec<ClassHash>>,
@@ -1061,6 +1110,143 @@ where
                 contracts_proof,
                 contracts_storage_proofs,
             })
+        })
+        .await?
+    }
+
+    pub async fn block_traces(
+        &self,
+        block_id: ConfirmedBlockIdOrTag,
+    ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
+        self.on_io_blocking_task(move |this| {
+            use StarknetApiError::BlockNotFound;
+
+            let provider = &this.storage().provider();
+
+            let block_id: BlockHashOrNumber = match block_id {
+                ConfirmedBlockIdOrTag::L1Accepted => {
+                    unimplemented!("l1 accepted block id")
+                }
+                ConfirmedBlockIdOrTag::Latest => provider.latest_number()?.into(),
+                ConfirmedBlockIdOrTag::Number(num) => num.into(),
+                ConfirmedBlockIdOrTag::Hash(hash) => hash.into(),
+            };
+
+            let indices = provider.block_body_indices(block_id)?.ok_or(BlockNotFound)?;
+            let tx_hashes = provider.transaction_hashes_in_range(indices.into())?;
+
+            let traces =
+                provider.transaction_executions_by_block(block_id)?.ok_or(BlockNotFound)?;
+            let traces = traces.into_iter().map(TxTrace::from);
+
+            let result = tx_hashes
+                .into_iter()
+                .zip(traces)
+                .map(|(h, r)| TxTraceWithHash { transaction_hash: h, trace_root: r })
+                .collect::<Vec<_>>();
+
+            Ok(result)
+        })
+        .await?
+    }
+
+    pub async fn trace(&self, tx_hash: TxHash) -> Result<TxTrace, StarknetApiError> {
+        self.on_io_blocking_task(move |this| {
+            // Check in the pending block first
+            if let Some(pending_trace) =
+                this.inner.pending_block_provider.get_pending_trace(tx_hash)?
+            {
+                Ok(pending_trace)
+            } else {
+                // If not found in pending block, fallback to the provider
+                let trace = this
+                    .storage()
+                    .provider()
+                    .transaction_execution(tx_hash)?
+                    .ok_or(StarknetApiError::TxnHashNotFound)?;
+
+                Ok(TxTrace::from(trace))
+            }
+        })
+        .await?
+    }
+}
+
+impl<Pool, PoolTx, Pending, PF> StarknetApi<Pool, Pending, PF>
+where
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    Pending: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    pub async fn simulate_txs(
+        &self,
+        block_id: BlockIdOrTag,
+        transactions: Vec<BroadcastedTx>,
+        simulation_flags: Vec<SimulationFlag>,
+    ) -> Result<Vec<SimulatedTransactions>, StarknetApiError> {
+        self.on_cpu_blocking_task(move |this| async move {
+            let chain = this.inner.chain_spec.id();
+
+            let executables = transactions
+                .into_iter()
+                .map(|tx| {
+                    let is_query = tx.is_query();
+                    let tx = ExecutableTx::from(BroadcastedTxWithChainId { tx, chain });
+                    ExecutableTxWithHash::new_query(tx, is_query)
+                })
+                .collect::<Vec<_>>();
+
+            // If the node is run with transaction validation disabled, then we should not validate
+            // even if the `SKIP_VALIDATE` flag is not set.
+            let should_validate = !simulation_flags.contains(&SimulationFlag::SkipValidate)
+                && this.inner.config.simulation_flags.account_validation();
+
+            // If the node is run with fee charge disabled, then we should disable charing fees even
+            // if the `SKIP_FEE_CHARGE` flag is not set.
+            let should_charge_fee = !simulation_flags.contains(&SimulationFlag::SkipFeeCharge)
+                && this.inner.config.simulation_flags.fee();
+
+            let flags = katana_executor::ExecutionFlags::new()
+                .with_account_validation(should_validate)
+                .with_fee(should_charge_fee)
+                .with_nonce_check(false);
+
+            // get the state and block env at the specified block for execution
+            let state = this.state(&block_id)?;
+            let env = this.block_env_at(&block_id)?;
+
+            // use the blockifier utils function
+            let chain_spec = this.inner.chain_spec.as_ref();
+            let overrides = this.inner.config.versioned_constant_overrides.as_ref();
+            let results =
+                self::blockifier::simulate(chain_spec, state, env, overrides, executables, flags);
+
+            let mut simulated = Vec::with_capacity(results.len());
+            for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {
+                match result {
+                    ExecutionResult::Success { trace, receipt } => {
+                        let trace = TypedTransactionExecutionInfo::new(receipt.r#type(), trace);
+
+                        let transaction_trace = TxTrace::from(trace);
+                        let fee_estimation =
+                            to_rpc_fee_estimate(receipt.resources_used(), receipt.fee());
+                        let value = SimulatedTransactions { transaction_trace, fee_estimation };
+
+                        simulated.push(value)
+                    }
+
+                    ExecutionResult::Failed { error } => {
+                        return Err(StarknetApiError::transaction_execution_error(
+                            i as u64,
+                            error.to_string(),
+                        ));
+                    }
+                }
+            }
+
+            Ok(simulated)
         })
         .await?
     }

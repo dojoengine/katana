@@ -11,38 +11,47 @@ use crate::LaunchedNode;
 
 /// A Future that is resolved once the node has been stopped including all of its running tasks.
 #[must_use = "futures do nothing unless polled"]
-pub struct NodeStoppedFuture<'a, P> {
+pub struct NodeStoppedFuture<'a> {
     fut: BoxFuture<'a, Result<()>>,
-    _phantom: std::marker::PhantomData<P>,
 }
 
-impl<'a, P> NodeStoppedFuture<'a, P>
-where
-    P: ProviderFactory,
-    <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
-{
-    pub(crate) fn new(handle: &'a LaunchedNode<P>) -> Self {
-        let fut = Box::pin(async {
-            handle.node.task_manager.wait_for_shutdown().await;
-            handle.rpc.stop()?;
+impl<'a> NodeStoppedFuture<'a> {
+    pub(crate) fn new<P>(handle: &'a LaunchedNode<P>) -> Self
+    where
+        P: ProviderFactory,
+        <P as ProviderFactory>::Provider: ProviderRO,
+        <P as ProviderFactory>::ProviderMut: ProviderRW,
+    {
+        // Clone the handles we need so we can move them into the async block.
+        // This avoids capturing `&LaunchedNode<P>` which isn't Sync.
 
-            if let Some(handle) = handle.gateway.as_ref() {
-                handle.stop()?;
+        let rpc = handle.rpc.clone();
+        #[cfg(feature = "grpc")]
+        let grpc = handle.grpc.clone();
+        let gateway = handle.gateway.clone();
+        let task_manager = handle.node.task_manager.clone();
+
+        let fut = Box::pin(async move {
+            task_manager.wait_for_shutdown().await;
+            rpc.stop()?;
+
+            #[cfg(feature = "grpc")]
+            if let Some(grpc) = grpc {
+                grpc.stop()?;
+            }
+
+            if let Some(gw) = gateway {
+                gw.stop()?;
             }
 
             Ok(())
         });
-        Self { fut, _phantom: std::marker::PhantomData }
+
+        Self { fut }
     }
 }
 
-impl<P> Future for NodeStoppedFuture<'_, P>
-where
-    P: ProviderFactory + Unpin,
-    <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
-{
+impl Future for NodeStoppedFuture<'_> {
     type Output = Result<()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -51,13 +60,8 @@ where
     }
 }
 
-impl<P> core::fmt::Debug for NodeStoppedFuture<'_, P>
-where
-    P: ProviderFactory,
-    <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
-{
+impl core::fmt::Debug for NodeStoppedFuture<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("NodeStoppedFuture").field("fut", &"...").finish()
+        f.debug_struct("NodeStoppedFuture").finish_non_exhaustive()
     }
 }
