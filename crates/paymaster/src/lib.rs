@@ -496,7 +496,8 @@ impl PaymasterService {
             chain_id_felt
         };
 
-        let forwarder_class_hash = avnu_forwarder_class_hash()?;
+        let forwarder_class_hash = katana_contracts::avnu::AvnuForwarder::HASH;
+
         // When using UDC with unique=0 (non-unique deployment), the deployer_address
         // used in address computation is 0, not the actual deployer or UDC address.
         let forwarder_address = get_contract_address(
@@ -668,15 +669,6 @@ async fn wait_for_contract(
 
         sleep(Duration::from_millis(200)).await;
     }
-}
-
-fn avnu_forwarder_class_hash() -> Result<Felt> {
-    let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../controller/classes/avnu_Forwarder.contract_class.json"
-    )))
-    .map_err(Error::ClassParse)?;
-    class.class_hash().map_err(Error::ClassHash)
 }
 
 fn resolve_executable(path: &Path) -> Result<PathBuf> {

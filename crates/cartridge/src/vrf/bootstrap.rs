@@ -99,7 +99,7 @@ pub fn derive_vrf_accounts(
 
     let account_public_key =
         SigningKey::from_secret_scalar(source_private_key).verifying_key().scalar();
-    let vrf_account_class_hash = vrf_account_class_hash()?;
+    let vrf_account_class_hash = katana_contracts::vrf::CartridgeVrfAccount::HASH;
     // When using UDC with unique=0 (non-unique deployment), the deployer_address
     // used in address computation is 0, not the actual deployer or UDC address.
     let vrf_account_address = get_contract_address(
@@ -136,7 +136,7 @@ pub async fn bootstrap_vrf(
     let vrf_account_address = derived.vrf_account_address;
     let account_public_key =
         SigningKey::from_secret_scalar(bootstrapper_account_private_key).verifying_key().scalar();
-    let vrf_account_class_hash = vrf_account_class_hash()?;
+    let vrf_account_class_hash = katana_contracts::vrf::CartridgeVrfAccount::HASH;
 
     // Create the source account for transactions
     let signer =
@@ -204,7 +204,7 @@ pub async fn bootstrap_vrf(
         .map_err(|e| anyhow!("failed to set VRF public key: {e}"))?;
 
     // Deploy VRF consumer
-    let vrf_consumer_class_hash = vrf_consumer_class_hash()?;
+    let vrf_consumer_class_hash = katana_contracts::vrf::CartridgeVrfConsumer::HASH;
     // When using UDC with unique=0 (non-unique deployment), the deployer_address
     // used in address computation is 0, not the actual deployer or UDC address.
     let vrf_consumer_address = get_contract_address(
@@ -235,16 +235,6 @@ pub async fn bootstrap_vrf(
         // right now, we take the bootstrapper account private key as the vrf account's private key
         vrf_account_private_key: bootstrapper_account_private_key,
     })
-}
-
-/// Get the class hash of the VRF account contract.
-pub fn vrf_account_class_hash() -> Result<Felt> {
-    Ok(katana_contracts::vrf::CartridgeVrfAccount::HASH)
-}
-
-/// Get the class hash of the VRF consumer contract.
-pub fn vrf_consumer_class_hash() -> Result<Felt> {
-    Ok(katana_contracts::vrf::CartridgeVrfConsumer::HASH)
 }
 
 // ============================================================================

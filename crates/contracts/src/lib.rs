@@ -29,8 +29,5 @@ pub mod vrf {
 pub mod avnu {
     use katana_contracts_macro::contract;
 
-    contract!(
-        AvnuForwarder,
-        "{CARGO_MANIFEST_DIR}/build/avnu_Forwarder.contract_class.json"
-    );
+    contract!(AvnuForwarder, "{CARGO_MANIFEST_DIR}/build/avnu_Forwarder.contract_class.json");
 }

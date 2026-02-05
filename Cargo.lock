@@ -6477,6 +6477,7 @@ version = "1.7.0"
 dependencies = [
  "http 1.3.1",
  "jsonrpsee 0.26.0",
+ "katana-contracts",
  "katana-genesis",
  "katana-primitives",
  "paymaster-rpc",
