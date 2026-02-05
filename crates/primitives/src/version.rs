@@ -148,6 +148,7 @@ impl TryFrom<StarknetVersion> for starknet_api::block::StarknetVersion {
             [0, 13, 4, 0] => Ok(Self::V0_13_4),
             [0, 13, 5, 0] => Ok(Self::V0_13_5),
             [0, 14, 0, 0] => Ok(Self::V0_14_0),
+            [0, 14, 1, 0] => Ok(Self::V0_14_1),
             _ => Err(InvalidVersionError(version)),
         }
     }
