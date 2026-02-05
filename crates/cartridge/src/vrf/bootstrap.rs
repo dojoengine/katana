@@ -12,14 +12,17 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use ark_ff::PrimeField;
+use katana_contracts::vrf::CartridgeVrfAccount;
 use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::chain::ChainId;
+use katana_primitives::class::ClassHash;
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_types::RpcSierraContractClass;
 use stark_vrf::{generate_public_key, ScalarField};
 use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
-use starknet::core::types::{BlockId, BlockTag, Call, StarknetError};
+use starknet::core::types::{BlockId, BlockTag, Call, FlattenedSierraClass, StarknetError};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
@@ -99,7 +102,8 @@ pub fn derive_vrf_accounts(
 
     let account_public_key =
         SigningKey::from_secret_scalar(bootstrapper_private_key).verifying_key().scalar();
-    let vrf_account_class_hash = katana_contracts::vrf::CartridgeVrfAccount::HASH;
+
+    let vrf_account_class_hash = CartridgeVrfAccount::HASH;
     // When using UDC with unique=0 (non-unique deployment), the deployer_address
     // used in address computation is 0, not the actual deployer or UDC address.
     let vrf_account_address = get_contract_address(
@@ -136,7 +140,8 @@ pub async fn bootstrap_vrf(
     let vrf_account_address = derived.vrf_account_address;
     let account_public_key =
         SigningKey::from_secret_scalar(bootstrapper_account_private_key).verifying_key().scalar();
-    let vrf_account_class_hash = katana_contracts::vrf::CartridgeVrfAccount::HASH;
+
+    let vrf_account_class_hash = CartridgeVrfAccount::HASH;
 
     // Create the source account for transactions
     let signer =
@@ -148,6 +153,22 @@ pub async fn bootstrap_vrf(
         chain_id_felt,
         ExecutionEncoding::New,
     );
+
+    if !is_declared(&provider, vrf_account_class_hash).await? {
+        let class = CartridgeVrfAccount::CLASS.clone();
+        let compiled_hash = CartridgeVrfAccount::CASM_HASH;
+
+        let rpc_class = RpcSierraContractClass::from(class.to_sierra().unwrap());
+        let rpc_class = FlattenedSierraClass::try_from(rpc_class).unwrap();
+
+        let result = account
+            .declare_v3(rpc_class.into(), compiled_hash)
+            .send()
+            .await
+            .expect("fail to declare class");
+
+        assert_eq!(result.class_hash, vrf_account_class_hash, "Class hash mismatch");
+    }
 
     // Deploy VRF account if not already deployed
     if !is_deployed(&provider, vrf_account_address).await? {
@@ -250,6 +271,17 @@ async fn is_deployed(
         Ok(_) => Ok(true),
         Err(ProviderError::StarknetError(StarknetError::ContractNotFound)) => Ok(false),
         Err(e) => Err(anyhow!("failed to check contract deployment: {e}")),
+    }
+}
+
+async fn is_declared(
+    provider: &JsonRpcClient<HttpTransport>,
+    class_hash: ClassHash,
+) -> Result<bool> {
+    match provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await {
+        Ok(_) => Ok(true),
+        Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => Ok(false),
+        Err(e) => Err(anyhow!("failed to check class declaration: {e}")),
     }
 }
 

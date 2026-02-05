@@ -18,14 +18,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs, io};
 
+use katana_contracts::avnu::AvnuForwarder;
 use katana_primitives::chain::{ChainId, NamedChainId};
 use katana_primitives::class::ComputeClassHashError;
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_types::RpcSierraContractClass;
 use serde::Serialize;
 use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
-use starknet::core::types::{BlockId, BlockTag, Call, StarknetError};
+use starknet::core::types::{BlockId, BlockTag, Call, FlattenedSierraClass, StarknetError};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
@@ -496,17 +498,7 @@ impl PaymasterService {
             chain_id_felt
         };
 
-        let forwarder_class_hash = katana_contracts::avnu::AvnuForwarder::HASH;
-
-        // When using UDC with unique=0 (non-unique deployment), the deployer_address
-        // used in address computation is 0, not the actual deployer or UDC address.
-        let forwarder_address = get_contract_address(
-            Felt::from(FORWARDER_SALT),
-            forwarder_class_hash,
-            &[self.config.relayer_address.into(), self.config.gas_tank_address.into()],
-            Felt::ZERO,
-        )
-        .into();
+        let forwarder_class_hash = AvnuForwarder::HASH;
 
         // Create the relayer account for transactions
         let secret_key = SigningKey::from_secret_scalar(self.config.relayer_private_key);
@@ -517,6 +509,39 @@ impl PaymasterService {
             chain_id_felt,
             ExecutionEncoding::New,
         );
+
+        // declare class if not yet declred
+        match provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), forwarder_class_hash).await {
+            Ok(..) => {}
+
+            Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
+                let class = AvnuForwarder::CLASS.clone();
+                let compiled_hash = AvnuForwarder::CASM_HASH;
+
+                let rpc_class = RpcSierraContractClass::from(class.to_sierra().unwrap());
+                let rpc_class = FlattenedSierraClass::try_from(rpc_class).unwrap();
+
+                let result = account
+                    .declare_v3(rpc_class.into(), compiled_hash)
+                    .send()
+                    .await
+                    .expect("fail to declare class");
+
+                assert_eq!(result.class_hash, forwarder_class_hash, "Class hash mismatch");
+            }
+
+            Err(..) => panic!("fail to fetch class"),
+        };
+
+        // When using UDC with unique=0 (non-unique deployment), the deployer_address
+        // used in address computation is 0, not the actual deployer or UDC address.
+        let forwarder_address = get_contract_address(
+            Felt::from(FORWARDER_SALT),
+            forwarder_class_hash,
+            &[self.config.relayer_address.into(), self.config.gas_tank_address.into()],
+            Felt::ZERO,
+        )
+        .into();
 
         // Deploy forwarder if not already deployed
         if !is_deployed(&provider, forwarder_address).await? {

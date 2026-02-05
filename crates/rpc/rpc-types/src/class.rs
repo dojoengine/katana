@@ -10,9 +10,7 @@ use katana_primitives::class::{
     compute_legacy_class_hash, compute_sierra_class_hash, ClassHash, ComputeClassHashError,
     ContractClass, LegacyContractClass, SierraContractClass,
 };
-use katana_primitives::{
-    Felt, {self},
-};
+use katana_primitives::{self, Felt};
 use serde::{Deserialize, Serialize};
 use serde_utils::base64;
 use starknet::core::types::{CompressedLegacyContractClass, FlattenedSierraClass};

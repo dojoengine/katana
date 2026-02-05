@@ -6457,6 +6457,7 @@ dependencies = [
  "katana-contracts",
  "katana-genesis",
  "katana-primitives",
+ "katana-rpc-types",
  "paymaster-rpc",
  "serde",
  "serde_json",
