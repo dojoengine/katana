@@ -1,12 +1,22 @@
+use std::fs::File;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+#[cfg(feature = "grpc")]
+use std::time::Duration;
+
+use fs2::FileExt;
+
+/// Fixed path for the dojo repository clone to avoid recompiling for each test.
+const DOJO_CACHE_DIR: &str = "/tmp/katana-test-dojo";
 
 use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
+#[cfg(feature = "grpc")]
+use katana_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
@@ -28,8 +38,8 @@ use starknet::signers::{LocalWallet, SigningKey};
 /// Errors that can occur when migrating contracts to a test node.
 #[derive(Debug, thiserror::Error)]
 pub enum MigrateError {
-    #[error("Failed to create temp directory: {0}")]
-    TempDir(#[from] std::io::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
     #[error("Git clone failed: {0}")]
     GitClone(String),
     #[error("Scarb build failed: {0}")]
@@ -192,6 +202,12 @@ where
         katana_rpc_client::starknet::Client::new_with_client(client)
     }
 
+    /// Returns the address of the node's gRPC server (if enabled).
+    #[cfg(feature = "grpc")]
+    pub fn grpc_addr(&self) -> Option<&SocketAddr> {
+        self.node.grpc().map(|h| h.addr())
+    }
+
     /// Migrates the `spawn-and-move` example contracts from the dojo repository.
     ///
     /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
@@ -215,6 +231,10 @@ where
     /// Clones the dojo repository, builds contracts with `scarb`, and deploys
     /// them with `sozo migrate`.
     ///
+    /// The dojo repository is cached at a fixed path to avoid recompiling for
+    /// each test run. The clone and build steps are skipped if the build
+    /// artifacts already exist.
+    ///
     /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
     /// The scarb version is managed by asdf using the `.tool-versions` file
     /// in the dojo repository.
@@ -232,18 +252,35 @@ where
 
         let address_hex = address.to_string();
         let private_key_hex = format!("{private_key:#x}");
-        let example_path = format!("dojo/examples/{example}");
+        let example = example.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let temp_dir = tempfile::tempdir()?;
+            let cache_dir = PathBuf::from(DOJO_CACHE_DIR);
+            let project_dir = cache_dir.join(format!("dojo/examples/{example}"));
 
-            // Clone dojo repository at v1.7.0
-            run_git_clone(temp_dir.path())?;
+            // Create cache directory if it doesn't exist
+            std::fs::create_dir_all(&cache_dir)?;
 
-            let project_dir = temp_dir.path().join(&example_path);
+            // Use file-based lock for cross-process synchronization
+            let lock_file = File::create(cache_dir.join(".build.lock"))?;
+            lock_file.lock_exclusive()?;
 
-            // Build contracts using asdf to ensure correct scarb version
-            run_scarb_build(&project_dir)?;
+            // Double-check after acquiring lock - another process may have
+            // completed the build while we were waiting
+            if !project_dir.join("target").exists() {
+                // Clone dojo repository at v1.7.0 (remove existing if present)
+                let dojo_dir = cache_dir.join("dojo");
+                if dojo_dir.exists() {
+                    std::fs::remove_dir_all(&dojo_dir)?;
+                }
+                run_git_clone(&cache_dir)?;
+
+                // Build contracts using asdf to ensure correct scarb version
+                run_scarb_build(&project_dir)?;
+            }
+
+            // Release lock - this happens automatically when lock_file is dropped
+            drop(lock_file);
 
             // Deploy contracts to the katana node
             run_sozo_migrate(&project_dir, &rpc_url, &address_hex, &private_key_hex)?;
@@ -355,5 +392,20 @@ pub fn test_config() -> Config {
         ..Default::default()
     };
 
-    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), ..Default::default() }
+    #[cfg(feature = "grpc")]
+    let grpc = Some(GrpcConfig {
+        addr: DEFAULT_GRPC_ADDR,
+        port: 0, // Use port 0 for auto-assignment
+        timeout: Some(Duration::from_secs(30)),
+    });
+
+    Config {
+        sequencing,
+        rpc,
+        dev,
+        chain: ChainSpec::Dev(chain).into(),
+        #[cfg(feature = "grpc")]
+        grpc,
+        ..Default::default()
+    }
 }

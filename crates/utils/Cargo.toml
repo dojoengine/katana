@@ -13,6 +13,7 @@ katana-rpc-types.workspace = true
 katana-utils-macro = { path = "macro" }
 
 anyhow.workspace = true
+fs2 = "0.4"
 arbitrary.workspace = true
 assert_matches.workspace = true
 async-trait.workspace = true
@@ -47,6 +48,7 @@ node = [
     "tempfile",
 ]
 explorer = [ "node", "katana-node/explorer" ]
+grpc = [ "node", "katana-node/grpc" ]
 
 [[bin]]
 name = "generate_migration_db"
