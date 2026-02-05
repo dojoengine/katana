@@ -73,7 +73,6 @@ fn test_context() -> &'static TestContext {
     })
 }
 
-/// Creates fresh gRPC and JSON-RPC clients connected to the shared node.
 async fn setup() -> (GrpcClient, JsonRpcClient<HttpTransport>) {
     let ctx = test_context();
 
