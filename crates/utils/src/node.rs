@@ -269,8 +269,8 @@ fn run_git_clone(temp_dir: &Path) -> Result<(), MigrateError> {
 }
 
 fn run_scarb_build(project_dir: &Path) -> Result<(), MigrateError> {
-    let output = Command::new("asdf")
-        .args(["exec", "scarb", "build"])
+    let output = Command::new("scarb")
+        .arg("build")
         .current_dir(project_dir)
         .output()
         .map_err(|e| MigrateError::ScarbBuild(e.to_string()))?;
