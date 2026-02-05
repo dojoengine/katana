@@ -25,3 +25,12 @@ pub mod vrf {
         "{CARGO_MANIFEST_DIR}/build/cartridge_vrf_VrfAccount.contract_class.json"
     );
 }
+
+pub mod avnu {
+    use katana_contracts_macro::contract;
+
+    contract!(
+        AvnuForwarder,
+        "{CARGO_MANIFEST_DIR}/build/avnu_Forwarder.contract_class.json"
+    );
+}

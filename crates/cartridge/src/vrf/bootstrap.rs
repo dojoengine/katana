@@ -12,8 +12,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use ark_ff::PrimeField;
-use katana_chain_spec::ChainSpec;
-use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::chain::ChainId;
 use katana_primitives::utils::get_contract_address;
@@ -241,20 +239,12 @@ pub async fn bootstrap_vrf(
 
 /// Get the class hash of the VRF account contract.
 pub fn vrf_account_class_hash() -> Result<Felt> {
-    let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../controller/classes/cartridge_vrf_VrfAccount.contract_class.json"
-    )))?;
-    class.class_hash().context("failed to compute vrf account class hash")
+    Ok(katana_contracts::vrf::CartridgeVrfAccount::HASH)
 }
 
 /// Get the class hash of the VRF consumer contract.
 pub fn vrf_consumer_class_hash() -> Result<Felt> {
-    let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../controller/classes/cartridge_vrf_VrfConsumer.contract_class.json"
-    )))?;
-    class.class_hash().context("failed to compute vrf consumer class hash")
+    Ok(katana_contracts::vrf::CartridgeVrfConsumer::HASH)
 }
 
 // ============================================================================

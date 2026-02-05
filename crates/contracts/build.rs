@@ -11,6 +11,7 @@ fn main() {
     println!("cargo:rerun-if-changed=contracts/messaging");
     println!("cargo:rerun-if-changed=contracts/test-contracts");
     println!("cargo:rerun-if-changed=contracts/vrf");
+    println!("cargo:rerun-if-changed=contracts/avnu");
     println!("cargo:rerun-if-changed=build.rs");
 
     let contracts_dir = Path::new("contracts");
@@ -65,6 +66,10 @@ fn main() {
     let vrf_dir = contracts_dir.join("vrf");
     build_vrf_contracts(&vrf_dir);
 
+    // Build AVNU contracts (uses different scarb version via asdf)
+    let avnu_dir = contracts_dir.join("avnu/contracts");
+    build_avnu_contracts(&avnu_dir);
+
     // Create build directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(build_dir) {
         panic!("Failed to create build directory: {e}");
@@ -89,6 +94,17 @@ fn main() {
         println!("cargo:warning=VRF contract artifacts copied to build directory");
     } else {
         println!("cargo:warning=No VRF contract artifacts found in vrf/target/dev");
+    }
+
+    // Copy AVNU contract artifacts from avnu/contracts/target/dev to build directory
+    let avnu_target_dir = avnu_dir.join("target/dev");
+    if avnu_target_dir.exists() {
+        if let Err(e) = copy_dir_contents(&avnu_target_dir, build_dir) {
+            panic!("Failed to copy AVNU contract artifacts: {e}");
+        }
+        println!("cargo:warning=AVNU contract artifacts copied to build directory");
+    } else {
+        println!("cargo:warning=No AVNU contract artifacts found in avnu/contracts/target/dev");
     }
 }
 
@@ -128,6 +144,34 @@ fn build_vrf_contracts(vrf_dir: &Path) {
 
         panic!(
             "VRF contracts compilation failed. Below are the last 50 lines of `scarb build` \
+             output:\n\n{last_n_lines}"
+        );
+    }
+}
+
+fn build_avnu_contracts(avnu_dir: &Path) {
+    println!("cargo:warning=Building AVNU contracts with scarb...");
+
+    let output = Command::new("asdf")
+        .args(["exec", "scarb", "build"])
+        .current_dir(avnu_dir)
+        .output()
+        .expect("Failed to execute scarb build for AVNU contracts");
+
+    if !output.status.success() {
+        let logs = String::from_utf8_lossy(&output.stdout);
+        let last_n_lines = logs
+            .split('\n')
+            .rev()
+            .take(50)
+            .collect::<Vec<&str>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<&str>>()
+            .join("\n");
+
+        panic!(
+            "AVNU contracts compilation failed. Below are the last 50 lines of `scarb build` \
              output:\n\n{last_n_lines}"
         );
     }

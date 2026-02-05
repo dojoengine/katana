@@ -2879,7 +2879,6 @@ version = "1.7.0"
 dependencies = [
  "anyhow",
  "ark-ff 0.4.2",
- "katana-chain-spec",
  "katana-contracts",
  "katana-genesis",
  "katana-primitives",
@@ -6788,6 +6787,7 @@ name = "katana-slot-controller"
 version = "1.7.0"
 dependencies = [
  "cartridge",
+ "katana-contracts",
  "katana-genesis",
  "katana-primitives",
 ]

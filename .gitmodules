@@ -18,3 +18,6 @@
 [submodule "crates/contracts/contracts/vrf"]
 	path = crates/contracts/contracts/vrf
 	url = https://github.com/cartridge-gg/vrf.git
+[submodule "crates/contracts/contracts/avnu"]
+	path = crates/contracts/contracts/avnu
+	url = https://github.com/avnu-labs/paymaster

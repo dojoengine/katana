@@ -8,5 +8,6 @@ version.workspace = true
 
 [dependencies]
 cartridge.workspace = true
+katana-contracts.workspace = true
 katana-genesis.workspace = true
 katana-primitives.workspace = true
