@@ -6,13 +6,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-chain-spec.workspace = true
-katana-core.workspace = true
-katana-executor.workspace = true
-katana-node.workspace = true
 katana-primitives.workspace = true
-katana-provider.workspace = true
-katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
@@ -24,10 +18,28 @@ assert_matches.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 rand.workspace = true
-starknet.workspace = true
-tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [ "macros", "signal", "time" ], default-features = false }
 
+# node-only dependencies
+katana-chain-spec = { workspace = true, optional = true }
+katana-core = { workspace = true, optional = true }
+katana-executor = { workspace = true, optional = true }
+katana-node = { workspace = true, optional = true }
+katana-provider = { workspace = true, optional = true }
+katana-rpc-server = { workspace = true, optional = true }
+starknet = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+
 [features]
-explorer = [ "katana-node/explorer" ]
+node = [
+    "katana-chain-spec",
+    "katana-core",
+    "katana-executor",
+    "katana-node",
+    "katana-provider",
+    "katana-rpc-server",
+    "starknet",
+    "tempfile",
+]
+explorer = [ "node", "katana-node/explorer" ]

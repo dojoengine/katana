@@ -316,10 +316,11 @@ mod tests {
     use katana_rpc_types::{ExecutionResources, FeePayment};
 
     use super::{Duration, TxWaiter};
-    use crate::{TestNode, TxWaitingError};
+    use crate::TxWaitingError;
 
-    async fn create_test_sequencer() -> TestNode {
-        TestNode::new().await
+    #[cfg(feature = "node")]
+    async fn create_test_sequencer() -> crate::TestNode {
+        crate::TestNode::new().await
     }
 
     const EXECUTION_RESOURCES: ExecutionResources =
@@ -365,6 +366,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "node")]
     #[tokio::test]
     async fn should_timeout_on_nonexistant_transaction() {
         let sequencer = create_test_sequencer().await;
