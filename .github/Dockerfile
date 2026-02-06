@@ -113,8 +113,15 @@ ENV ASDF_DATA_DIR=/root/.asdf
 RUN mkdir -p $ASDF_DATA_DIR
 ENV PATH="$ASDF_DATA_DIR/shims:$PATH"
 
-# Install scarb via asdf
-RUN asdf plugin add scarb && asdf install scarb 2.8.2 && asdf set scarb 2.8.2
+# Install scarb versions via asdf
+# - 2.8.2: main contracts
+# - 2.11.4: AVNU contracts
+# - 2.12.2: VRF contracts
+RUN asdf plugin add scarb && \
+	asdf install scarb 2.8.2 && \
+	asdf install scarb 2.11.4 && \
+	asdf install scarb 2.12.2 && \
+	asdf set scarb 2.8.2
 
 # Install caddy
 ARG TARGETPLATFORM
