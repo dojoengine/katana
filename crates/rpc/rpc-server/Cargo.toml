@@ -38,7 +38,6 @@ tower-http = { workspace = true, features = [ "cors", "trace" ] }
 tracing.workspace = true
 
 cainome = { workspace = true, optional = true }
-cartridge = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 hex = { workspace = true, optional = true }
@@ -81,15 +80,6 @@ url.workspace = true
 
 [features]
 
-cartridge = [
-	"dep:cainome",
-	"dep:cartridge",
-	"dep:futures",
-	"dep:katana-genesis",
-	"dep:starknet",
-	"dep:url",
-	"katana-rpc-api/cartridge",
-]
 client = [ "jsonrpsee/client", "katana-rpc-api/client" ]
 explorer = [ "dep:katana-explorer" ]
 tee = [

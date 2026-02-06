@@ -37,7 +37,6 @@ url.workspace = true
 stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
 
 starknet.workspace = true
-starknet-crypto.workspace = true
 tokio.workspace = true
 tower.workspace = true
 

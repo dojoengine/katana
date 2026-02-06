@@ -17,9 +17,6 @@ use tower::{Layer, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-#[cfg(feature = "cartridge")]
-pub mod cartridge;
-
 #[cfg(feature = "tee")]
 pub mod tee;
 
