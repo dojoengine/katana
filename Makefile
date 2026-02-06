@@ -82,13 +82,13 @@ $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
 	@mkdir -p $@
 	@echo "Building main contracts..."
 	@cd $(CONTRACTS_DIR) && asdf exec scarb build || { echo "Main contracts build failed!"; exit 1; }
-	@cp $(CONTRACTS_DIR)/target/dev/* $@
+	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
 	@echo "Building VRF contracts..."
 	@cd $(VRF_DIR) && asdf exec scarb build || { echo "VRF contracts build failed!"; exit 1; }
-	@cp $(VRF_DIR)/target/dev/* $@
+	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
 	@echo "Building AVNU contracts..."
 	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
-	@cp $(AVNU_DIR)/target/dev/* $@
+	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."
