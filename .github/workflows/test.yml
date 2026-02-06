@@ -86,6 +86,8 @@ jobs:
           if-no-files-found: error
           path: |
             ./tests/snos/snos/build
+            ./tests/fixtures/db/spawn_and_move
+            ./tests/fixtures/db/simple
             ./crates/contracts/build
 
   build-katana-binary:
