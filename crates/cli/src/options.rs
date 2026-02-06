@@ -623,6 +623,7 @@ pub struct CartridgeOptions {
     pub controllers: bool,
 
     /// Enable Cartridge paymaster
+    #[cfg(feature = "paymaster")]
     #[arg(requires = "paymaster_enabled")]
     #[arg(long = "cartridge.paymaster", id = "cartridge_paymaster")]
     #[serde(default)]
@@ -634,12 +635,13 @@ pub struct CartridgeOptions {
     /// address (at the moment). Must be configurable for local development
     /// with local cartridge API.
     #[arg(long = "cartridge.api")]
+    #[cfg(feature = "paymaster")]
     #[arg(default_value = "https://api.cartridge.gg")]
     #[arg(requires = "cartridge_paymaster")]
     #[serde(default = "default_api_url")]
     pub cartridge_api: Url,
 
-    #[cfg(feature = "vrf")]
+    #[cfg(all(feature = "paymaster", feature = "vrf"))]
     #[command(flatten)]
     pub vrf: VrfOptions,
 }

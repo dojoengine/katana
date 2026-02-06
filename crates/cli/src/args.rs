@@ -1090,15 +1090,21 @@ explorer = true
     #[test]
     fn cartridge_paymaster() {
         // Test with --paymaster flag (sidecar mode)
-        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
+        let args =
+            SequencerNodeArgs::parse_from(["katana", "--paymaster", "--cartridge.paymaster"]);
         let result = args.config().unwrap();
 
         // Verify cartridge module is automatically enabled when paymaster is enabled
         assert!(result.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test with paymaster explicitly specified in RPC modules
-        let args =
-            SequencerNodeArgs::parse_from(["katana", "--paymaster", "--http.api", "starknet"]);
+        let args = SequencerNodeArgs::parse_from([
+            "katana",
+            "--http.api",
+            "starknet",
+            "--paymaster",
+            "--cartridge.paymaster",
+        ]);
         let result = args.config().unwrap();
 
         // Verify cartridge module is still enabled even when not in explicit RPC list
@@ -1106,10 +1112,22 @@ explorer = true
         assert!(result.rpc.apis.contains(&RpcModuleKind::Starknet));
 
         // Test with --paymaster.url (external mode - also enables paymaster)
-        let args =
-            SequencerNodeArgs::parse_from(["katana", "--paymaster.url", "http://localhost:8080"]);
+        let args = SequencerNodeArgs::parse_from([
+            "katana",
+            "--paymaster",
+            "--paymaster.url",
+            "http://localhost:8080",
+            "--cartridge.paymaster",
+        ]);
         let result = args.config().unwrap();
         assert!(result.rpc.apis.contains(&RpcModuleKind::Cartridge));
+
+        // Test without paymaster enabled
+        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
+        let result = args.config().unwrap();
+
+        // Verify cartridge module is not enabled by default
+        assert!(!result.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test without paymaster enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
