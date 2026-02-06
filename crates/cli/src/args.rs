@@ -206,7 +206,7 @@ impl SequencerNodeArgs {
                 let paymaster = bootstrap_paymaster(
                     &self.paymaster,
                     config.paymaster.unwrap().url.clone(),
-                    handle.rpc().addr().clone(),
+                    *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
                 .await?
@@ -224,7 +224,7 @@ impl SequencerNodeArgs {
 
                 let vrf = bootstrap_vrf(
                     &self.cartridge.vrf,
-                    handle.rpc().addr().clone(),
+                    *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
                 .await?

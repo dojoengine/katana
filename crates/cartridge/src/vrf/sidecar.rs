@@ -15,7 +15,7 @@ use super::client::VrfClient;
 const LOG_TARGET: &str = "katana::cartridge::vrf::sidecar";
 
 pub const VRF_SERVER_PORT: u16 = 3000;
-const DEFAULT_VRF_SERVICE_PATH: &str = "vrf-service";
+const DEFAULT_VRF_SERVICE_PATH: &str = "vrf-server";
 pub const SIDECAR_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]

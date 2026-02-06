@@ -494,5 +494,5 @@ fn build_execute_from_outside_call_from_vrf_result(
         }
     };
 
-    PaymasterCall { to: result.address.into(), selector, calldata }
+    PaymasterCall { to: result.address, selector, calldata }
 }

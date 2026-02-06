@@ -537,7 +537,7 @@ pub struct GasPriceOracleOptions {
 }
 
 #[cfg(feature = "paymaster")]
-#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Paymaster options")]
 pub struct PaymasterOptions {
     /// Enable the paymaster service.
@@ -731,13 +731,6 @@ impl VrfOptions {
                 self.bin = other.bin.clone();
             }
         }
-    }
-}
-
-#[cfg(feature = "paymaster")]
-impl Default for PaymasterOptions {
-    fn default() -> Self {
-        Self { enabled: false, url: None, api_key: None, bin: None, price_api_key: None }
     }
 }
 

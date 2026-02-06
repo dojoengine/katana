@@ -32,7 +32,7 @@ use url::Url;
 use crate::api::PaymasterApiClient;
 
 const FORWARDER_SALT: u64 = 0x12345;
-const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
+const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(20);
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
 
 // ============================================================================
@@ -49,47 +49,38 @@ pub enum Error {
     #[error("missing required field: {0}")]
     MissingField(&'static str),
 
-    /// An account does not exist on chain.
     #[error("{kind} account {address} does not exist on chain")]
     AccountNotDeployed { kind: &'static str, address: ContractAddress },
 
     /// Forwarder address not set before starting.
-    #[error("forwarder_address not set - call bootstrap() or forwarder()")]
+    #[error("forwarder_address not set - call `bootstrap()` or set with `forwarder()`")]
     ForwarderNotSet,
 
     /// Chain ID not set before starting.
-    #[error("chain_id not set - call bootstrap() or chain_id()")]
+    #[error("chain_id not set - call `bootstrap()` or set with `chain_id()`")]
     ChainIdNotSet,
 
-    /// Failed to get chain ID from the provider.
     #[error("failed to get chain ID from node")]
-    ChainId(#[source] Box<ProviderError>),
+    ChainId(#[source] ProviderError),
 
-    /// Failed to check if a contract is deployed.
     #[error("failed to check contract deployment at {0}")]
     ContractCheck(ContractAddress, #[source] Box<ProviderError>),
 
-    /// Failed to deploy the forwarder contract.
     #[error("failed to deploy forwarder: {0}")]
     ForwarderDeploy(String),
 
-    /// Failed to whitelist the relayer.
     #[error("failed to whitelist relayer: {0}")]
     WhitelistRelayer(String),
 
-    /// Contract was not deployed within the timeout period.
     #[error("contract {0} not deployed before timeout")]
     ContractDeployTimeout(ContractAddress),
 
-    /// Sidecar binary not found.
     #[error("sidecar binary not found at {0}")]
     BinaryNotFound(PathBuf),
 
-    /// Sidecar binary not found in PATH.
     #[error("sidecar binary '{0}' not found in PATH")]
     BinaryNotInPath(PathBuf),
 
-    /// PATH environment variable is not set.
     #[error("PATH environment variable is not set")]
     PathNotSet,
 
@@ -97,25 +88,35 @@ pub enum Error {
     #[error("failed to spawn paymaster sidecar")]
     Spawn(#[source] io::Error),
 
-    /// Failed to compute the forwarder class hash.
     #[error("failed to compute forwarder class hash")]
     ClassHash(#[source] ComputeClassHashError),
 
-    /// Failed to parse the forwarder contract class.
     #[error("failed to parse forwarder contract class")]
     ClassParse(#[source] serde_json::Error),
 
-    /// Failed to serialize the paymaster profile.
     #[error("failed to serialize paymaster profile")]
     ProfileSerialize(#[source] serde_json::Error),
 
-    /// Failed to write the paymaster profile to disk.
     #[error("failed to write paymaster profile")]
     ProfileWrite(#[source] io::Error),
 
-    /// Paymaster did not become ready within the timeout period.
+    #[error("class not declared before timeout")]
+    ClassDeclareTimeout,
+
+    #[error("failed to check class declaration")]
+    ClassCheck(#[source] ProviderError),
+
+    #[error("transaction not confirmed before timeout")]
+    TransactionTimeout,
+
+    #[error("failed to get transaction receipt")]
+    TransactionReceipt(#[source] ProviderError),
+
     #[error("paymaster did not become ready before timeout")]
     SidecarTimeout,
+
+    #[error("failed to declare class: {0}")]
+    ClassDeclarationFailed(String),
 }
 
 #[derive(Debug)]
@@ -352,12 +353,11 @@ impl PaymasterService {
         let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(url)));
 
         // Get chain ID if not already set
-        let chain_id_felt = if let Some(chain_id) = &self.chain_id {
+        let chain_id = if let Some(chain_id) = &self.chain_id {
             chain_id.id()
         } else {
-            let chain_id_felt =
-                provider.chain_id().await.map_err(|e| Error::ChainId(Box::new(e)))?;
-            self.chain_id = Some(ChainId::Id(chain_id_felt));
+            let chain_id_felt = provider.chain_id().await.map_err(Error::ChainId)?;
+            self.chain_id = Some(ChainId::from(chain_id_felt));
             chain_id_felt
         };
 
@@ -369,45 +369,40 @@ impl PaymasterService {
             provider.clone(),
             LocalWallet::from(secret_key),
             self.config.relayer_address.into(),
-            chain_id_felt,
+            chain_id,
             ExecutionEncoding::New,
         );
 
-        // declare class if not yet declred
-        match provider
-            .get_class(BlockId::Tag(BlockTag::PreConfirmed), avnu_forwarder_class_hash)
-            .await
-        {
-            Ok(..) => {
-                trace!(
-                    avnu_forwarder_class_hash = format!("{avnu_forwarder_class_hash:#x}"),
-                    "AVNU Forwarder already declared."
-                );
-            }
+        // declare the avnu forwarder class if not yet declred
+        if is_declared(&provider, avnu_forwarder_class_hash).await? {
+            trace!(
+                avnu_forwarder_class_hash = format!("{avnu_forwarder_class_hash:#x}"),
+                "AVNU Forwarder already declared."
+            );
+        } else {
+            trace!(
+                avnu_forwarder_class_hash = format!("{avnu_forwarder_class_hash:#x}"),
+                "AVNU Forwarder class not found - declaring."
+            );
 
-            Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
-                trace!(
-                    avnu_forwarder_class_hash = format!("{avnu_forwarder_class_hash:#x}"),
-                    "AVNU Forwarder class not found - declaring."
-                );
+            let class = AvnuForwarder::CLASS.clone();
+            let compiled_hash = AvnuForwarder::CASM_HASH;
 
-                let class = AvnuForwarder::CLASS.clone();
-                let compiled_hash = AvnuForwarder::CASM_HASH;
+            let rpc_class = RpcSierraContractClass::from(class.to_sierra().unwrap()); // safe to unwrap
+            let rpc_class = FlattenedSierraClass::try_from(rpc_class).unwrap();
 
-                let rpc_class = RpcSierraContractClass::from(class.to_sierra().unwrap());
-                let rpc_class = FlattenedSierraClass::try_from(rpc_class).unwrap();
+            let result = account
+                .declare_v3(rpc_class.into(), compiled_hash)
+                .send()
+                .await
+                .map_err(|e| Error::ClassDeclarationFailed(e.to_string()))?;
 
-                let result = account
-                    .declare_v3(rpc_class.into(), compiled_hash)
-                    .send()
-                    .await
-                    .expect("fail to declare class");
+            // sanity check
+            assert_eq!(result.class_hash, avnu_forwarder_class_hash, "Class hash mismatch");
 
-                assert_eq!(result.class_hash, avnu_forwarder_class_hash, "Class hash mismatch");
-            }
-
-            Err(..) => panic!("fail to fetch class"),
-        };
+            // wait for the transaction to be accepted
+            wait_for_class(&provider, avnu_forwarder_class_hash, BOOTSTRAP_TIMEOUT).await?;
+        }
 
         // When using UDC with unique=0 (non-unique deployment), the deployer_address
         // used in address computation is 0, not the actual deployer or UDC address.
@@ -420,25 +415,24 @@ impl PaymasterService {
         .into();
 
         // Deploy forwarder if not already deployed
-        if !is_deployed(&provider, avnu_forwarder_address).await? {
+        if is_deployed(&provider, avnu_forwarder_address).await? {
+            trace!(%avnu_forwarder_address, "AVNU Forwarder contract already deployed.");
+        } else {
             trace!(%avnu_forwarder_address, "AVNU Forwarder contract not deployed - deploying.");
 
             #[allow(deprecated)]
             let factory = ContractFactory::new(avnu_forwarder_class_hash, &account);
+            let constructor_calldata =
+                vec![self.config.relayer_address.into(), self.config.gas_tank_address.into()];
 
             factory
-                .deploy_v3(
-                    vec![self.config.relayer_address.into(), self.config.gas_tank_address.into()],
-                    Felt::from(FORWARDER_SALT),
-                    false,
-                )
+                .deploy_v3(constructor_calldata, Felt::from(FORWARDER_SALT), false)
                 .send()
                 .await
                 .map_err(|e| Error::ForwarderDeploy(e.to_string()))?;
 
+            // wait for the transaction to be acccepted
             wait_for_contract(&provider, avnu_forwarder_address, BOOTSTRAP_TIMEOUT).await?;
-        } else {
-            trace!(%avnu_forwarder_address, "AVNU Forwarder contract already deployed.");
         }
 
         // Whitelist the relayer
@@ -448,12 +442,13 @@ impl PaymasterService {
             calldata: vec![self.config.relayer_address.into(), Felt::ONE],
         };
 
-        account
+        let result = account
             .execute_v3(vec![whitelist_call])
             .send()
             .await
             .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
 
+        wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
         self.forwarder_address = Some(avnu_forwarder_address);
 
         info!(%avnu_forwarder_address, "Paymaster bootstrapped successfully.");
@@ -575,6 +570,50 @@ async fn wait_for_contract(
             return Err(Error::ContractDeployTimeout(address));
         }
 
+        sleep(Duration::from_millis(200)).await;
+    }
+}
+
+async fn is_declared(provider: &JsonRpcClient<HttpTransport>, class_hash: Felt) -> Result<bool> {
+    match provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await {
+        Ok(_) => Ok(true),
+        Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => Ok(false),
+        Err(error) => Err(Error::ClassCheck(error)),
+    }
+}
+
+async fn wait_for_class(
+    provider: &JsonRpcClient<HttpTransport>,
+    class_hash: Felt,
+    timeout: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        if is_declared(provider, class_hash).await? {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(Error::ClassDeclareTimeout);
+        }
+        sleep(Duration::from_millis(200)).await;
+    }
+}
+
+async fn wait_for_tx(
+    provider: &JsonRpcClient<HttpTransport>,
+    tx_hash: Felt,
+    timeout: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        match provider.get_transaction_receipt(tx_hash).await {
+            Ok(_) => return Ok(()),
+            Err(ProviderError::StarknetError(StarknetError::TransactionHashNotFound)) => {}
+            Err(e) => return Err(Error::TransactionReceipt(e)),
+        }
+        if start.elapsed() > timeout {
+            return Err(Error::TransactionTimeout);
+        }
         sleep(Duration::from_millis(200)).await;
     }
 }

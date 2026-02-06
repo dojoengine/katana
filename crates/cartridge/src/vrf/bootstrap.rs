@@ -168,6 +168,7 @@ pub async fn bootstrap_vrf(
             .expect("fail to declare class");
 
         assert_eq!(result.class_hash, vrf_account_class_hash, "Class hash mismatch");
+        wait_for_class(&provider, vrf_account_class_hash, BOOTSTRAP_TIMEOUT).await?;
     }
 
     // Deploy VRF account if not already deployed
@@ -192,11 +193,13 @@ pub async fn bootstrap_vrf(
             calldata: vec![vrf_account_address.into(), amount, Felt::ZERO],
         };
 
-        account
+        let result = account
             .execute_v3(vec![transfer_call])
             .send()
             .await
             .map_err(|e| anyhow!("failed to fund VRF account: {e}"))?;
+
+        wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
     }
 
     // Set VRF public key on the deployed account
@@ -218,11 +221,13 @@ pub async fn bootstrap_vrf(
         calldata: vec![derived.vrf_public_key_x, derived.vrf_public_key_y],
     };
 
-    vrf_account
+    let result = vrf_account
         .execute_v3(vec![set_vrf_key_call])
         .send()
         .await
         .map_err(|e| anyhow!("failed to set VRF public key: {e}"))?;
+
+    wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
 
     // Deploy VRF consumer
     let vrf_consumer_class_hash = katana_contracts::vrf::CartridgeVrfConsumer::HASH;
@@ -300,6 +305,42 @@ async fn wait_for_contract(
             return Err(anyhow!("contract {address} not deployed before timeout"));
         }
 
+        sleep(Duration::from_millis(200)).await;
+    }
+}
+
+async fn wait_for_class(
+    provider: &JsonRpcClient<HttpTransport>,
+    class_hash: ClassHash,
+    timeout: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        if is_declared(provider, class_hash).await? {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(anyhow!("class {class_hash:#x} not declared before timeout"));
+        }
+        sleep(Duration::from_millis(200)).await;
+    }
+}
+
+async fn wait_for_tx(
+    provider: &JsonRpcClient<HttpTransport>,
+    tx_hash: Felt,
+    timeout: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        match provider.get_transaction_receipt(tx_hash).await {
+            Ok(_) => return Ok(()),
+            Err(ProviderError::StarknetError(StarknetError::TransactionHashNotFound)) => {}
+            Err(e) => return Err(anyhow!("failed to get transaction receipt: {e}")),
+        }
+        if start.elapsed() > timeout {
+            return Err(anyhow!("transaction {tx_hash:#x} not confirmed before timeout"));
+        }
         sleep(Duration::from_millis(200)).await;
     }
 }
