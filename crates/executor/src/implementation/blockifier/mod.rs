@@ -257,21 +257,21 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
             match result {
                 Ok(exec_result) => {
                     match &exec_result {
-                        ExecutionResult::Success { receipt, trace } => {
+                        ExecutionResult::Success { receipt, .. } => {
                             self.stats.l1_gas_used +=
                                 receipt.resources_used().total_gas_consumed.l1_gas as u128;
                             self.stats.cairo_steps_used +=
                                 receipt.resources_used().vm_resources.n_steps as u128;
 
-                            if let Some(reason) = receipt.revert_reason() {
-                                info!(target: LOG_TARGET, hash = format!("{hash:#x}"), %reason, "Transaction reverted.");
-                            }
-
                             if let Some((class_hash, class)) = class_decl_artifacts {
                                 state.declared_classes.insert(class_hash, class.as_ref().clone());
                             }
 
-                            crate::utils::log_resources(&trace.receipt.resources);
+                            if let Some(reason) = receipt.revert_reason() {
+                                info!(target: LOG_TARGET, hash = format!("{hash:#x}"), type = ?receipt.r#type(), revert_reason = %reason, "Transaction executed (reverted).");
+                            } else {
+                                info!(target: LOG_TARGET, hash = format!("{hash:#x}"), type = ?receipt.r#type(), "Transaction executed.");
+                            }
                         }
 
                         ExecutionResult::Failed { error } => {
