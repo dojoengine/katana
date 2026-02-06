@@ -198,9 +198,7 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch node")?;
 
             #[cfg(feature = "paymaster")]
-            let mut paymaster = if self.paymaster.is_external() {
-                None
-            } else {
+            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
                 use crate::sidecar::bootstrap_paymaster;
 
                 let paymaster = bootstrap_paymaster(
@@ -214,12 +212,12 @@ impl SequencerNodeArgs {
                 .await?;
 
                 Some(paymaster)
+            } else {
+                None
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.cartridge.vrf.is_external() {
-                None
-            } else {
+            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
                 use crate::sidecar::bootstrap_vrf;
 
                 let vrf = bootstrap_vrf(
@@ -232,6 +230,8 @@ impl SequencerNodeArgs {
                 .await?;
 
                 Some(vrf)
+            } else {
+                None
             };
 
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
