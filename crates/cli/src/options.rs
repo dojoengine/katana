@@ -652,8 +652,8 @@ impl CartridgeOptions {
                 self.controllers = other.controllers;
             }
 
-            if self.api == default_api_url() {
-                self.api = other.api.clone();
+            if self.cartridge_api == default_api_url() {
+                self.cartridge_api = other.cartridge_api.clone();
             }
 
             if self.vrf == VrfOptions::default() {
@@ -729,6 +729,10 @@ impl VrfOptions {
 
             if self.url.is_none() {
                 self.url = other.url.clone();
+            }
+
+            if self.vrf_account_contract.is_none() {
+                self.vrf_account_contract = other.vrf_account_contract;
             }
 
             if self.bin.is_none() {
