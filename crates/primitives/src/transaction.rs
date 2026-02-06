@@ -6,7 +6,7 @@ use crate::chain::ChainId;
 use crate::class::{ClassHash, CompiledClassHash, ContractClass};
 use crate::contract::{ContractAddress, Nonce};
 use crate::da::DataAvailabilityMode;
-use crate::fee::ResourceBoundsMapping;
+use crate::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use crate::utils::transaction::{
     compute_declare_v0_tx_hash, compute_declare_v1_tx_hash, compute_declare_v2_tx_hash,
     compute_declare_v3_tx_hash, compute_deploy_account_v1_tx_hash,
@@ -324,6 +324,76 @@ impl InvokeTx {
                 }
             },
         }
+    }
+}
+
+// Conversion utilities for RPC types
+
+/// Converts starknet-rs DataAvailabilityMode to katana DataAvailabilityMode
+fn from_rpc_da_mode(mode: starknet::core::types::DataAvailabilityMode) -> DataAvailabilityMode {
+    match mode {
+        starknet::core::types::DataAvailabilityMode::L1 => DataAvailabilityMode::L1,
+        starknet::core::types::DataAvailabilityMode::L2 => DataAvailabilityMode::L2,
+    }
+}
+
+/// Converts starknet-rs ResourceBoundsMapping to katana ResourceBoundsMapping
+fn from_rpc_resource_bounds(
+    rpc_bounds: starknet::core::types::ResourceBoundsMapping,
+) -> ResourceBoundsMapping {
+    ResourceBoundsMapping::All(AllResourceBoundsMapping {
+        l1_gas: ResourceBounds {
+            max_amount: rpc_bounds.l1_gas.max_amount,
+            max_price_per_unit: rpc_bounds.l1_gas.max_price_per_unit,
+        },
+        l2_gas: ResourceBounds {
+            max_amount: rpc_bounds.l2_gas.max_amount,
+            max_price_per_unit: rpc_bounds.l2_gas.max_price_per_unit,
+        },
+        l1_data_gas: ResourceBounds {
+            max_amount: rpc_bounds.l1_data_gas.max_amount,
+            max_price_per_unit: rpc_bounds.l1_data_gas.max_price_per_unit,
+        },
+    })
+}
+
+impl From<starknet::core::types::BroadcastedInvokeTransaction> for InvokeTx {
+    fn from(tx: starknet::core::types::BroadcastedInvokeTransaction) -> Self {
+        InvokeTx::V3(InvokeTxV3 {
+            chain_id: ChainId::default(),
+            nonce: tx.nonce,
+            calldata: tx.calldata,
+            signature: tx.signature,
+            sender_address: tx.sender_address.into(),
+            account_deployment_data: tx.account_deployment_data,
+            fee_data_availability_mode: from_rpc_da_mode(tx.fee_data_availability_mode),
+            nonce_data_availability_mode: from_rpc_da_mode(tx.nonce_data_availability_mode),
+            paymaster_data: tx.paymaster_data,
+            resource_bounds: from_rpc_resource_bounds(tx.resource_bounds),
+            tip: tx.tip,
+        })
+    }
+}
+
+impl InvokeTx {
+    /// Convert from a broadcasted invoke transaction with a specific chain ID
+    pub fn from_broadcasted_with_chain_id(
+        tx: starknet::core::types::BroadcastedInvokeTransaction,
+        chain_id: ChainId,
+    ) -> Self {
+        InvokeTx::V3(InvokeTxV3 {
+            chain_id,
+            nonce: tx.nonce,
+            calldata: tx.calldata,
+            signature: tx.signature,
+            sender_address: tx.sender_address.into(),
+            account_deployment_data: tx.account_deployment_data,
+            fee_data_availability_mode: from_rpc_da_mode(tx.fee_data_availability_mode),
+            nonce_data_availability_mode: from_rpc_da_mode(tx.nonce_data_availability_mode),
+            paymaster_data: tx.paymaster_data,
+            resource_bounds: from_rpc_resource_bounds(tx.resource_bounds),
+            tip: tx.tip,
+        })
     }
 }
 

@@ -11,10 +11,10 @@ members = [
 	"crates/core",
 	"crates/executor",
 	"crates/explorer",
-	"crates/genesis",
-	"crates/gateway/gateway-types",
 	"crates/gateway/gateway-client",
 	"crates/gateway/gateway-server",
+	"crates/gateway/gateway-types",
+	"crates/genesis",
 	"crates/grpc",
 	"crates/messaging",
 	"crates/metrics",
@@ -25,9 +25,9 @@ members = [
 	"crates/pool/pool-api",
 	"crates/primitives",
 	"crates/primitives/macro",
-	"crates/rpc/rpc-server",
 	"crates/rpc/rpc-api",
 	"crates/rpc/rpc-client",
+	"crates/rpc/rpc-server",
 	"crates/rpc/rpc-types",
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
@@ -44,6 +44,7 @@ members = [
 	"crates/sync/stage",
 	"crates/tasks",
 	"crates/tee",
+	"crates/test-utils",
 	"crates/tracing",
 	"crates/trie",
 	"crates/utils",
@@ -82,11 +83,11 @@ katana-core = { path = "crates/core" }
 katana-db = { path = "crates/storage/db" }
 katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
-katana-gateway-types = { path = "crates/gateway/gateway-types" }
-katana-gateway-client = { path = "crates/gateway/gateway-client" }
-katana-gateway-server = { path = "crates/gateway/gateway-server" }
 katana-fork = { path = "crates/storage/fork" }
 katana-gas-price-oracle = { path = "crates/oracle/gas" }
+katana-gateway-client = { path = "crates/gateway/gateway-client" }
+katana-gateway-server = { path = "crates/gateway/gateway-server" }
+katana-gateway-types = { path = "crates/gateway/gateway-types" }
 katana-genesis = { path = "crates/genesis" }
 katana-grpc = { path = "crates/grpc" }
 katana-messaging = { path = "crates/messaging" }
@@ -100,9 +101,9 @@ katana-primitives = { path = "crates/primitives" }
 katana-primitives-macro = { path = "crates/primitives/macro" }
 katana-provider = { path = "crates/storage/provider/provider" }
 katana-provider-api = { path = "crates/storage/provider/provider-api" }
-katana-rpc-server = { path = "crates/rpc/rpc-server" }
 katana-rpc-api = { path = "crates/rpc/rpc-api" }
 katana-rpc-client = { path = "crates/rpc/rpc-client" }
+katana-rpc-server = { path = "crates/rpc/rpc-server" }
 katana-rpc-types = { path = "crates/rpc/rpc-types" }
 katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }
@@ -111,6 +112,7 @@ katana-stage = { path = "crates/sync/stage" }
 katana-starknet = { path = "crates/starknet" }
 katana-tasks = { path = "crates/tasks" }
 katana-tee = { path = "crates/tee" }
+katana-test-utils = { path = "crates/test-utils" }
 katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
@@ -161,7 +163,7 @@ regex = "1.10.3"
 reqwest = { version = "0.12.15", features = [ "json", "rustls-tls" ], default-features = false }
 rstest = "0.18.2"
 rstest_reuse = "0.6.0"
-sev-snp = { git = "https://github.com/automata-network/amd-sev-snp-attestation-sdk", branch = "main", default-features = false, features = ["legacy", "configfs"] }
+sev-snp = { git = "https://github.com/automata-network/amd-sev-snp-attestation-sdk", branch = "main", default-features = false, features = [ "configfs", "legacy" ] }
 similar-asserts = "1.5.0"
 slot = { git = "https://github.com/cartridge-gg/slot", rev = "1298a30" }
 spinoff = "0.8.0"
@@ -188,7 +190,7 @@ hyper = "0.14.27"
 jsonrpsee = { version = "0.26", default-features = false }
 rustls = "0.23"
 tower = "0.5"
-tower-http = { version = "0.6", features = [ "trace", "cors", "timeout" ] }
+tower-http = { version = "0.6", features = [ "cors", "timeout", "trace" ] }
 tower-service = "0.3"
 
 # gRPC

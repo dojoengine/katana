@@ -32,14 +32,14 @@ starknet = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 
 [features]
+explorer = [ "katana-node/explorer", "node" ]
 node = [
-    "katana-chain-spec",
-    "katana-core",
-    "katana-executor",
-    "katana-node",
-    "katana-provider",
-    "katana-rpc-server",
-    "starknet",
-    "tempfile",
+	"katana-chain-spec",
+	"katana-core",
+	"katana-executor",
+	"katana-node",
+	"katana-provider",
+	"katana-rpc-server",
+	"starknet",
+	"tempfile",
 ]
-explorer = [ "node", "katana-node/explorer" ]

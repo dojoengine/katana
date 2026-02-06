@@ -8,8 +8,6 @@ use katana_primitives::{felt, Felt};
 use katana_utils::TestNode;
 use tokio::sync::Mutex;
 
-mod common;
-
 abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
 #[tokio::test(flavor = "multi_thread")]

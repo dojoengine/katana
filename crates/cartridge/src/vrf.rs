@@ -55,6 +55,11 @@ pub struct VrfContext {
 }
 
 impl VrfContext {
+    /// Creates a new [`VrfContext`] with the default private key and provider address.
+    pub fn new_with_default_private_key(provider: ContractAddress) -> Self {
+        Self::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, provider)
+    }
+
     /// Creates a new [`VrfContext`] with the given private key and provider address.
     pub fn new(private_key: Felt, provider: ContractAddress) -> Self {
         let public_key = generate_public_key(private_key.to_biguint().into());
@@ -72,7 +77,6 @@ impl VrfContext {
     pub fn get_public_key_xy_felts(&self) -> (Felt, Felt) {
         let x = Felt::from_hex(&format(self.public_key.x)).unwrap();
         let y = Felt::from_hex(&format(self.public_key.y)).unwrap();
-
         (x, y)
     }
 

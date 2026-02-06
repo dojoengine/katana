@@ -40,14 +40,4 @@ pub struct StarknetApiConfig {
     /// [`VersionedConstants`](katana_executor::implementation::blockifier::blockifier::VersionedConstants)
     /// used for execution (i.e., estimates, simulation, and call)
     pub versioned_constant_overrides: Option<VersionedConstantsOverrides>,
-
-    #[cfg(feature = "cartridge")]
-    pub paymaster: Option<PaymasterConfig>,
-}
-
-#[cfg(feature = "cartridge")]
-#[derive(Debug, Clone)]
-pub struct PaymasterConfig {
-    /// The root URL for the Cartridge API.
-    pub cartridge_api_url: url::Url,
 }
