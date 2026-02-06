@@ -1,10 +1,12 @@
 pub use arbitrary::{Arbitrary, Unstructured};
 pub use katana_utils_macro::mock_provider;
 
+#[cfg(feature = "node")]
 pub mod node;
 mod signal;
 mod tx_waiter;
 
+#[cfg(feature = "node")]
 pub use node::TestNode;
 pub use signal::wait_shutdown_signals;
 pub use tx_waiter::*;
