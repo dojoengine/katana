@@ -34,6 +34,8 @@ pub enum RpcModuleKind {
     Dev,
     #[cfg(feature = "cartridge")]
     Cartridge,
+    #[cfg(feature = "tee")]
+    Tee,
 }
 
 /// Configuration for the RPC server.
@@ -104,6 +106,8 @@ impl RpcModulesList {
             RpcModuleKind::Dev,
             #[cfg(feature = "cartridge")]
             RpcModuleKind::Cartridge,
+            #[cfg(feature = "tee")]
+            RpcModuleKind::Tee,
         ]))
     }
 

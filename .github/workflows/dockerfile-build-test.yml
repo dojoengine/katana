@@ -6,8 +6,8 @@ on:
       - ".github/Dockerfile"
 
 env:
-  RUST_VERSION: 1.86.0
-  CLIPPY_VERSION: nightly-2025-02-20
+  RUST_VERSION: 1.89.0
+  CLIPPY_VERSION: nightly-2025-06-20
 
 jobs:
   build-dev-image:

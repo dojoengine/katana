@@ -1,9 +1,7 @@
 use std::cmp::Ordering;
 
 use katana_db::abstraction::{DbTx, DbTxMut};
-use katana_db::models::contract::ContractClassChange;
-use katana_db::models::contract::ContractNonceChange;
-use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
+use katana_db::models::storage::StorageEntry;
 use katana_db::tables;
 use katana_db::trie::TrieDbFactory;
 use katana_primitives::block::BlockHashOrNumber;
@@ -21,7 +19,7 @@ use katana_rpc_types::ContractStorageKeys;
 use super::db::{self};
 use super::ForkedProvider;
 use crate::providers::fork::ForkedDb;
-use crate::{MutableProvider, ProviderFactory, ProviderResult};
+use crate::{BlockNumber, MutableProvider, ProviderFactory, ProviderResult};
 
 impl<Tx1: DbTx> StateFactoryProvider for ForkedProvider<Tx1> {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
@@ -36,14 +34,12 @@ impl<Tx1: DbTx> StateFactoryProvider for ForkedProvider<Tx1> {
     ) -> ProviderResult<Option<Box<dyn StateProvider>>> {
         let block_number = match block_id {
             BlockHashOrNumber::Num(num) => {
-                // Use the same logic as latest_number() - max of local_latest and fork_point
-                let fork_point = self.block_id();
                 let local_latest = match self.local_db.latest_number() {
                     Ok(num) => num,
-                    Err(ProviderError::MissingLatestBlockNumber) => fork_point,
+                    Err(ProviderError::MissingLatestBlockNumber) => self.block_id(),
                     Err(err) => return Err(err),
                 };
-                let latest_num = local_latest.max(fork_point);
+                let latest_num = local_latest.max(self.block_id());
 
                 match num.cmp(&latest_num) {
                     Ordering::Less => Some(num),
@@ -121,8 +117,9 @@ impl<Tx1: DbTx> ContractClassProvider for LatestStateProvider<Tx1> {
 }
 
 impl<Tx1: DbTx> LatestStateProvider<Tx1> {
-    /// Returns the latest block number, which is the maximum of local_db.latest_number() and fork_point.
-    /// This ensures that even if local_db is empty, we return the fork point as the latest block.
+    /// Returns the latest block number, which is the maximum of local_db.latest_number() and
+    /// fork_point. This ensures that even if local_db is empty, we return the fork point as the
+    /// latest block.
     fn latest_block_number(&self) -> ProviderResult<katana_primitives::block::BlockNumber> {
         let fork_point = self.fork_provider.block_id;
         let local_latest = match self.local_provider.0.latest_number() {
@@ -136,8 +133,30 @@ impl<Tx1: DbTx> LatestStateProvider<Tx1> {
 
 impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        if let res @ Some(..) = self.local_provider.nonce(address)? {
-            Ok(res)
+        if let Some(nonce) = self.local_provider.nonce(address)? {
+            // TEMPFIX:
+            //
+            // This check is required due to the limitation on how we're storing updates for
+            // contracts that were deployed before the fork point. For those contracts,
+            // their corresponding entries for the `ContractInfo` table might not exist.
+            // In which case, `BlockWriter::insert_block_with_states_and_receipts`
+            // implementation of `ForkedProvider` would simply defaulted the fields to zero
+            // (depending which field is being updated). Thus, this check is to
+            // determine if the this contract's info is split across the local and fork dbs, where
+            // the value zero means the data is stored in the forked db.
+            //
+            // False positive:
+            //
+            // Nonce can be zero
+            if nonce == Nonce::ZERO {
+                if let Some(nonce) = self.fork_provider.db.provider().latest()?.nonce(address)? {
+                    if nonce != Nonce::ZERO {
+                        return Ok(Some(nonce));
+                    }
+                }
+            }
+
+            Ok(Some(nonce))
         } else if let Some(nonce) =
             self.fork_provider.backend.get_nonce(address, self.fork_provider.block_id)?
         {
@@ -163,8 +182,32 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-        if let res @ Some(..) = self.local_provider.class_hash_of_contract(address)? {
-            Ok(res)
+        if let Some(hash) = self.local_provider.class_hash_of_contract(address)? {
+            // TEMPFIX:
+            //
+            // This check is required due to the limitation on how we're storing updates for
+            // contracts that were deployed before the fork point. For those contracts,
+            // their corresponding entries for the `ContractInfo` table might not exist.
+            // In which case, `BlockWriter::insert_block_with_states_and_receipts`
+            // implementation of `ForkedProvider` would simply defaulted the fields to zero
+            // (depending which field is being updated). Thus, this check is to
+            // determine if the this contract's info is split across the local and fork dbs, where
+            // the value zero means the data is stored in the forked db.
+            //
+            // False positive:
+            //
+            // Some contracts can have class hash of zero (ie special contracts like 0x1, 0x2) hence
+            // why we simply return the value if it can't be found in the forked db.
+            // This is very hacky but it works for now.
+            if hash == ClassHash::ZERO {
+                if let Some(hash) =
+                    self.fork_provider.db.provider().latest()?.class_hash_of_contract(address)?
+                {
+                    return Ok(Some(hash));
+                }
+            }
+
+            Ok(Some(hash))
         } else if let Some(class_hash) =
             self.fork_provider.backend.get_class_hash_at(address, self.fork_provider.block_id)?
         {
@@ -220,11 +263,10 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             Ok(proofs.classes_proof.nodes.into())
         } else {
-            // Use partial trie with proof and root from fork_point
-            let mut trie =
-                TrieDbFactory::new(self.local_provider.0.tx()).latest().partial_classes_trie();
+            let mut trie = TrieDbFactory::new(self.local_provider.0.tx().clone())
+                .latest()
+                .partial_classes_trie();
 
-            // Fetch proof and root from fork_point
             let rpc_proof =
                 self.fork_provider.backend.get_classes_proofs(classes.clone(), fork_point)?;
             let rpc_root = self.fork_provider.backend.get_global_roots(fork_point)?;
@@ -252,11 +294,10 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             Ok(proofs.contracts_proof.nodes.into())
         } else {
-            // Use partial trie with proof and root from fork_point
-            let mut trie =
-                TrieDbFactory::new(self.local_provider.0.tx()).latest().partial_contracts_trie();
+            let mut trie = TrieDbFactory::new(self.local_provider.0.tx().clone())
+                .latest()
+                .partial_contracts_trie();
 
-            // Fetch proof and root from fork_point
             let rpc_proof =
                 self.fork_provider.backend.get_contracts_proofs(addresses.clone(), fork_point)?;
             let rpc_root = self.fork_provider.backend.get_global_roots(fork_point)?;
@@ -283,31 +324,26 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
             let key = vec![ContractStorageKeys { address, keys: storage_keys }];
             let result = self.fork_provider.backend.get_storages_proofs(key, fork_point)?;
 
-            let mut proofs = result.expect("proofs should exist for block");
-            let proofs = proofs.contracts_storage_proofs.nodes.pop().unwrap();
+            let proof = result
+                .and_then(|mut p| p.contracts_storage_proofs.nodes.pop())
+                .map(|p| p.into())
+                .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
 
-            Ok(proofs.into())
+            Ok(proof)
         } else {
-            let mut trie = TrieDbFactory::new(self.local_provider.0.tx())
+            let mut trie = TrieDbFactory::new(self.local_provider.0.tx().clone())
                 .latest()
                 .partial_storages_trie(address);
 
-            // Fetch proof and root from fork_point
             let key = vec![ContractStorageKeys { address, keys: storage_keys.clone() }];
             let rpc_proof = self.fork_provider.backend.get_storages_proofs(key, fork_point)?;
             let rpc_root = self.fork_provider.backend.get_storage_root(address, fork_point)?;
 
-            // Get proof for this contract (should be exactly one element in nodes)
             let proof = rpc_proof
-                .and_then(|p| {
-                    // Should have exactly one element - proof for all storage_keys of this contract
-                    if p.contracts_storage_proofs.nodes.len() == 1 {
-                        Some(p.contracts_storage_proofs.nodes[0].clone().into())
-                    } else {
-                        None
-                    }
-                })
+                .and_then(|mut p| p.contracts_storage_proofs.nodes.pop())
+                .map(|p| p.into())
                 .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
+
             let root = rpc_root.unwrap_or(Felt::ZERO);
 
             let proofs = trie.partial_multiproof(storage_keys, Some(proof), Some(root));
@@ -321,7 +357,6 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = self.latest_block_number()?;
 
-        //That's not necessary
         if latest_block_number == fork_point {
             let result = self.fork_provider.backend.get_global_roots(fork_point)?;
             return Ok(result
@@ -330,8 +365,7 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
                 .classes_tree_root);
         }
 
-        // Try to get root from local trie
-        let trie = TrieDbFactory::new(self.local_provider.0.tx()).latest().classes_trie();
+        let trie = TrieDbFactory::new(self.local_provider.0.tx().clone()).latest().classes_trie();
         let root = trie.root();
 
         if root == Felt::ZERO {
@@ -354,11 +388,9 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
                 .contracts_tree_root);
         }
 
-        // Try to get root from local trie
-        let trie = TrieDbFactory::new(self.local_provider.0.tx()).latest().contracts_trie();
+        let trie = TrieDbFactory::new(self.local_provider.0.tx().clone()).latest().contracts_trie();
         let root = trie.root();
 
-        // If trie is empty (no local contract changes), use the fork point root
         if root == Felt::ZERO {
             let result = self.fork_provider.backend.get_global_roots(fork_point)?;
             Ok(result.expect("proofs should exist for block").global_roots.contracts_tree_root)
@@ -376,11 +408,11 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
             let root = result.expect("proofs should exist for block");
             Ok(Some(root))
         } else {
-            let root = TrieDbFactory::new(self.local_provider.0.tx())
+            let root = TrieDbFactory::new(self.local_provider.0.tx().clone())
                 .latest()
                 .storages_trie(contract)
                 .root();
-            // If trie is empty (no local storage changes), use the fork point root as base
+
             if root == Felt::ZERO {
                 Ok(self
                     .fork_provider
@@ -398,6 +430,12 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
 struct HistoricalStateProvider<Tx1: DbTx> {
     local_provider: db::state::HistoricalStateProvider<Tx1>,
     fork_provider: ForkedDb,
+}
+
+impl<Tx1: DbTx> HistoricalStateProvider<Tx1> {
+    fn target_block(&self) -> BlockNumber {
+        self.local_provider.block().min(self.fork_provider.block_id)
+    }
 }
 
 impl<Tx1: DbTx> ContractClassProvider for HistoricalStateProvider<Tx1> {
@@ -443,13 +481,9 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if let res @ Some(nonce) =
-            self.fork_provider.backend.get_nonce(address, self.fork_provider.block_id)?
-        {
-            Ok(res)
-        } else {
-            Ok(None)
-        }
+        let block_id = self.target_block();
+
+        Ok(self.fork_provider.backend.get_nonce(address, block_id)?)
     }
 
     fn class_hash_of_contract(
@@ -460,13 +494,9 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if let res @ Some(hash) =
-            self.fork_provider.backend.get_class_hash_at(address, self.fork_provider.block_id)?
-        {
-            Ok(res)
-        } else {
-            Ok(None)
-        }
+        let block_id = self.target_block();
+
+        Ok(self.fork_provider.backend.get_class_hash_at(address, block_id)?)
     }
 
     fn storage(
@@ -478,25 +508,20 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if let res @ Some(value) =
-            self.fork_provider.backend.get_storage(address, key, self.fork_provider.block_id)?
-        {
-            Ok(res)
-        } else {
-            Ok(None)
-        }
+        let block_id = self.target_block();
+
+        Ok(self.fork_provider.backend.get_storage(address, key, block_id)?)
     }
 }
 
 impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let mut trie = TrieDbFactory::new(self.local_provider.tx())
+            let mut trie = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_classes_trie();
 
-            // Fetch proof and root from fork_point
             let rpc_proof = self
                 .fork_provider
                 .backend
@@ -515,7 +540,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let result = self
                 .fork_provider
                 .backend
-                .get_classes_proofs(classes, self.fork_provider.block_id)?;
+                .get_classes_proofs(classes, self.local_provider.block())?;
             let proofs = result.expect("block should exist");
 
             Ok(proofs.classes_proof.nodes.into())
@@ -527,12 +552,11 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let mut trie = TrieDbFactory::new(self.local_provider.tx())
+            let mut trie = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_contracts_trie();
 
-            // Fetch proof and root from fork_point
             let rpc_proof = self
                 .fork_provider
                 .backend
@@ -551,7 +575,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let result = self
                 .fork_provider
                 .backend
-                .get_contracts_proofs(addresses, self.fork_provider.block_id)?;
+                .get_contracts_proofs(addresses, self.local_provider.block())?;
             let proofs = result.expect("block should exist");
 
             Ok(proofs.contracts_proof.nodes.into())
@@ -564,12 +588,11 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let mut trie = TrieDbFactory::new(self.local_provider.tx())
+            let mut trie = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_storages_trie(address);
 
-            // Fetch proof and root from fork_point
             let key = vec![ContractStorageKeys { address, keys: storage_keys.clone() }];
             let rpc_proof =
                 self.fork_provider.backend.get_storages_proofs(key, self.fork_provider.block_id)?;
@@ -582,6 +605,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
                 .and_then(|mut p| p.contracts_storage_proofs.nodes.pop())
                 .map(|p| p.into())
                 .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
+
             let root = rpc_root.unwrap_or(Felt::ZERO);
 
             let proofs = trie.partial_multiproof(storage_keys, Some(proof), Some(root));
@@ -589,7 +613,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
         } else {
             let key = vec![ContractStorageKeys { address, keys: storage_keys }];
             let result =
-                self.fork_provider.backend.get_storages_proofs(key, self.fork_provider.block_id)?;
+                self.fork_provider.backend.get_storages_proofs(key, self.local_provider.block())?;
 
             let mut proofs = result.expect("block should exist");
             let storage_proof = proofs.contracts_storage_proofs.nodes.pop().unwrap_or_default();
@@ -625,13 +649,12 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
 
     fn classes_root(&self) -> ProviderResult<Felt> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let root = TrieDbFactory::new(self.local_provider.tx())
+            let root = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .classes_trie()
                 .root();
 
-            // It trie is empty, use the fork point root, because nothing has changed locally
             if root == Felt::ZERO {
                 let result =
                     self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
@@ -652,13 +675,12 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
 
     fn contracts_root(&self) -> ProviderResult<Felt> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let root = TrieDbFactory::new(self.local_provider.tx())
+            let root = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .contracts_trie()
                 .root();
 
-            // It trie is empty, use the fork point root, because nothing has changed locally
             if root == Felt::ZERO {
                 let result =
                     self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
@@ -671,7 +693,7 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
             }
         } else {
             let result =
-                self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
+                self.fork_provider.backend.get_global_roots(self.local_provider.block())?;
             let roots = result.expect("block should exist");
             Ok(roots.global_roots.contracts_tree_root)
         }
@@ -679,7 +701,7 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let root = TrieDbFactory::new(self.local_provider.tx())
+            let root = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .storages_trie(contract)
@@ -698,7 +720,7 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
             let result = self
                 .fork_provider
                 .backend
-                .get_storage_root(contract, self.fork_provider.block_id)?;
+                .get_storage_root(contract, self.local_provider.block())?;
             Ok(result)
         }
     }

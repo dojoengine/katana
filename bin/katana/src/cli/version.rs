@@ -28,7 +28,7 @@ pub fn generate_long() -> String {
     writeln!(out, "{}", generate_short()).unwrap();
     writeln!(out).unwrap();
     writeln!(out, "features: {}", features().join(",")).unwrap();
-    write!(out, "built on: {}", VERGEN_BUILD_TIMESTAMP).unwrap();
+    write!(out, "built on: {VERGEN_BUILD_TIMESTAMP}").unwrap();
     out
 }
 

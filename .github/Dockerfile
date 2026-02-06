@@ -25,7 +25,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive && \
 	libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 \
 	libxss1 libxtst6 lsb-release wget xdg-utils \
 	# Additional tools
-	gh libgmp3-dev software-properties-common curl git unzip bc \
+	gh libgmp3-dev curl git unzip bc \
 	debian-keyring debian-archive-keyring apt-transport-https \
 	# LLVM dependencies
 	llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 \
@@ -117,9 +117,18 @@ ENV PATH="$ASDF_DATA_DIR/shims:$PATH"
 RUN asdf plugin add scarb && asdf install scarb 2.8.2 && asdf set scarb 2.8.2
 
 # Install caddy
-RUN curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg && \
-	curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list && \
-	apt update && apt install caddy && rm -rf /var/lib/apt/lists/*
+ARG TARGETPLATFORM
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ] ; then \
+	curl -L https://github.com/caddyserver/caddy/releases/download/v2.10.0/caddy_2.10.0_linux_arm64.tar.gz -o caddy.tar.gz && \
+	tar -xzf caddy.tar.gz caddy && \
+	mv caddy /usr/local/bin/ && \
+	rm caddy.tar.gz; \
+	elif [ "$TARGETPLATFORM" = "linux/amd64" ] ; then \
+	curl -L https://github.com/caddyserver/caddy/releases/download/v2.10.0/caddy_2.10.0_linux_amd64.tar.gz -o caddy.tar.gz && \
+	tar -xzf caddy.tar.gz caddy && \
+	mv caddy /usr/local/bin/ && \
+	rm caddy.tar.gz; \
+	fi
 
 # Set permissions
 RUN chown -R root:root /usr/local/cargo && chmod -R 700 /usr/local/cargo

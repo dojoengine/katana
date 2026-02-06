@@ -32,6 +32,7 @@ async fn get_block(gateway: Client, #[case] block_number: BlockNumber, #[case] e
 #[case::v0_11_1(65000, test_data("0.11.1/state_update/mainnet_65000.json"))]
 #[case::v0_12_2(350000, test_data("0.12.2/state_update/mainnet_350000.json"))]
 #[case::v0_13_0(550000, test_data("0.13.0/state_update/mainnet_550000.json"))]
+#[case::v0_14_1(4130000, test_data("0.14.1/state_update/mainnet_4130000.json"))]
 #[tokio::test]
 async fn get_state_update(
     gateway: Client,

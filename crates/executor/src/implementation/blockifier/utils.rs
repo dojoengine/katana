@@ -11,7 +11,7 @@ use blockifier::execution::contract_class::{
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
 use blockifier::state::state_api::{StateReader, UpdatableState};
-use blockifier::state::stateful_compression::{allocate_aliases_in_storage, compress};
+use blockifier::state::stateful_compression::allocate_aliases_in_storage;
 use blockifier::transaction::account_transaction::{
     AccountTransaction, ExecutionFlags as BlockifierExecutionFlags,
 };
@@ -20,6 +20,7 @@ use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
 use katana_chain_spec::ChainSpec;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::fee::{FeeInfo, PriceUnit, ResourceBoundsMapping};
@@ -30,7 +31,6 @@ use katana_primitives::transaction::{
 use katana_primitives::{class, fee};
 use katana_provider::api::contract::ContractClassProvider;
 use num_traits::Zero;
-use starknet::core::utils::parse_cairo_short_string;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, FeeType, GasPriceVector, GasPrices, NonzeroGasPrice,
     StarknetVersion,
@@ -55,6 +55,8 @@ use starknet_api::transaction::{
     InvokeTransaction as ApiInvokeTransaction, InvokeTransactionV3, TransactionHash,
     TransactionVersion,
 };
+
+const ALIAS_CONTRACT_ADDRESS: &str = "0x2";
 
 use super::state::CachedState;
 use crate::abstraction::ExecutionFlags;
@@ -139,6 +141,7 @@ pub fn transact<S: StateReader>(
                     &tx_state,
                     &tx_state_changes_keys,
                     &info.summarize(versioned_constants),
+                    &info.summarize_builtins(),
                     &info.receipt.resources,
                     versioned_constants,
                 )?;
@@ -203,7 +206,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiInvokeTransaction::V0(starknet_api::transaction::InvokeTransactionV0 {
                         entry_point_selector: EntryPointSelector(tx.entry_point_selector),
                         contract_address: to_blk_address(tx.contract_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                         max_fee: Fee(tx.max_fee),
                     }),
@@ -225,7 +228,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                     }),
                     tx_hash: TransactionHash(hash),
@@ -251,7 +254,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                         paymaster_data: PaymasterData(paymaster_data),
                         account_deployment_data: AccountDeploymentData(account_deploy_data),
@@ -281,7 +284,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiDeployAccountTransaction::V1(DeployAccountTransactionV1 {
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         constructor_calldata: Calldata(Arc::new(calldata)),
                         contract_address_salt: salt,
@@ -309,7 +312,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiDeployAccountTransaction::V3(DeployAccountTransactionV3 {
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         constructor_calldata: Calldata(Arc::new(calldata)),
                         contract_address_salt: salt,
@@ -336,7 +339,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     max_fee: Fee(tx.max_fee),
                     nonce: Nonce::default(),
                     sender_address: to_blk_address(tx.sender_address),
-                    signature: TransactionSignature(tx.signature),
+                    signature: TransactionSignature(tx.signature.into()),
                     class_hash: ClassHash(tx.class_hash),
                 }),
 
@@ -344,7 +347,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     max_fee: Fee(tx.max_fee),
                     nonce: Nonce(tx.nonce),
                     sender_address: to_blk_address(tx.sender_address),
-                    signature: TransactionSignature(tx.signature),
+                    signature: TransactionSignature(tx.signature.into()),
                     class_hash: ClassHash(tx.class_hash),
                 }),
 
@@ -355,7 +358,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         compiled_class_hash: CompiledClassHash(tx.compiled_class_hash),
                     })
@@ -374,7 +377,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         account_deployment_data: AccountDeploymentData(account_deploy_data),
                         compiled_class_hash: CompiledClassHash(tx.compiled_class_hash),
@@ -479,7 +482,8 @@ pub fn block_context_from_envs(
         use_kzg_da: false,
     };
 
-    let chain_info = ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(chain_spec.id()) };
+    let chain_info =
+        ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(chain_spec.id()), is_l3: false };
 
     // IMPORTANT:
     //
@@ -497,19 +501,33 @@ pub fn block_context_from_envs(
     BlockContext::new(block_info, chain_info, versioned_constants, BouncerConfig::max())
 }
 
-pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUpdatesWithClasses {
-    let alias_contract_address = contract_address!("0x2");
+pub(super) fn state_update_from_cached_state(
+    state: &CachedState<'_>,
+    stateful_compression: bool,
+) -> StateUpdatesWithClasses {
+    let state_diff = if stateful_compression {
+        let mut state_lock = state.inner.lock();
 
-    allocate_aliases_in_storage(&mut state.inner.lock().cached_state, alias_contract_address)
-        .unwrap();
+        let alias_contract_address = contract_address!(ALIAS_CONTRACT_ADDRESS);
+        allocate_aliases_in_storage(&mut state_lock.cached_state, alias_contract_address)
+            .expect("failed to allocated aliases");
 
-    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
-    let state_diff =
-        compress(&state_diff, &state.inner.lock().cached_state, alias_contract_address);
+        #[cfg(debug_assertions)]
+        {
+            use blockifier::state::stateful_compression::compress;
 
-    assert!(state_diff.is_ok(), "failed to compress state diff");
+            let state_diff = state_lock.cached_state.to_state_diff().unwrap().state_maps;
+            let compressed_state_diff =
+                compress(&state_diff, &state_lock.cached_state, alias_contract_address);
 
-    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+            debug_assert!(compressed_state_diff.is_ok(), "failed to compress state diff");
+        }
+
+        state_lock.cached_state.to_state_diff().unwrap().state_maps
+    } else {
+        state.inner.lock().cached_state.to_state_diff().unwrap().state_maps
+    };
+
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
         katana_primitives::class::ContractClass,
@@ -574,6 +592,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
             deployed_contracts,
             deprecated_declared_classes,
             replaced_classes: BTreeMap::default(),
+            migrated_compiled_classes: BTreeMap::default(),
         },
     }
 }
@@ -636,8 +655,8 @@ pub fn to_blk_chain_id(chain_id: katana_primitives::chain::ChainId) -> ChainId {
         katana_primitives::chain::ChainId::Named(NamedChainId::Sepolia) => ChainId::Sepolia,
         katana_primitives::chain::ChainId::Named(named) => ChainId::Other(named.to_string()),
         katana_primitives::chain::ChainId::Id(id) => {
-            let id = parse_cairo_short_string(&id).expect("valid cairo string");
-            ChainId::Other(id)
+            let id = ShortString::try_from(id).expect("valid cairo string");
+            ChainId::Other(id.to_string())
         }
     }
 }

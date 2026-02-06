@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use katana_db::abstraction::DbTxMut;
 use katana_db::tables;
@@ -13,8 +13,6 @@ use katana_provider_api::ProviderError;
 use katana_trie::{
     compute_contract_state_hash, ClassesTrie, ContractLeaf, ContractsTrie, StoragesTrie,
 };
-use starknet::macros::short_string;
-use tracing::{debug, info, warn};
 
 use crate::providers::db::DbProvider;
 use crate::ProviderResult;
@@ -23,12 +21,12 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        classes: Vec<(ClassHash, CompiledClassHash)>,
     ) -> ProviderResult<Felt> {
-        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(&self.0));
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(self.0.clone()));
 
-        for (class_hash, compiled_hash) in updates {
-            trie.insert(*class_hash, *compiled_hash);
+        for (class_hash, compiled_hash) in classes {
+            trie.insert(class_hash, compiled_hash);
         }
 
         trie.commit(block_number);
@@ -41,15 +39,17 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
         let mut contract_trie_db =
-            ContractsTrie::new(TrieDbMut::<tables::ContractsTrie, _>::new(&self.0));
+            ContractsTrie::new(TrieDbMut::<tables::ContractsTrie, _>::new(self.0.clone()));
 
         let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
 
         let leaf_hashes: Vec<_> = {
             // First we insert the contract storage changes
             for (address, storage_entries) in &state_updates.storage_updates {
-                let mut storage_trie_db =
-                    StoragesTrie::new(TrieDbMut::<tables::StoragesTrie, _>::new(&self.0), *address);
+                let mut storage_trie_db = StoragesTrie::new(
+                    TrieDbMut::<tables::StoragesTrie, _>::new(self.0.clone()),
+                    *address,
+                );
 
                 for (key, value) in storage_entries {
                     storage_trie_db.insert(*key, *value);
@@ -78,7 +78,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
                 .into_iter()
                 .map(|(address, mut leaf)| {
                     let storage_trie = StoragesTrie::new(
-                        TrieDbMut::<tables::StoragesTrie, _>::new(&self.0),
+                        TrieDbMut::<tables::StoragesTrie, _>::new(self.0.clone()),
                         address,
                     );
                     let storage_root = storage_trie.root();

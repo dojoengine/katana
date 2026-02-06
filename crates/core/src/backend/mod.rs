@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
@@ -9,6 +9,7 @@ use katana_primitives::block::{
     BlockHash, BlockNumber, FinalityStatus, Header, PartialHeader, SealedBlock,
     SealedBlockWithStatus,
 };
+use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
@@ -224,55 +225,59 @@ where
         // check whether the genesis block has been initialized
         let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
 
-        // NOTE: right now forking mode is not persistent, both `local_hash.is_some()` and
-        // `is_forking` can never be true at the same time.
-        if local_hash.is_some() && !is_forking {
-            let local_hash = local_hash.unwrap();
+        match (local_hash, is_forking) {
+            (Some(local_hash), false) => {
+                let genesis_block = chain_spec.block();
+                let mut genesis_state_updates = chain_spec.state_updates();
 
-            let genesis_block = chain_spec.block();
-            let mut genesis_state_updates = chain_spec.state_updates();
+                // commit the block but compute the trie using volatile storage so that it won't
+                // overwrite the existing trie this is very hacky and we should find for a
+                // much elegant solution.
+                let committed_block = commit_genesis_block(
+                    GenesisTrieWriter,
+                    genesis_block.header.clone(),
+                    Vec::new(),
+                    &[],
+                    &mut genesis_state_updates.state_updates,
+                )?;
 
-            // commit the block but compute the trie using volatile storage so that it won't
-            // overwrite the existing trie this is very hacky and we should find for a
-            // much elegant solution.
-            let committed_block = commit_genesis_block(
-                GenesisTrieWriter,
-                genesis_block.header.clone(),
-                Vec::new(),
-                &[],
-                &mut genesis_state_updates.state_updates,
-            )?;
+                // check genesis should be the same
+                if local_hash != committed_block.hash {
+                    return Err(anyhow!(
+                        "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
+                        committed_block.hash
+                    ));
+                }
 
-            // check genesis should be the same
-            if local_hash != committed_block.hash {
-                return Err(anyhow!(
-                    "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
-                    committed_block.hash
-                ));
+                info!(genesis_hash = %local_hash, "Genesis has already been initialized");
             }
 
-            info!(genesis_hash = %local_hash, "Genesis has already been initialized");
-        } else if !is_forking {
-            // Initialize the dev genesis block (only for non-forked instances)
-            let block = chain_spec.block();
-            let states = chain_spec.state_updates();
+            // No genesis yet and we're NOT forking → initialize
+            (None, false) => {
+                let block = chain_spec.block();
+                let states = chain_spec.state_updates();
 
-            let outcome = self.do_mine_block(
-                &BlockEnv {
-                    number: block.header.number,
-                    timestamp: block.header.timestamp,
-                    l2_gas_prices: block.header.l2_gas_prices,
-                    l1_gas_prices: block.header.l1_gas_prices,
-                    l1_data_gas_prices: block.header.l1_data_gas_prices,
-                    sequencer_address: block.header.sequencer_address,
-                    starknet_version: block.header.starknet_version,
-                },
-                ExecutionOutput { states, ..Default::default() },
-            )?;
+                let outcome = self.do_mine_block(
+                    &BlockEnv {
+                        number: block.header.number,
+                        timestamp: block.header.timestamp,
+                        l2_gas_prices: block.header.l2_gas_prices,
+                        l1_gas_prices: block.header.l1_gas_prices,
+                        l1_data_gas_prices: block.header.l1_data_gas_prices,
+                        sequencer_address: block.header.sequencer_address,
+                        starknet_version: block.header.starknet_version,
+                    },
+                    ExecutionOutput { states, ..Default::default() },
+                )?;
 
-            info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+                info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+            }
+
+            // Forking mode → NEVER touch genesis
+            (_, true) => {
+                info!("Forking mode enabled — skipping dev genesis initialization");
+            }
         }
-        // For forked instances, genesis is not created (fork already has its state)
 
         Ok(())
     }
@@ -522,9 +527,24 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
 
     // state_commitment = hPos("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
     fn compute_new_state_root(&self) -> Felt {
-        self.provider
-            .compute_state_root(self.header.number, self.state_updates)
-            .expect("failed to compute state root")
+        let class_trie_root = self
+            .provider
+            .trie_insert_declared_classes(
+                self.header.number,
+                self.state_updates.declared_classes.clone().into_iter().collect(),
+            )
+            .expect("failed to update class trie");
+
+        let contract_trie_root = self
+            .provider
+            .trie_insert_contract_updates(self.header.number, self.state_updates)
+            .expect("failed to update contract trie");
+
+        hash::Poseidon::hash_array(&[
+            ShortString::from_ascii("STARKNET_STATE_V0").into(),
+            contract_trie_root,
+            class_trie_root,
+        ])
     }
 }
 
@@ -538,8 +558,7 @@ fn store_block(
     // Validate that all declared classes have their corresponding class artifacts
     if let Err(missing) = states.validate_classes() {
         return Err(BlockProductionError::InconsistentState(format!(
-            "missing class artifacts for declared classes: {:#?}",
-            missing,
+            "missing class artifacts for declared classes: {missing:#?}"
         )));
     }
 
@@ -643,7 +662,18 @@ impl TrieWriter for GenesisTrieWriter {
             contract_leafs
                 .into_iter()
                 .map(|(address, leaf)| {
-                    let class_hash = leaf.class_hash.unwrap();
+                    let class_hash = if let Some(class_hash) = leaf.class_hash {
+                        class_hash
+                    } else {
+                        // TODO: there's must be a better way to handle this
+                        assert!(
+                            address == address!("0x1") || address == address!("0x2"),
+                            "Only special contracts may have unspecified class hash."
+                        );
+
+                        ClassHash::ZERO
+                    };
+
                     let nonce = leaf.nonce.unwrap_or_default();
                     let storage_root = leaf.storage_root.unwrap_or_default();
                     let leaf_hash = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
@@ -663,12 +693,12 @@ impl TrieWriter for GenesisTrieWriter {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        classes: Vec<(ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut trie = ClassesTrie::new(HashMapDb::default());
 
-        for (class_hash, compiled_hash) in updates {
-            trie.insert(*class_hash, *compiled_hash);
+        for (class_hash, compiled_hash) in classes {
+            trie.insert(class_hash, compiled_hash);
         }
 
         trie.commit(block_number);

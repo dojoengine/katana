@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use assert_matches::assert_matches;
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::{address, felt};
 use katana_rpc_types::state_update::{ConfirmedStateUpdate, PreConfirmedStateUpdate, StateUpdate};
 use serde_json::Value;
 
@@ -35,7 +35,7 @@ fn preconfirmed_state_update() {
     let PreConfirmedStateUpdate { old_root, ref state_diff } = state_update;
     assert_eq!(
         old_root,
-        felt!("0x6a59de5353d4050a800fd240020d014653d950df357ffa14319ee809a65427a")
+        Some(felt!("0x6a59de5353d4050a800fd240020d014653d950df357ffa14319ee809a65427a"))
     );
     assert_eq!(state_diff.deprecated_declared_classes, BTreeSet::new());
     assert_eq!(state_diff.replaced_classes, map!());
@@ -63,6 +63,7 @@ fn preconfirmed_state_update() {
             }
         }
     );
+    assert!(state_diff.migrated_compiled_classes.is_none());
 
     let serialized = serde_json::to_value(&state_update).unwrap();
     similar_asserts::assert_eq!(serialized, json);
@@ -74,7 +75,7 @@ fn confirmed_state_update() {
 
     let state_update: ConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
     let as_enum: StateUpdate = serde_json::from_value(json.clone()).unwrap();
-    assert_matches!(as_enum, StateUpdate::Update(as_enum_update) => {
+    assert_matches!(as_enum, StateUpdate::Confirmed(as_enum_update) => {
         similar_asserts::assert_eq!(as_enum_update, state_update);
     });
 
@@ -130,6 +131,62 @@ fn confirmed_state_update() {
                 felt!("0x1c8ba1"), felt!("0x6d33bd9dc2f9c1f96a91314a3198d190a33431b425db0db8b71db14eee333e7"),
             }
         }
+    );
+
+    let serialized = serde_json::to_value(&state_update).unwrap();
+    similar_asserts::assert_eq!(serialized, json);
+}
+
+#[test]
+fn v0_10_0_confirmed_state_update() {
+    let json = fixtures::test_data::<Value>("v0.10/state-updates/confirmed_state_update.json");
+
+    let state_update: ConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
+    let as_enum: StateUpdate = serde_json::from_value(json.clone()).unwrap();
+    assert_matches!(as_enum, StateUpdate::Confirmed(as_enum_update) => {
+        similar_asserts::assert_eq!(as_enum_update, state_update);
+    });
+
+    let ConfirmedStateUpdate { block_hash, new_root, old_root, ref state_diff } = state_update;
+    assert_eq!(
+        block_hash,
+        felt!("0x1935ec0e5c7758fdc11a78ed9d4cadd4225eab826aabd98fe2d04b45ca4c150")
+    );
+    assert_eq!(
+        old_root,
+        felt!("0x484d8010568613b1878e03085989536d9112d89e2979297f0fbd741a3f73138")
+    );
+    assert_eq!(
+        new_root,
+        felt!("0x7e72ca880e4fa1f4987257d90b2642860a4574a03b79ac830f6fb5968520977")
+    );
+    assert!(state_diff.deprecated_declared_classes.is_empty());
+    assert!(state_diff.replaced_classes.is_empty());
+    assert!(state_diff.declared_classes.is_empty());
+    assert!(state_diff.deployed_contracts.is_empty());
+    assert_eq!(
+        state_diff.nonces,
+        map! {
+            address!("0x662776dac110a170767d83da4f1d8fae022df7aa8a78252eb9c501c68d49604"), felt!("0x1bb63"),
+        }
+    );
+    assert_eq!(
+        state_diff.storage_diffs,
+        map! {
+            address!("0x18469ed2d40a016a602371173c7287e25f85cb6abb6fc0866d3c444e2837603"), map! {
+                felt!("0x6d410d47be5497b0dafef14e24c8767731a6e50126ff8fa99f25a0d0ee02788"), felt!("0x1"),
+            },
+            address!("0x377c2d65debb3978ea81904e7d59740da1f07412e30d01c5ded1c5d6f1ddc43"), map! {
+                felt!("0x484b46148d37383593029fa3b4c09a5e0e3cb66bbcf5fc66529fa452ccc6e34"), felt!("0x8"),
+                felt!("0x3ee4ba0f59886159d92a35f96ded219dd7f69c30953f9b68d333f10a27e312b"), felt!("0x18469ed2d40a016a602371173c7287e25f85cb6abb6fc0866d3c444e2837603"),
+            }
+        }
+    );
+    assert_eq!(
+        state_diff.migrated_compiled_classes,
+        Some(map! {
+            felt!("0x4ac055f14361bb6f7bf4b9af6e96ca68825e6037e9bdf87ea0b2c641dea73ae"), felt!("0x17f3b8f7225a160ec0542ea5c44ee876f2b132e7dee00ec36f2422d8155a4e4"),
+        })
     );
 
     let serialized = serde_json::to_value(&state_update).unwrap();

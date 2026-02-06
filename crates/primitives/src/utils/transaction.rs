@@ -1,7 +1,6 @@
 use alloy_primitives::{Keccak256, B256};
-use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::MsgToL1;
-use starknet_crypto::poseidon_hash_many;
+use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 
 use crate::da::DataAvailabilityMode;
 use crate::eth::Address as EthAddress;
@@ -58,12 +57,12 @@ pub fn compute_deploy_account_v1_tx_hash(
 ) -> Felt {
     let calldata_to_hash = [&[class_hash, contract_address_salt], constructor_calldata].concat();
 
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_DEPLOY_ACCOUNT,
         if is_query { QUERY_VERSION_OFFSET + Felt::ONE } else { Felt::ONE }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(&calldata_to_hash),
+        Pedersen::hash_array(&calldata_to_hash),
         max_fee.into(),
         chain_id,
         nonce,
@@ -88,16 +87,16 @@ pub fn compute_deploy_account_v3_tx_hash(
     fee_da_mode: &DataAvailabilityMode,
     is_query: bool,
 ) -> Felt {
-    poseidon_hash_many(&[
+    Poseidon::hash_array(&[
         PREFIX_DEPLOY_ACCOUNT,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         contract_address,
         hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
-        poseidon_hash_many(paymaster_data),
+        Poseidon::hash_array(paymaster_data),
         chain_id,
         nonce,
         encode_da_mode(nonce_da_mode, fee_da_mode),
-        poseidon_hash_many(constructor_calldata),
+        Poseidon::hash_array(constructor_calldata),
         class_hash,
         contract_address_salt,
     ])
@@ -113,12 +112,12 @@ pub fn compute_declare_v0_tx_hash(
     chain_id: Felt,
     is_query: bool,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::ZERO } else { Felt::ZERO }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(&[]),
+        Pedersen::hash_array(&[]),
         max_fee.into(),
         chain_id,
         class_hash,
@@ -134,12 +133,12 @@ pub fn compute_declare_v1_tx_hash(
     nonce: Felt,
     is_query: bool,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::ONE } else { Felt::ONE }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(&[class_hash]),
+        Pedersen::hash_array(&[class_hash]),
         max_fee.into(),
         chain_id,
         nonce,
@@ -156,12 +155,12 @@ pub fn compute_declare_v2_tx_hash(
     compiled_class_hash: Felt,
     is_query: bool,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::TWO } else { Felt::TWO }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(&[class_hash]),
+        Pedersen::hash_array(&[class_hash]),
         max_fee.into(),
         chain_id,
         nonce,
@@ -187,16 +186,16 @@ pub fn compute_declare_v3_tx_hash(
     account_deployment_data: &[Felt],
     is_query: bool,
 ) -> Felt {
-    poseidon_hash_many(&[
+    Poseidon::hash_array(&[
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         sender_address,
         hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
-        poseidon_hash_many(paymaster_data),
+        Poseidon::hash_array(paymaster_data),
         chain_id,
         nonce,
         encode_da_mode(nonce_da_mode, fee_da_mode),
-        poseidon_hash_many(account_deployment_data),
+        Poseidon::hash_array(account_deployment_data),
         class_hash,
         compiled_class_hash,
     ])
@@ -211,12 +210,12 @@ pub fn compute_invoke_v1_tx_hash(
     nonce: Felt,
     is_query: bool,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_INVOKE,
         if is_query { QUERY_VERSION_OFFSET + Felt::ONE } else { Felt::ONE }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(calldata),
+        Pedersen::hash_array(calldata),
         max_fee.into(),
         chain_id,
         nonce,
@@ -240,17 +239,17 @@ pub fn compute_invoke_v3_tx_hash(
     account_deployment_data: &[Felt],
     is_query: bool,
 ) -> Felt {
-    poseidon_hash_many(&[
+    Poseidon::hash_array(&[
         PREFIX_INVOKE,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         sender_address,
         hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
-        poseidon_hash_many(paymaster_data),
+        Poseidon::hash_array(paymaster_data),
         chain_id,
         nonce,
         encode_da_mode(nonce_da_mode, fee_da_mode),
-        poseidon_hash_many(account_deployment_data),
-        poseidon_hash_many(calldata),
+        Poseidon::hash_array(account_deployment_data),
+        Poseidon::hash_array(calldata),
     ])
 }
 
@@ -274,12 +273,12 @@ pub fn compute_l1_handler_tx_hash(
     chain_id: Felt,
     nonce: Felt,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_L1_HANDLER,
         version,
         contract_address.into(),
         entry_point_selector,
-        compute_hash_on_elements(calldata),
+        Pedersen::hash_array(calldata),
         Felt::ZERO, // No fee on L2 for L1 handler tx
         chain_id,
         nonce,
@@ -392,14 +391,14 @@ fn hash_fee_fields(
     l1_data_gas_bounds: Option<&ResourceBounds>,
 ) -> Felt {
     if let Some(data_gas_bounds) = l1_data_gas_bounds {
-        poseidon_hash_many(&[
+        Poseidon::hash_array(&[
             tip.into(),
             encode_gas_bound(b"L1_GAS", l1_gas_bounds),
             encode_gas_bound(b"L2_GAS", l2_gas_bounds),
             encode_gas_bound(b"L1_DATA", data_gas_bounds),
         ])
     } else {
-        poseidon_hash_many(&[
+        Poseidon::hash_array(&[
             tip.into(),
             encode_gas_bound(b"L1_GAS", l1_gas_bounds),
             encode_gas_bound(b"L2_GAS", l2_gas_bounds),
@@ -419,10 +418,11 @@ fn encode_da_mode(
 #[cfg(test)]
 mod tests {
     use num_traits::ToPrimitive;
-    use starknet::macros::{felt, short_string};
+    use starknet::macros::felt;
 
     use super::*;
     use crate::address;
+    use crate::cairo::ShortString;
     use crate::chain::ChainId;
 
     #[test]
@@ -433,10 +433,10 @@ mod tests {
 
     #[test]
     fn test_prefix_constants() {
-        assert_eq!(PREFIX_INVOKE, short_string!("invoke"));
-        assert_eq!(PREFIX_DECLARE, short_string!("declare"));
-        assert_eq!(PREFIX_DEPLOY_ACCOUNT, short_string!("deploy_account"));
-        assert_eq!(PREFIX_L1_HANDLER, short_string!("l1_handler"));
+        assert_eq!(PREFIX_INVOKE, ShortString::from_ascii("invoke").into());
+        assert_eq!(PREFIX_DECLARE, ShortString::from_ascii("declare").into());
+        assert_eq!(PREFIX_DEPLOY_ACCOUNT, ShortString::from_ascii("deploy_account").into());
+        assert_eq!(PREFIX_L1_HANDLER, ShortString::from_ascii("l1_handler").into());
     }
 
     #[test]
@@ -817,7 +817,7 @@ mod tests {
 
         let version = felt!("0x0");
         let contract_address =
-            address!("0x73314940630fd6dcda0d772d4c972c4e0a9946bef9dabf4ef84eda8ef542b82");
+            address!("0x73314940630fd6dcda0d772d4c972c4e0a9946bef9dabf4ef84eda8ef542b82", crate);
         let entry_point_selector =
             felt!("0x1b64b1b3b690b43b9b514fb81377518f4039cd3e4f4914d8a6bdf01d679fb19");
         let calldata = vec![
@@ -859,7 +859,7 @@ mod tests {
             EthAddress::from_slice(&hex!("f6080d9fbeebcd44d89affbfd42f098cbff92816"));
 
         let to_address =
-            address!("0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196");
+            address!("0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196", crate);
 
         let entry_point_selector =
             felt!("0x1b64b1b3b690b43b9b514fb81377518f4039cd3e4f4914d8a6bdf01d679fb19");

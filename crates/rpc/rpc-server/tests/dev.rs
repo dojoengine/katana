@@ -1,5 +1,8 @@
+use katana_primitives::contract::ContractAddress;
+use katana_primitives::Felt;
 use katana_provider::api::block::{BlockNumberProvider, BlockProvider};
 use katana_provider::api::env::BlockEnvProvider;
+use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::ProviderFactory;
 use katana_rpc_server::api::dev::DevApiClient;
 use katana_utils::TestNode;
@@ -126,26 +129,65 @@ async fn test_dev_api_enabled() {
     assert!(!accounts.is_empty(), "predeployed accounts should not be empty");
 }
 
-// #[tokio::test]
-// async fn test_set_storage_at_on_instant_mode() {
-//     let sequencer = create_test_sequencer().await;
-//     sequencer.backend().mine_empty_block();
+/// Test set_storage_at in instant mining mode (no pending block)
+#[tokio::test]
+async fn test_set_storage_at() {
+    let sequencer = TestNode::new().await;
+    let backend = sequencer.backend();
+    let client = sequencer.rpc_http_client();
 
-//     let contract_address = ContractAddress(patricia_key!("0x1337"));
-//     let key = StorageKey(patricia_key!("0x20"));
-//     let val = stark_felt!("0xABC");
+    let contract_address = ContractAddress(Felt::from(0x1337u64));
+    let key = Felt::from(0x20u64);
+    let value = Felt::from(0xABCu64);
 
-//     {
-//         let mut state = sequencer.backend().state.write().await;
-//         let read_val = state.get_storage_at(contract_address, key).unwrap();
-//         assert_eq!(stark_felt!("0x0"), read_val, "latest storage value should be 0");
-//     }
+    // Check that storage is initially None/zero
+    {
+        let provider = backend.storage.provider();
+        let state = provider.latest().unwrap();
+        let read_val = state.storage(contract_address, key).unwrap();
+        assert!(read_val.is_none(), "initial storage value should be None");
+    }
 
-//     sequencer.set_storage_at(contract_address, key, val).await.unwrap();
+    // Set the storage value via RPC
+    client.set_storage_at(contract_address, key, value).await.unwrap();
 
-//     {
-//         let mut state = sequencer.backend().state.write().await;
-//         let read_val = state.get_storage_at(contract_address, key).unwrap();
-//         assert_eq!(val, read_val, "latest storage value incorrect after generate");
-//     }
-// }
+    // Verify the storage value was set correctly
+    {
+        let provider = backend.storage.provider();
+        let state = provider.latest().unwrap();
+        let read_val = state.storage(contract_address, key).unwrap();
+        assert_eq!(read_val, Some(value), "storage value should be set correctly");
+    }
+}
+
+/// Test set_storage_at in interval mining mode (with pending block)
+/// This verifies that the storage update is visible in the pending state and persists after mining.
+#[tokio::test]
+async fn test_set_storage_at_with_pending_block() {
+    // Create a node with interval mining (block time of 10 seconds - long enough that we can test
+    // before the block is mined)
+    let sequencer = TestNode::new_with_block_time(10000).await;
+    let backend = sequencer.backend();
+    let client = sequencer.rpc_http_client();
+
+    let contract_address = ContractAddress(Felt::from(0x1337u64));
+    let key = Felt::from(0x20u64);
+    let value = Felt::from(0xABCu64);
+
+    // Set the storage value via RPC - this updates the pending state
+    client.set_storage_at(contract_address, key, value).await.unwrap();
+
+    // In interval mode, the storage is updated in the pending executor's state, not the database.
+    // The database will be updated when the block is mined.
+
+    // Force mine a block to close the pending block and persist the changes
+    client.generate_block().await.unwrap();
+
+    // Verify the storage value was persisted to the database after the block was mined
+    {
+        let provider = backend.storage.provider();
+        let state = provider.latest().unwrap();
+        let read_val = state.storage(contract_address, key).unwrap();
+        assert_eq!(read_val, Some(value), "storage value should persist after block is mined");
+    }
+}

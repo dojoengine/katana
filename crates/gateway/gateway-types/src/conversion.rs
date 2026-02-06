@@ -12,7 +12,9 @@ use crate::{
 impl From<katana_rpc_types::StateUpdate> for StateUpdate {
     fn from(value: katana_rpc_types::StateUpdate) -> Self {
         match value {
-            katana_rpc_types::StateUpdate::Update(update) => StateUpdate::Confirmed(update.into()),
+            katana_rpc_types::StateUpdate::Confirmed(update) => {
+                StateUpdate::Confirmed(update.into())
+            }
             katana_rpc_types::StateUpdate::PreConfirmed(pre_confirmed) => {
                 StateUpdate::PreConfirmed(pre_confirmed.into())
             }
@@ -64,6 +66,16 @@ impl From<katana_rpc_types::StateDiff> for StateDiff {
             })
             .collect();
 
+        let migrated_compiled_classes = value
+            .migrated_compiled_classes
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(class_hash, compiled_class_hash)| DeclaredContract {
+                class_hash,
+                compiled_class_hash,
+            })
+            .collect();
+
         let replaced_classes = value
             .replaced_classes
             .into_iter()
@@ -77,6 +89,7 @@ impl From<katana_rpc_types::StateDiff> for StateDiff {
             declared_classes,
             nonces: value.nonces,
             replaced_classes,
+            migrated_compiled_classes,
         }
     }
 }
@@ -253,21 +266,67 @@ impl From<katana_primitives::receipt::Receipt> for ReceiptBody {
             Some(ExecutionStatus::Succeeded)
         };
 
-        let execution_resources = Some(ExecutionResources {
-            vm_resources: receipt.resources_used().computation_resources.clone(),
-            data_availability: Some(receipt.resources_used().da_resources.clone()),
-            total_gas_consumed: Some(receipt.resources_used().gas.clone()),
-        });
+        match receipt {
+            katana_primitives::receipt::Receipt::Deploy(receipt) => {
+                Self {
+                    execution_resources: Some(receipt.execution_resources.into()),
+                    // This would need to be populated from transaction context
+                    l1_to_l2_consumed_message: None,
+                    l2_to_l1_messages: receipt.messages_sent,
+                    events: receipt.events,
+                    actual_fee: receipt.fee.overall_fee.into(),
+                    execution_status,
+                    revert_error: receipt.revert_error,
+                }
+            }
 
-        Self {
-            execution_resources,
-            l1_to_l2_consumed_message: None, /* This would need to be populated from transaction
-                                              * context */
-            l2_to_l1_messages: receipt.messages_sent().to_vec(),
-            events: receipt.events().to_vec(),
-            actual_fee: receipt.fee().overall_fee.into(),
-            execution_status,
-            revert_error: receipt.revert_reason().map(|s| s.to_string()),
+            katana_primitives::receipt::Receipt::Invoke(receipt) => {
+                Self {
+                    execution_resources: Some(receipt.execution_resources.into()),
+                    // This would need to be populated from transaction context
+                    l1_to_l2_consumed_message: None,
+                    l2_to_l1_messages: receipt.messages_sent,
+                    events: receipt.events,
+                    actual_fee: receipt.fee.overall_fee.into(),
+                    execution_status,
+                    revert_error: receipt.revert_error,
+                }
+            }
+
+            katana_primitives::receipt::Receipt::Declare(receipt) => Self {
+                execution_resources: Some(receipt.execution_resources.into()),
+                // This would need to be populated from transaction context
+                l1_to_l2_consumed_message: None,
+                l2_to_l1_messages: receipt.messages_sent,
+                events: receipt.events,
+                actual_fee: receipt.fee.overall_fee.into(),
+                execution_status,
+                revert_error: receipt.revert_error,
+            },
+
+            katana_primitives::receipt::Receipt::DeployAccount(receipt) => {
+                Self {
+                    execution_resources: Some(receipt.execution_resources.into()),
+                    // This would need to be populated from transaction context
+                    l1_to_l2_consumed_message: None,
+                    l2_to_l1_messages: receipt.messages_sent,
+                    events: receipt.events,
+                    actual_fee: receipt.fee.overall_fee.into(),
+                    execution_status,
+                    revert_error: receipt.revert_error,
+                }
+            }
+
+            katana_primitives::receipt::Receipt::L1Handler(receipt) => Self {
+                execution_resources: Some(receipt.execution_resources.into()),
+                // This would need to be populated from transaction context
+                l1_to_l2_consumed_message: None,
+                l2_to_l1_messages: receipt.messages_sent,
+                events: receipt.events,
+                actual_fee: receipt.fee.overall_fee.into(),
+                execution_status,
+                revert_error: receipt.revert_error,
+            },
         }
     }
 }
@@ -305,6 +364,12 @@ impl From<StateDiff> for katana_primitives::state::StateUpdates {
             .map(|contract| (contract.class_hash, contract.compiled_class_hash))
             .collect();
 
+        let migrated_compiled_classes = value
+            .migrated_compiled_classes
+            .into_iter()
+            .map(|contract| (contract.class_hash, contract.compiled_class_hash))
+            .collect();
+
         let replaced_classes = value
             .replaced_classes
             .into_iter()
@@ -318,6 +383,27 @@ impl From<StateDiff> for katana_primitives::state::StateUpdates {
             deployed_contracts,
             nonce_updates: value.nonces,
             deprecated_declared_classes: BTreeSet::from_iter(value.old_declared_contracts),
+            migrated_compiled_classes,
+        }
+    }
+}
+
+impl From<katana_primitives::receipt::ExecutionResources> for ExecutionResources {
+    fn from(value: katana_primitives::receipt::ExecutionResources) -> Self {
+        Self {
+            vm_resources: value.vm_resources,
+            data_availability: Some(value.data_availability),
+            total_gas_consumed: Some(value.total_gas_consumed),
+        }
+    }
+}
+
+impl From<ExecutionResources> for katana_primitives::receipt::ExecutionResources {
+    fn from(value: ExecutionResources) -> Self {
+        Self {
+            vm_resources: value.vm_resources,
+            data_availability: value.data_availability.unwrap_or_default(),
+            total_gas_consumed: value.total_gas_consumed.unwrap_or_default(),
         }
     }
 }
@@ -325,7 +411,7 @@ impl From<StateDiff> for katana_primitives::state::StateUpdates {
 #[cfg(test)]
 mod from_primitives_test {
     use katana_primitives::transaction::TxWithHash;
-    use katana_primitives::{address, felt, ContractAddress};
+    use katana_primitives::{address, felt};
     use katana_utils::arbitrary;
 
     use super::*;
@@ -624,6 +710,7 @@ mod from_primitives_test {
             }],
             nonces: BTreeMap::new(),
             replaced_classes: vec![],
+            migrated_compiled_classes: Vec::new(),
         };
 
         let converted: katana_primitives::state::StateUpdates = state_diff.into();
@@ -650,10 +737,9 @@ mod from_primitives_test {
 mod from_rpc_test {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use katana_primitives::contract::ContractAddress;
     use katana_primitives::{address, felt};
 
-    use crate::StateDiff;
+    use crate::{DeclaredContract, StateDiff};
 
     #[test]
     fn state_diff_conversion() {
@@ -674,6 +760,10 @@ mod from_rpc_test {
             declared_classes,
             nonces: BTreeMap::new(),
             replaced_classes: BTreeMap::new(),
+            migrated_compiled_classes: Some(BTreeMap::from_iter([
+                (felt!("0xa1"), felt!("0xb1")),
+                (felt!("0xa2"), felt!("0xb2")),
+            ])),
         };
 
         let converted: StateDiff = rpc_state_diff.into();
@@ -698,5 +788,15 @@ mod from_rpc_test {
         // Verify deprecated declared classes
         assert_eq!(converted.old_declared_contracts.len(), 1);
         assert!(converted.old_declared_contracts.contains(&felt!("0x4")));
+
+        // Verify migrated class hashes
+        assert_eq!(converted.migrated_compiled_classes.len(), 2);
+        assert_eq!(
+            converted.migrated_compiled_classes,
+            vec![
+                DeclaredContract { class_hash: felt!("0xa1"), compiled_class_hash: felt!("0xb1") },
+                DeclaredContract { class_hash: felt!("0xa2"), compiled_class_hash: felt!("0xb2") }
+            ]
+        );
     }
 }
