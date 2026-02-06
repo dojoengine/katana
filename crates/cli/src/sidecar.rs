@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use anyhow::{anyhow, Result};
 #[cfg(feature = "vrf")]
 pub use cartridge::vrf::{
-    derive_vrf_accounts, VrfBootstrapResult, VrfDerivedAccounts, VrfService, VrfServiceConfig,
+    get_vrf_account, VrfBootstrapResult, VrfDerivedAccounts, VrfService, VrfServiceConfig,
     VrfServiceProcess, VRF_SERVER_PORT,
 };
 use katana_chain_spec::ChainSpec;

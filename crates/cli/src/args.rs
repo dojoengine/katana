@@ -607,7 +607,7 @@ impl SequencerNodeArgs {
     }
 
     #[cfg(feature = "vrf")]
-    fn vrf_config(&self, chain: &ChainSpec) -> Result<Option<VrfConfig>> {
+    fn vrf_config(&self, _chain: &ChainSpec) -> Result<Option<VrfConfig>> {
         let options = &self.cartridge.vrf;
 
         if !options.enabled {
@@ -620,18 +620,16 @@ impl SequencerNodeArgs {
 
             Ok(Some(VrfConfig { url, vrf_account }))
         } else {
-            use cartridge::derive_vrf_accounts;
-
-            use crate::sidecar::prefunded_account;
+            use cartridge::get_vrf_account;
 
             let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
             let addr = listener.local_addr()?;
             let url = Url::parse(&format!("http://{addr}"))?;
 
-            let (account_address, pk) = prefunded_account(chain, 0)?;
-            let derived_result = derive_vrf_accounts(account_address, pk)?;
+            let vrf_account_info = get_vrf_account()?;
+            let vrf_account_address = vrf_account_info.vrf_account_address;
 
-            Ok(Some(VrfConfig { url, vrf_account: derived_result.vrf_account_address }))
+            Ok(Some(VrfConfig { url, vrf_account: vrf_account_address }))
         }
     }
 
