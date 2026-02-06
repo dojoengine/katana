@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
@@ -73,6 +73,52 @@ impl TestNode {
                 .await
                 .expect("failed to launch node"),
         }
+    }
+
+    /// Creates a [`TestNode`] from a pre-existing database directory.
+    ///
+    /// Copies the database to a temp directory so each test gets its own mutable copy.
+    /// The database is opened with [`SyncMode::UtterlyNoSync`] for test performance.
+    pub async fn new_from_db(db_path: &Path) -> Self {
+        Self::new_from_db_with_config(db_path, test_config()).await
+    }
+
+    /// Creates a [`TestNode`] from a pre-existing database directory with a custom config.
+    ///
+    /// Copies the database to a temp directory so each test gets its own mutable copy.
+    /// The database is opened with [`SyncMode::UtterlyNoSync`] for test performance.
+    pub async fn new_from_db_with_config(db_path: &Path, config: Config) -> Self {
+        let temp_dir = tempfile::Builder::new()
+            .disable_cleanup(true)
+            .tempdir()
+            .expect("failed to create temp dir");
+
+        copy_db_dir(db_path, temp_dir.path()).expect("failed to copy database");
+
+        let db = katana_db::Db::open_no_sync(temp_dir.path()).expect("failed to open database");
+        let provider = DbProviderFactory::new(db.clone());
+
+        Self {
+            node: Node::build_with_provider(db, provider, config)
+                .expect("failed to build node")
+                .launch()
+                .await
+                .expect("failed to launch node"),
+        }
+    }
+
+    /// Creates a [`TestNode`] with a pre-migrated `spawn-and-move` database snapshot.
+    pub async fn new_with_spawn_and_move_db() -> Self {
+        let db_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/db/spawn_and_move");
+        Self::new_from_db(&db_path).await
+    }
+
+    /// Creates a [`TestNode`] with a pre-migrated `simple` database snapshot.
+    pub async fn new_with_simple_db() -> Self {
+        let db_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/db/simple");
+        Self::new_from_db(&db_path).await
     }
 }
 
@@ -273,6 +319,17 @@ fn run_sozo_migrate(
         eprintln!("sozo migrate failed. Last 50 lines of output:\n{last_50}");
 
         return Err(MigrateError::SozoMigrate(last_50));
+    }
+    Ok(())
+}
+
+/// Copies all files from `src` to `dst` (flat copy, no subdirectories).
+fn copy_db_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
     }
     Ok(())
 }

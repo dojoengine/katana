@@ -111,6 +111,31 @@ impl Db {
         Ok(Self { env, version: CURRENT_DB_VERSION })
     }
 
+    /// Opens an existing database at the given `path` with [`SyncMode::UtterlyNoSync`] for
+    /// write performance, similar to [`Db::in_memory`] but on an existing path.
+    ///
+    /// This is intended for test scenarios where a pre-populated database snapshot needs to be
+    /// loaded quickly without durability guarantees.
+    pub fn open_no_sync<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let version = get_db_version(&path)?;
+        if version != CURRENT_DB_VERSION && !is_block_compatible_version(&version) {
+            return Err(anyhow!(DatabaseVersionError::MismatchVersion {
+                expected: CURRENT_DB_VERSION,
+                found: version,
+            }));
+        }
+
+        let env = mdbx::DbEnvBuilder::new()
+            .max_size(GIGABYTE * 10)
+            .growth_step((GIGABYTE / 2) as isize)
+            .sync(SyncMode::UtterlyNoSync)
+            .build(path)?;
+
+        env.create_default_tables()?;
+
+        Ok(Self { env, version })
+    }
+
     // Open the database at the given `path` in read-write mode.
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         Self::open_inner(path, false)
