@@ -2,11 +2,18 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::time::Duration;
+
+use fs2::FileExt;
+
+/// Fixed path for the dojo repository clone to avoid recompiling for each test.
+const DOJO_CACHE_DIR: &str = "/tmp/katana-test-dojo";
 
 use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
+use katana_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
@@ -192,6 +199,12 @@ where
         katana_rpc_client::starknet::Client::new_with_client(client)
     }
 
+    /// Returns the address of the node's gRPC server (if enabled).
+    pub fn grpc_addr(&self) -> Option<&SocketAddr> {
+        self.node.grpc().map(|h| h.addr())
+    }
+
+
     /// Migrates the `spawn-and-move` example contracts from the dojo repository.
     ///
     /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
@@ -349,5 +362,11 @@ pub fn test_config() -> Config {
         ..Default::default()
     };
 
-    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), ..Default::default() }
+    let grpc = Some(GrpcConfig {
+        addr: DEFAULT_GRPC_ADDR,
+        port: 0, // Use port 0 for auto-assignment
+        timeout: Some(Duration::from_secs(30)),
+    });
+
+    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), grpc, ..Default::default() }
 }

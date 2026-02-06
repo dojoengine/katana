@@ -35,6 +35,7 @@ tempfile = { workspace = true, optional = true }
 
 [features]
 node = [
+	"katana-node/grpc",
     "clap",
     "katana-chain-spec",
     "katana-core",
