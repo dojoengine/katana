@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-#[cfg(feature = "grpc")]
 use std::time::Duration;
 
 use fs2::FileExt;
@@ -15,7 +14,6 @@ use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
-#[cfg(feature = "grpc")]
 use katana_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
@@ -203,7 +201,6 @@ where
     }
 
     /// Returns the address of the node's gRPC server (if enabled).
-    #[cfg(feature = "grpc")]
     pub fn grpc_addr(&self) -> Option<&SocketAddr> {
         self.node.grpc().map(|h| h.addr())
     }
@@ -386,20 +383,11 @@ pub fn test_config() -> Config {
         ..Default::default()
     };
 
-    #[cfg(feature = "grpc")]
     let grpc = Some(GrpcConfig {
         addr: DEFAULT_GRPC_ADDR,
         port: 0, // Use port 0 for auto-assignment
         timeout: Some(Duration::from_secs(30)),
     });
 
-    Config {
-        sequencing,
-        rpc,
-        dev,
-        chain: ChainSpec::Dev(chain).into(),
-        #[cfg(feature = "grpc")]
-        grpc,
-        ..Default::default()
-    }
+    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), grpc, ..Default::default() }
 }

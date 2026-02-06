@@ -36,6 +36,7 @@ tempfile = { workspace = true, optional = true }
 
 [features]
 node = [
+	"katana-node/grpc",
     "clap",
     "katana-chain-spec",
     "katana-core",
@@ -48,7 +49,6 @@ node = [
     "tempfile",
 ]
 explorer = [ "node", "katana-node/explorer" ]
-grpc = [ "node", "katana-node/grpc" ]
 
 [[bin]]
 name = "generate_migration_db"
