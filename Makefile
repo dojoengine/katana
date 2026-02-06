@@ -17,6 +17,12 @@ SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
 COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/1_6_0.tar.gz
 COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/1_6_0
 
+SPAWN_AND_MOVE_DB_TAR ?= $(DB_FIXTURES_DIR)/spawn_and_move.tar.gz
+SPAWN_AND_MOVE_DB_DIR := $(DB_FIXTURES_DIR)/spawn_and_move
+
+SIMPLE_DB_TAR ?= $(DB_FIXTURES_DIR)/simple.tar.gz
+SIMPLE_DB_DIR := $(DB_FIXTURES_DIR)/simple
+
 CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
@@ -62,7 +68,7 @@ snos-artifacts: $(SNOS_OUTPUT)
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
 
-test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) contracts
+test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB_DIR) $(SIMPLE_DB_DIR) contracts
 	@echo "All test artifacts prepared successfully."
 
 build-explorer:
@@ -109,6 +115,18 @@ $(COMPATIBILITY_DB_DIR): $(COMPATIBILITY_DB_TAR)
 		tar -xzf $(notdir $(COMPATIBILITY_DB_TAR)) && \
 		mv katana_db $(notdir $(COMPATIBILITY_DB_DIR)) || { echo "Failed to extract backward compatibility test database\!"; exit 1; }
 	@echo "Backward compatibility database extracted successfully."
+
+$(SPAWN_AND_MOVE_DB_DIR): $(SPAWN_AND_MOVE_DB_TAR)
+	@echo "Extracting spawn-and-move test database..."
+	@cd $(DB_FIXTURES_DIR) && \
+		tar -xzf $(notdir $(SPAWN_AND_MOVE_DB_TAR)) || { echo "Failed to extract spawn-and-move test database\!"; exit 1; }
+	@echo "Spawn-and-move test database extracted successfully."
+
+$(SIMPLE_DB_DIR): $(SIMPLE_DB_TAR)
+	@echo "Extracting simple test database..."
+	@cd $(DB_FIXTURES_DIR) && \
+		tar -xzf $(notdir $(SIMPLE_DB_TAR)) || { echo "Failed to extract simple test database\!"; exit 1; }
+	@echo "Simple test database extracted successfully."
 
 check-llvm:
 ifndef MLIR_SYS_190_PREFIX
@@ -180,5 +198,5 @@ snos-deps-macos: install-pyenv
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
+	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB_DIR) $(SIMPLE_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
 	echo "Clean complete."

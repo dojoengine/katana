@@ -19,22 +19,26 @@ async-trait.workspace = true
 futures.workspace = true
 rand.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = [ "macros", "signal", "time" ], default-features = false }
+tokio = { workspace = true, features = [ "macros", "rt-multi-thread", "signal", "time" ], default-features = false }
 
 # node-only dependencies
 katana-chain-spec = { workspace = true, optional = true }
 katana-core = { workspace = true, optional = true }
+katana-db = { workspace = true, optional = true }
 katana-executor = { workspace = true, optional = true }
 katana-node = { workspace = true, optional = true }
 katana-provider = { workspace = true, optional = true }
 katana-rpc-server = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
 starknet = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 
 [features]
 node = [
+    "clap",
     "katana-chain-spec",
     "katana-core",
+    "katana-db",
     "katana-executor",
     "katana-node",
     "katana-provider",
@@ -43,3 +47,8 @@ node = [
     "tempfile",
 ]
 explorer = [ "node", "katana-node/explorer" ]
+
+[[bin]]
+name = "generate_migration_db"
+path = "src/bin/generate_migration_db.rs"
+required-features = [ "node" ]
