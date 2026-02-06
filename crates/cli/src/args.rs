@@ -416,12 +416,6 @@ impl SequencerNodeArgs {
                 katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
             }
 
-            #[cfg(feature = "vrf")]
-            if self.cartridge.vrf.enabled {
-                katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
-                katana_slot_controller::add_vrf_consumer_class(&mut chain_spec.genesis);
-            }
-
             Ok((Arc::new(ChainSpec::Dev(chain_spec)), None))
         }
     }
@@ -627,7 +621,7 @@ impl SequencerNodeArgs {
             let url = Url::parse(&format!("http://{addr}"))?;
 
             let vrf_account_info = get_vrf_account()?;
-            let vrf_account_address = vrf_account_info.vrf_account_address;
+            let vrf_account_address = vrf_account_info.account_address;
 
             Ok(Some(VrfConfig { url, vrf_account: vrf_account_address }))
         }

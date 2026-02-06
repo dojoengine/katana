@@ -7,12 +7,11 @@
 //!
 //! This module uses the starknet crate's account abstraction for transaction handling.
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use ark_ff::PrimeField;
-use katana_contracts::vrf::CartridgeVrfAccount;
+use katana_contracts::vrf::{CartridgeVrfAccount, CartridgeVrfConsumer};
 use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
@@ -20,7 +19,7 @@ use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::RpcSierraContractClass;
 use stark_vrf::{generate_public_key, ScalarField};
-use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
+use starknet::accounts::{Account, ConnectedAccount, ExecutionEncoding, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
 use starknet::core::types::{BlockId, BlockTag, Call, FlattenedSierraClass, StarknetError};
 use starknet::macros::selector;
@@ -75,9 +74,9 @@ pub struct VrfBootstrapResult {
 
 /// Derived VRF account information.
 #[derive(Debug, Clone)]
-pub struct VrfDerivedAccounts {
-    pub vrf_account_private_key: Felt,
-    pub vrf_account_address: ContractAddress,
+pub struct VrfAccountCredentials {
+    pub private_key: Felt,
+    pub account_address: ContractAddress,
     pub vrf_public_key_x: Felt,
     pub vrf_public_key_y: Felt,
     pub secret_key: u64,
@@ -91,7 +90,7 @@ pub struct VrfDerivedAccounts {
 ///
 /// This computes the deterministic VRF account address and VRF key pair
 /// from a fixed VRF private key.
-pub fn get_vrf_account() -> Result<VrfDerivedAccounts> {
+pub fn get_vrf_account() -> Result<VrfAccountCredentials> {
     let secret_key = VRF_HARDCODED_SECRET_KEY;
     let vrf_account_private_key = Felt::from(secret_key);
     let public_key = generate_public_key(scalar_from_felt(secret_key.into()));
@@ -108,13 +107,13 @@ pub fn get_vrf_account() -> Result<VrfDerivedAccounts> {
         Felt::from(VRF_ACCOUNT_SALT),
         vrf_account_class_hash,
         &[account_public_key],
-        Felt::ZERO,
+        ContractAddress::ZERO,
     )
     .into();
 
-    Ok(VrfDerivedAccounts {
-        vrf_account_private_key,
-        vrf_account_address,
+    Ok(VrfAccountCredentials {
+        private_key: vrf_account_private_key,
+        account_address: vrf_account_address,
         vrf_public_key_x,
         vrf_public_key_y,
         secret_key,
@@ -126,18 +125,10 @@ pub async fn bootstrap_vrf(
     bootstrapper_account_address: ContractAddress,
     bootstrapper_account_private_key: Felt,
 ) -> Result<VrfBootstrapResult> {
-    let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(rpc_url.clone())));
+    let provider = JsonRpcClient::new(HttpTransport::new(rpc_url.clone()));
 
     // Get chain ID from the node
-    let chain_id_felt = provider.chain_id().await.context("failed to get chain ID from node")?;
-    let chain_id = ChainId::Id(chain_id_felt);
-
-    let derived = get_vrf_account()?;
-    let vrf_account_address = derived.vrf_account_address;
-    let account_public_key =
-        SigningKey::from_secret_scalar(derived.vrf_account_private_key).verifying_key().scalar();
-
-    let vrf_account_class_hash = CartridgeVrfAccount::HASH;
+    let chain_id = provider.chain_id().await.context("failed to get chain ID from node")?;
 
     // Create the source account for transactions
     let signer =
@@ -146,38 +137,61 @@ pub async fn bootstrap_vrf(
         provider.clone(),
         signer,
         bootstrapper_account_address.into(),
-        chain_id_felt,
+        chain_id,
         ExecutionEncoding::New,
     );
 
-    if !is_declared(&provider, vrf_account_class_hash).await? {
+    let vrf_acc_cred = bootstrap_vrf_account(&account).await?;
+    let vrf_consumer_addr = bootstrap_vrf_consumer(&account, vrf_acc_cred.account_address).await?;
+
+    Ok(VrfBootstrapResult {
+        chain_id: chain_id.into(),
+        secret_key: vrf_acc_cred.secret_key,
+        vrf_consumer_address: vrf_consumer_addr,
+        vrf_account_address: vrf_acc_cred.account_address,
+        vrf_account_private_key: vrf_acc_cred.private_key,
+    })
+}
+
+async fn bootstrap_vrf_account(
+    bootstrapper_account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
+) -> Result<VrfAccountCredentials> {
+    let provider = bootstrapper_account.provider();
+
+    let vrf_acc_cred = get_vrf_account()?;
+    let vrf_account_address = vrf_acc_cred.account_address;
+
+    if !is_declared(provider, CartridgeVrfAccount::HASH).await? {
         let class = CartridgeVrfAccount::CLASS.clone();
         let compiled_hash = CartridgeVrfAccount::CASM_HASH;
 
         let rpc_class = RpcSierraContractClass::from(class.to_sierra().unwrap());
         let rpc_class = FlattenedSierraClass::try_from(rpc_class).unwrap();
 
-        let result = account
+        let result = bootstrapper_account
             .declare_v3(rpc_class.into(), compiled_hash)
             .send()
             .await
             .expect("fail to declare class");
 
-        assert_eq!(result.class_hash, vrf_account_class_hash, "Class hash mismatch");
-        wait_for_class(&provider, vrf_account_class_hash, BOOTSTRAP_TIMEOUT).await?;
+        assert_eq!(result.class_hash, CartridgeVrfAccount::HASH, "Class hash mismatch");
+        wait_for_class(provider, CartridgeVrfAccount::HASH, BOOTSTRAP_TIMEOUT).await?;
     }
 
     // Deploy VRF account if not already deployed
-    if !is_deployed(&provider, vrf_account_address).await? {
+    if !is_deployed(provider, vrf_account_address).await? {
+        let account_public_key =
+            SigningKey::from_secret_scalar(vrf_acc_cred.private_key).verifying_key().scalar();
+
         #[allow(deprecated)]
-        let factory = ContractFactory::new(vrf_account_class_hash, &account);
+        let factory = ContractFactory::new(CartridgeVrfAccount::HASH, &bootstrapper_account);
         factory
             .deploy_v3(vec![account_public_key], Felt::from(VRF_ACCOUNT_SALT), false)
             .send()
             .await
             .map_err(|e| anyhow!("failed to deploy VRF account: {e}"))?;
 
-        wait_for_contract(&provider, vrf_account_address, BOOTSTRAP_TIMEOUT).await?;
+        wait_for_contract(provider, vrf_account_address, BOOTSTRAP_TIMEOUT).await?;
     }
 
     // Fund VRF account
@@ -189,32 +203,29 @@ pub async fn bootstrap_vrf(
             calldata: vec![vrf_account_address.into(), amount, Felt::ZERO],
         };
 
-        let result = account
+        let result = bootstrapper_account
             .execute_v3(vec![transfer_call])
             .send()
             .await
             .map_err(|e| anyhow!("failed to fund VRF account: {e}"))?;
 
-        wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
+        wait_for_tx(provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
     }
 
     // Set VRF public key on the deployed account
     // Create account for the VRF account to call set_vrf_public_key on itself
-    let vrf_signer =
-        LocalWallet::from(SigningKey::from_secret_scalar(derived.vrf_account_private_key));
-    let mut vrf_account = SingleOwnerAccount::new(
-        provider.clone(),
-        vrf_signer,
+    let vrf_account = SingleOwnerAccount::new(
+        provider,
+        LocalWallet::from(SigningKey::from_secret_scalar(vrf_acc_cred.private_key)),
         vrf_account_address.into(),
-        chain_id_felt,
+        bootstrapper_account.chain_id(),
         ExecutionEncoding::New,
     );
-    vrf_account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
     let set_vrf_key_call = Call {
         to: vrf_account_address.into(),
         selector: selector!("set_vrf_public_key"),
-        calldata: vec![derived.vrf_public_key_x, derived.vrf_public_key_y],
+        calldata: vec![vrf_acc_cred.vrf_public_key_x, vrf_acc_cred.vrf_public_key_y],
     };
 
     let result = vrf_account
@@ -223,39 +234,56 @@ pub async fn bootstrap_vrf(
         .await
         .map_err(|e| anyhow!("failed to set VRF public key: {e}"))?;
 
-    wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
+    wait_for_tx(provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
 
-    // Deploy VRF consumer
-    let vrf_consumer_class_hash = katana_contracts::vrf::CartridgeVrfConsumer::HASH;
+    Ok(vrf_acc_cred)
+}
+
+async fn bootstrap_vrf_consumer(
+    bootstrapper_account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
+    vrf_account: ContractAddress,
+) -> Result<ContractAddress> {
+    let provider = bootstrapper_account.provider();
+
     // When using UDC with unique=0 (non-unique deployment), the deployer_address
     // used in address computation is 0, not the actual deployer or UDC address.
     let vrf_consumer_address = get_contract_address(
         Felt::from(VRF_CONSUMER_SALT),
-        vrf_consumer_class_hash,
-        &[vrf_account_address.into()],
-        Felt::ZERO,
-    )
-    .into();
+        CartridgeVrfConsumer::HASH,
+        &[vrf_account.into()],
+        ContractAddress::ZERO,
+    );
 
-    if !is_deployed(&provider, vrf_consumer_address).await? {
+    if !is_declared(provider, CartridgeVrfConsumer::HASH).await? {
+        let class = CartridgeVrfConsumer::CLASS.clone();
+        let compiled_hash = CartridgeVrfConsumer::CASM_HASH;
+
+        let rpc_class = RpcSierraContractClass::from(class.to_sierra().unwrap());
+        let rpc_class = FlattenedSierraClass::try_from(rpc_class).unwrap();
+
+        let result = bootstrapper_account
+            .declare_v3(rpc_class.into(), compiled_hash)
+            .send()
+            .await
+            .expect("fail to declare class");
+
+        assert_eq!(result.class_hash, CartridgeVrfConsumer::HASH, "Class hash mismatch");
+        wait_for_class(provider, CartridgeVrfConsumer::HASH, BOOTSTRAP_TIMEOUT).await?;
+    }
+
+    if !is_deployed(provider, vrf_consumer_address.into()).await? {
         #[allow(deprecated)]
-        let factory = ContractFactory::new(vrf_consumer_class_hash, &account);
+        let factory = ContractFactory::new(CartridgeVrfConsumer::HASH, &bootstrapper_account);
         factory
-            .deploy_v3(vec![vrf_account_address.into()], Felt::from(VRF_CONSUMER_SALT), false)
+            .deploy_v3(vec![vrf_account.into()], Felt::from(VRF_CONSUMER_SALT), false)
             .send()
             .await
             .map_err(|e| anyhow!("failed to deploy VRF consumer: {e}"))?;
 
-        wait_for_contract(&provider, vrf_consumer_address, BOOTSTRAP_TIMEOUT).await?;
+        wait_for_contract(provider, vrf_consumer_address.into(), BOOTSTRAP_TIMEOUT).await?;
     }
 
-    Ok(VrfBootstrapResult {
-        secret_key: derived.secret_key,
-        vrf_consumer_address,
-        chain_id,
-        vrf_account_address,
-        vrf_account_private_key: derived.vrf_account_private_key,
-    })
+    Ok(vrf_consumer_address.into())
 }
 
 // ============================================================================
@@ -358,7 +386,7 @@ mod tests {
     fn derive_vrf_accounts_uses_hardcoded_secret_key() {
         let derived = get_vrf_account().expect("must derive");
         assert_eq!(derived.secret_key, VRF_HARDCODED_SECRET_KEY);
-        assert_eq!(derived.vrf_account_private_key, VRF_HARDCODED_SECRET_KEY.into());
+        assert_eq!(derived.private_key, VRF_HARDCODED_SECRET_KEY.into());
     }
 
     #[test]
@@ -366,7 +394,7 @@ mod tests {
         let first = get_vrf_account().expect("first derivation");
         let second = get_vrf_account().expect("second derivation");
 
-        assert_eq!(first.vrf_account_address, second.vrf_account_address);
+        assert_eq!(first.account_address, second.account_address);
         assert_eq!(first.vrf_public_key_x, second.vrf_public_key_x);
         assert_eq!(first.vrf_public_key_y, second.vrf_public_key_y);
     }

@@ -410,7 +410,7 @@ impl PaymasterService {
             Felt::from(FORWARDER_SALT),
             avnu_forwarder_class_hash,
             &[self.config.relayer_address.into(), self.config.gas_tank_address.into()],
-            Felt::ZERO,
+            ContractAddress::ZERO,
         )
         .into();
 

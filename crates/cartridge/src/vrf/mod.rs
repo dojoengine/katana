@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 use std::{env, io};
 
 pub use bootstrap::{
-    bootstrap_vrf, get_vrf_account, VrfBootstrap, VrfBootstrapConfig, VrfBootstrapResult,
-    VrfDerivedAccounts, BOOTSTRAP_TIMEOUT, VRF_ACCOUNT_SALT, VRF_CONSUMER_SALT,
+    bootstrap_vrf, get_vrf_account, VrfAccountCredentials, VrfBootstrap, VrfBootstrapConfig,
+    VrfBootstrapResult, BOOTSTRAP_TIMEOUT, VRF_ACCOUNT_SALT, VRF_CONSUMER_SALT,
     VRF_HARDCODED_SECRET_KEY,
 };
 pub use client::*;
