@@ -176,8 +176,44 @@ impl SequencerNodeArgs {
                 utils::print_intro(self, &node.backend().chain_spec);
             }
 
-            // Launch the node
             let handle = node.launch().await.context("failed to launch forked node")?;
+
+            #[cfg(feature = "paymaster")]
+            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
+                use crate::sidecar::bootstrap_paymaster;
+
+                let paymaster = bootstrap_paymaster(
+                    &self.paymaster,
+                    config.paymaster.unwrap().url.clone(),
+                    *handle.rpc().addr(),
+                    &handle.node().config().chain,
+                )
+                .await?
+                .start()
+                .await?;
+
+                Some(paymaster)
+            } else {
+                None
+            };
+
+            #[cfg(feature = "vrf")]
+            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+                use crate::sidecar::bootstrap_vrf;
+
+                let vrf = bootstrap_vrf(
+                    &self.cartridge.vrf,
+                    *handle.rpc().addr(),
+                    &handle.node().config().chain,
+                )
+                .await?
+                .start()
+                .await?;
+
+                Some(vrf)
+            } else {
+                None
+            };
 
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
@@ -187,6 +223,16 @@ impl SequencerNodeArgs {
                 },
 
                 _ = handle.stopped() => { }
+            }
+
+            #[cfg(feature = "paymaster")]
+            if let Some(ref mut s) = paymaster {
+                s.shutdown().await?;
+            }
+
+            #[cfg(feature = "vrf")]
+            if let Some(ref mut s) = vrf {
+                s.shutdown().await?;
             }
         } else {
             let node = Node::build(config.clone()).context("failed to build node")?;
