@@ -52,6 +52,8 @@ where
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     node: LaunchedNode<P>,
+    /// Temp directory holding a copied database snapshot. Cleaned up on drop.
+    _db_temp_dir: Option<tempfile::TempDir>,
 }
 
 impl TestNode {
@@ -72,6 +74,7 @@ impl TestNode {
                 .launch()
                 .await
                 .expect("failed to launch node"),
+            _db_temp_dir: None,
         }
     }
 
@@ -88,10 +91,7 @@ impl TestNode {
     /// Copies the database to a temp directory so each test gets its own mutable copy.
     /// The database is opened with [`SyncMode::UtterlyNoSync`] for test performance.
     pub async fn new_from_db_with_config(db_path: &Path, config: Config) -> Self {
-        let temp_dir = tempfile::Builder::new()
-            .disable_cleanup(true)
-            .tempdir()
-            .expect("failed to create temp dir");
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
 
         copy_db_dir(db_path, temp_dir.path()).expect("failed to copy database");
 
@@ -104,6 +104,7 @@ impl TestNode {
                 .launch()
                 .await
                 .expect("failed to launch node"),
+            _db_temp_dir: Some(temp_dir),
         }
     }
 
@@ -131,6 +132,7 @@ impl ForkTestNode {
                 .launch()
                 .await
                 .expect("failed to launch node"),
+            _db_temp_dir: None,
         }
     }
 }

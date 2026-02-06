@@ -1,12 +1,13 @@
 /// Binary to generate pre-migrated database snapshots for testing.
 ///
 /// These snapshots are loaded by `TestNode::new_with_spawn_and_move_db()` and
-/// `TestNode::new_with_simple_db()` to avoid the slow migration process (git clone + scarb build +
-/// sozo migrate) in each test run.
+/// `TestNode::new_with_simple_db()` to avoid the slow migration process (git clone + scarb
+/// build + sozo migrate) in each test run.
 ///
 /// Usage:
-///   cargo run --bin generate_migration_db --features node -- --example spawn-and-move --output tests/fixtures/db/spawn_and_move.tar.gz
-///   cargo run --bin generate_migration_db --features node -- --example simple --output tests/fixtures/db/simple.tar.gz
+///   cargo run --bin generate_migration_db --features node -- --example spawn-and-move
+/// --output tests/fixtures/db/spawn_and_move.tar.gz   cargo run --bin generate_migration_db
+/// --features node -- --example simple --output tests/fixtures/db/simple.tar.gz
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
