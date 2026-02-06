@@ -1,14 +1,5 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-//! Paymaster sidecar bootstrap and process management.
-//!
-//! This crate handles:
-//! - Bootstrapping the paymaster service (deploying forwarder contract via RPC)
-//! - Spawning and managing the paymaster sidecar process
-//! - Generating paymaster configuration profiles
-//!
-//! This crate uses the starknet crate's account abstraction for transaction handling.
-
 pub mod api;
 
 use std::net::SocketAddr;
@@ -35,7 +26,7 @@ use starknet::signers::{LocalWallet, SigningKey};
 use thiserror::Error;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 use url::Url;
 
 use crate::api::PaymasterApiClient;
@@ -148,14 +139,6 @@ impl PaymasterSidecarProcess {
     }
 }
 
-// ============================================================================
-// PaymasterConfig and PaymasterConfigBuilder
-// ============================================================================
-
-/// Validated paymaster configuration.
-///
-/// This struct contains all the configuration needed to start a paymaster sidecar.
-/// Use [`PaymasterConfigBuilder`] to construct this.
 #[derive(Debug, Clone)]
 pub struct PaymasterServiceConfig {
     /// RPC endpoint of the katana node.
@@ -186,25 +169,6 @@ pub struct PaymasterServiceConfig {
     pub price_api_key: Option<String>,
 }
 
-/// Builder for [`PaymasterConfig`] - ensures all required fields are set.
-///
-/// The builder validates all required arguments at build time and fails if any are missing.
-/// It also validates that all account addresses exist on-chain via RPC.
-///
-/// # Example
-///
-/// ```ignore
-/// let config = PaymasterConfigBuilder::new()
-///     .rpc_url(rpc_url)
-///     .port(3030)
-///     .api_key("paymaster_key".to_string())
-///     .relayer(relayer_addr, relayer_key)
-///     .gas_tank(gas_tank_addr, gas_tank_key)
-///     .estimate_account(estimate_addr, estimate_key)
-///     .tokens(eth_addr, strk_addr)
-///     .build()
-///     .await?;
-/// ```
 #[derive(Debug, Default)]
 pub struct PaymasterServiceConfigBuilder {
     // Required fields
@@ -289,15 +253,6 @@ impl PaymasterServiceConfigBuilder {
         self
     }
 
-    /// Build the [`PaymasterConfig`], validating all required fields.
-    ///
-    /// Also validates that all account addresses exist on-chain via RPC.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Any required field is missing
-    /// - Any account address does not exist on-chain
     pub async fn build(self) -> Result<PaymasterServiceConfig> {
         // Validate required fields
         let rpc = self.rpc.ok_or(Error::MissingField("rpc_url"))?;
@@ -355,93 +310,8 @@ impl PaymasterServiceConfigBuilder {
             price_api_key: self.price_api_key,
         })
     }
-
-    /// Build the [`PaymasterConfig`] without on-chain validation.
-    ///
-    /// This method validates that all required fields are set but does NOT check
-    /// if accounts exist on-chain. Use this for bootstrap scenarios where accounts
-    /// are known to exist from genesis.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any required field is missing.
-    pub fn build_unchecked(self) -> Result<PaymasterServiceConfig> {
-        // Validate required fields
-        let rpc_socket_addr = self.rpc.ok_or(Error::MissingField("rpc_url"))?;
-        let port = self.port.ok_or(Error::MissingField("port"))?;
-        let api_key = self.api_key.ok_or(Error::MissingField("api_key"))?;
-        let relayer_address = self.relayer_address.ok_or(Error::MissingField("relayer_address"))?;
-        let relayer_private_key =
-            self.relayer_private_key.ok_or(Error::MissingField("relayer_private_key"))?;
-        let gas_tank_address =
-            self.gas_tank_address.ok_or(Error::MissingField("gas_tank_address"))?;
-        let gas_tank_private_key =
-            self.gas_tank_private_key.ok_or(Error::MissingField("gas_tank_private_key"))?;
-        let estimate_account_address =
-            self.estimate_account_address.ok_or(Error::MissingField("estimate_account_address"))?;
-        let estimate_account_private_key = self
-            .estimate_account_private_key
-            .ok_or(Error::MissingField("estimate_account_private_key"))?;
-        let eth_token_address =
-            self.eth_token_address.ok_or(Error::MissingField("eth_token_address"))?;
-        let strk_token_address =
-            self.strk_token_address.ok_or(Error::MissingField("strk_token_address"))?;
-
-        Ok(PaymasterServiceConfig {
-            rpc_socket_addr,
-            port,
-            api_key,
-            relayer_address,
-            relayer_private_key,
-            gas_tank_address,
-            gas_tank_private_key,
-            estimate_account_address,
-            estimate_account_private_key,
-            eth_token_address,
-            strk_token_address,
-            program_path: self.program_path,
-            price_api_key: self.price_api_key,
-        })
-    }
 }
 
-// ============================================================================
-// PaymasterSidecar
-// ============================================================================
-
-/// Paymaster sidecar - handles bootstrapping and starting the sidecar process.
-///
-/// This struct accepts a validated [`PaymasterConfig`] and provides methods to:
-/// - Bootstrap the paymaster (deploy forwarder contract, whitelist relayer)
-/// - Start the sidecar process
-///
-/// # Example
-///
-/// ```ignore
-/// // Build and validate config
-/// let config = PaymasterConfigBuilder::new()
-///     .rpc_url(rpc_url)
-///     .port(3030)
-///     .api_key("paymaster_key".to_string())
-///     .relayer(relayer_addr, relayer_key)
-///     .gas_tank(gas_tank_addr, gas_tank_key)
-///     .estimate_account(estimate_addr, estimate_key)
-///     .tokens(eth_addr, strk_addr)
-///     .build()
-///     .await?;
-///
-/// // Create sidecar and bootstrap
-/// let mut sidecar = PaymasterSidecar::new(config);
-/// sidecar.bootstrap().await?;
-/// let process = sidecar.start().await?;
-///
-/// // Or skip bootstrap if forwarder/chain_id are known
-/// let process = PaymasterSidecar::new(config)
-///     .forwarder(known_forwarder)
-///     .chain_id(ChainId::SEPOLIA)
-///     .start()
-///     .await?;
-/// ```
 #[derive(Debug, Clone)]
 pub struct PaymasterService {
     config: PaymasterServiceConfig,
@@ -474,18 +344,11 @@ impl PaymasterService {
         self.chain_id
     }
 
-    /// Bootstrap the paymaster by deploying the forwarder contract and whitelisting the relayer.
-    ///
-    /// This method:
-    /// 1. Connects to the node via RPC
-    /// 2. Gets the chain ID (if not already set)
-    /// 3. Computes the deterministic forwarder address
-    /// 4. Deploys the forwarder if not already deployed
-    /// 5. Whitelists the relayer address
-    ///
-    /// After calling this method, `forwarder_address` and `chain_id` will be set.
     pub async fn bootstrap(&mut self) -> Result<ContractAddress> {
-        let url = Url::parse(&format!("{}", self.config.rpc_socket_addr)).expect("valid url");
+        info!("Bootstrapping paymaster service.");
+
+        let url =
+            Url::parse(&format!("http://{}", self.config.rpc_socket_addr)).expect("valid url");
         let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(url)));
 
         // Get chain ID if not already set
@@ -498,7 +361,7 @@ impl PaymasterService {
             chain_id_felt
         };
 
-        let forwarder_class_hash = AvnuForwarder::HASH;
+        let avnu_forwarder_class_hash = AvnuForwarder::HASH;
 
         // Create the relayer account for transactions
         let secret_key = SigningKey::from_secret_scalar(self.config.relayer_private_key);
@@ -511,10 +374,23 @@ impl PaymasterService {
         );
 
         // declare class if not yet declred
-        match provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), forwarder_class_hash).await {
-            Ok(..) => {}
+        match provider
+            .get_class(BlockId::Tag(BlockTag::PreConfirmed), avnu_forwarder_class_hash)
+            .await
+        {
+            Ok(..) => {
+                trace!(
+                    avnu_forwarder_class_hash = format!("{avnu_forwarder_class_hash:#x}"),
+                    "AVNU Forwarder already declared."
+                );
+            }
 
             Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
+                trace!(
+                    avnu_forwarder_class_hash = format!("{avnu_forwarder_class_hash:#x}"),
+                    "AVNU Forwarder class not found - declaring."
+                );
+
                 let class = AvnuForwarder::CLASS.clone();
                 let compiled_hash = AvnuForwarder::CASM_HASH;
 
@@ -527,7 +403,7 @@ impl PaymasterService {
                     .await
                     .expect("fail to declare class");
 
-                assert_eq!(result.class_hash, forwarder_class_hash, "Class hash mismatch");
+                assert_eq!(result.class_hash, avnu_forwarder_class_hash, "Class hash mismatch");
             }
 
             Err(..) => panic!("fail to fetch class"),
@@ -535,18 +411,20 @@ impl PaymasterService {
 
         // When using UDC with unique=0 (non-unique deployment), the deployer_address
         // used in address computation is 0, not the actual deployer or UDC address.
-        let forwarder_address = get_contract_address(
+        let avnu_forwarder_address = get_contract_address(
             Felt::from(FORWARDER_SALT),
-            forwarder_class_hash,
+            avnu_forwarder_class_hash,
             &[self.config.relayer_address.into(), self.config.gas_tank_address.into()],
             Felt::ZERO,
         )
         .into();
 
         // Deploy forwarder if not already deployed
-        if !is_deployed(&provider, forwarder_address).await? {
+        if !is_deployed(&provider, avnu_forwarder_address).await? {
+            trace!(%avnu_forwarder_address, "AVNU Forwarder contract not deployed - deploying.");
+
             #[allow(deprecated)]
-            let factory = ContractFactory::new(forwarder_class_hash, &account);
+            let factory = ContractFactory::new(avnu_forwarder_class_hash, &account);
 
             factory
                 .deploy_v3(
@@ -558,12 +436,14 @@ impl PaymasterService {
                 .await
                 .map_err(|e| Error::ForwarderDeploy(e.to_string()))?;
 
-            wait_for_contract(&provider, forwarder_address, BOOTSTRAP_TIMEOUT).await?;
+            wait_for_contract(&provider, avnu_forwarder_address, BOOTSTRAP_TIMEOUT).await?;
+        } else {
+            trace!(%avnu_forwarder_address, "AVNU Forwarder contract already deployed.");
         }
 
         // Whitelist the relayer
         let whitelist_call = Call {
-            to: forwarder_address.into(),
+            to: avnu_forwarder_address.into(),
             selector: selector!("set_whitelisted_address"),
             calldata: vec![self.config.relayer_address.into(), Felt::ONE],
         };
@@ -574,8 +454,11 @@ impl PaymasterService {
             .await
             .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
 
-        self.forwarder_address = Some(forwarder_address);
-        Ok(forwarder_address)
+        self.forwarder_address = Some(avnu_forwarder_address);
+
+        info!(%avnu_forwarder_address, "Paymaster bootstrapped successfully.");
+
+        Ok(avnu_forwarder_address)
     }
 
     /// Start the paymaster sidecar process.
@@ -592,14 +475,14 @@ impl PaymasterService {
         let profile = self.build_paymaster_profile()?;
         let profile_path = write_paymaster_profile(&profile)?;
 
+        info!(profile = %profile_path.display(), "Paymaster service profile generated");
+
         let mut command = Command::new(bin);
         command
             .env("PAYMASTER_PROFILE", &profile_path)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
-
-        info!(profile = %profile_path.display(), "Paymaster service profile generated");
 
         let process = command.spawn().map_err(Error::Spawn)?;
 

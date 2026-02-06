@@ -416,11 +416,6 @@ impl SequencerNodeArgs {
                 katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
             }
 
-            #[cfg(feature = "paymaster")]
-            if self.paymaster.enabled {
-                katana_slot_controller::add_avnu_forwarder_class(&mut chain_spec.genesis);
-            }
-
             #[cfg(feature = "vrf")]
             if self.cartridge.vrf.enabled {
                 katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);

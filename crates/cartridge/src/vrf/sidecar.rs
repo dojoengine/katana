@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -7,6 +8,9 @@ use katana_primitives::{ContractAddress, Felt};
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
+use url::Url;
+
+use super::client::VrfClient;
 
 const LOG_TARGET: &str = "katana::cartridge::vrf::sidecar";
 
@@ -78,11 +82,15 @@ impl VrfService {
             .kill_on_drop(true);
 
         let process = command.spawn().map_err(Error::Spawn)?;
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), VRF_SERVER_PORT);
 
-        let url = format!("http://127.0.0.1:{VRF_SERVER_PORT}/info",);
-        wait_for_http_ok(&url, "vrf info", SIDECAR_TIMEOUT).await?;
+        let url = Url::parse(&format!("http://{addr}")).expect("valid url");
+        let client = VrfClient::new(url);
+        wait_for_http_ok(&client, "vrf info", SIDECAR_TIMEOUT).await?;
 
-        Ok(VrfServiceProcess { process, inner: self })
+        info!(%addr, "VRF service started.");
+
+        Ok(VrfServiceProcess { process, addr, inner: self })
     }
 }
 
@@ -91,9 +99,15 @@ impl VrfService {
 pub struct VrfServiceProcess {
     process: Child,
     inner: VrfService,
+    addr: SocketAddr,
 }
 
 impl VrfServiceProcess {
+    /// Get the address of the VRF service.
+    pub fn addr(&self) -> &SocketAddr {
+        &self.addr
+    }
+
     pub fn process(&mut self) -> &mut Child {
         &mut self.process
     }
@@ -128,19 +142,15 @@ pub fn resolve_executable(path: &Path) -> Result<PathBuf> {
     Err(Error::BinaryNotInPath(path.to_path_buf()))
 }
 
-/// Wait for an HTTP endpoint to return a successful response.
-pub async fn wait_for_http_ok(url: &str, name: &str, timeout: Duration) -> Result<()> {
-    let client = reqwest::Client::new();
+/// Wait for the VRF sidecar to become ready by polling its `/info` endpoint.
+pub async fn wait_for_http_ok(client: &VrfClient, name: &str, timeout: Duration) -> Result<()> {
     let start = Instant::now();
 
     loop {
-        match client.get(url).send().await {
-            Ok(resp) if resp.status().is_success() => {
+        match client.info().await {
+            Ok(_) => {
                 info!(target: LOG_TARGET, %name, "sidecar ready");
                 return Ok(());
-            }
-            Ok(resp) => {
-                debug!(target: LOG_TARGET, %name, status = %resp.status(), "waiting for sidecar");
             }
             Err(err) => {
                 debug!(target: LOG_TARGET, %name, error = %err, "waiting for sidecar");
