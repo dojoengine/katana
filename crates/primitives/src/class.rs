@@ -229,6 +229,20 @@ impl ContractClass {
             Self::Legacy(..) => 0,
         }
     }
+
+    pub fn to_sierra(self) -> Option<SierraContractClass> {
+        match self {
+            Self::Class(class) => Some(class),
+            _ => None,
+        }
+    }
+
+    pub fn to_legacy(self) -> Option<LegacyContractClass> {
+        match self {
+            Self::Legacy(class) => Some(class),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

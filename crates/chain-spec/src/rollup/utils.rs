@@ -132,7 +132,7 @@ impl<'c> GenesisTransactionsBuilder<'c> {
         const DEPLOY_CONTRACT_SELECTOR: &str = "deploy_contract";
         let master_address = *self.master_address.get().expect("must be initialized first");
 
-        let contract_address = get_contract_address(salt, class, &ctor_args, Felt::ZERO);
+        let contract_address = get_contract_address(salt, class, &ctor_args, ContractAddress::ZERO);
 
         let ctor_args_len = Felt::from_usize(ctor_args.len()).unwrap();
         let args: Vec<Felt> = iter::once(class) // class_hash
@@ -189,7 +189,8 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 
         let class_hash = account.class_hash;
         let calldata = vec![pubkey];
-        let account_address = get_contract_address(account.salt, class_hash, &calldata, Felt::ZERO);
+        let account_address =
+            get_contract_address(account.salt, class_hash, &calldata, ContractAddress::ZERO);
 
         let tx_hash = compute_deploy_account_v1_tx_hash(
             account_address,
@@ -231,7 +232,8 @@ impl<'c> GenesisTransactionsBuilder<'c> {
         let master_pubkey = self.master_signer.verifying_key().scalar();
         let calldata = vec![master_pubkey];
         let salt = Felt::ONE;
-        let master_address = get_contract_address(salt, account_class_hash, &calldata, Felt::ZERO);
+        let master_address =
+            get_contract_address(salt, account_class_hash, &calldata, ContractAddress::ZERO);
 
         self.master_address.set(master_address.into()).expect("must be uninitialized");
 

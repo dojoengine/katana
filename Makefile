@@ -27,6 +27,12 @@ CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
 
+VRF_DIR := $(CONTRACTS_DIR)/vrf
+AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
+
+# The scarb version required by the AVNU contracts (no .tool-versions in that directory)
+AVNU_SCARB_VERSION := 2.11.4
+
 # The `scarb` version that is required to compile the feature contracts in katana-contracts
 SCARB_VERSION := 2.8.4
 
@@ -79,10 +85,16 @@ contracts: $(CONTRACTS_BUILD_DIR)
 
 # Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
 $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
-	@echo "Building contracts..."
-	@cd $(CONTRACTS_DIR) && scarb build
-	@mkdir -p build && \
-		mv $(CONTRACTS_DIR)/target/dev/* $@ || { echo "Contracts build failed!"; exit 1; }
+	@mkdir -p $@
+	@echo "Building main contracts..."
+	@cd $(CONTRACTS_DIR) && asdf exec scarb build || { echo "Main contracts build failed!"; exit 1; }
+	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
+	@echo "Building VRF contracts..."
+	@cd $(VRF_DIR) && asdf exec scarb build || { echo "VRF contracts build failed!"; exit 1; }
+	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
+	@echo "Building AVNU contracts..."
+	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
+	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."
@@ -100,7 +112,7 @@ $(SNOS_OUTPUT): $(SNOS_DB_DIR)
 	@git submodule update --init --recursive
 	@echo "Setting up SNOS tests..."
 	@cd tests/snos/snos && \
-		. ./setup-scripts/setup-cairo.sh && \
+		PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5 . ./setup-scripts/setup-cairo.sh && \
 		. ./setup-scripts/setup-tests.sh || { echo "SNOS setup failed\!"; exit 1; }
 
 $(SNOS_DB_DIR): $(SNOS_DB_TAR)

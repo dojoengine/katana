@@ -9,9 +9,8 @@ pub mod metrics;
 pub mod rpc;
 pub mod sequencing;
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 pub mod paymaster;
-
 #[cfg(feature = "tee")]
 pub mod tee;
 
@@ -67,7 +66,7 @@ pub struct Config {
     pub dev: DevConfig,
 
     /// Cartridge paymaster options.
-    #[cfg(feature = "cartridge")]
+    #[cfg(feature = "paymaster")]
     pub paymaster: Option<paymaster::PaymasterConfig>,
 
     /// TEE attestation options.

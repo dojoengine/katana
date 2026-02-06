@@ -29,6 +29,8 @@ use katana_node::config::rpc::{
 };
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
+#[cfg(feature = "vrf")]
+use katana_primitives::ContractAddress;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
 use katana_tracing::{default_log_file_directory, gcloud, otlp, LogColor, LogFormat, TracerConfig};
@@ -534,47 +536,130 @@ pub struct GasPriceOracleOptions {
     pub l1_strk_data_gas_price: Option<GasPrice>,
 }
 
+#[cfg(feature = "paymaster")]
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Paymaster options")]
+pub struct PaymasterOptions {
+    /// Enable the paymaster service.
+    ///
+    /// By default, the paymaster runs as a sidecar process. If `--paymaster.url` is provided,
+    /// it will connect to an external paymaster service instead.
+    #[arg(long = "paymaster", id = "paymaster_enabled")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Paymaster JSON-RPC endpoint for external paymaster service.
+    ///
+    /// When provided, the paymaster will run in external mode, connecting to this URL
+    /// instead of spawning a sidecar process.
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(long = "paymaster.url", value_name = "URL", id = "paymaster_url")]
+    #[serde(default)]
+    pub url: Option<Url>,
+
+    /// API key to send via `x-paymaster-api-key` when proxying requests.
+    #[arg(requires = "paymaster_url")]
+    #[arg(long = "paymaster.api-key", value_name = "KEY")]
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// API key for the Avnu price provider (used by the sidecar).
+    ///
+    /// Only required when running in sidecar mode. Not needed if `--paymaster.url` is provided.
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(conflicts_with = "paymaster_url")]
+    #[arg(long = "paymaster.price-api-key", value_name = "KEY")]
+    #[serde(default)]
+    pub price_api_key: Option<String>,
+
+    /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--paymaster.url` is provided.
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(conflicts_with = "paymaster_url")]
+    #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+#[cfg(feature = "paymaster")]
+impl PaymasterOptions {
+    /// Returns true if the paymaster should run in external mode (URL provided).
+    pub fn is_external(&self) -> bool {
+        self.url.is_some()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.enabled {
+                self.enabled = other.enabled;
+            }
+
+            if self.url.is_none() {
+                self.url = other.url.clone();
+            }
+
+            if self.api_key.is_none() {
+                self.api_key = other.api_key.clone();
+            }
+
+            if self.price_api_key.is_none() {
+                self.price_api_key = other.price_api_key.clone();
+            }
+
+            if self.bin.is_none() {
+                self.bin = other.bin.clone();
+            }
+        }
+    }
+}
+
 #[cfg(feature = "cartridge")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Cartridge options")]
 pub struct CartridgeOptions {
-    /// Declare all versions of the Controller class at genesis. This is implictly enabled if
-    /// `--cartridge.paymaster` is provided.
+    /// Declare all versions of the Controller class at genesis.
     #[arg(long = "cartridge.controllers")]
     pub controllers: bool,
 
-    /// Whether to use the Cartridge paymaster.
-    /// This has the cost to call the Cartridge API to check
-    /// if a controller account exists on each estimate fee call.
-    ///
-    /// Mostly used for local development using controller, and must be
-    /// disabled for slot deployments.
-    #[arg(long = "cartridge.paymaster")]
-    #[arg(default_value_t = false)]
+    /// Enable Cartridge paymaster
+    #[cfg(feature = "paymaster")]
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(long = "cartridge.paymaster", id = "cartridge_paymaster")]
     #[serde(default)]
     pub paymaster: bool,
 
-    /// The root URL for the Cartridge API.
+    /// The base URL for the Cartridge API.
     ///
     /// This is used to fetch the calldata for the constructor of the given controller
     /// address (at the moment). Must be configurable for local development
     /// with local cartridge API.
-    #[arg(long = "cartridge.api", requires = "paymaster")]
+    #[arg(long = "cartridge.api")]
+    #[cfg(feature = "paymaster")]
     #[arg(default_value = "https://api.cartridge.gg")]
+    #[arg(requires = "cartridge_paymaster")]
     #[serde(default = "default_api_url")]
-    pub api: Url,
+    pub cartridge_api: Url,
+
+    #[cfg(all(feature = "paymaster", feature = "vrf"))]
+    #[command(flatten)]
+    pub vrf: VrfOptions,
 }
 
 #[cfg(feature = "cartridge")]
 impl CartridgeOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
-            if self.paymaster == default_paymaster() {
-                self.paymaster = other.paymaster;
+            if !self.controllers {
+                self.controllers = other.controllers;
             }
 
-            if self.api == default_api_url() {
-                self.api = other.api.clone();
+            if self.cartridge_api == default_api_url() {
+                self.cartridge_api = other.cartridge_api.clone();
+            }
+
+            if self.vrf == VrfOptions::default() {
+                self.vrf = other.vrf.clone();
             }
         }
     }
@@ -585,8 +670,76 @@ impl Default for CartridgeOptions {
     fn default() -> Self {
         CartridgeOptions {
             controllers: false,
-            paymaster: default_paymaster(),
-            api: default_api_url(),
+            paymaster: false,
+            cartridge_api: default_api_url(),
+            #[cfg(feature = "vrf")]
+            vrf: VrfOptions::default(),
+        }
+    }
+}
+
+#[cfg(feature = "vrf")]
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Cartridge VRF options")]
+pub struct VrfOptions {
+    /// Enable the Cartridge VRF service.
+    ///
+    /// By default, the VRF runs as a sidecar process. If `--vrf.url` is provided,
+    /// it will connect to an external VRF service instead.
+    ///
+    /// Requires the Cartridge paymaster to be enabled i.e., `--paymaster.cartridge`.
+    #[arg(long = "vrf", id = "vrf_enabled")]
+    #[arg(requires = "cartridge_paymaster")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// VRF service endpoint for external VRF service.
+    ///
+    /// When provided, the VRF will run in external mode, connecting to this URL
+    /// instead of spawning a sidecar process.
+    #[arg(requires_all = ["vrf_enabled", "vrf_account_contract"])]
+    #[arg(long = "vrf.url", value_name = "URL", id = "vrf_url")]
+    #[serde(default)]
+    pub url: Option<Url>,
+
+    #[arg(requires = "vrf_url")]
+    #[arg(long = "vrf.contract", value_name = "ADDRESS", id = "vrf_account_contract")]
+    #[serde(default)]
+    pub vrf_account_contract: Option<ContractAddress>,
+
+    /// Optional path to the VRF sidecar binary (defaults to `vrf-server` in PATH).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(requires = "vrf_enabled", conflicts_with = "vrf_url")]
+    #[arg(long = "vrf.bin", value_name = "PATH", id = "vrf_bin")]
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+#[cfg(feature = "vrf")]
+impl VrfOptions {
+    /// Returns true if the VRF should run in external mode (URL provided).
+    pub fn is_external(&self) -> bool {
+        self.url.is_some()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.enabled {
+                self.enabled = other.enabled;
+            }
+
+            if self.url.is_none() {
+                self.url = other.url.clone();
+            }
+
+            if self.vrf_account_contract.is_none() {
+                self.vrf_account_contract = other.vrf_account_contract;
+            }
+
+            if self.bin.is_none() {
+                self.bin = other.bin.clone();
+            }
         }
     }
 }
@@ -696,11 +849,6 @@ where
         .map(GasPrice::new)
         .map(Some)
         .ok_or_else(|| D::Error::custom("value cannot be zero"))
-}
-
-#[cfg(feature = "cartridge")]
-fn default_paymaster() -> bool {
-    false
 }
 
 #[cfg(feature = "cartridge")]

@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
         Katana::new()
     };
 
-    let instance = katana.db_dir(TEST_DB_DIR).spawn();
+    let instance = katana.data_dir(TEST_DB_DIR).spawn();
 
     // Create HTTP client for Katana's RPC
     let url = format!("http://{}", instance.rpc_addr());

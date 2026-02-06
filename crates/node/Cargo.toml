@@ -48,9 +48,24 @@ strum_macros.workspace = true
 tokio = { workspace = true, features = [ "time" ] }
 
 [features]
-cartridge = ["katana-rpc-api/cartridge", "katana-rpc-server/cartridge"]
+paymaster = [
+	"katana-rpc-api/paymaster",
+	"katana-rpc-server/paymaster",
+]
+vrf = [
+	"katana-rpc-server/vrf",
+	"cartridge",
+]
+cartridge = [
+	"katana-rpc-api/cartridge",
+	"katana-rpc-server/cartridge",
+	"paymaster",
+]
 explorer = ["katana-rpc-server/explorer"]
 grpc = ["dep:katana-grpc"]
 native = ["katana-executor/native"]
 tee = ["dep:katana-tee", "katana-rpc-api/tee", "katana-rpc-server/tee"]
 tee-snp = ["tee", "katana-tee/snp"]
+
+[dev-dependencies]
+tempfile.workspace = true

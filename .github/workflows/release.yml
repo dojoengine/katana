@@ -208,13 +208,13 @@ jobs:
         if: ${{ matrix.job.native_build == false }}
         shell: bash
         run: |
-          cargo build --bin katana --profile performance --target ${{ matrix.job.target }}
+          cargo build -p katana --bin katana --profile performance --target ${{ matrix.job.target }}
 
       - name: Build binary ( w/ cairo-native )
         if: ${{ matrix.job.native_build == true }}
         shell: bash
         run: |
-          cargo build --bin katana --profile performance --features native --target ${{ matrix.job.target }}
+          cargo build -p katana --bin katana --profile performance --features native --target ${{ matrix.job.target }}
 
       - name: Archive binaries
         id: artifacts

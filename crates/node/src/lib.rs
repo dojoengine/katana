@@ -39,6 +39,8 @@ use katana_provider::{
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
+#[cfg(feature = "paymaster")]
+use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
@@ -46,11 +48,13 @@ use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::cartridge::CartridgeApi;
+use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
+#[cfg(feature = "paymaster")]
+use katana_rpc_server::paymaster::PaymasterProxy;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::starknet::PaymasterConfig;
+use katana_rpc_server::starknet::CartridgePaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
@@ -215,24 +219,65 @@ where
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
+        #[cfg(feature = "paymaster")]
+        if let Some(cfg) = &config.paymaster {
+            let proxy = PaymasterProxy::new(cfg.url.clone(), cfg.api_key.clone())?;
+            rpc_modules.merge(proxy.into_rpc())?;
+        };
+
         #[cfg(feature = "cartridge")]
-        let paymaster = if let Some(paymaster) = &config.paymaster {
-            anyhow::ensure!(
-                config.rpc.apis.contains(&RpcModuleKind::Cartridge),
-                "Cartridge API should be enabled when paymaster is set"
-            );
+        let cartridge_paymaster = if let Some(cfg) = &config.paymaster {
+            if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
+                anyhow::ensure!(
+                    config.rpc.apis.contains(&RpcModuleKind::Cartridge),
+                    "Cartridge API should be enabled when paymaster is set"
+                );
 
-            let api = CartridgeApi::new(
-                backend.clone(),
-                block_producer.clone(),
-                pool.clone(),
-                task_spawner.clone(),
-                paymaster.cartridge_api_url.clone(),
-            );
+                #[cfg(feature = "vrf")]
+                let vrf = if let Some(vrf) = &cartridge_api_cfg.vrf {
+                    use url::Url;
 
-            rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
+                    let rpc_url = Url::parse(&format!("http://{}", config.rpc.socket_addr()))
+                        .expect("valid rpc url");
 
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
+                    Some(katana_rpc_server::cartridge::VrfServiceConfig {
+                        rpc_url,
+                        service_url: vrf.url.clone(),
+                        vrf_contract: vrf.vrf_account,
+                    })
+                } else {
+                    None
+                };
+
+                let cartridge_api_config = CartridgeConfig {
+                    paymaster_url: cfg.url.clone(),
+                    paymaster_api_key: cfg.api_key.clone(),
+                    api_url: cartridge_api_cfg.cartridge_api_url.clone(),
+                    controller_deployer_address: cartridge_api_cfg.controller_deployer_address,
+                    controller_deployer_private_key: cartridge_api_cfg
+                        .controller_deployer_private_key,
+                    #[cfg(feature = "vrf")]
+                    vrf,
+                };
+
+                let cartrige_api = CartridgeApi::new(
+                    backend.clone(),
+                    block_producer.clone(),
+                    pool.clone(),
+                    task_spawner.clone(),
+                    cartridge_api_config,
+                )?;
+
+                rpc_modules.merge(CartridgeApiServer::into_rpc(cartrige_api))?;
+
+                Some(CartridgePaymasterConfig {
+                    cartridge_api_url: cartridge_api_cfg.cartridge_api_url.clone(),
+                    paymaster_address: cartridge_api_cfg.controller_deployer_address,
+                    paymaster_private_key: cartridge_api_cfg.controller_deployer_private_key,
+                })
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -247,7 +292,7 @@ where
             simulation_flags: execution_flags,
             versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
-            paymaster,
+            paymaster: cartridge_paymaster,
         };
 
         let chain_spec = backend.chain_spec.clone();
@@ -644,6 +689,11 @@ where
     /// Returns a reference to the node's configuration.
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Returns a reference to the node's block producer.
+    pub fn block_producer(&self) -> &BlockProducer<BlockifierFactory, P> {
+        &self.block_producer
     }
 }
 

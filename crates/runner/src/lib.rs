@@ -150,7 +150,7 @@ impl KatanaRunner {
         }
 
         if let Some(path) = config.db_dir {
-            builder = builder.db_dir(path);
+            builder = builder.data_dir(path);
         }
 
         builder = builder.no_mining(config.no_mining);

@@ -1,12 +1,8 @@
 #[cfg(feature = "cartridge")]
 use std::sync::Arc;
 
-#[cfg(feature = "cartridge")]
-use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-#[cfg(feature = "cartridge")]
-use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_pool::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
@@ -197,22 +193,8 @@ where
         // for more details.
         #[cfg(feature = "cartridge")]
         let transactions = if let Some(paymaster) = &self.inner.config.paymaster {
-            // Paymaster is the first dev account in the genesis.
-            let (paymaster_address, paymaster_alloc) = self
-                .inner
-                .chain_spec
-                .genesis()
-                .accounts()
-                .nth(0)
-                .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))
-                .map_err(StarknetApiError::from)?;
-
-            let paymaster_private_key = if let GenesisAccountAlloc::DevAccount(pm) = paymaster_alloc
-            {
-                pm.private_key
-            } else {
-                return Err(StarknetApiError::unexpected("Paymaster is not a dev account").into());
-            };
+            let paymaster_address = paymaster.paymaster_address;
+            let paymaster_private_key = paymaster.paymaster_private_key;
 
             let state =
                 self.storage().provider().latest().map(Arc::new).map_err(StarknetApiError::from)?;
@@ -225,14 +207,14 @@ where
             // transaction list so that all the requested transactions are executed against a state
             // with the Controller accounts deployed.
 
-            let paymaster_nonce = match self.nonce_at(block_id, *paymaster_address).await {
+            let paymaster_nonce = match self.nonce_at(block_id, paymaster_address).await {
                 Ok(nonce) => nonce,
                 Err(err) => match err {
-                    // this should be unreachable bcs we already checked for the paymaster account
-                    // existence earlier
                     StarknetApiError::ContractNotFound => {
-                        let error = anyhow!("Cartridge paymaster account doesn't exist");
-                        return Err(ErrorObjectOwned::from(StarknetApiError::from(error)))?;
+                        return Err(StarknetApiError::unexpected(
+                            "Cartridge paymaster account doesn't exist",
+                        )
+                        .into());
                     }
                     _ => return Err(ErrorObjectOwned::from(err)),
                 },
@@ -243,7 +225,7 @@ where
 
                 let deploy_controller_tx =
                     cartridge::get_controller_deploy_tx_if_controller_address(
-                        *paymaster_address,
+                        paymaster_address,
                         paymaster_private_key,
                         paymaster_nonce,
                         tx,

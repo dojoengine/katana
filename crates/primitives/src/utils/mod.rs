@@ -1,7 +1,8 @@
 use starknet_types_core::felt::NonZeroFelt;
 use starknet_types_core::hash::{Pedersen, StarkHash};
 
-use crate::{Felt, U256};
+use crate::class::ClassHash;
+use crate::{ContractAddress, Felt, U256};
 
 pub mod class;
 pub mod transaction;
@@ -23,9 +24,9 @@ pub fn split_u256(value: U256) -> (Felt, Felt) {
 /// Implementation reference: https://github.com/starkware-libs/cairo-lang/blob/v0.14.0/src/starkware/starknet/core/os/contract_address/contract_address.cairo
 pub fn get_contract_address(
     salt: Felt,
-    class_hash: Felt,
+    class_hash: ClassHash,
     constructor_calldata: &[Felt],
-    deployer_address: Felt,
+    deployer_address: ContractAddress,
 ) -> Felt {
     // Cairo string of 'STARKNET_CONTRACT_ADDRESS'
     const CONTRACT_ADDRESS_PREFIX: Felt = Felt::from_raw([
@@ -37,7 +38,7 @@ pub fn get_contract_address(
 
     let address = Pedersen::hash_array(&[
         CONTRACT_ADDRESS_PREFIX,
-        deployer_address,
+        deployer_address.into(),
         salt,
         class_hash,
         Pedersen::hash_array(constructor_calldata),
