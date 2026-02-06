@@ -652,6 +652,10 @@ impl CartridgeOptions {
                 self.controllers = other.controllers;
             }
 
+            if self.api == default_api_url() {
+                self.api = other.api.clone();
+            }
+
             if self.vrf == VrfOptions::default() {
                 self.vrf = other.vrf.clone();
             }
