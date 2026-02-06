@@ -135,6 +135,7 @@ impl Sp1Backend for Sp1NetworkBackend {
         let sp1_config = SP1ProverConfig {
             private_key: config.private_key.clone(),
             rpc_url: config.rpc_url.clone(),
+            prover_mode: None,
         };
         let mut sdk_config = SdkProverConfig::sp1_with(sp1_config);
         sdk_config.skip_time_validity_check = config.skip_time_validity_check;
@@ -333,6 +334,7 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         let sp1_config = SP1ProverConfig {
             private_key: self.config.private_key.clone(),
             rpc_url: self.config.rpc_url.clone(),
+            prover_mode: None,
         };
         let mut config = SdkProverConfig::sp1_with(sp1_config);
         config.skip_time_validity_check = self.config.skip_time_validity_check;
