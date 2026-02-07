@@ -26,6 +26,20 @@ struct Args {
     output: PathBuf,
 }
 
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let dst_path = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else {
+            std::fs::copy(entry.path(), dst_path)?;
+        }
+    }
+    Ok(())
+}
+
 fn create_tar_gz(db_dir: &Path, output: &Path) -> std::io::Result<()> {
     // Derive the directory name from the output file stem (e.g., "spawn_and_move" from
     // "spawn_and_move.tar.gz")
@@ -46,13 +60,8 @@ fn create_tar_gz(db_dir: &Path, output: &Path) -> std::io::Result<()> {
     let inner_dir = staging_dir.path().join(stem);
     std::fs::create_dir_all(&inner_dir)?;
 
-    // Copy db files into the staging directory
-    for entry in std::fs::read_dir(db_dir)? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            std::fs::copy(entry.path(), inner_dir.join(entry.file_name()))?;
-        }
-    }
+    // Recursively copy all db files into the staging directory
+    copy_dir_all(db_dir, &inner_dir)?;
 
     let status = Command::new("tar")
         .args(["-czf"])

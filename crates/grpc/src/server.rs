@@ -4,7 +4,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::net::TcpListener;
 use tokio::sync::watch;
+use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::server::Routes;
 use tonic::transport::Server;
 use tracing::{error, info};
@@ -28,6 +30,10 @@ pub enum Error {
     /// Server has already been stopped.
     #[error("gRPC server has already been stopped")]
     AlreadyStopped,
+
+    /// IO error during socket binding.
+    #[error("Failed to bind socket: {0}")]
+    Bind(#[from] std::io::Error),
 }
 
 /// Handle to a running gRPC server.
@@ -104,6 +110,9 @@ impl GrpcServer {
     ///
     /// This method spawns the server on a new Tokio task and returns a handle
     /// that can be used to manage the server.
+    ///
+    /// If the port in `addr` is 0, the OS will assign an available port.
+    /// The actual bound address can be retrieved from the returned handle.
     pub async fn start(&self, addr: SocketAddr) -> Result<GrpcServerHandle, Error> {
         // Build reflection service for tooling support (grpcurl, Postman, etc.)
         let reflection_service = tonic_reflection::server::Builder::configure()
@@ -114,11 +123,16 @@ impl GrpcServer {
         // Create shutdown channel
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
+        // Bind to the socket first to get the actual address (important when port is 0)
+        let listener = TcpListener::bind(addr).await?;
+        let actual_addr = listener.local_addr()?;
+        let incoming = TcpListenerStream::new(listener);
+
         let mut builder = Server::builder().timeout(self.timeout);
         let server = builder.add_routes(self.routes.clone()).add_service(reflection_service);
 
-        // Start the server with graceful shutdown
-        let server_future = server.serve_with_shutdown(addr, async move {
+        // Start the server with graceful shutdown using the pre-bound listener
+        let server_future = server.serve_with_incoming_shutdown(incoming, async move {
             let _ = shutdown_rx.changed().await;
         });
 
@@ -128,9 +142,9 @@ impl GrpcServer {
             }
         });
 
-        info!(target: "grpc", %addr, "gRPC server started.");
+        info!(target: "grpc", addr = %actual_addr, "gRPC server started.");
 
-        Ok(GrpcServerHandle { addr, shutdown_tx: Arc::new(shutdown_tx) })
+        Ok(GrpcServerHandle { addr: actual_addr, shutdown_tx: Arc::new(shutdown_tx) })
     }
 }
 

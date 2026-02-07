@@ -13,6 +13,7 @@ katana-rpc-types.workspace = true
 katana-utils-macro = { path = "macro" }
 
 anyhow.workspace = true
+fs2 = "0.4"
 arbitrary.workspace = true
 assert_matches.workspace = true
 async-trait.workspace = true
@@ -35,6 +36,7 @@ tempfile = { workspace = true, optional = true }
 
 [features]
 node = [
+	"katana-node/grpc",
     "clap",
     "katana-chain-spec",
     "katana-core",
