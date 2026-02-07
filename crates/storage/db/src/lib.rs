@@ -101,15 +101,15 @@ impl Db {
         let path = dir.path();
 
         let version = if is_database_empty(path) {
-            fs::create_dir_all(&path).with_context(|| {
+            fs::create_dir_all(path).with_context(|| {
                 format!("Creating database directory at path {}", path.display())
             })?;
 
-            create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
+            create_db_version_file(path, CURRENT_DB_VERSION).with_context(|| {
                 format!("Inserting database version file at path {}", path.display())
             })?
         } else {
-            match get_db_version(&path) {
+            match get_db_version(path) {
                 Ok(version) if version != CURRENT_DB_VERSION => {
                     if !is_block_compatible_version(&version) {
                         return Err(anyhow!(DatabaseVersionError::MismatchVersion {
@@ -124,7 +124,7 @@ impl Db {
                 Ok(version) => version,
 
                 Err(DatabaseVersionError::FileNotFound) => {
-                    create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
+                    create_db_version_file(path, CURRENT_DB_VERSION).with_context(|| {
                         format!(
                             "No database version file found. Inserting version file at path {}",
                             path.display()
