@@ -1,16 +1,3 @@
-//! Integration tests for the Starknet gRPC server.
-//!
-//! All tests share a single TestNode instance that is created and migrated
-//! once. Each test creates its own gRPC and JSON-RPC clients to the shared
-//! node, then compares results from both endpoints.
-//!
-//! Requirements:
-//! - `git`, `asdf`, `scarb`, and `sozo` must be installed and properly configured
-//! - Run with `cargo nextest run -p katana-grpc --features grpc`
-
-use std::net::SocketAddr;
-use std::sync::OnceLock;
-
 use katana_grpc::proto::{
     BlockHashAndNumberRequest, BlockNumberRequest, BlockTag, ChainIdRequest, GetBlockRequest,
     GetClassAtRequest, GetClassHashAtRequest, GetEventsRequest, GetNonceRequest,
@@ -25,66 +12,25 @@ use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, Url};
 use tonic::Request;
 
-/// Shared test context initialized once for all tests.
-struct TestContext {
-    /// Keeps the tokio runtime (and thus the node) alive for the test suite.
-    _runtime: tokio::runtime::Runtime,
-    grpc_addr: SocketAddr,
-    rpc_addr: SocketAddr,
-    genesis_address: Felt,
-    chain_id: Felt,
-}
+async fn setup() -> (TestNode, GrpcClient, JsonRpcClient<HttpTransport>) {
+    let node = TestNode::new_with_spawn_and_move_db().await;
 
-static TEST_CTX: OnceLock<TestContext> = OnceLock::new();
-
-fn test_context() -> &'static TestContext {
-    TEST_CTX.get_or_init(|| {
-        // Spawn initialization on a separate thread to avoid "cannot start a
-        // runtime from within a runtime" when called from #[tokio::test].
-        std::thread::spawn(|| {
-            let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-
-            let (grpc_addr, rpc_addr, genesis_address, chain_id) = runtime.block_on(async {
-                let node = TestNode::new().await;
-                node.migrate_spawn_and_move().await.expect("migration failed");
-
-                let grpc_addr = *node.grpc_addr().expect("grpc not enabled");
-                let rpc_addr = *node.rpc_addr();
-                let (address, _) = node
-                    .backend()
-                    .chain_spec
-                    .genesis()
-                    .accounts()
-                    .next()
-                    .expect("must have genesis account");
-                let genesis_address: Felt = (*address).into();
-                let chain_id = node.backend().chain_spec.id().id();
-
-                // Leak the node so the servers stay alive for the entire test suite.
-                std::mem::forget(node);
-
-                (grpc_addr, rpc_addr, genesis_address, chain_id)
-            });
-
-            TestContext { _runtime: runtime, grpc_addr, rpc_addr, genesis_address, chain_id }
-        })
-        .join()
-        .expect("test context initialization thread panicked")
-    })
-}
-
-/// Creates fresh gRPC and JSON-RPC clients connected to the shared node.
-async fn setup() -> (GrpcClient, JsonRpcClient<HttpTransport>) {
-    let ctx = test_context();
-
-    let grpc = GrpcClient::connect(format!("http://{}", ctx.grpc_addr))
+    let grpc_addr = *node.grpc_addr().expect("grpc not enabled");
+    let grpc = GrpcClient::connect(format!("http://{grpc_addr}"))
         .await
         .expect("failed to connect to gRPC server");
 
-    let url = Url::parse(&format!("http://{}", ctx.rpc_addr)).expect("failed to parse url");
+    let rpc_addr = *node.rpc_addr();
+    let url = Url::parse(&format!("http://{rpc_addr}")).expect("failed to parse url");
     let rpc = JsonRpcClient::new(HttpTransport::new(url));
 
-    (grpc, rpc)
+    (node, grpc, rpc)
+}
+
+fn genesis_address(node: &TestNode) -> Felt {
+    let (address, _) =
+        node.backend().chain_spec.genesis().accounts().next().expect("must have genesis account");
+    (*address).into()
 }
 
 fn felt_to_proto(felt: Felt) -> katana_grpc::proto::Felt {
@@ -109,8 +55,9 @@ fn grpc_block_id_latest() -> Option<katana_grpc::proto::BlockId> {
 
 #[tokio::test]
 async fn test_chain_id() {
-    let (mut grpc, rpc) = setup().await;
-    let ctx = test_context();
+    let (node, mut grpc, rpc) = setup().await;
+
+    let chain_id = node.backend().chain_spec.id().id();
 
     let rpc_chain_id = rpc.chain_id().await.expect("rpc chain_id failed");
 
@@ -121,13 +68,13 @@ async fn test_chain_id() {
         .into_inner()
         .chain_id;
 
-    assert_eq!(rpc_chain_id, ctx.chain_id);
-    assert_eq!(grpc_chain_id, format!("{:#x}", ctx.chain_id));
+    assert_eq!(rpc_chain_id, chain_id);
+    assert_eq!(grpc_chain_id, format!("{:#x}", chain_id));
 }
 
 #[tokio::test]
 async fn test_block_number() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_block_number = rpc.block_number().await.expect("rpc block_number failed");
 
@@ -144,7 +91,7 @@ async fn test_block_number() {
 
 #[tokio::test]
 async fn test_block_hash_and_number() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_result = rpc.block_hash_and_number().await.expect("rpc block_hash_and_number failed");
 
@@ -161,7 +108,7 @@ async fn test_block_hash_and_number() {
 
 #[tokio::test]
 async fn test_get_block_with_txs() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_block = rpc.get_block_with_txs(BlockId::Number(0)).await.expect("rpc failed");
 
@@ -192,7 +139,7 @@ async fn test_get_block_with_txs() {
 
 #[tokio::test]
 async fn test_get_block_with_tx_hashes() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_block = rpc.get_block_with_tx_hashes(BlockId::Number(0)).await.expect("rpc failed");
 
@@ -231,7 +178,7 @@ async fn test_get_block_with_tx_hashes() {
 
 #[tokio::test]
 async fn test_get_block_with_txs_latest() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_block =
         rpc.get_block_with_txs(BlockId::Tag(StarknetBlockTag::Latest)).await.expect("rpc failed");
@@ -259,18 +206,18 @@ async fn test_get_block_with_txs_latest() {
 
 #[tokio::test]
 async fn test_get_class_at() {
-    let (mut grpc, rpc) = setup().await;
-    let ctx = test_context();
+    let (node, mut grpc, rpc) = setup().await;
+    let address = genesis_address(&node);
 
     let rpc_class = rpc
-        .get_class_at(BlockId::Tag(StarknetBlockTag::Latest), ctx.genesis_address)
+        .get_class_at(BlockId::Tag(StarknetBlockTag::Latest), address)
         .await
         .expect("rpc get_class_at failed");
 
     let grpc_result = grpc
         .get_class_at(Request::new(GetClassAtRequest {
             block_id: grpc_block_id_latest(),
-            contract_address: Some(felt_to_proto(ctx.genesis_address)),
+            contract_address: Some(felt_to_proto(address)),
         }))
         .await
         .expect("grpc get_class_at failed")
@@ -292,18 +239,18 @@ async fn test_get_class_at() {
 
 #[tokio::test]
 async fn test_get_class_hash_at() {
-    let (mut grpc, rpc) = setup().await;
-    let ctx = test_context();
+    let (node, mut grpc, rpc) = setup().await;
+    let address = genesis_address(&node);
 
     let rpc_class_hash = rpc
-        .get_class_hash_at(BlockId::Tag(StarknetBlockTag::Latest), ctx.genesis_address)
+        .get_class_hash_at(BlockId::Tag(StarknetBlockTag::Latest), address)
         .await
         .expect("rpc get_class_hash_at failed");
 
     let grpc_result = grpc
         .get_class_hash_at(Request::new(GetClassHashAtRequest {
             block_id: grpc_block_id_latest(),
-            contract_address: Some(felt_to_proto(ctx.genesis_address)),
+            contract_address: Some(felt_to_proto(address)),
         }))
         .await
         .expect("grpc get_class_hash_at failed")
@@ -315,18 +262,18 @@ async fn test_get_class_hash_at() {
 
 #[tokio::test]
 async fn test_get_storage_at() {
-    let (mut grpc, rpc) = setup().await;
-    let ctx = test_context();
+    let (node, mut grpc, rpc) = setup().await;
+    let address = genesis_address(&node);
 
     let rpc_value = rpc
-        .get_storage_at(ctx.genesis_address, Felt::ZERO, BlockId::Tag(StarknetBlockTag::Latest))
+        .get_storage_at(address, Felt::ZERO, BlockId::Tag(StarknetBlockTag::Latest))
         .await
         .expect("rpc get_storage_at failed");
 
     let grpc_result = grpc
         .get_storage_at(Request::new(GetStorageAtRequest {
             block_id: grpc_block_id_latest(),
-            contract_address: Some(felt_to_proto(ctx.genesis_address)),
+            contract_address: Some(felt_to_proto(address)),
             key: Some(felt_to_proto(Felt::ZERO)),
         }))
         .await
@@ -339,18 +286,18 @@ async fn test_get_storage_at() {
 
 #[tokio::test]
 async fn test_get_nonce() {
-    let (mut grpc, rpc) = setup().await;
-    let ctx = test_context();
+    let (node, mut grpc, rpc) = setup().await;
+    let address = genesis_address(&node);
 
     let rpc_nonce = rpc
-        .get_nonce(BlockId::Tag(StarknetBlockTag::Latest), ctx.genesis_address)
+        .get_nonce(BlockId::Tag(StarknetBlockTag::Latest), address)
         .await
         .expect("rpc get_nonce failed");
 
     let grpc_result = grpc
         .get_nonce(Request::new(GetNonceRequest {
             block_id: grpc_block_id_latest(),
-            contract_address: Some(felt_to_proto(ctx.genesis_address)),
+            contract_address: Some(felt_to_proto(address)),
         }))
         .await
         .expect("grpc get_nonce failed")
@@ -363,7 +310,7 @@ async fn test_get_nonce() {
 
 #[tokio::test]
 async fn test_spec_version() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_version = rpc.spec_version().await.expect("rpc spec_version failed");
 
@@ -379,7 +326,7 @@ async fn test_spec_version() {
 
 #[tokio::test]
 async fn test_syncing() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_syncing = rpc.syncing().await.expect("rpc syncing failed");
 
@@ -404,7 +351,7 @@ async fn test_syncing() {
 
 #[tokio::test]
 async fn test_get_block_transaction_count() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_count = rpc
         .get_block_transaction_count(BlockId::Number(0))
@@ -425,7 +372,7 @@ async fn test_get_block_transaction_count() {
 
 #[tokio::test]
 async fn test_get_state_update() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_state =
         rpc.get_state_update(BlockId::Number(0)).await.expect("rpc get_state_update failed");
@@ -462,7 +409,7 @@ async fn test_get_state_update() {
 
 #[tokio::test]
 async fn test_get_events() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_events = rpc
         .get_events(
@@ -513,7 +460,7 @@ async fn test_get_events() {
 
 #[tokio::test]
 async fn test_get_transaction_by_hash() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     // Get a transaction hash from block 1
     let rpc_block =
@@ -549,7 +496,7 @@ async fn test_get_transaction_by_hash() {
 
 #[tokio::test]
 async fn test_get_transaction_receipt() {
-    let (mut grpc, rpc) = setup().await;
+    let (_node, mut grpc, rpc) = setup().await;
 
     // Get a transaction hash from block 1
     let rpc_block =
