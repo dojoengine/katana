@@ -86,8 +86,6 @@ jobs:
           if-no-files-found: error
           path: |
             ./tests/snos/snos/build
-            ./tests/fixtures/db/spawn_and_move
-            ./tests/fixtures/db/simple
             ./crates/contracts/build
 
   build-katana-binary:
@@ -159,8 +157,100 @@ jobs:
       - name: Run Clippy
         run: ./scripts/clippy.sh
 
+  generate-db-fixtures:
+    needs: [generate-test-artifacts]
+    runs-on: ubuntu-latest-32-cores
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    env:
+      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - name: Cache DB fixtures
+        id: cache-db-fixtures
+        uses: actions/cache@v4
+        with:
+          path: |
+            tests/fixtures/db/spawn_and_move
+            tests/fixtures/db/simple
+          key: db-fixtures-${{ hashFiles('crates/storage/db/src/version.rs') }}-dojo-v1.7.0
+
+      - name: Download contract artifacts
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        uses: actions/download-artifact@v5
+        with:
+          name: test-artifacts
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        with:
+          key: ci-${{ github.job }}
+          shared-key: katana-ci-cache
+
+      - name: Checkout Dojo repository
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        uses: actions/checkout@v3
+        with:
+          repository: dojoengine/dojo
+          ref: v1.7.0
+          path: dojo
+
+      - name: Read scarb version from Dojo
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        id: dojo-scarb
+        run: |
+          SCARB_VERSION=$(grep '^scarb ' dojo/.tool-versions | awk '{print $2}')
+          echo "version=$SCARB_VERSION" >> $GITHUB_OUTPUT
+
+      - uses: software-mansion/setup-scarb@v1
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        with:
+          scarb-version: ${{ steps.dojo-scarb.outputs.version }}
+
+      - name: Install sozo
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        run: cargo install --path dojo/bin/sozo --locked --force
+
+      - name: Build generate_migration_db
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        run: cargo build --bin generate_migration_db --features node -p katana-utils
+
+      - name: Generate spawn-and-move fixture
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        run: ./target/debug/generate_migration_db --example spawn-and-move --output /tmp/spawn_and_move.tar.gz
+
+      - name: Generate simple fixture
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        run: ./target/debug/generate_migration_db --example simple --output /tmp/simple.tar.gz
+
+      - name: Extract fixtures
+        if: steps.cache-db-fixtures.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tests/fixtures/db
+          cd tests/fixtures/db && tar -xzf /tmp/spawn_and_move.tar.gz
+          cd tests/fixtures/db && tar -xzf /tmp/simple.tar.gz
+
+      - name: Upload DB fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-fixtures
+          overwrite: true
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ./tests/fixtures/db/spawn_and_move
+            ./tests/fixtures/db/simple
+
   test:
-    needs: [fmt, clippy, generate-test-artifacts, build-katana-binary]
+    needs: [fmt, clippy, generate-test-artifacts, build-katana-binary, generate-db-fixtures]
     runs-on: ubuntu-latest-32-cores
     timeout-minutes: 30
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
@@ -187,6 +277,11 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: test-artifacts
+
+      - name: Download DB fixtures
+        uses: actions/download-artifact@v5
+        with:
+          name: db-fixtures
 
       - name: Download Katana binary
         uses: actions/download-artifact@v5

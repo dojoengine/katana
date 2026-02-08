@@ -17,10 +17,7 @@ SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
 COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/1_6_0.tar.gz
 COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/1_6_0
 
-SPAWN_AND_MOVE_DB_TAR ?= $(DB_FIXTURES_DIR)/spawn_and_move.tar.gz
 SPAWN_AND_MOVE_DB_DIR := $(DB_FIXTURES_DIR)/spawn_and_move
-
-SIMPLE_DB_TAR ?= $(DB_FIXTURES_DIR)/simple.tar.gz
 SIMPLE_DB_DIR := $(DB_FIXTURES_DIR)/simple
 
 CONTRACTS_CRATE := crates/contracts
@@ -38,7 +35,7 @@ SCARB_VERSION := 2.8.4
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts install-pyenv
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
 
 usage help:
 	@echo "Usage:"
@@ -49,6 +46,7 @@ usage help:
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
+	@echo "    generate-db-fixtures:      Generate spawn-and-move and simple DB fixtures (requires scarb + sozo)."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
@@ -74,7 +72,7 @@ snos-artifacts: $(SNOS_OUTPUT)
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
 
-test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB_DIR) $(SIMPLE_DB_DIR) contracts
+test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) contracts
 	@echo "All test artifacts prepared successfully."
 
 build-explorer:
@@ -128,17 +126,19 @@ $(COMPATIBILITY_DB_DIR): $(COMPATIBILITY_DB_TAR)
 		mv katana_db $(notdir $(COMPATIBILITY_DB_DIR)) || { echo "Failed to extract backward compatibility test database\!"; exit 1; }
 	@echo "Backward compatibility database extracted successfully."
 
-$(SPAWN_AND_MOVE_DB_DIR): $(SPAWN_AND_MOVE_DB_TAR)
-	@echo "Extracting spawn-and-move test database..."
-	@cd $(DB_FIXTURES_DIR) && \
-		tar -xzf $(notdir $(SPAWN_AND_MOVE_DB_TAR)) || { echo "Failed to extract spawn-and-move test database\!"; exit 1; }
-	@echo "Spawn-and-move test database extracted successfully."
-
-$(SIMPLE_DB_DIR): $(SIMPLE_DB_TAR)
-	@echo "Extracting simple test database..."
-	@cd $(DB_FIXTURES_DIR) && \
-		tar -xzf $(notdir $(SIMPLE_DB_TAR)) || { echo "Failed to extract simple test database\!"; exit 1; }
-	@echo "Simple test database extracted successfully."
+generate-db-fixtures:
+	@echo "Building generate_migration_db binary..."
+	cargo build --bin generate_migration_db --features node -p katana-utils
+	@echo "Generating spawn-and-move database fixture..."
+	./target/debug/generate_migration_db --example spawn-and-move --output /tmp/spawn_and_move.tar.gz
+	@echo "Generating simple database fixture..."
+	./target/debug/generate_migration_db --example simple --output /tmp/simple.tar.gz
+	@echo "Extracting spawn-and-move fixture..."
+	@mkdir -p $(DB_FIXTURES_DIR)
+	@cd $(DB_FIXTURES_DIR) && tar -xzf /tmp/spawn_and_move.tar.gz
+	@echo "Extracting simple fixture..."
+	@cd $(DB_FIXTURES_DIR) && tar -xzf /tmp/simple.tar.gz
+	@echo "DB fixtures generated successfully."
 
 check-llvm:
 ifndef MLIR_SYS_190_PREFIX
