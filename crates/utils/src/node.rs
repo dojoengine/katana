@@ -333,10 +333,14 @@ fn run_sozo_migrate(
 }
 
 /// Copies all files from `src` to `dst` (flat copy, no subdirectories).
+///
+/// The MDBX lock file (`mdbx.lck`) is intentionally skipped because it contains
+/// platform-specific data (pthread mutexes, process IDs) that is not portable across
+/// systems. MDBX creates a fresh lock file when the database is opened.
 fn copy_db_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
-        if entry.file_type()?.is_file() {
+        if entry.file_type()?.is_file() && entry.file_name() != "mdbx.lck" {
             std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
         }
     }
