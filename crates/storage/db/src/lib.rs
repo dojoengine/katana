@@ -165,6 +165,7 @@ impl Db {
             .max_size(GIGABYTE * 10)
             .growth_step((GIGABYTE / 2) as isize)
             .sync(SyncMode::UtterlyNoSync)
+            .existing_page_size()
             .build(path)?;
 
         env.create_default_tables()?;
