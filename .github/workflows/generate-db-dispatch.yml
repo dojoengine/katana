@@ -22,8 +22,13 @@ jobs:
               with:
                   scarb-version: "2.10.1"
 
+            - name: Build katana
+              run: cargo build --bin katana --release
+
             - name: Generate test database
               run: ./scripts/generate-test-db.sh --dojo-tag v1.6.0
+              env:
+                  KATANA_BIN: ./target/release/katana
 
             - name: Upload compat database artifact
               uses: actions/upload-artifact@v4
