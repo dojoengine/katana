@@ -13,6 +13,8 @@ jobs:
             ASDF_SOZO_VERSION: "1.7.0"
         steps:
             - uses: actions/checkout@v4
+              with:
+                  submodules: recursive
 
             # Workaround for https://github.com/actions/runner-images/issues/6775
             - run: git config --global --add safe.directory "*"
@@ -21,6 +23,9 @@ jobs:
             - uses: software-mansion/setup-scarb@v1
               with:
                   scarb-version: "2.10.1"
+
+            - name: Build contracts
+              run: make contracts
 
             - name: Build katana
               run: cargo build --bin katana --release
