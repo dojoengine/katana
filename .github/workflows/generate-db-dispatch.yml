@@ -47,6 +47,8 @@ jobs:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
