@@ -125,6 +125,7 @@ RUN asdf plugin add scarb && \
 
 # Install sozo via asdf
 RUN asdf plugin add sozo https://github.com/dojoengine/asdf-sozo.git && \
+	asdf install sozo 1.6.0 && \
 	asdf install sozo 1.7.0 && \
 	asdf set sozo 1.7.0
 
