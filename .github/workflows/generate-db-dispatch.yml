@@ -55,6 +55,9 @@ jobs:
       - name: Set sozo version
         run: asdf set sozo 1.7.0
 
+      - name: Build contracts
+        run: make contracts
+
       - name: Build generate_migration_db
         run: cargo build --bin generate_migration_db --features node --release
 
