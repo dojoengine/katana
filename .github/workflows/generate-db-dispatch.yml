@@ -30,7 +30,7 @@ jobs:
                   scarb-version: "2.10.1"
 
             - name: Set sozo version
-              run: asdf set -g sozo 1.7.0
+              run: asdf set -u sozo 1.7.0
 
             - name: Generate test database
               run: ./scripts/generate-test-db.sh --dojo-tag v1.6.0
@@ -55,7 +55,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Set sozo version
-              run: asdf set -g sozo 1.7.0
+              run: asdf set -u sozo 1.7.0
 
             - name: Build contracts
               run: make contracts
