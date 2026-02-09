@@ -3,16 +3,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  generate-database:
+  generate-compat-db:
     runs-on: ubuntu-latest
-
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
-
-    permissions:
-      contents: write
-      pull-requests: write
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +35,64 @@ jobs:
       - name: Generate test database
         run: ./scripts/generate-test-db.sh --dojo-tag v1.6.0
 
+      - name: Upload compat database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-db
+          path: tests/fixtures/db/*.tar.gz
+
+  generate-migration-dbs:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set sozo version
+        run: asdf set sozo 1.7.0
+
+      - name: Build generate_migration_db
+        run: cargo build --bin generate_migration_db --features node --release
+
+      - name: Generate spawn-and-move database
+        run: ./target/release/generate_migration_db --example spawn-and-move --output tests/fixtures/db/spawn_and_move.tar.gz
+
+      - name: Generate simple database
+        run: ./target/release/generate_migration_db --example simple --output tests/fixtures/db/simple.tar.gz
+
+      - name: Upload migration database artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-dbs
+          path: |
+            tests/fixtures/db/spawn_and_move.tar.gz
+            tests/fixtures/db/simple.tar.gz
+
+  create-pr:
+    needs: [generate-compat-db, generate-migration-dbs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download compat database
+        uses: actions/download-artifact@v4
+        with:
+          name: compat-db
+          path: tests/fixtures/db/
+
+      - name: Download migration databases
+        uses: actions/download-artifact@v4
+        with:
+          name: migration-dbs
+          path: tests/fixtures/db/
+
       - id: version_info
         run: |
           DATE=$(date +%Y%m%d%H%M%S)
@@ -52,7 +104,8 @@ jobs:
           base: main
           delete-branch: true
           token: ${{ secrets.CREATE_PR_TOKEN }}
-          add-paths: tests/fixtures/katana_db.tar.gz
+          add-paths: |
+            tests/fixtures/db/
           branch: db-update-${{ steps.version_info.outputs.version }}
-          title: "chore(test): update test database for katana ${{ inputs.katana_version }}"
-          commit-message: "Update test database for katana ${{ inputs.katana_version }}"
+          title: "chore(test): update test database fixtures"
+          commit-message: "chore(test): update test database fixtures"
