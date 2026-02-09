@@ -13,19 +13,10 @@ jobs:
             ASDF_SOZO_VERSION: "1.7.0"
         steps:
             - uses: actions/checkout@v4
-              with:
-                  ref: v1.6.0
 
             # Workaround for https://github.com/actions/runner-images/issues/6775
             - run: git config --global --add safe.directory "*"
             - uses: Swatinem/rust-cache@v2
-
-            - name: Checkout Dojo repository
-              uses: actions/checkout@v4
-              with:
-                  repository: dojoengine/dojo
-                  ref: v1.6.0
-                  path: dojo
 
             - uses: software-mansion/setup-scarb@v1
               with:
