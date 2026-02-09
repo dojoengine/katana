@@ -6347,6 +6347,7 @@ dependencies = [
  "katana-rpc-api",
  "katana-rpc-server",
  "katana-rpc-types",
+ "katana-utils",
  "num-bigint",
  "prost 0.12.6",
  "serde_json",

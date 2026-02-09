@@ -204,7 +204,6 @@ where
         self.node.grpc().map(|h| h.addr())
     }
 
-
     /// Migrates the `spawn-and-move` example contracts from the dojo repository.
     ///
     /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
