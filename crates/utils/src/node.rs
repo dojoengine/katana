@@ -4,11 +4,6 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use fs2::FileExt;
-
-/// Fixed path for the dojo repository clone to avoid recompiling for each test.
-const DOJO_CACHE_DIR: &str = "/tmp/katana-test-dojo";
-
 use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
