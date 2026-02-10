@@ -146,7 +146,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
               with:
                   key: ci-${{ github.job }}
-                  shared-key: katana-ci-cache
+                  shared-key: katana-ci-cache-nightly
 
             - name: Download test artifacts
               uses: actions/download-artifact@v5
@@ -193,8 +193,7 @@ jobs:
             - name: Add binary to PATH
               run: |
                   chmod +x katana
-                  export PATH="$(pwd):$GITHUB_PATH"
-                  echo $PATH > $GITHUB_PATH
+                  echo "$(pwd)" >> $GITHUB_PATH
 
             - name: Run tests
               if: github.event_name != 'pull_request'
@@ -290,6 +289,8 @@ jobs:
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            ASDF_SOZO_VERSION: "1.7.0"
         steps:
             - uses: actions/checkout@v3
               with:
@@ -331,10 +332,7 @@ jobs:
 
             - name: Build and migrate `spawn-and-move` project
               run: |
-                  cd dojo
-                  cargo install --path bin/sozo --locked --force
-
-                  cd examples/spawn-and-move
+                  cd dojo/examples/spawn-and-move
                   sozo build && sozo migrate
 
             - name: Output Katana logs on failure

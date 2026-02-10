@@ -46,6 +46,7 @@ usage help:
 	@echo "    fixtures:            	  Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
+	@echo "    generate-db-fixtures:      Generate spawn-and-move and simple DB fixtures (requires scarb + sozo)."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
@@ -67,6 +68,9 @@ install-scarb:
 
 snos-artifacts: $(SNOS_OUTPUT)
 	@echo "SNOS test artifacts prepared successfully."
+
+db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
+	@echo "Database compatibility test artifacts prepared successfully."
 
 fixtures: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB) $(SIMPLE_DB) contracts
 	@echo "All test fixtures prepared successfully."

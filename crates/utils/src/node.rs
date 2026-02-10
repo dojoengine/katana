@@ -2,11 +2,13 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::time::Duration;
 
 use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
+use katana_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
@@ -192,6 +194,11 @@ where
         katana_rpc_client::starknet::Client::new_with_client(client)
     }
 
+    /// Returns the address of the node's gRPC server (if enabled).
+    pub fn grpc_addr(&self) -> Option<&SocketAddr> {
+        self.node.grpc().map(|h| h.addr())
+    }
+
     /// Migrates the `spawn-and-move` example contracts from the dojo repository.
     ///
     /// This method requires `git`, `asdf`, and `sozo` to be available in PATH.
@@ -269,8 +276,8 @@ fn run_git_clone(temp_dir: &Path) -> Result<(), MigrateError> {
 }
 
 fn run_scarb_build(project_dir: &Path) -> Result<(), MigrateError> {
-    let output = Command::new("asdf")
-        .args(["exec", "scarb", "build"])
+    let output = Command::new("scarb")
+        .arg("build")
         .current_dir(project_dir)
         .output()
         .map_err(|e| MigrateError::ScarbBuild(e.to_string()))?;
@@ -295,7 +302,7 @@ fn run_sozo_migrate(
     address: &str,
     private_key: &str,
 ) -> Result<(), MigrateError> {
-    let output = Command::new("sozo")
+    let status = Command::new("sozo")
         .args([
             "migrate",
             "--rpc-url",
@@ -306,30 +313,28 @@ fn run_sozo_migrate(
             private_key,
         ])
         .current_dir(project_dir)
-        .output()
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
         .map_err(|e| MigrateError::SozoMigrate(e.to_string()))?;
 
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{stdout}\n{stderr}");
-
-        let lines: Vec<&str> = combined.lines().collect();
-        let last_50: String =
-            lines.iter().rev().take(50).rev().cloned().collect::<Vec<_>>().join("\n");
-
-        eprintln!("sozo migrate failed. Last 50 lines of output:\n{last_50}");
-
-        return Err(MigrateError::SozoMigrate(last_50));
+    if !status.success() {
+        return Err(MigrateError::SozoMigrate(format!(
+            "sozo migrate exited with status: {status}"
+        )));
     }
     Ok(())
 }
 
 /// Copies all files from `src` to `dst` (flat copy, no subdirectories).
+///
+/// The MDBX lock file (`mdbx.lck`) is intentionally skipped because it contains
+/// platform-specific data (pthread mutexes, process IDs) that is not portable across
+/// systems. MDBX creates a fresh lock file when the database is opened.
 fn copy_db_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
-        if entry.file_type()?.is_file() {
+        if entry.file_type()?.is_file() && entry.file_name() != "mdbx.lck" {
             std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
         }
     }
@@ -355,5 +360,11 @@ pub fn test_config() -> Config {
         ..Default::default()
     };
 
-    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), ..Default::default() }
+    let grpc = Some(GrpcConfig {
+        addr: DEFAULT_GRPC_ADDR,
+        port: 0, // Use port 0 for auto-assignment
+        timeout: Some(Duration::from_secs(30)),
+    });
+
+    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), grpc, ..Default::default() }
 }
