@@ -9,19 +9,12 @@ use crate::{ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorResult};
 
 /// A type that can create [BlockExecutor] instance.
 pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
-    /// Construct a new [BlockExecutor] with the given state.
-    fn with_state<'a, P>(&self, state: P) -> Box<dyn BlockExecutor<'a> + 'a>
-    where
-        P: StateProvider + 'a;
-
-    /// Construct a new [BlockExecutor] with the given state and block environment values.
-    fn with_state_and_block_env<'a, P>(
+    /// Create a [BlockExecutor] for producing/executing a block.
+    fn block_executor(
         &self,
-        state: P,
+        state: Box<dyn StateProvider>,
         block_env: BlockEnv,
-    ) -> Box<dyn BlockExecutor<'a> + 'a>
-    where
-        P: StateProvider + 'a;
+    ) -> Box<dyn BlockExecutor>;
 
     fn overrides(&self) -> Option<&VersionedConstantsOverrides>;
 
@@ -30,7 +23,7 @@ pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
 }
 
 /// An executor that can execute a block of transactions.
-pub trait BlockExecutor<'a>: Send + Sync + core::fmt::Debug {
+pub trait BlockExecutor: Send + Sync + core::fmt::Debug {
     /// Executes the given block.
     fn execute_block(&mut self, block: ExecutableBlock) -> ExecutorResult<()>;
 
@@ -44,7 +37,7 @@ pub trait BlockExecutor<'a>: Send + Sync + core::fmt::Debug {
     fn take_execution_output(&mut self) -> ExecutorResult<ExecutionOutput>;
 
     /// Returns the current state of the executor.
-    fn state(&self) -> Box<dyn StateProvider + 'a>;
+    fn state(&self) -> Box<dyn StateProvider>;
 
     /// Returns the transactions that have been executed.
     fn transactions(&self) -> &[(TxWithHash, ExecutionResult)];
@@ -52,16 +45,14 @@ pub trait BlockExecutor<'a>: Send + Sync + core::fmt::Debug {
     /// Returns the current block environment of the executor.
     fn block_env(&self) -> BlockEnv;
 
-    // TEMP: This is primarily for `dev_setStorageAt` dev endpoint. To make sure the updated storage
-    // value is reflected in the pending state. This functionality should prolly be moved to the
-    // pending state level instead of the executor.
-    //
     /// Sets the storage value for the given contract address and key.
     /// This is used for dev purposes to manipulate state directly.
     fn set_storage_at(
         &self,
-        address: ContractAddress,
-        key: StorageKey,
-        value: StorageValue,
-    ) -> ExecutorResult<()>;
+        _address: ContractAddress,
+        _key: StorageKey,
+        _value: StorageValue,
+    ) -> ExecutorResult<()> {
+        Ok(()) // default no-op
+    }
 }

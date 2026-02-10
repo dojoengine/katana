@@ -60,26 +60,16 @@ impl BlockifierFactory {
 }
 
 impl ExecutorFactory for BlockifierFactory {
-    fn with_state<'a, P>(&self, state: P) -> Box<dyn BlockExecutor<'a> + 'a>
-    where
-        P: StateProvider + 'a,
-    {
-        self.with_state_and_block_env(state, BlockEnv::default())
-    }
-
-    fn with_state_and_block_env<'a, P>(
+    fn block_executor(
         &self,
-        state: P,
+        state: Box<dyn StateProvider>,
         block_env: BlockEnv,
-    ) -> Box<dyn BlockExecutor<'a> + 'a>
-    where
-        P: StateProvider + 'a,
-    {
+    ) -> Box<dyn BlockExecutor> {
         let cfg_env = self.overrides.clone();
         let flags = self.flags.clone();
         let limits = self.limits.clone();
         Box::new(StarknetVMProcessor::new(
-            Box::new(state),
+            state,
             block_env,
             cfg_env,
             flags,
@@ -100,9 +90,9 @@ impl ExecutorFactory for BlockifierFactory {
 }
 
 #[derive(Debug)]
-pub struct StarknetVMProcessor<'a> {
+pub struct StarknetVMProcessor {
     block_context: Arc<BlockContext>,
-    state: CachedState<'a>,
+    state: CachedState,
     transactions: Vec<(TxWithHash, ExecutionResult)>,
     simulation_flags: ExecutionFlags,
     stats: ExecutionStats,
@@ -111,9 +101,9 @@ pub struct StarknetVMProcessor<'a> {
     cfg_env: Option<VersionedConstantsOverrides>,
 }
 
-impl<'a> StarknetVMProcessor<'a> {
+impl StarknetVMProcessor {
     pub fn new(
-        state: impl StateProvider + 'a,
+        state: impl StateProvider + 'static,
         block_env: BlockEnv,
         cfg_env: Option<VersionedConstantsOverrides>,
         simulation_flags: ExecutionFlags,
@@ -219,7 +209,7 @@ impl<'a> StarknetVMProcessor<'a> {
     }
 }
 
-impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
+impl BlockExecutor for StarknetVMProcessor {
     fn execute_block(&mut self, block: ExecutableBlock) -> ExecutorResult<()> {
         self.fill_block_env_from_header(&block.header);
         self.execute_transactions(block.body)?;
@@ -298,7 +288,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
         Ok(ExecutionOutput { stats, states, transactions })
     }
 
-    fn state(&self) -> Box<dyn StateProvider + 'a> {
+    fn state(&self) -> Box<dyn StateProvider> {
         Box::new(self.state.clone())
     }
 

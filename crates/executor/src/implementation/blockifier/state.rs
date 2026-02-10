@@ -21,18 +21,18 @@ use super::cache::ClassCache;
 use super::utils::{self};
 
 #[derive(Debug, Clone)]
-pub struct CachedState<'a> {
-    pub inner: Arc<Mutex<CachedStateInner<'a>>>,
+pub struct CachedState {
+    pub inner: Arc<Mutex<CachedStateInner>>,
 }
 
 #[derive(Debug)]
-pub struct CachedStateInner<'a> {
-    pub cached_state: cached_state::CachedState<StateProviderDb<'a>>,
+pub struct CachedStateInner {
+    pub cached_state: cached_state::CachedState<StateProviderDb>,
     pub(super) declared_classes: HashMap<class::ClassHash, ContractClass>,
 }
 
-impl<'a> CachedState<'a> {
-    pub fn new(state: impl StateProvider + 'a, class_cache: ClassCache) -> Self {
+impl CachedState {
+    pub fn new(state: impl StateProvider + 'static, class_cache: ClassCache) -> Self {
         let state = StateProviderDb::new_with_class_cache(Box::new(state), class_cache);
         let cached_state = cached_state::CachedState::new(state);
 
@@ -46,7 +46,7 @@ impl<'a> CachedState<'a> {
     where
         F: FnOnce(
             &mut cached_state::CachedState<
-                MutRefState<'_, cached_state::CachedState<StateProviderDb<'a>>>,
+                MutRefState<'_, cached_state::CachedState<StateProviderDb>>,
             >,
         ) -> R,
     {
@@ -58,7 +58,7 @@ impl<'a> CachedState<'a> {
     pub fn with_cached_state_and_declared_classes<F, R>(&self, f: F) -> R
     where
         F: FnOnce(
-            &mut cached_state::CachedState<StateProviderDb<'a>>,
+            &mut cached_state::CachedState<StateProviderDb>,
             &mut HashMap<class::ClassHash, ContractClass>,
         ) -> R,
     {
@@ -68,7 +68,7 @@ impl<'a> CachedState<'a> {
     }
 }
 
-impl ContractClassProvider for CachedState<'_> {
+impl ContractClassProvider for CachedState {
     fn class(
         &self,
         hash: katana_primitives::class::ClassHash,
@@ -98,7 +98,7 @@ impl ContractClassProvider for CachedState<'_> {
     }
 }
 
-impl StateProvider for CachedState<'_> {
+impl StateProvider for CachedState {
     fn class_hash_of_contract(
         &self,
         address: katana_primitives::contract::ContractAddress,
@@ -151,15 +151,15 @@ impl StateProvider for CachedState<'_> {
     }
 }
 
-impl StateProofProvider for CachedState<'_> {}
-impl StateRootProvider for CachedState<'_> {}
+impl StateProofProvider for CachedState {}
+impl StateRootProvider for CachedState {}
 
-pub struct StateProviderDb<'a> {
-    provider: Box<dyn StateProvider + 'a>,
+pub struct StateProviderDb {
+    provider: Box<dyn StateProvider>,
     compiled_class_cache: ClassCache,
 }
 
-impl Debug for StateProviderDb<'_> {
+impl Debug for StateProviderDb {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StateProviderDb")
             .field("provider", &"..")
@@ -168,31 +168,28 @@ impl Debug for StateProviderDb<'_> {
     }
 }
 
-impl<'a> Deref for StateProviderDb<'a> {
-    type Target = Box<dyn StateProvider + 'a>;
+impl Deref for StateProviderDb {
+    type Target = Box<dyn StateProvider>;
 
     fn deref(&self) -> &Self::Target {
         &self.provider
     }
 }
 
-impl<'a> StateProviderDb<'a> {
+impl StateProviderDb {
     /// Creates a new [`StateProviderDb`].
-    pub fn new(provider: Box<dyn StateProvider + 'a>) -> Self {
+    pub fn new(provider: Box<dyn StateProvider>) -> Self {
         let compiled_class_cache = ClassCache::new().expect("failed to build class cache");
         Self { provider, compiled_class_cache }
     }
 
     /// Creates a new [`StateProviderDb`] with a custom class cache.
-    pub fn new_with_class_cache(
-        provider: Box<dyn StateProvider + 'a>,
-        class_cache: ClassCache,
-    ) -> Self {
+    pub fn new_with_class_cache(provider: Box<dyn StateProvider>, class_cache: ClassCache) -> Self {
         Self { provider, compiled_class_cache: class_cache }
     }
 }
 
-impl StateReader for StateProviderDb<'_> {
+impl StateReader for StateProviderDb {
     fn get_class_hash_at(
         &self,
         contract_address: starknet_api::core::ContractAddress,

@@ -27,24 +27,11 @@ impl NoopExecutorFactory {
 }
 
 impl ExecutorFactory for NoopExecutorFactory {
-    fn with_state<'a, P>(&self, state: P) -> Box<dyn BlockExecutor<'a> + 'a>
-    where
-        P: StateProvider + 'a,
-    {
-        let _ = state;
-        Box::<NoopExecutor>::default()
-    }
-
-    fn with_state_and_block_env<'a, P>(
+    fn block_executor(
         &self,
-        state: P,
+        _state: Box<dyn StateProvider>,
         block_env: BlockEnv,
-    ) -> Box<dyn BlockExecutor<'a> + 'a>
-    where
-        P: StateProvider + 'a,
-    {
-        let _ = state;
-        let _ = block_env;
+    ) -> Box<dyn BlockExecutor> {
         Box::new(NoopExecutor { block_env })
     }
 
@@ -62,7 +49,7 @@ struct NoopExecutor {
     block_env: BlockEnv,
 }
 
-impl<'a> BlockExecutor<'a> for NoopExecutor {
+impl BlockExecutor for NoopExecutor {
     fn execute_block(&mut self, block: ExecutableBlock) -> ExecutorResult<()> {
         let _ = block;
         Ok(())
@@ -79,7 +66,7 @@ impl<'a> BlockExecutor<'a> for NoopExecutor {
         Ok(ExecutionOutput::default())
     }
 
-    fn state(&self) -> Box<dyn StateProvider + 'a> {
+    fn state(&self) -> Box<dyn StateProvider> {
         Box::new(NoopStateProvider)
     }
 
@@ -89,15 +76,6 @@ impl<'a> BlockExecutor<'a> for NoopExecutor {
 
     fn block_env(&self) -> BlockEnv {
         self.block_env.clone()
-    }
-
-    fn set_storage_at(
-        &self,
-        _address: ContractAddress,
-        _key: StorageKey,
-        _value: StorageValue,
-    ) -> ExecutorResult<()> {
-        Ok(())
     }
 }
 

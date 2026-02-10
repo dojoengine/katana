@@ -6508,7 +6508,6 @@ dependencies = [
  "futures",
  "katana-core",
  "katana-db",
- "katana-executor",
  "katana-gateway-client",
  "katana-gateway-types",
  "katana-messaging",

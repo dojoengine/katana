@@ -18,7 +18,7 @@ use crate::starknet::StarknetApiResult;
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
     chain_spec: &ChainSpec,
-    state: impl StateProvider,
+    state: impl StateProvider + 'static,
     block_env: BlockEnv,
     overrides: Option<&VersionedConstantsOverrides>,
     transactions: Vec<ExecutableTxWithHash>,
@@ -57,7 +57,7 @@ pub fn simulate(
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn estimate_fees(
     chain_spec: &ChainSpec,
-    state: impl StateProvider,
+    state: impl StateProvider + 'static,
     block_env: BlockEnv,
     overrides: Option<&VersionedConstantsOverrides>,
     transactions: Vec<ExecutableTxWithHash>,
@@ -112,7 +112,7 @@ pub fn estimate_fees(
 }
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all)]
-pub fn call<P: StateProvider>(
+pub fn call<P: StateProvider + 'static>(
     chain_spec: &ChainSpec,
     state: P,
     block_env: BlockEnv,

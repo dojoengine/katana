@@ -39,46 +39,45 @@ use crate::utils::get_current_timestamp;
 
 pub(crate) const LOG_TARGET: &str = "katana::core::backend";
 
-pub struct Backend<EF, PF> {
+pub struct Backend<PF> {
     pub chain_spec: Arc<ChainSpec>,
     pub storage: PF,
     pub block_context_generator: RwLock<BlockContextGenerator>,
-    pub executor_factory: Arc<EF>,
+    pub executor_factory: Arc<dyn ExecutorFactory>,
     pub gas_oracle: GasPriceOracle,
 }
 
-impl<EF, PF> std::fmt::Debug for Backend<EF, PF> {
+impl<PF> std::fmt::Debug for Backend<PF> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Backend")
             .field("chain_spec", &self.chain_spec)
             .field("storage", &"..")
             .field("block_context_generator", &self.block_context_generator)
-            .field("executor_factory", &"Arc<EF>")
+            .field("executor_factory", &self.executor_factory)
             .field("gas_oracle", &self.gas_oracle)
             .finish()
     }
 }
 
-impl<EF, PF> Backend<EF, PF> {
+impl<PF> Backend<PF> {
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         storage: PF,
         gas_oracle: GasPriceOracle,
-        executor_factory: EF,
+        executor_factory: Arc<dyn ExecutorFactory>,
     ) -> Self {
         Self {
             storage,
             chain_spec,
             gas_oracle,
-            executor_factory: Arc::new(executor_factory),
+            executor_factory,
             block_context_generator: RwLock::new(BlockContextGenerator::default()),
         }
     }
 }
 
-impl<EF, PF> Backend<EF, PF>
+impl<PF> Backend<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
@@ -111,9 +110,8 @@ where
     }
 }
 
-impl<EF, PF> Backend<EF, PF>
+impl<PF> Backend<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
@@ -284,7 +282,8 @@ where
         let block = chain_spec.block();
         let header = block.header.clone();
 
-        let mut executor = self.executor_factory.with_state(EmptyStateProvider);
+        let mut executor =
+            self.executor_factory.block_executor(Box::new(EmptyStateProvider), BlockEnv::default());
         executor.execute_block(block).context("failed to execute genesis block")?;
 
         let mut output =

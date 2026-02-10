@@ -82,8 +82,8 @@ where
     #[cfg(feature = "grpc")]
     grpc_server: Option<GrpcServer>,
     task_manager: TaskManager,
-    backend: Arc<Backend<BlockifierFactory, P>>,
-    block_producer: BlockProducer<BlockifierFactory, P>,
+    backend: Arc<Backend<P>>,
+    block_producer: BlockProducer<P>,
     gateway_server: Option<GatewayServer<TxPool, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
 }
@@ -143,7 +143,7 @@ where
                 config.chain.clone(),
             );
 
-            Arc::new(factory)
+            Arc::new(factory) as Arc<dyn ExecutorFactory>
         };
 
         // --- build l1 gas oracle
@@ -622,7 +622,7 @@ where
         &self.provider
     }
 
-    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P>> {
+    pub fn backend(&self) -> &Arc<Backend<P>> {
         &self.backend
     }
 

@@ -7,7 +7,6 @@ use futures::future::{self, BoxFuture};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProductionError};
 use katana_core::service::{BlockProductionTask, TransactionMiner};
-use katana_executor::ExecutorFactory;
 use katana_messaging::{MessagingConfig, MessagingService, MessagingTask};
 use katana_pool::{TransactionPool, TxPool};
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
@@ -18,30 +17,28 @@ pub type SequencingFut = BoxFuture<'static, Result<()>>;
 
 /// The sequencing stage is responsible for advancing the chain state.
 #[allow(missing_debug_implementations)]
-pub struct Sequencing<EF, PF>
+pub struct Sequencing<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
 {
     pool: TxPool,
-    backend: Arc<Backend<EF, PF>>,
+    backend: Arc<Backend<PF>>,
     task_spawner: TaskSpawner,
-    block_producer: BlockProducer<EF, PF>,
+    block_producer: BlockProducer<PF>,
     messaging_config: Option<MessagingConfig>,
 }
 
-impl<EF, PF> Sequencing<EF, PF>
+impl<PF> Sequencing<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO + Debug,
     <PF as ProviderFactory>::ProviderMut: ProviderRW + Debug,
 {
     pub fn new(
         pool: TxPool,
-        backend: Arc<Backend<EF, PF>>,
+        backend: Arc<Backend<PF>>,
         task_spawner: TaskSpawner,
-        block_producer: BlockProducer<EF, PF>,
+        block_producer: BlockProducer<PF>,
         messaging_config: Option<MessagingConfig>,
     ) -> Self {
         Self { pool, backend, task_spawner, block_producer, messaging_config }
@@ -73,9 +70,8 @@ where
     }
 }
 
-impl<EF, PF> IntoFuture for Sequencing<EF, PF>
+impl<PF> IntoFuture for Sequencing<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO + Debug,
     <PF as ProviderFactory>::ProviderMut: ProviderRW + Debug,

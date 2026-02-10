@@ -36,7 +36,6 @@ use cartridge::vrf::{
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
-use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::{TransactionPool, TxPool};
@@ -63,19 +62,18 @@ use tracing::{debug, info};
 use url::Url;
 
 #[allow(missing_debug_implementations)]
-pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
+pub struct CartridgeApi<PF: ProviderFactory> {
     task_spawner: TaskSpawner,
-    backend: Arc<Backend<EF, PF>>,
-    block_producer: BlockProducer<EF, PF>,
+    backend: Arc<Backend<PF>>,
+    block_producer: BlockProducer<PF>,
     pool: TxPool,
     vrf_ctx: VrfContext,
     /// The Cartridge API client for paymaster related operations.
     api_client: cartridge::Client,
 }
 
-impl<EF, PF> Clone for CartridgeApi<EF, PF>
+impl<PF> Clone for CartridgeApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
 {
     fn clone(&self) -> Self {
@@ -90,16 +88,15 @@ where
     }
 }
 
-impl<EF, PF> CartridgeApi<EF, PF>
+impl<PF> CartridgeApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     pub fn new(
-        backend: Arc<Backend<EF, PF>>,
-        block_producer: BlockProducer<EF, PF>,
+        backend: Arc<Backend<PF>>,
+        block_producer: BlockProducer<PF>,
         pool: TxPool,
         task_spawner: TaskSpawner,
         api_url: Url,
@@ -309,9 +306,8 @@ where
 }
 
 #[async_trait]
-impl<EF, PF> CartridgeApiServer for CartridgeApi<EF, PF>
+impl<PF> CartridgeApiServer for CartridgeApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,

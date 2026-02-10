@@ -69,7 +69,8 @@ fn valid_transactions() {
     let provider = provider.provider();
     let ef = executor(chain_spec.clone());
 
-    let mut executor = ef.with_state(provider.latest().unwrap());
+    let mut executor =
+        ef.block_executor(provider.latest().unwrap(), katana_primitives::env::BlockEnv::default());
     executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
 
     let output = executor.take_execution_output().unwrap();
@@ -87,7 +88,8 @@ fn genesis_states() {
     let provider = provider.provider();
     let ef = executor(chain_spec.clone());
 
-    let mut executor = ef.with_state(provider.latest().unwrap());
+    let mut executor =
+        ef.block_executor(provider.latest().unwrap(), katana_primitives::env::BlockEnv::default());
     executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
 
     let genesis_state = executor.state();

@@ -92,7 +92,7 @@ impl Debug for Inner {
 impl Inner {
     // Prepare the stateful validator with the current state and block env to be used
     // for transaction validation.
-    fn prepare(&self) -> StatefulValidator<StateProviderDb<'static>> {
+    fn prepare(&self) -> StatefulValidator<StateProviderDb> {
         let state = Box::new(self.state.clone());
         let class_cache = ClassCache::global().clone();
         let state_provider = StateProviderDb::new_with_class_cache(state, class_cache);
@@ -189,7 +189,7 @@ impl Validator for TxValidator {
 
 // perform validation on the pool transaction using the provided stateful validator
 fn validate(
-    mut validator: StatefulValidator<StateProviderDb<'static>>,
+    mut validator: StatefulValidator<StateProviderDb>,
     pool_tx: ExecutableTxWithHash,
     skip_validate: bool,
     skip_fee_check: bool,

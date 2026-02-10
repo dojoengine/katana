@@ -3,8 +3,7 @@ pub mod transaction;
 use alloy_primitives::U256;
 use katana_chain_spec::ChainSpec;
 use katana_contracts::contracts;
-use katana_executor::implementation::noop::NoopExecutorFactory;
-use katana_executor::{ExecutionFlags, ExecutorFactory};
+use katana_executor::ExecutionFlags;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_primitives::block::{
@@ -250,15 +249,6 @@ pub fn flags(
     #[default(false)] skip_fee_transfer: bool,
 ) -> ExecutionFlags {
     ExecutionFlags::new().with_account_validation(!skip_validate).with_fee(!skip_fee_transfer)
-}
-
-/// A fixture that provides a default `ExecutorFactory` implementation.
-#[rstest::fixture]
-#[default(NoopExecutorFactory)]
-pub fn executor_factory<EF: ExecutorFactory>(
-    #[default(NoopExecutorFactory::new())] factory: EF,
-) -> EF {
-    factory
 }
 
 use katana_executor::implementation::blockifier::cache::ClassCache;

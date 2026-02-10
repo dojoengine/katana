@@ -5,7 +5,6 @@ use std::time::Duration;
 use axum::routing::get;
 use axum::Router;
 use katana_core::service::block_producer::BlockProducer;
-use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_pool_api::TransactionPool;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_server::cors::Cors;
@@ -83,7 +82,7 @@ where
     health_check: bool,
     metered: bool,
 
-    starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>,
+    starknet_api: StarknetApi<Pool, BlockProducer<PF>, PF>,
 }
 
 impl<Pool, PF> GatewayServer<Pool, PF>
@@ -94,7 +93,7 @@ where
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Create a new feeder gateway server.
-    pub fn new(starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>) -> Self {
+    pub fn new(starknet_api: StarknetApi<Pool, BlockProducer<PF>, PF>) -> Self {
         Self {
             timeout: DEFAULT_GATEWAY_TIMEOUT,
             cors: None,

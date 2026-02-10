@@ -9,9 +9,10 @@ use katana_provider::DbProviderFactory;
 
 use super::*;
 
-fn test_backend() -> Arc<Backend<NoopExecutorFactory, DbProviderFactory>> {
+fn test_backend() -> Arc<Backend<DbProviderFactory>> {
     let chain_spec = Arc::new(ChainSpec::dev());
-    let executor_factory = NoopExecutorFactory::new();
+    let executor_factory: Arc<dyn katana_executor::ExecutorFactory> =
+        Arc::new(NoopExecutorFactory::new());
     let storage = DbProviderFactory::new_in_memory();
     let gas_oracle = GasPriceOracle::create_for_testing();
     let backend = Arc::new(Backend::new(chain_spec, storage, gas_oracle, executor_factory));

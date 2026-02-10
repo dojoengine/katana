@@ -502,7 +502,7 @@ pub fn block_context_from_envs(
 }
 
 pub(super) fn state_update_from_cached_state(
-    state: &CachedState<'_>,
+    state: &CachedState,
     stateful_compression: bool,
 ) -> StateUpdatesWithClasses {
     let state_diff = if stateful_compression {

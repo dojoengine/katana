@@ -18,8 +18,8 @@ use katana_provider::DbProviderFactory;
 use rstest::rstest;
 use url::Url;
 
-fn executor(chain_spec: Arc<ChainSpec>) -> BlockifierFactory {
-    BlockifierFactory::new(
+fn executor(chain_spec: Arc<ChainSpec>) -> Arc<dyn katana_executor::ExecutorFactory> {
+    Arc::new(BlockifierFactory::new(
         Some(VersionedConstantsOverrides {
             validate_max_n_steps: Some(u32::MAX),
             invoke_tx_max_n_steps: Some(u32::MAX),
@@ -29,17 +29,17 @@ fn executor(chain_spec: Arc<ChainSpec>) -> BlockifierFactory {
         BlockLimits::default(),
         ClassCache::new().unwrap(),
         chain_spec,
-    )
+    ))
 }
 
-fn backend(chain_spec: Arc<ChainSpec>) -> Backend<BlockifierFactory, DbProviderFactory> {
+fn backend(chain_spec: Arc<ChainSpec>) -> Backend<DbProviderFactory> {
     backend_with_db(chain_spec, DbProviderFactory::new_in_memory())
 }
 
 fn backend_with_db(
     chain_spec: Arc<ChainSpec>,
     provider: DbProviderFactory,
-) -> Backend<BlockifierFactory, DbProviderFactory> {
+) -> Backend<DbProviderFactory> {
     Backend::new(
         chain_spec.clone(),
         provider,

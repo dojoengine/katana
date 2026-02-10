@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
-use katana_executor::ExecutorFactory;
 use katana_primitives::block::PartialHeader;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
@@ -48,9 +47,8 @@ pub trait PendingBlockProvider: Debug + Send + Sync + 'static {
     ) -> StarknetApiResult<Option<RpcTxWithHash>>;
 }
 
-impl<EF, PF> PendingBlockProvider for BlockProducer<EF, PF>
+impl<PF> PendingBlockProvider for BlockProducer<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
