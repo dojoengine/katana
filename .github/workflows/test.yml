@@ -289,6 +289,8 @@ jobs:
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            ASDF_SOZO_VERSION: "1.7.0"
         steps:
             - uses: actions/checkout@v3
               with:
@@ -330,10 +332,7 @@ jobs:
 
             - name: Build and migrate `spawn-and-move` project
               run: |
-                  cd dojo
-                  cargo install --path bin/sozo --locked --force
-
-                  cd examples/spawn-and-move
+                  cd dojo/examples/spawn-and-move
                   sozo build && sozo migrate
 
             - name: Output Katana logs on failure
