@@ -94,7 +94,7 @@ We recommend using `cargo nextest` for running the tests. Nextest is a next-gene
 Before running tests, you need to set up the test environment by generating all necessary artifacts:
 
 ```bash
-make test-artifacts
+make fixtures
 ```
 
 Once setup is complete, you can run the tests using:
