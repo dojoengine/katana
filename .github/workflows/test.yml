@@ -146,7 +146,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
               with:
                   key: ci-${{ github.job }}
-                  shared-key: katana-ci-cache
+                  shared-key: katana-ci-cache-nightly
 
             - name: Download test artifacts
               uses: actions/download-artifact@v5
