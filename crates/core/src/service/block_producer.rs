@@ -18,15 +18,13 @@ use std::time::Duration;
 
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
-use katana_executor::{BlockExecutor, ExecutionResult, ExecutionStats};
+use katana_executor::{ExecutionResult, ExecutionStats, Executor};
 use katana_pool::validation::stateful::TxValidator;
-use katana_primitives::block::{BlockHash, BlockHashOrNumber, ExecutableBlock, PartialHeader};
-use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::env::BlockEnv;
+use katana_primitives::block::{BlockHash, BlockHashOrNumber};
 use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
-use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider};
+use katana_provider::api::block::BlockNumberProvider;
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::{ProviderError, ProviderFactory, ProviderRO, ProviderRW};
@@ -93,8 +91,7 @@ type TxExecutionResult =
     Result<(Vec<TxWithOutcome>, Option<Vec<ExecutableTxWithHash>>), BlockProductionError>;
 type TxExecutionFuture = ServiceFuture<TxExecutionResult>;
 
-type BlockProductionWithTxnsFuture =
-    ServiceFuture<Result<(MinedBlockOutcome, Vec<TxWithOutcome>), BlockProductionError>>;
+type BlockProductionWithTxnsFuture = ServiceFuture<Result<MinedBlockOutcome, BlockProductionError>>;
 
 /// The type which responsible for block production.
 #[must_use = "BlockProducer does nothing unless polled"]
@@ -221,10 +218,10 @@ where
 }
 
 #[derive(Debug, Clone, derive_more::Deref)]
-pub struct PendingExecutor(#[deref] Arc<RwLock<Box<dyn BlockExecutor>>>);
+pub struct PendingExecutor(#[deref] Arc<RwLock<Box<dyn Executor>>>);
 
 impl PendingExecutor {
-    fn new(executor: Box<dyn BlockExecutor>) -> Self {
+    fn new(executor: Box<dyn Executor>) -> Self {
         Self(Arc::new(RwLock::new(executor)))
     }
 }
@@ -277,7 +274,7 @@ where
         backend.update_block_env(&mut block_env);
 
         let state = provider.latest().unwrap();
-        let executor = backend.executor_factory.block_executor(state, block_env.clone());
+        let executor = backend.executor_factory.executor(state, block_env.clone());
 
         let permit = Arc::new(Mutex::new(()));
 
@@ -419,7 +416,7 @@ where
         let mut block_env = provider.block_env_at(latest_num.into())?.unwrap();
         backend.update_block_env(&mut block_env);
 
-        let executor = backend.executor_factory.block_executor(updated_state, block_env);
+        let executor = backend.executor_factory.executor(updated_state, block_env);
         Ok(PendingExecutor::new(executor))
     }
 }
@@ -673,7 +670,7 @@ where
         permit: Arc<Mutex<()>>,
         backend: Arc<Backend<PF>>,
         transactions: VecDeque<Vec<ExecutableTxWithHash>>,
-    ) -> Result<(MinedBlockOutcome, Vec<TxWithOutcome>), BlockProductionError> {
+    ) -> Result<MinedBlockOutcome, BlockProductionError> {
         let _permit = permit.lock();
 
         trace!(target: LOG_TARGET, "Creating new block.");
@@ -688,41 +685,13 @@ where
         let mut block_env = provider.block_env_at(BlockHashOrNumber::Num(latest_num))?.unwrap();
         backend.update_block_env(&mut block_env);
 
-        let parent_hash = provider.latest_hash()?;
         let latest_state = provider.latest()?;
+        let mut executor = backend.executor_factory.executor(latest_state, block_env);
 
-        let mut executor =
-            backend.executor_factory.block_executor(latest_state, BlockEnv::default());
+        let _ = executor.execute_transactions(transactions)?;
 
-        let block = ExecutableBlock {
-            body: transactions,
-            header: PartialHeader {
-                parent_hash,
-                number: block_env.number,
-                timestamp: block_env.timestamp,
-                starknet_version: block_env.starknet_version,
-                sequencer_address: block_env.sequencer_address,
-                l1_da_mode: L1DataAvailabilityMode::Calldata,
-                l2_gas_prices: block_env.l2_gas_prices.clone(),
-                l1_gas_prices: block_env.l1_gas_prices.clone(),
-                l1_data_gas_prices: block_env.l1_data_gas_prices.clone(),
-            },
-        };
-
-        executor.execute_block(block)?;
-
+        let block_env = executor.block_env();
         let execution_output = executor.take_execution_output()?;
-        let txs_outcomes = execution_output
-            .transactions
-            .clone()
-            .into_iter()
-            .filter_map(|(tx, res)| match res {
-                ExecutionResult::Success { receipt, trace, .. } => {
-                    Some(TxWithOutcome { tx, receipt, exec_info: trace })
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
 
         let outcome = backend.do_mine_block(&block_env, execution_output)?;
 
@@ -738,7 +707,7 @@ where
 
         trace!(target: LOG_TARGET, block_number = %outcome.block_number, "Created new block.");
 
-        Ok((outcome, txs_outcomes))
+        Ok(outcome)
     }
 }
 
@@ -771,7 +740,7 @@ where
         if let Some(mut mining) = pin.block_mining.take() {
             if let Poll::Ready(outcome) = mining.poll_unpin(cx) {
                 match outcome {
-                    TaskResult::Ok(Ok((outcome, _txs))) => {
+                    TaskResult::Ok(Ok(outcome)) => {
                         return Poll::Ready(Some(Ok(outcome)));
                     }
 

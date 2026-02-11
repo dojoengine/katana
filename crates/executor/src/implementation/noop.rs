@@ -8,8 +8,7 @@ use katana_provider::api::state::{StateProofProvider, StateProvider, StateRootPr
 use katana_provider::api::ProviderResult;
 
 use crate::abstraction::{
-    BlockExecutor, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorFactory,
-    ExecutorResult,
+    ExecutionFlags, ExecutionOutput, ExecutionResult, Executor, ExecutorFactory, ExecutorResult,
 };
 use crate::ExecutorError;
 
@@ -27,11 +26,7 @@ impl NoopExecutorFactory {
 }
 
 impl ExecutorFactory for NoopExecutorFactory {
-    fn block_executor(
-        &self,
-        _state: Box<dyn StateProvider>,
-        block_env: BlockEnv,
-    ) -> Box<dyn BlockExecutor> {
+    fn executor(&self, _state: Box<dyn StateProvider>, block_env: BlockEnv) -> Box<dyn Executor> {
         Box::new(NoopExecutor { block_env })
     }
 
@@ -49,7 +44,7 @@ struct NoopExecutor {
     block_env: BlockEnv,
 }
 
-impl BlockExecutor for NoopExecutor {
+impl Executor for NoopExecutor {
     fn execute_block(&mut self, block: ExecutableBlock) -> ExecutorResult<()> {
         let _ = block;
         Ok(())

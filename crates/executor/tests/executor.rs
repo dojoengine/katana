@@ -32,7 +32,7 @@ fn test_executor_with_valid_blocks_impl(
     // `valid_blocks` fixture)
     let new_acc = address!("0x3ddfa445a70b927497249f94ff7431fc2e2abc761a34417fd4891beb7c2db85");
 
-    let mut executor = factory.block_executor(state, BlockEnv::default());
+    let mut executor = factory.executor(state, BlockEnv::default());
     let mut expected_txs: Vec<TxWithHash> = Vec::with_capacity(3);
 
     // block 1

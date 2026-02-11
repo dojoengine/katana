@@ -283,7 +283,7 @@ where
         let header = block.header.clone();
 
         let mut executor =
-            self.executor_factory.block_executor(Box::new(EmptyStateProvider), BlockEnv::default());
+            self.executor_factory.executor(Box::new(EmptyStateProvider), BlockEnv::default());
         executor.execute_block(block).context("failed to execute genesis block")?;
 
         let mut output =

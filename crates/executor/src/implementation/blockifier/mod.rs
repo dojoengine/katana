@@ -27,7 +27,7 @@ use utils::apply_versioned_constant_overrides;
 
 use self::state::CachedState;
 use crate::{
-    BlockExecutor, BlockLimits, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutionStats,
+    BlockLimits, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutionStats, Executor,
     ExecutorError, ExecutorFactory, ExecutorResult,
 };
 
@@ -60,11 +60,7 @@ impl BlockifierFactory {
 }
 
 impl ExecutorFactory for BlockifierFactory {
-    fn block_executor(
-        &self,
-        state: Box<dyn StateProvider>,
-        block_env: BlockEnv,
-    ) -> Box<dyn BlockExecutor> {
+    fn executor(&self, state: Box<dyn StateProvider>, block_env: BlockEnv) -> Box<dyn Executor> {
         let cfg_env = self.overrides.clone();
         let flags = self.flags.clone();
         let limits = self.limits.clone();
@@ -209,7 +205,7 @@ impl StarknetVMProcessor {
     }
 }
 
-impl BlockExecutor for StarknetVMProcessor {
+impl Executor for StarknetVMProcessor {
     fn execute_block(&mut self, block: ExecutableBlock) -> ExecutorResult<()> {
         self.fill_block_env_from_header(&block.header);
         self.execute_transactions(block.body)?;
