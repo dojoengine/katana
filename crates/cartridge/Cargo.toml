@@ -8,17 +8,19 @@ build = "build.rs"
 
 [dependencies]
 katana-contracts.workspace = true
+katana-genesis.workspace = true
 katana-primitives.workspace = true
+katana-rpc-types = { path = "../rpc/rpc-types" }
 
 anyhow.workspace = true
-ark-ec = "0.4"
+ark-ff = "0.4.2"
 lazy_static.workspace = true
-num-bigint.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+stark-vrf.workspace = true
+starknet.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
-# Use a specific revision of stark-vrf to avoid unwanted breaking changes.
-stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }

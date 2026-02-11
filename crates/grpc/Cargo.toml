@@ -44,6 +44,7 @@ tower-service.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 hex = "0.4"
+katana-utils = { workspace = true, features = ["node"] }
 
 [build-dependencies]
 tonic-build.workspace = true

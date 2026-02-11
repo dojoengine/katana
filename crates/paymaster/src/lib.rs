@@ -1,0 +1,855 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
+pub mod api;
+
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{env, fs, io};
+
+use katana_contracts::avnu::AvnuForwarder;
+use katana_primitives::chain::{ChainId, NamedChainId};
+use katana_primitives::class::ComputeClassHashError;
+use katana_primitives::utils::get_contract_address;
+use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_types::RpcSierraContractClass;
+use serde::Serialize;
+use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
+use starknet::contract::ContractFactory;
+use starknet::core::types::{BlockId, BlockTag, Call, FlattenedSierraClass, StarknetError};
+use starknet::macros::selector;
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider, ProviderError};
+use starknet::signers::{LocalWallet, SigningKey};
+use thiserror::Error;
+use tokio::process::{Child, Command};
+use tokio::time::sleep;
+use tracing::{debug, info, trace, warn};
+use url::Url;
+
+use crate::api::PaymasterApiClient;
+
+const FORWARDER_SALT: u64 = 0x12345;
+const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(20);
+const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
+/// Result type for paymaster operations.
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Errors that can occur during paymaster operations.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// A required configuration field is missing.
+    #[error("missing required field: {0}")]
+    MissingField(&'static str),
+
+    #[error("{kind} account {address} does not exist on chain")]
+    AccountNotDeployed { kind: &'static str, address: ContractAddress },
+
+    /// Forwarder address not set before starting.
+    #[error("forwarder_address not set - call `bootstrap()` or set with `forwarder()`")]
+    ForwarderNotSet,
+
+    /// Chain ID not set before starting.
+    #[error("chain_id not set - call `bootstrap()` or set with `chain_id()`")]
+    ChainIdNotSet,
+
+    #[error("failed to get chain ID from node")]
+    ChainId(#[source] ProviderError),
+
+    #[error("failed to check contract deployment at {0}")]
+    ContractCheck(ContractAddress, #[source] Box<ProviderError>),
+
+    #[error("failed to deploy forwarder: {0}")]
+    ForwarderDeploy(String),
+
+    #[error("failed to whitelist relayer: {0}")]
+    WhitelistRelayer(String),
+
+    #[error("contract {0} not deployed before timeout")]
+    ContractDeployTimeout(ContractAddress),
+
+    #[error("sidecar binary not found at {0}")]
+    BinaryNotFound(PathBuf),
+
+    #[error("sidecar binary '{0}' not found in PATH")]
+    BinaryNotInPath(PathBuf),
+
+    #[error("PATH environment variable is not set")]
+    PathNotSet,
+
+    /// Failed to spawn the sidecar process.
+    #[error("failed to spawn paymaster sidecar")]
+    Spawn(#[source] io::Error),
+
+    #[error("failed to compute forwarder class hash")]
+    ClassHash(#[source] ComputeClassHashError),
+
+    #[error("failed to parse forwarder contract class")]
+    ClassParse(#[source] serde_json::Error),
+
+    #[error("failed to serialize paymaster profile")]
+    ProfileSerialize(#[source] serde_json::Error),
+
+    #[error("failed to write paymaster profile")]
+    ProfileWrite(#[source] io::Error),
+
+    #[error("class not declared before timeout")]
+    ClassDeclareTimeout,
+
+    #[error("failed to check class declaration")]
+    ClassCheck(#[source] ProviderError),
+
+    #[error("transaction not confirmed before timeout")]
+    TransactionTimeout,
+
+    #[error("failed to get transaction receipt")]
+    TransactionReceipt(#[source] ProviderError),
+
+    #[error("paymaster did not become ready before timeout")]
+    SidecarTimeout,
+
+    #[error("failed to declare class: {0}")]
+    ClassDeclarationFailed(String),
+}
+
+#[derive(Debug)]
+pub struct PaymasterSidecarProcess {
+    process: Child,
+    profile: PaymasterProfile,
+}
+
+impl PaymasterSidecarProcess {
+    pub fn process(&mut self) -> &mut Child {
+        &mut self.process
+    }
+
+    pub fn profile(&self) -> &PaymasterProfile {
+        &self.profile
+    }
+
+    /// Gracefully shutdown the sidecar process.
+    pub async fn shutdown(&mut self) -> std::io::Result<()> {
+        self.process.kill().await
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PaymasterServiceConfig {
+    /// RPC endpoint of the katana node.
+    pub rpc_socket_addr: SocketAddr,
+    /// Port for the paymaster service.
+    pub port: u16,
+    /// API key for the paymaster service.
+    pub api_key: String,
+    /// Relayer account address.
+    pub relayer_address: ContractAddress,
+    /// Relayer account private key.
+    pub relayer_private_key: Felt,
+    /// Gas tank account address.
+    pub gas_tank_address: ContractAddress,
+    /// Gas tank account private key.
+    pub gas_tank_private_key: Felt,
+    /// Estimation account address.
+    pub estimate_account_address: ContractAddress,
+    /// Estimation account private key.
+    pub estimate_account_private_key: Felt,
+    /// ETH token contract address.
+    pub eth_token_address: ContractAddress,
+    /// STRK token contract address.
+    pub strk_token_address: ContractAddress,
+    /// Path to the paymaster-service binary, or None to look up in PATH.
+    pub program_path: Option<PathBuf>,
+    /// Price API key (for AVNU price feed).
+    pub price_api_key: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct PaymasterServiceConfigBuilder {
+    // Required fields
+    rpc: Option<SocketAddr>,
+    port: Option<u16>,
+    api_key: Option<String>,
+    relayer_address: Option<ContractAddress>,
+    relayer_private_key: Option<Felt>,
+    gas_tank_address: Option<ContractAddress>,
+    gas_tank_private_key: Option<Felt>,
+    estimate_account_address: Option<ContractAddress>,
+    estimate_account_private_key: Option<Felt>,
+    eth_token_address: Option<ContractAddress>,
+    strk_token_address: Option<ContractAddress>,
+
+    // Optional fields
+    program_path: Option<PathBuf>,
+    price_api_key: Option<String>,
+}
+
+impl PaymasterServiceConfigBuilder {
+    /// Create a new builder with no fields set.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the RPC URL of the katana node.
+    pub fn rpc(mut self, addr: SocketAddr) -> Self {
+        self.rpc = Some(addr);
+        self
+    }
+
+    /// Set the port for the paymaster service.
+    pub fn port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
+    }
+
+    /// Set the API key for the paymaster service.
+    pub fn api_key<T: Into<String>>(mut self, key: T) -> Self {
+        self.api_key = Some(key.into());
+        self
+    }
+
+    /// Set relayer account credentials.
+    pub fn relayer(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.relayer_address = Some(address);
+        self.relayer_private_key = Some(private_key);
+        self
+    }
+
+    /// Set gas tank account credentials.
+    pub fn gas_tank(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.gas_tank_address = Some(address);
+        self.gas_tank_private_key = Some(private_key);
+        self
+    }
+
+    /// Set estimation account credentials.
+    pub fn estimate_account(mut self, address: ContractAddress, private_key: Felt) -> Self {
+        self.estimate_account_address = Some(address);
+        self.estimate_account_private_key = Some(private_key);
+        self
+    }
+
+    /// Set token addresses.
+    pub fn tokens(mut self, eth: ContractAddress, strk: ContractAddress) -> Self {
+        self.eth_token_address = Some(eth);
+        self.strk_token_address = Some(strk);
+        self
+    }
+
+    /// Set the path to the paymaster-service binary.
+    pub fn program_path(mut self, path: PathBuf) -> Self {
+        self.program_path = Some(path);
+        self
+    }
+
+    /// Set the price API key for AVNU price feed.
+    pub fn price_api_key(mut self, key: String) -> Self {
+        self.price_api_key = Some(key);
+        self
+    }
+
+    pub async fn build(self) -> Result<PaymasterServiceConfig> {
+        // Validate required fields
+        let rpc = self.rpc.ok_or(Error::MissingField("rpc_url"))?;
+        let port = self.port.ok_or(Error::MissingField("port"))?;
+        let api_key = self.api_key.ok_or(Error::MissingField("api_key"))?;
+        let relayer_address = self.relayer_address.ok_or(Error::MissingField("relayer_address"))?;
+        let relayer_private_key =
+            self.relayer_private_key.ok_or(Error::MissingField("relayer_private_key"))?;
+        let gas_tank_address =
+            self.gas_tank_address.ok_or(Error::MissingField("gas_tank_address"))?;
+        let gas_tank_private_key =
+            self.gas_tank_private_key.ok_or(Error::MissingField("gas_tank_private_key"))?;
+        let estimate_account_address =
+            self.estimate_account_address.ok_or(Error::MissingField("estimate_account_address"))?;
+        let estimate_account_private_key = self
+            .estimate_account_private_key
+            .ok_or(Error::MissingField("estimate_account_private_key"))?;
+        let eth_token_address =
+            self.eth_token_address.ok_or(Error::MissingField("eth_token_address"))?;
+        let strk_token_address =
+            self.strk_token_address.ok_or(Error::MissingField("strk_token_address"))?;
+
+        // Validate accounts exist on-chain
+        let rpc_url = Url::parse(&format!("http://{rpc}",)).expect("valid url");
+        let provider = JsonRpcClient::new(HttpTransport::new(rpc_url));
+
+        if !is_deployed(&provider, relayer_address).await? {
+            return Err(Error::AccountNotDeployed { kind: "relayer", address: relayer_address });
+        }
+
+        if !is_deployed(&provider, gas_tank_address).await? {
+            return Err(Error::AccountNotDeployed { kind: "gas tank", address: gas_tank_address });
+        }
+
+        if !is_deployed(&provider, estimate_account_address).await? {
+            return Err(Error::AccountNotDeployed {
+                kind: "estimate",
+                address: estimate_account_address,
+            });
+        }
+
+        Ok(PaymasterServiceConfig {
+            rpc_socket_addr: rpc,
+            port,
+            api_key,
+            relayer_address,
+            relayer_private_key,
+            gas_tank_address,
+            gas_tank_private_key,
+            estimate_account_address,
+            estimate_account_private_key,
+            eth_token_address,
+            strk_token_address,
+            program_path: self.program_path,
+            price_api_key: self.price_api_key,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PaymasterService {
+    config: PaymasterServiceConfig,
+
+    // Bootstrap-derived (can be set directly or via bootstrap)
+    forwarder_address: Option<ContractAddress>,
+    chain_id: Option<ChainId>,
+}
+
+impl PaymasterService {
+    /// Create a new sidecar from a validated config.
+    pub fn new(config: PaymasterServiceConfig) -> Self {
+        Self { config, forwarder_address: None, chain_id: None }
+    }
+
+    /// Set forwarder address directly (skip deploying during bootstrap).
+    pub fn forwarder(mut self, address: ContractAddress) -> Self {
+        self.forwarder_address = Some(address);
+        self
+    }
+
+    /// Set chain ID directly (skip fetching from node during bootstrap).
+    pub fn chain_id(mut self, chain_id: ChainId) -> Self {
+        self.chain_id = Some(chain_id);
+        self
+    }
+
+    /// Get the chain ID if set.
+    pub fn get_chain_id(&self) -> Option<ChainId> {
+        self.chain_id
+    }
+
+    pub async fn bootstrap(&mut self) -> Result<ContractAddress> {
+        info!("Bootstrapping paymaster service.");
+
+        let url =
+            Url::parse(&format!("http://{}", self.config.rpc_socket_addr)).expect("valid url");
+        let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(url)));
+
+        // Get chain ID if not already set
+        let chain_id = if let Some(chain_id) = &self.chain_id {
+            chain_id.id()
+        } else {
+            let chain_id_felt = provider.chain_id().await.map_err(Error::ChainId)?;
+            self.chain_id = Some(ChainId::from(chain_id_felt));
+            chain_id_felt
+        };
+
+        let avnu_forwarder_class_hash = AvnuForwarder::HASH;
+
+        // Create the relayer account for transactions
+        let secret_key = SigningKey::from_secret_scalar(self.config.relayer_private_key);
+        let account = SingleOwnerAccount::new(
+            provider.clone(),
+            LocalWallet::from(secret_key),
+            self.config.relayer_address.into(),
+            chain_id,
+            ExecutionEncoding::New,
+        );
+
+        // declare the avnu forwarder class if not yet declred
+        if is_declared(&provider, avnu_forwarder_class_hash).await? {
+            trace!(
+                avnu_forwarder_class_hash = format!("{avnu_forwarder_class_hash:#x}"),
+                "AVNU Forwarder already declared."
+            );
+        } else {
+            trace!(
+                avnu_forwarder_class_hash = format!("{avnu_forwarder_class_hash:#x}"),
+                "AVNU Forwarder class not found - declaring."
+            );
+
+            let class = AvnuForwarder::CLASS.clone();
+            let compiled_hash = AvnuForwarder::CASM_HASH;
+
+            let rpc_class = RpcSierraContractClass::from(class.to_sierra().unwrap()); // safe to unwrap
+            let rpc_class = FlattenedSierraClass::try_from(rpc_class).unwrap();
+
+            let result = account
+                .declare_v3(rpc_class.into(), compiled_hash)
+                .send()
+                .await
+                .map_err(|e| Error::ClassDeclarationFailed(e.to_string()))?;
+
+            // sanity check
+            assert_eq!(result.class_hash, avnu_forwarder_class_hash, "Class hash mismatch");
+
+            // wait for the transaction to be accepted
+            wait_for_class(&provider, avnu_forwarder_class_hash, BOOTSTRAP_TIMEOUT).await?;
+        }
+
+        // When using UDC with unique=0 (non-unique deployment), the deployer_address
+        // used in address computation is 0, not the actual deployer or UDC address.
+        let avnu_forwarder_address = get_contract_address(
+            Felt::from(FORWARDER_SALT),
+            avnu_forwarder_class_hash,
+            &[self.config.relayer_address.into(), self.config.gas_tank_address.into()],
+            ContractAddress::ZERO,
+        )
+        .into();
+
+        // Deploy forwarder if not already deployed
+        if is_deployed(&provider, avnu_forwarder_address).await? {
+            trace!(%avnu_forwarder_address, "AVNU Forwarder contract already deployed.");
+        } else {
+            trace!(%avnu_forwarder_address, "AVNU Forwarder contract not deployed - deploying.");
+
+            #[allow(deprecated)]
+            let factory = ContractFactory::new(avnu_forwarder_class_hash, &account);
+            let constructor_calldata =
+                vec![self.config.relayer_address.into(), self.config.gas_tank_address.into()];
+
+            factory
+                .deploy_v3(constructor_calldata, Felt::from(FORWARDER_SALT), false)
+                .send()
+                .await
+                .map_err(|e| Error::ForwarderDeploy(e.to_string()))?;
+
+            // wait for the transaction to be acccepted
+            wait_for_contract(&provider, avnu_forwarder_address, BOOTSTRAP_TIMEOUT).await?;
+        }
+
+        // Whitelist the relayer
+        let whitelist_call = Call {
+            to: avnu_forwarder_address.into(),
+            selector: selector!("set_whitelisted_address"),
+            calldata: vec![self.config.relayer_address.into(), Felt::ONE],
+        };
+
+        let result = account
+            .execute_v3(vec![whitelist_call])
+            .send()
+            .await
+            .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
+
+        wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
+        self.forwarder_address = Some(avnu_forwarder_address);
+
+        info!(%avnu_forwarder_address, "Paymaster bootstrapped successfully.");
+
+        Ok(avnu_forwarder_address)
+    }
+
+    /// Start the paymaster sidecar process.
+    ///
+    /// Requires `forwarder_address` and `chain_id` to be set (either via builder methods
+    /// or by calling `bootstrap()` first).
+    ///
+    /// Returns a wrapper containing the process handle and resolved configuration.
+    pub async fn start(self) -> Result<PaymasterSidecarProcess> {
+        // Build profile and spawn process
+        let bin =
+            self.config.program_path.clone().unwrap_or_else(|| PathBuf::from("paymaster-service"));
+        let bin = resolve_executable(&bin)?;
+        let profile = self.build_paymaster_profile()?;
+        let profile_path = write_paymaster_profile(&profile)?;
+
+        info!(profile = %profile_path.display(), "Paymaster service profile generated");
+
+        let mut command = Command::new(bin);
+        command
+            .env("PAYMASTER_PROFILE", &profile_path)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true);
+
+        let process = command.spawn().map_err(Error::Spawn)?;
+
+        let url = Url::parse(&format!("http://127.0.0.1:{}", self.config.port)).expect("valid url");
+        wait_for_paymaster_ready(&url, Some(&self.config.api_key), BOOTSTRAP_TIMEOUT).await?;
+
+        Ok(PaymasterSidecarProcess { process, profile })
+    }
+
+    fn build_paymaster_profile(&self) -> Result<PaymasterProfile> {
+        let forwarder_address = self.forwarder_address.ok_or(Error::ForwarderNotSet)?;
+        let chain_id = self.chain_id.ok_or(Error::ChainIdNotSet)?;
+
+        let chain_id_str = paymaster_chain_id(chain_id);
+        let price_api_key = self.config.price_api_key.clone().unwrap_or_default();
+
+        let starknet_endpoint =
+            Url::parse(&format!("http://{}", self.config.rpc_socket_addr)).expect("valid url");
+
+        Ok(PaymasterProfile {
+            verbosity: "info".to_string(),
+            prometheus: None,
+            rpc: PaymasterRpcProfile { port: self.config.port },
+            forwarder: forwarder_address,
+            supported_tokens: vec![self.config.eth_token_address, self.config.strk_token_address],
+            max_fee_multiplier: 3.0,
+            provider_fee_overhead: 0.1,
+            estimate_account: PaymasterAccountProfile {
+                address: self.config.estimate_account_address,
+                private_key: self.config.estimate_account_private_key,
+            },
+            gas_tank: PaymasterAccountProfile {
+                address: self.config.gas_tank_address,
+                private_key: self.config.gas_tank_private_key,
+            },
+            relayers: PaymasterRelayersProfile {
+                private_key: self.config.relayer_private_key,
+                addresses: vec![self.config.relayer_address],
+                min_relayer_balance: Felt::ZERO,
+                lock: PaymasterLockProfile { mode: "seggregated".to_string(), retry_timeout: 5 },
+            },
+            starknet: PaymasterStarknetProfile {
+                chain_id: chain_id_str,
+                endpoint: starknet_endpoint,
+                timeout: 30,
+                fallbacks: Vec::new(),
+            },
+            price: PaymasterPriceProfile {
+                provider: "avnu".to_string(),
+                endpoint: Url::parse(DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT).expect("valid url"),
+                api_key: price_api_key,
+            },
+            sponsoring: PaymasterSponsoringProfile {
+                mode: "self".to_string(),
+                api_key: self.config.api_key.clone(),
+                sponsor_metadata: Vec::new(),
+            },
+        })
+    }
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+async fn is_deployed(
+    provider: &JsonRpcClient<HttpTransport>,
+    address: ContractAddress,
+) -> Result<bool> {
+    let address_felt: Felt = address.into();
+    match provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address_felt).await {
+        Ok(_) => Ok(true),
+        Err(ProviderError::StarknetError(StarknetError::ContractNotFound)) => Ok(false),
+        Err(e) => Err(Error::ContractCheck(address, Box::new(e))),
+    }
+}
+
+async fn wait_for_contract(
+    provider: &JsonRpcClient<HttpTransport>,
+    address: ContractAddress,
+    timeout: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        if is_deployed(provider, address).await? {
+            return Ok(());
+        }
+
+        if start.elapsed() > timeout {
+            return Err(Error::ContractDeployTimeout(address));
+        }
+
+        sleep(Duration::from_millis(200)).await;
+    }
+}
+
+async fn is_declared(provider: &JsonRpcClient<HttpTransport>, class_hash: Felt) -> Result<bool> {
+    match provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await {
+        Ok(_) => Ok(true),
+        Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => Ok(false),
+        Err(error) => Err(Error::ClassCheck(error)),
+    }
+}
+
+async fn wait_for_class(
+    provider: &JsonRpcClient<HttpTransport>,
+    class_hash: Felt,
+    timeout: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        if is_declared(provider, class_hash).await? {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(Error::ClassDeclareTimeout);
+        }
+        sleep(Duration::from_millis(200)).await;
+    }
+}
+
+async fn wait_for_tx(
+    provider: &JsonRpcClient<HttpTransport>,
+    tx_hash: Felt,
+    timeout: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        match provider.get_transaction_receipt(tx_hash).await {
+            Ok(_) => return Ok(()),
+            Err(ProviderError::StarknetError(StarknetError::TransactionHashNotFound)) => {}
+            Err(e) => return Err(Error::TransactionReceipt(e)),
+        }
+        if start.elapsed() > timeout {
+            return Err(Error::TransactionTimeout);
+        }
+        sleep(Duration::from_millis(200)).await;
+    }
+}
+
+fn resolve_executable(path: &Path) -> Result<PathBuf> {
+    if path.components().count() > 1 {
+        return if path.is_file() {
+            Ok(path.to_path_buf())
+        } else {
+            Err(Error::BinaryNotFound(path.to_path_buf()))
+        };
+    }
+
+    let path_var = env::var_os("PATH").ok_or(Error::PathNotSet)?;
+    for dir in env::split_paths(&path_var) {
+        let candidate = dir.join(path);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(Error::BinaryNotInPath(path.to_path_buf()))
+}
+
+// ============================================================================
+// Paymaster Profile
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterProfile {
+    pub verbosity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prometheus: Option<PaymasterPrometheusProfile>,
+    pub rpc: PaymasterRpcProfile,
+    #[serde(serialize_with = "ser::contract_address")]
+    pub forwarder: ContractAddress,
+    #[serde(serialize_with = "ser::contract_address_vec")]
+    pub supported_tokens: Vec<ContractAddress>,
+    pub max_fee_multiplier: f32,
+    pub provider_fee_overhead: f32,
+    pub estimate_account: PaymasterAccountProfile,
+    pub gas_tank: PaymasterAccountProfile,
+    pub relayers: PaymasterRelayersProfile,
+    pub starknet: PaymasterStarknetProfile,
+    pub price: PaymasterPriceProfile,
+    pub sponsoring: PaymasterSponsoringProfile,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterPrometheusProfile {
+    #[serde(serialize_with = "ser::url")]
+    pub endpoint: Url,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterRpcProfile {
+    pub port: u16,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterAccountProfile {
+    #[serde(serialize_with = "ser::contract_address")]
+    pub address: ContractAddress,
+    #[serde(serialize_with = "ser::felt")]
+    pub private_key: Felt,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterRelayersProfile {
+    #[serde(serialize_with = "ser::felt")]
+    pub private_key: Felt,
+    #[serde(serialize_with = "ser::contract_address_vec")]
+    pub addresses: Vec<ContractAddress>,
+    #[serde(serialize_with = "ser::felt")]
+    pub min_relayer_balance: Felt,
+    pub lock: PaymasterLockProfile,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterLockProfile {
+    pub mode: String,
+    pub retry_timeout: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterStarknetProfile {
+    pub chain_id: String,
+    #[serde(serialize_with = "ser::url")]
+    pub endpoint: Url,
+    pub timeout: u64,
+    #[serde(serialize_with = "ser::url_vec")]
+    pub fallbacks: Vec<Url>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterPriceProfile {
+    pub provider: String,
+    #[serde(serialize_with = "ser::url")]
+    pub endpoint: Url,
+    pub api_key: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymasterSponsoringProfile {
+    pub mode: String,
+    pub api_key: String,
+    #[serde(serialize_with = "ser::felt_vec")]
+    pub sponsor_metadata: Vec<Felt>,
+}
+
+/// Custom serializers for paymaster profile types.
+mod ser {
+    use katana_primitives::{ContractAddress, Felt};
+    use serde::Serializer;
+    use url::Url;
+
+    /// Serialize a Felt as a hex string with 0x prefix.
+    pub fn felt<S: Serializer>(value: &Felt, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("{value:#x}"))
+    }
+
+    /// Serialize a Vec<Felt> as a vec of hex strings.
+    pub fn felt_vec<S: Serializer>(values: &[Felt], serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(values.len()))?;
+        for value in values {
+            seq.serialize_element(&format!("{value:#x}"))?;
+        }
+        seq.end()
+    }
+
+    /// Serialize a ContractAddress as a hex string with 0x prefix.
+    pub fn contract_address<S: Serializer>(
+        value: &ContractAddress,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let felt: Felt = (*value).into();
+        serializer.serialize_str(&format!("{felt:#x}"))
+    }
+
+    /// Serialize a Vec<ContractAddress> as a vec of hex strings.
+    pub fn contract_address_vec<S: Serializer>(
+        values: &[ContractAddress],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(values.len()))?;
+        for value in values {
+            let felt: Felt = (*value).into();
+            seq.serialize_element(&format!("{felt:#x}"))?;
+        }
+        seq.end()
+    }
+
+    /// Serialize a Url as a string.
+    pub fn url<S: Serializer>(value: &Url, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(value.as_str())
+    }
+
+    /// Serialize a Vec<Url> as a vec of strings.
+    pub fn url_vec<S: Serializer>(values: &[Url], serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(values.len()))?;
+        for value in values {
+            seq.serialize_element(value.as_str())?;
+        }
+        seq.end()
+    }
+}
+
+fn write_paymaster_profile(profile: &PaymasterProfile) -> Result<PathBuf> {
+    let payload = serde_json::to_string_pretty(profile).map_err(Error::ProfileSerialize)?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before unix epoch")
+        .as_millis();
+    let pid = std::process::id();
+
+    let mut path = env::temp_dir();
+    path.push(format!("katana-paymaster-profile-{timestamp}-{pid}.json"));
+    fs::write(&path, payload).map_err(Error::ProfileWrite)?;
+    Ok(path)
+}
+
+fn paymaster_chain_id(chain_id: ChainId) -> String {
+    match chain_id {
+        ChainId::Named(NamedChainId::Mainnet) => "mainnet".to_string(),
+        _ => "sepolia".to_string(),
+    }
+}
+
+/// Wait for the paymaster sidecar to become ready.
+pub async fn wait_for_paymaster_ready(
+    url: &Url,
+    api_key: Option<&str>,
+    timeout: Duration,
+) -> Result<()> {
+    use http::HeaderValue;
+    use jsonrpsee::http_client::HttpClientBuilder;
+
+    let start = Instant::now();
+
+    let client = {
+        let mut builder = HttpClientBuilder::default();
+        if let Some(key) = api_key {
+            let mut headers = http::HeaderMap::new();
+            headers.insert(
+                "x-paymaster-api-key",
+                HeaderValue::from_str(key).expect("valid header value"),
+            );
+            builder = builder.set_headers(headers);
+        }
+        builder.build(url.as_str()).expect("valid url")
+    };
+
+    loop {
+        match client.health().await {
+            Ok(_) => {
+                info!(target: "sidecar", name = "paymaster health", "sidecar ready");
+                return Ok(());
+            }
+            Err(err) => {
+                debug!(target: "sidecar", name = "paymaster health", error = %err, "waiting for sidecar");
+            }
+        }
+
+        if start.elapsed() > timeout {
+            warn!(target: "sidecar", name = "paymaster health", "sidecar did not become ready in time");
+            return Err(Error::SidecarTimeout);
+        }
+
+        sleep(Duration::from_millis(200)).await;
+    }
+}
+
+/// Format a Felt as a hex string with 0x prefix.
+pub fn format_felt(value: Felt) -> String {
+    format!("{value:#x}")
+}

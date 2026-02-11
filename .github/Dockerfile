@@ -123,6 +123,12 @@ RUN asdf plugin add scarb && \
 	asdf install scarb 2.12.2 && \
 	asdf set scarb 2.8.2
 
+# Install sozo via asdf
+RUN asdf plugin add sozo https://github.com/dojoengine/asdf-sozo.git && \
+	asdf install sozo 1.6.0 && \
+	asdf install sozo 1.7.0 && \
+	asdf set sozo 1.7.0
+
 # Install caddy
 ARG TARGETPLATFORM
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ] ; then \

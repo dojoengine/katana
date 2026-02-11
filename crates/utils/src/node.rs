@@ -1,11 +1,13 @@
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::time::Duration;
 
 use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
 use katana_node::config::dev::DevConfig;
+use katana_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
@@ -51,6 +53,8 @@ where
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     node: LaunchedNode<P>,
+    /// Temp directory holding a copied database snapshot. Cleaned up on drop.
+    _db_temp_dir: Option<tempfile::TempDir>,
 }
 
 impl TestNode {
@@ -71,7 +75,52 @@ impl TestNode {
                 .launch()
                 .await
                 .expect("failed to launch node"),
+            _db_temp_dir: None,
         }
+    }
+
+    /// Creates a [`TestNode`] from a pre-existing database directory.
+    ///
+    /// Copies the database to a temp directory so each test gets its own mutable copy.
+    /// The database is opened with [`SyncMode::UtterlyNoSync`] for test performance.
+    pub async fn new_from_db(db_path: &Path) -> Self {
+        Self::new_from_db_with_config(db_path, test_config()).await
+    }
+
+    /// Creates a [`TestNode`] from a pre-existing database directory with a custom config.
+    ///
+    /// Copies the database to a temp directory so each test gets its own mutable copy.
+    /// The database is opened with [`SyncMode::UtterlyNoSync`] for test performance.
+    pub async fn new_from_db_with_config(db_path: &Path, config: Config) -> Self {
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+
+        copy_db_dir(db_path, temp_dir.path()).expect("failed to copy database");
+
+        let db = katana_db::Db::open_no_sync(temp_dir.path()).expect("failed to open database");
+        let provider = DbProviderFactory::new(db.clone());
+
+        Self {
+            node: Node::build_with_provider(db, provider, config)
+                .expect("failed to build node")
+                .launch()
+                .await
+                .expect("failed to launch node"),
+            _db_temp_dir: Some(temp_dir),
+        }
+    }
+
+    /// Creates a [`TestNode`] with a pre-migrated `spawn-and-move` database snapshot.
+    pub async fn new_with_spawn_and_move_db() -> Self {
+        let db_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/db/spawn_and_move");
+        Self::new_from_db(&db_path).await
+    }
+
+    /// Creates a [`TestNode`] with a pre-migrated `simple` database snapshot.
+    pub async fn new_with_simple_db() -> Self {
+        let db_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/db/simple");
+        Self::new_from_db(&db_path).await
     }
 }
 
@@ -84,6 +133,7 @@ impl ForkTestNode {
                 .launch()
                 .await
                 .expect("failed to launch node"),
+            _db_temp_dir: None,
         }
     }
 }
@@ -141,6 +191,11 @@ where
     pub fn starknet_rpc_client(&self) -> katana_rpc_client::starknet::Client {
         let client = self.rpc_http_client();
         katana_rpc_client::starknet::Client::new_with_client(client)
+    }
+
+    /// Returns the address of the node's gRPC server (if enabled).
+    pub fn grpc_addr(&self) -> Option<&SocketAddr> {
+        self.node.grpc().map(|h| h.addr())
     }
 
     /// Migrates the `spawn-and-move` example contracts from the dojo repository.
@@ -220,8 +275,8 @@ fn run_git_clone(temp_dir: &Path) -> Result<(), MigrateError> {
 }
 
 fn run_scarb_build(project_dir: &Path) -> Result<(), MigrateError> {
-    let output = Command::new("asdf")
-        .args(["exec", "scarb", "build"])
+    let output = Command::new("scarb")
+        .arg("build")
         .current_dir(project_dir)
         .output()
         .map_err(|e| MigrateError::ScarbBuild(e.to_string()))?;
@@ -246,7 +301,7 @@ fn run_sozo_migrate(
     address: &str,
     private_key: &str,
 ) -> Result<(), MigrateError> {
-    let output = Command::new("sozo")
+    let status = Command::new("sozo")
         .args([
             "migrate",
             "--rpc-url",
@@ -257,21 +312,30 @@ fn run_sozo_migrate(
             private_key,
         ])
         .current_dir(project_dir)
-        .output()
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
         .map_err(|e| MigrateError::SozoMigrate(e.to_string()))?;
 
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{stdout}\n{stderr}");
+    if !status.success() {
+        return Err(MigrateError::SozoMigrate(format!(
+            "sozo migrate exited with status: {status}"
+        )));
+    }
+    Ok(())
+}
 
-        let lines: Vec<&str> = combined.lines().collect();
-        let last_50: String =
-            lines.iter().rev().take(50).rev().cloned().collect::<Vec<_>>().join("\n");
-
-        eprintln!("sozo migrate failed. Last 50 lines of output:\n{last_50}");
-
-        return Err(MigrateError::SozoMigrate(last_50));
+/// Copies all files from `src` to `dst` (flat copy, no subdirectories).
+///
+/// The MDBX lock file (`mdbx.lck`) is intentionally skipped because it contains
+/// platform-specific data (pthread mutexes, process IDs) that is not portable across
+/// systems. MDBX creates a fresh lock file when the database is opened.
+fn copy_db_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() && entry.file_name() != "mdbx.lck" {
+            std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
     }
     Ok(())
 }
@@ -295,5 +359,11 @@ pub fn test_config() -> Config {
         ..Default::default()
     };
 
-    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), ..Default::default() }
+    let grpc = Some(GrpcConfig {
+        addr: DEFAULT_GRPC_ADDR,
+        port: 0, // Use port 0 for auto-assignment
+        timeout: Some(Duration::from_secs(30)),
+    });
+
+    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), grpc, ..Default::default() }
 }
