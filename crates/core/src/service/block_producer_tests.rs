@@ -1,7 +1,7 @@
 use arbitrary::{Arbitrary, Unstructured};
 use futures::pin_mut;
 use katana_chain_spec::ChainSpec;
-use katana_executor::implementation::noop::NoopExecutorFactory;
+use katana_executor::noop::NoopExecutorFactory;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_primitives::transaction::{ExecutableTx, InvokeTx};
 use katana_primitives::Felt;

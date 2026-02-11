@@ -251,8 +251,8 @@ pub fn flags(
     ExecutionFlags::new().with_account_validation(!skip_validate).with_fee(!skip_fee_transfer)
 }
 
-use katana_executor::implementation::blockifier::cache::ClassCache;
-use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_executor::blockifier::cache::ClassCache;
+use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
 
 #[rstest::fixture]

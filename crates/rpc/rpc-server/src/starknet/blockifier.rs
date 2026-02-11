@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_executor::implementation::blockifier::cache::ClassCache;
-use katana_executor::implementation::blockifier::call::execute_call;
-use katana_executor::implementation::blockifier::state::CachedState;
-use katana_executor::implementation::blockifier::utils::{self, block_context_from_envs};
-use katana_executor::{ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates};
+use katana_executor::blockifier::cache::ClassCache;
+use katana_executor::blockifier::call::execute_call;
+use katana_executor::blockifier::state::CachedState;
+use katana_executor::blockifier::utils::{self, block_context_from_envs};
+use katana_executor::error::ExecutionError;
+use katana_executor::{ExecutionFlags, ExecutionResult, ResultAndStates};
 use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::Felt;

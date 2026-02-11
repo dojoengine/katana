@@ -3,20 +3,18 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_executor::implementation::blockifier::blockifier::blockifier::stateful_validator::{
+use katana_executor::blockifier::blockifier::blockifier::stateful_validator::{
     StatefulValidator, StatefulValidatorError,
 };
-use katana_executor::implementation::blockifier::blockifier::blockifier::transaction_executor::TransactionExecutorError;
-use katana_executor::implementation::blockifier::blockifier::state::cached_state::CachedState;
-use katana_executor::implementation::blockifier::blockifier::transaction::errors::{
+use katana_executor::blockifier::blockifier::blockifier::transaction_executor::TransactionExecutorError;
+use katana_executor::blockifier::blockifier::state::cached_state::CachedState;
+use katana_executor::blockifier::blockifier::transaction::errors::{
     TransactionExecutionError, TransactionFeeError, TransactionPreValidationError,
 };
-use katana_executor::implementation::blockifier::blockifier::transaction::transaction_execution::Transaction;
-use katana_executor::implementation::blockifier::cache::ClassCache;
-use katana_executor::implementation::blockifier::state::StateProviderDb;
-use katana_executor::implementation::blockifier::utils::{
-    block_context_from_envs, to_address, to_executor_tx,
-};
+use katana_executor::blockifier::blockifier::transaction::transaction_execution::Transaction;
+use katana_executor::blockifier::cache::ClassCache;
+use katana_executor::blockifier::state::StateProviderDb;
+use katana_executor::blockifier::utils::{block_context_from_envs, to_address, to_executor_tx};
 use katana_executor::ExecutionFlags;
 use katana_pool_api::validation::{
     Error, InsufficientFundsError, InsufficientIntrinsicFeeError, InvalidTransactionError,

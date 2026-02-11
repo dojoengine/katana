@@ -26,9 +26,10 @@ use tracing::info;
 use utils::apply_versioned_constant_overrides;
 
 use self::state::CachedState;
+use crate::error::ExecutorError;
 use crate::{
     BlockLimits, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutionStats, Executor,
-    ExecutorError, ExecutorFactory, ExecutorResult,
+    ExecutorFactory, ExecutorResult,
 };
 
 pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
@@ -347,6 +348,6 @@ impl Executor for StarknetVMProcessor {
             .lock()
             .cached_state
             .set_storage_at(blk_address, storage_key, value)
-            .map_err(|e| crate::ExecutorError::Other(e.to_string().into()))
+            .map_err(|e| crate::error::ExecutorError::Other(e.to_string().into()))
     }
 }

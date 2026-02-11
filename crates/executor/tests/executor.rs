@@ -333,7 +333,7 @@ fn test_executor_with_valid_blocks_impl(
 }
 
 use fixtures::factory;
-use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_executor::blockifier::BlockifierFactory;
 
 #[rstest::rstest]
 fn test_executor_with_valid_blocks(

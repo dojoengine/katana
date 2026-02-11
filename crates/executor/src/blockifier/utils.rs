@@ -59,9 +59,9 @@ use starknet_api::transaction::{
 const ALIAS_CONTRACT_ADDRESS: &str = "0x2";
 
 use super::state::CachedState;
-use crate::abstraction::ExecutionFlags;
+use crate::error::ExecutionError;
 use crate::utils::build_receipt;
-use crate::{ExecutionError, ExecutionResult, ExecutorResult};
+use crate::{ExecutionFlags, ExecutionResult, ExecutorResult};
 
 #[tracing::instrument(level = "trace", target = "executor", skip_all, fields(type = tx.transaction.r#type().as_ref(), validate = simulation_flags.account_validation()))]
 pub fn transact<S: StateReader>(

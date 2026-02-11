@@ -7,10 +7,10 @@ use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::state::{StateProofProvider, StateProvider, StateRootProvider};
 use katana_provider::api::ProviderResult;
 
-use crate::abstraction::{
+use crate::error::ExecutorError;
+use crate::{
     ExecutionFlags, ExecutionOutput, ExecutionResult, Executor, ExecutorFactory, ExecutorResult,
 };
-use crate::ExecutorError;
 
 /// A no-op executor factory. Creates an executor that does nothing.
 #[derive(Debug, Default)]

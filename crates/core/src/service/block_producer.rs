@@ -51,7 +51,7 @@ pub enum BlockProductionError {
     ExecutionTaskCancelled,
 
     #[error("transaction execution error: {0}")]
-    TransactionExecutionError(#[from] katana_executor::ExecutorError),
+    TransactionExecutionError(#[from] katana_executor::error::ExecutorError),
 
     #[error("inconsistent state updates: {0}")]
     InconsistentState(String),
@@ -62,7 +62,7 @@ impl BlockProductionError {
     pub fn is_block_limit_exhausted(&self) -> bool {
         matches!(
             self,
-            Self::TransactionExecutionError(katana_executor::ExecutorError::LimitsExhausted)
+            Self::TransactionExecutionError(katana_executor::error::ExecutorError::LimitsExhausted)
         )
     }
 }
