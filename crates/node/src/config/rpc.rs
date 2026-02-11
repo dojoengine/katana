@@ -32,6 +32,7 @@ pub const DEFAULT_RPC_MAX_CALL_GAS: u64 = 1_000_000_000;
 pub enum RpcModuleKind {
     Starknet,
     Dev,
+    Shard,
     #[cfg(feature = "cartridge")]
     Cartridge,
     #[cfg(feature = "tee")]
@@ -104,6 +105,7 @@ impl RpcModulesList {
         Self(HashSet::from([
             RpcModuleKind::Starknet,
             RpcModuleKind::Dev,
+            RpcModuleKind::Shard,
             #[cfg(feature = "cartridge")]
             RpcModuleKind::Cartridge,
             #[cfg(feature = "tee")]
