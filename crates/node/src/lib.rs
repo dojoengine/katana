@@ -18,8 +18,8 @@ use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
-use katana_executor::implementation::blockifier::cache::ClassCache;
-use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_executor::blockifier::cache::ClassCache;
+use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
@@ -86,8 +86,8 @@ where
     #[cfg(feature = "grpc")]
     grpc_server: Option<GrpcServer>,
     task_manager: TaskManager,
-    backend: Arc<Backend<BlockifierFactory, P>>,
-    block_producer: BlockProducer<BlockifierFactory, P>,
+    backend: Arc<Backend<P>>,
+    block_producer: BlockProducer<P>,
     gateway_server: Option<GatewayServer<TxPool, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
 }
@@ -147,7 +147,7 @@ where
                 config.chain.clone(),
             );
 
-            Arc::new(factory)
+            Arc::new(factory) as Arc<dyn ExecutorFactory>
         };
 
         // --- build l1 gas oracle
@@ -667,7 +667,7 @@ where
         &self.provider
     }
 
-    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P>> {
+    pub fn backend(&self) -> &Arc<Backend<P>> {
         &self.backend
     }
 
@@ -692,7 +692,7 @@ where
     }
 
     /// Returns a reference to the node's block producer.
-    pub fn block_producer(&self) -> &BlockProducer<BlockifierFactory, P> {
+    pub fn block_producer(&self) -> &BlockProducer<P> {
         &self.block_producer
     }
 }

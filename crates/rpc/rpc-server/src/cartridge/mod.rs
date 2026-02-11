@@ -37,7 +37,6 @@ use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
-use katana_executor::ExecutorFactory;
 use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::chain::ChainId;
@@ -82,10 +81,10 @@ pub struct CartridgeConfig {
 }
 
 #[allow(missing_debug_implementations)]
-pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
+pub struct CartridgeApi<PF: ProviderFactory> {
     task_spawner: TaskSpawner,
-    backend: Arc<Backend<EF, PF>>,
-    block_producer: BlockProducer<EF, PF>,
+    backend: Arc<Backend<PF>>,
+    block_producer: BlockProducer<PF>,
     pool: TxPool,
     api_client: cartridge::Client,
     paymaster_client: HttpClient,
@@ -97,9 +96,8 @@ pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     vrf_service: Option<VrfService>,
 }
 
-impl<EF, PF> Clone for CartridgeApi<EF, PF>
+impl<PF> Clone for CartridgeApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
 {
     fn clone(&self) -> Self {
@@ -118,16 +116,15 @@ where
     }
 }
 
-impl<EF, PF> CartridgeApi<EF, PF>
+impl<PF> CartridgeApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     pub fn new(
-        backend: Arc<Backend<EF, PF>>,
-        block_producer: BlockProducer<EF, PF>,
+        backend: Arc<Backend<PF>>,
+        block_producer: BlockProducer<PF>,
         pool: TxPool,
         task_spawner: TaskSpawner,
         config: CartridgeConfig,
@@ -306,9 +303,8 @@ where
 }
 
 #[async_trait]
-impl<EF, PF> CartridgeApiServer for CartridgeApi<EF, PF>
+impl<PF> CartridgeApiServer for CartridgeApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,

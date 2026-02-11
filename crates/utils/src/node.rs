@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
-use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
 use katana_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
@@ -150,7 +149,7 @@ where
         self.node.rpc().addr()
     }
 
-    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P>> {
+    pub fn backend(&self) -> &Arc<Backend<P>> {
         self.node.node().backend()
     }
 

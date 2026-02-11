@@ -5,8 +5,8 @@ use blockifier::transaction::errors::{
     TransactionExecutionError, TransactionFeeError, TransactionPreValidationError,
 };
 
-use crate::implementation::blockifier::utils::to_address;
-use crate::{ExecutionError, ExecutorError};
+use crate::blockifier::utils::to_address;
+use crate::error::{ExecutionError, ExecutorError};
 
 impl From<TransactionExecutionError> for ExecutionError {
     fn from(error: TransactionExecutionError) -> Self {

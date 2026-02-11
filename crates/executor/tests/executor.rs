@@ -9,6 +9,7 @@ use katana_genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
 };
 use katana_primitives::block::ExecutableBlock;
+use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::{address, Felt};
 use katana_provider::api::contract::ContractClassProviderExt;
@@ -31,7 +32,7 @@ fn test_executor_with_valid_blocks_impl(
     // `valid_blocks` fixture)
     let new_acc = address!("0x3ddfa445a70b927497249f94ff7431fc2e2abc761a34417fd4891beb7c2db85");
 
-    let mut executor = factory.with_state(state);
+    let mut executor = factory.executor(state, BlockEnv::default());
     let mut expected_txs: Vec<TxWithHash> = Vec::with_capacity(3);
 
     // block 1
@@ -332,7 +333,7 @@ fn test_executor_with_valid_blocks_impl(
 }
 
 use fixtures::factory;
-use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_executor::blockifier::BlockifierFactory;
 
 #[rstest::rstest]
 fn test_executor_with_valid_blocks(

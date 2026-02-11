@@ -24,7 +24,7 @@ use starknet_api::execution_resources::GasAmount;
 use starknet_api::transaction::fields::Calldata;
 
 use super::utils::to_blk_address;
-use crate::ExecutionError;
+use crate::error::ExecutionError;
 
 /// Perform a function call on a contract and retrieve the return values.
 ///
@@ -161,14 +161,14 @@ mod tests {
     use starknet::macros::selector;
 
     use super::{execute_call_inner, get_call_sierra_gas_consumed};
-    use crate::implementation::blockifier::state::StateProviderDb;
+    use crate::blockifier::state::StateProviderDb;
 
     #[test]
     fn max_steps() {
         // -------------------- Preparations -------------------------------
 
         let json = include_str!(
-            "../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
+            "../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
         );
         let class = ContractClass::from_str(json).unwrap();
         let class_hash = class.class_hash().unwrap();
@@ -254,7 +254,7 @@ mod tests {
         // -------------------- Preparations -------------------------------
 
         let json = include_str!(
-            "../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
+            "../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
         );
         let class = ContractClass::from_str(json).unwrap();
         let class_hash = class.class_hash().unwrap();

@@ -4,7 +4,7 @@ use blockifier::state::cached_state::CachedState;
 use criterion::measurement::WallTime;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkGroup, Criterion};
 use katana_chain_spec::ChainSpec;
-use katana_executor::implementation::blockifier::state::StateProviderDb;
+use katana_executor::blockifier::state::StateProviderDb;
 use katana_executor::ExecutionFlags;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::ExecutableTxWithHash;
@@ -39,7 +39,7 @@ fn blockifier(
     chain_spec: &ChainSpec,
     tx: ExecutableTxWithHash,
 ) {
-    use katana_executor::implementation::blockifier::utils::{block_context_from_envs, transact};
+    use katana_executor::blockifier::utils::{block_context_from_envs, transact};
 
     // convert to blockifier block context
     let block_context = block_context_from_envs(chain_spec, block_envs, None);
