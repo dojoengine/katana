@@ -128,14 +128,12 @@ $(COMPATIBILITY_DB_DIR): $(COMPATIBILITY_DB_TAR)
 
 $(SPAWN_AND_MOVE_DB): $(SPAWN_AND_MOVE_DB).tar.gz
 	@echo "Extracting Dojo example spawn-and-move test database..."
-	@mkdir -p $@
-	@tar -xzf $< -C $@ || { echo "Failed to extract spawn-and-move test database\!"; exit 1; }
+	@tar -xzf $< -C $(DB_FIXTURES_DIR) || { echo "Failed to extract spawn-and-move test database\!"; exit 1; }
 	@echo "Example Dojo spawn-and-move database extracted successfully."
 
 $(SIMPLE_DB): $(SIMPLE_DB).tar.gz
 	@echo "Extracting Dojo example simple test database..."
-	@mkdir -p $@
-	@tar -xzf $< -C $@ || { echo "Failed to extract spawn-and-move test database\!"; exit 1; }
+	@tar -xzf $< -C $(DB_FIXTURES_DIR) || { echo "Failed to extract spawn-and-move test database\!"; exit 1; }
 	@echo "Example Dojo simple database extracted successfully."
 
 generate-db-fixtures:
