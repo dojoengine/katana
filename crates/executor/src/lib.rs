@@ -161,7 +161,7 @@ pub struct ResultAndStates {
     pub states: StateUpdates,
 }
 
-/// A type that can create [BlockExecutor] instance.
+/// A type that can create an [Executor] instance.
 pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
     /// Create a [Executor] for executing transactions.
     fn executor(&self, state: Box<dyn StateProvider>, block_env: BlockEnv) -> Box<dyn Executor>;
