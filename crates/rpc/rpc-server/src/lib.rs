@@ -28,6 +28,7 @@ pub mod dev;
 pub mod health;
 pub mod metrics;
 pub mod permit;
+pub mod shard;
 pub mod starknet;
 
 mod logger;

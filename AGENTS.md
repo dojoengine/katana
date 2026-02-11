@@ -83,7 +83,12 @@ The project uses a Rust workspace with functionality split across multiple crate
 
 ### Documentation
 
-When refactoring or modifying components, ensure to update the corresponding documentation in `/docs/`. This directory contains high-level documentation for each component that should reflect any architectural or design changes.
+The `/docs/` directory contains behavioral specs and high-level documentation for major node components (e.g., `docs/execution-sharding/`, `docs/pipeline.md`, `docs/database.md`). **You MUST keep these docs up to date:**
+
+- When **adding a new major component or subsystem**, create corresponding documentation in `/docs/` describing its expected behavior, responsibilities, and interactions with other components.
+- When **changing the behavior** of an existing component (new states, altered lifecycle, modified APIs, changed shutdown semantics, etc.), update the relevant docs to reflect the new behavior.
+- Documentation should describe **what** a component does and **how it behaves**, not implementation details that are likely to change. Include implementation details only when they are essential to understanding the design (e.g., "workers run on OS threads, not async tasks").
+- When in doubt about whether a change warrants a docs update, update the docs. Stale documentation is worse than no documentation.
 
 ### Testing Approach
 

@@ -7,6 +7,7 @@ pub mod args;
 pub mod file;
 pub mod full;
 pub mod options;
+pub mod shard;
 #[cfg(feature = "paymaster")]
 pub mod sidecar;
 pub mod utils;
@@ -15,6 +16,7 @@ pub use args::SequencerNodeArgs;
 pub use options::*;
 
 use crate::full::FullNodeArgs;
+use crate::shard::ShardNodeArgs;
 
 #[derive(Debug, Args, PartialEq)]
 pub struct NodeCli {
@@ -29,6 +31,9 @@ pub enum NodeSubcommand {
 
     #[command(about = "Launch a sequencer node")]
     Sequencer(Box<SequencerNodeArgs>),
+
+    #[command(about = "Launch a shard node")]
+    Shard(Box<ShardNodeArgs>),
 }
 
 impl NodeCli {
@@ -36,6 +41,7 @@ impl NodeCli {
         match self.command {
             NodeSubcommand::Full(args) => args.execute().await,
             NodeSubcommand::Sequencer(args) => args.with_config_file()?.execute().await,
+            NodeSubcommand::Shard(args) => args.execute().await,
         }
     }
 }
