@@ -1,0 +1,4 @@
+interface:
+  display_name: "Katana Development"
+  short_description: "Contributor workflow for dojoengine/katana"
+  default_prompt: "Use $katana-development to implement and validate changes in katana."
