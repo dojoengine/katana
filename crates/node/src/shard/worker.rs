@@ -33,13 +33,16 @@ impl ShardWorker {
         trace!(worker_id = self.id, "Shard worker started.");
 
         loop {
-            // Block until there's a shard to process (or shutdown)
+            // Worker-owned shutdown check
+            if self.scheduler.is_shutdown() {
+                info!(worker_id = self.id, "Shard worker shutting down.");
+                return;
+            }
+
+            // Try to get the next shard (blocks up to ~100ms)
             let shard = match self.scheduler.next_task() {
                 Some(shard) => shard,
-                None => {
-                    info!(worker_id = self.id, "Shard worker shutting down.");
-                    return;
-                }
+                None => continue,
             };
 
             shard.set_state(ShardState::Running);
