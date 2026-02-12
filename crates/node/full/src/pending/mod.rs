@@ -12,8 +12,8 @@ use katana_provider::{DbProviderFactory, ProviderFactory};
 use parking_lot::Mutex;
 use tracing::error;
 
-use crate::full::pending::state::PreconfStateProvider;
-use crate::full::tip_watcher::TipSubscription;
+use crate::pending::state::PreconfStateProvider;
+use crate::tip_watcher::TipSubscription;
 
 mod provider;
 pub mod state;

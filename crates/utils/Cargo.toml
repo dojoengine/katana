@@ -26,7 +26,7 @@ katana-chain-spec = { workspace = true, optional = true }
 katana-core = { workspace = true, optional = true }
 katana-db = { workspace = true, optional = true }
 katana-executor = { workspace = true, optional = true }
-katana-node = { workspace = true, optional = true }
+katana-sequencer-node = { workspace = true, optional = true }
 katana-provider = { workspace = true, optional = true }
 katana-rpc-server = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }
@@ -35,19 +35,19 @@ tempfile = { workspace = true, optional = true }
 
 [features]
 node = [
-	"katana-node/grpc",
+	"katana-sequencer-node/grpc",
     "clap",
     "katana-chain-spec",
     "katana-core",
     "katana-db",
     "katana-executor",
-    "katana-node",
+    "katana-sequencer-node",
     "katana-provider",
     "katana-rpc-server",
     "starknet",
     "tempfile",
 ]
-explorer = [ "node", "katana-node/explorer" ]
+explorer = [ "node", "katana-sequencer-node/explorer" ]
 
 [[bin]]
 name = "generate_migration_db"

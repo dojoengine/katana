@@ -18,7 +18,9 @@ members = [
 	"crates/grpc",
 	"crates/messaging",
 	"crates/metrics",
-	"crates/node",
+	"crates/node/config",
+	"crates/node/sequencer",
+	"crates/node/full",
 	"crates/node-bindings",
 	"crates/oracle/gas",
 	"crates/pool/pool",
@@ -92,7 +94,9 @@ katana-genesis = { path = "crates/genesis" }
 katana-grpc = { path = "crates/grpc" }
 katana-messaging = { path = "crates/messaging" }
 katana-metrics = { path = "crates/metrics" }
-katana-node = { path = "crates/node" }
+katana-node-config = { path = "crates/node/config" }
+katana-sequencer-node = { path = "crates/node/sequencer" }
+katana-full-node = { path = "crates/node/full" }
 katana-node-bindings = { path = "crates/node-bindings" }
 katana-pipeline = { path = "crates/sync/pipeline" }
 katana-pool = { path = "crates/pool/pool" }

@@ -14,26 +14,26 @@ use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_messaging::MessagingConfig;
-use katana_node::config::db::DbConfig;
-use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
-use katana_node::config::execution::ExecutionConfig;
-use katana_node::config::fork::ForkingConfig;
-use katana_node::config::gateway::GatewayConfig;
+use katana_sequencer_node::config::db::DbConfig;
+use katana_sequencer_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
+use katana_sequencer_node::config::execution::ExecutionConfig;
+use katana_sequencer_node::config::fork::ForkingConfig;
+use katana_sequencer_node::config::gateway::GatewayConfig;
 #[cfg(all(feature = "server", feature = "grpc"))]
-use katana_node::config::grpc::GrpcConfig;
-use katana_node::config::metrics::MetricsConfig;
+use katana_sequencer_node::config::grpc::GrpcConfig;
+use katana_sequencer_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
-use katana_node::config::paymaster::PaymasterConfig;
+use katana_sequencer_node::config::paymaster::PaymasterConfig;
 #[cfg(feature = "vrf")]
-use katana_node::config::paymaster::VrfConfig;
-use katana_node::config::rpc::RpcConfig;
+use katana_sequencer_node::config::paymaster::VrfConfig;
+use katana_sequencer_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
-use katana_node::config::sequencing::SequencingConfig;
+use katana_sequencer_node::config::rpc::{RpcModuleKind, RpcModulesList};
+use katana_sequencer_node::config::sequencing::SequencingConfig;
 #[cfg(feature = "tee")]
-use katana_node::config::tee::TeeConfig;
-use katana_node::config::Config;
-use katana_node::Node;
+use katana_sequencer_node::config::tee::TeeConfig;
+use katana_sequencer_node::config::Config;
+use katana_sequencer_node::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use url::Url;
@@ -616,7 +616,7 @@ impl SequencerNodeArgs {
 
             use anyhow::anyhow;
             use katana_genesis::allocation::GenesisAccountAlloc;
-            use katana_node::config::paymaster::CartridgeApiConfig;
+            use katana_sequencer_node::config::paymaster::CartridgeApiConfig;
 
             // Derive paymaster credentials from genesis account 0
             let (address, private_key) = {
@@ -780,13 +780,13 @@ mod test {
         DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_ETH_L2_GAS_PRICE,
         DEFAULT_STRK_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE,
     };
-    use katana_node::config::execution::{
+    use katana_primitives::chain::ChainId;
+    use katana_primitives::{address, felt, Felt};
+    use katana_sequencer_node::config::execution::{
         DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
     };
     #[cfg(feature = "server")]
-    use katana_node::config::rpc::RpcModuleKind;
-    use katana_primitives::chain::ChainId;
-    use katana_primitives::{address, felt, Felt};
+    use katana_sequencer_node::config::rpc::RpcModuleKind;
 
     use super::*;
 
