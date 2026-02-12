@@ -3,9 +3,6 @@ use std::sync::Arc;
 // Re-export shared config types
 pub use katana_node_config::{db, metrics, rpc};
 
-// Sequencer-specific config modules
-pub mod dev;
-pub mod execution;
 pub mod fork;
 pub mod gateway;
 pub mod sequencing;
@@ -20,7 +17,6 @@ pub mod grpc;
 
 use db::DbConfig;
 use dev::DevConfig;
-use execution::ExecutionConfig;
 use fork::ForkingConfig;
 use gateway::GatewayConfig;
 #[cfg(feature = "grpc")]
@@ -30,6 +26,8 @@ use katana_messaging::MessagingConfig;
 use metrics::MetricsConfig;
 use rpc::RpcConfig;
 use sequencing::SequencingConfig;
+
+pub use katana_node_config::{dev::DevConfig, execution::ExecutionConfig};
 
 /// Node configurations.
 ///

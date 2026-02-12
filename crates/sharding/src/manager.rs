@@ -10,7 +10,7 @@ use katana_rpc_server::starknet::StarknetApiConfig;
 use katana_tasks::TaskSpawner;
 use parking_lot::RwLock;
 
-use super::types::{Shard, ShardId};
+use crate::types::{Shard, ShardId};
 
 /// Pluggable abstraction for shard storage and creation policy.
 ///

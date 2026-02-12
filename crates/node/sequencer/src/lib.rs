@@ -1,8 +1,5 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-pub mod full;
-pub mod shard;
-
 pub mod config;
 pub mod exit;
 

@@ -1,13 +1,8 @@
 pub mod block_context;
 pub mod config;
 pub mod exit;
-pub mod manager;
-pub mod scheduler;
-pub mod types;
-pub mod worker;
 
 use std::sync::Arc;
-use std::thread;
 
 use anyhow::Result;
 use jsonrpsee::types::ErrorObjectOwned;
@@ -26,6 +21,9 @@ use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_server::shard::{ShardProvider, ShardRpc};
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
+use katana_sharding::manager::{LazyShardManager, ShardManager};
+use katana_sharding::runtime::{RuntimeHandle, ShardRuntime};
+use katana_sharding::types::NoPendingBlockProvider;
 use katana_tasks::TaskManager;
 use parking_lot::{Mutex, RwLock};
 use tracing::info;
@@ -33,9 +31,6 @@ use tracing::info;
 use self::block_context::BlockContextListener;
 use self::config::ShardNodeConfig;
 use self::exit::ShardNodeStoppedFuture;
-use self::manager::{LazyShardManager, ShardManager};
-use self::scheduler::ShardScheduler;
-use self::types::NoPendingBlockProvider;
 
 /// A shard node instance.
 #[must_use = "ShardNode does nothing unless launched."]
@@ -43,11 +38,11 @@ use self::types::NoPendingBlockProvider;
 pub struct Node {
     pub config: Arc<ShardNodeConfig>,
     pub manager: Arc<dyn ShardManager>,
-    pub scheduler: ShardScheduler,
-    pub block_env: Arc<RwLock<BlockEnv>>,
+    pub handle: RuntimeHandle,
     pub task_manager: TaskManager,
     pub rpc_server: RpcServer,
     pub block_context_listener: BlockContextListener,
+    pub runtime: Mutex<Option<ShardRuntime>>,
 }
 
 impl Node {
@@ -114,11 +109,16 @@ impl Node {
             starknet_version: katana_primitives::version::CURRENT_STARKNET_VERSION,
         }));
 
+        // --- Build runtime (scheduler + workers)
+        let runtime =
+            ShardRuntime::new(config.worker_count, config.time_quantum, block_env.clone());
+        let handle = runtime.handle();
+
         // --- Build base chain client and block context listener
         let starknet_client = StarknetClient::new(config.base_chain_url.clone());
         let block_context_listener = BlockContextListener::new(
             starknet_client,
-            block_env.clone(),
+            block_env,
             config.chain.clone(),
             config.block_poll_interval,
         );
@@ -132,13 +132,10 @@ impl Node {
             task_spawner.clone(),
         ));
 
-        // --- Build scheduler
-        let scheduler = ShardScheduler::new(config.time_quantum);
-
         // --- Build RPC server with shard API
         let provider = NodeShardProvider {
             manager: manager.clone(),
-            scheduler: scheduler.clone(),
+            handle: handle.clone(),
             chain_spec: config.chain.clone(),
         };
 
@@ -152,11 +149,11 @@ impl Node {
         Ok(Node {
             config,
             manager,
-            scheduler,
-            block_env,
+            handle,
             task_manager,
             rpc_server,
             block_context_listener,
+            runtime: Mutex::new(Some(runtime)),
         })
     }
 
@@ -169,11 +166,7 @@ impl Node {
             .name("Block context listener")
             .spawn(listener.run());
 
-        let worker_handles = worker::spawn_workers(
-            self.config.worker_count,
-            self.scheduler.clone(),
-            self.block_env.clone(),
-        );
+        self.runtime.lock().as_mut().expect("runtime already taken").start();
 
         let rpc = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
 
@@ -183,11 +176,7 @@ impl Node {
             "Shard node launched."
         );
 
-        Ok(LaunchedShardNode {
-            node: self,
-            rpc,
-            worker_handles: parking_lot::Mutex::new(worker_handles),
-        })
+        Ok(LaunchedShardNode { node: self, rpc })
     }
 }
 
@@ -195,29 +184,23 @@ impl Node {
 pub struct LaunchedShardNode {
     pub node: Node,
     pub rpc: RpcServerHandle,
-    /// Worker thread handles, taken during shutdown to join them.
-    worker_handles: Mutex<Vec<thread::JoinHandle<()>>>,
 }
 
 impl LaunchedShardNode {
     pub async fn stop(&self) -> Result<()> {
-        // Signal the scheduler to stop — workers will exit their loops.
-        self.node.scheduler.shutdown();
         self.rpc.stop()?;
 
-        // Join worker threads via the task manager's blocking executor.
-        let handles: Vec<_> = self.worker_handles.lock().drain(..).collect();
-        let _ = self
-            .node
-            .task_manager
-            .task_spawner()
-            .cpu_bound()
-            .spawn(move || {
-                for h in handles {
-                    let _ = h.join();
-                }
-            })
-            .await;
+        let runtime = self.node.runtime.lock().take();
+        if let Some(runtime) = runtime {
+            let _ = self
+                .node
+                .task_manager
+                .task_spawner()
+                .spawn_blocking(move || {
+                    runtime.shutdown_timeout(std::time::Duration::from_secs(30));
+                })
+                .await;
+        }
 
         self.node.task_manager.shutdown().await;
         Ok(())
@@ -236,7 +219,7 @@ impl LaunchedShardNode {
 /// manager and scheduler to the generic `ShardRpc` RPC handler.
 struct NodeShardProvider {
     manager: Arc<dyn ShardManager>,
-    scheduler: ShardScheduler,
+    handle: RuntimeHandle,
     chain_spec: Arc<ChainSpec>,
 }
 
@@ -270,7 +253,7 @@ impl ShardProvider for NodeShardProvider {
 
     fn schedule(&self, shard_id: ContractAddress) {
         if let Ok(shard) = self.manager.get(shard_id) {
-            self.scheduler.schedule(shard);
+            self.handle.schedule(shard);
         }
     }
 

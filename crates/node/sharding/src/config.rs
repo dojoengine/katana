@@ -4,10 +4,10 @@ use std::time::Duration;
 use katana_chain_spec::ChainSpec;
 use url::Url;
 
-use crate::config::dev::DevConfig;
-use crate::config::execution::ExecutionConfig;
-use crate::config::metrics::MetricsConfig;
-use crate::config::rpc::RpcConfig;
+use katana_node_config::dev::DevConfig;
+use katana_node_config::execution::ExecutionConfig;
+use katana_node_config::metrics::MetricsConfig;
+use katana_node_config::rpc::RpcConfig;
 
 /// Default number of shard workers (matches available CPU cores).
 pub fn default_worker_count() -> usize {

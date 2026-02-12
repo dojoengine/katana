@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use anyhow::Result;
 use futures::future::BoxFuture;
@@ -18,23 +19,19 @@ impl<'a> ShardNodeStoppedFuture<'a> {
     pub(crate) fn new(handle: &'a LaunchedShardNode) -> Self {
         let rpc = handle.rpc.clone();
         let task_manager = handle.node.task_manager.clone();
-        let scheduler = handle.node.scheduler.clone();
-        let worker_handles = handle.worker_handles.lock().drain(..).collect::<Vec<_>>();
-
+        let runtime = handle.node.runtime.lock().take();
         let task_spawner = task_manager.task_spawner();
 
         let fut = Box::pin(async move {
             task_manager.wait_for_shutdown().await;
-            scheduler.shutdown();
 
-            // Join worker threads via the task manager's blocking executor.
-            let _ = task_spawner
-                .spawn_blocking(move || {
-                    for h in worker_handles {
-                        let _ = h.join();
-                    }
-                })
-                .await;
+            if let Some(runtime) = runtime {
+                let _ = task_spawner
+                    .spawn_blocking(move || {
+                        runtime.shutdown_timeout(Duration::from_secs(30));
+                    })
+                    .await;
+            }
 
             rpc.stop()?;
             Ok(())
