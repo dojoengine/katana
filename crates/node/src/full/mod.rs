@@ -17,6 +17,7 @@ use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::TipOrdering;
 use katana_provider::DbProviderFactory;
+use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
@@ -195,6 +196,7 @@ impl Node {
             rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
             rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
             rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         #[allow(unused_mut)]

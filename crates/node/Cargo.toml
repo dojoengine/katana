@@ -60,6 +60,7 @@ cartridge = [
 	"katana-rpc-api/cartridge",
 	"katana-rpc-server/cartridge",
 	"paymaster",
+	"vrf",
 ]
 explorer = ["katana-rpc-server/explorer"]
 grpc = ["dep:katana-grpc"]

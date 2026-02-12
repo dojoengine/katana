@@ -39,6 +39,7 @@ use katana_provider::{
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
+use katana_rpc_api::katana::KatanaApiServer;
 #[cfg(feature = "paymaster")]
 use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
@@ -316,6 +317,10 @@ where
             rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
             rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
             rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
+        }
+
+        if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
+            rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {

@@ -2,6 +2,7 @@
 
 pub mod dev;
 pub mod error;
+pub mod katana;
 pub mod starknet;
 pub mod starknet_ext;
 
