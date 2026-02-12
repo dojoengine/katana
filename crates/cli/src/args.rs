@@ -780,13 +780,13 @@ mod test {
         DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_ETH_L2_GAS_PRICE,
         DEFAULT_STRK_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE,
     };
+    use katana_primitives::chain::ChainId;
+    use katana_primitives::{address, felt, Felt};
     use katana_sequencer_node::config::execution::{
         DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
     };
     #[cfg(feature = "server")]
     use katana_sequencer_node::config::rpc::RpcModuleKind;
-    use katana_primitives::chain::ChainId;
-    use katana_primitives::{address, felt, Felt};
 
     use super::*;
 
