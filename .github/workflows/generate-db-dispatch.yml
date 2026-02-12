@@ -9,31 +9,31 @@ jobs:
         runs-on: ubuntu-latest
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            ASDF_SOZO_VERSION: "1.7.0"
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: v1.6.0
+                  submodules: recursive
 
             # Workaround for https://github.com/actions/runner-images/issues/6775
             - run: git config --global --add safe.directory "*"
             - uses: Swatinem/rust-cache@v2
 
-            - name: Checkout Dojo repository
-              uses: actions/checkout@v4
-              with:
-                  repository: dojoengine/dojo
-                  ref: v1.6.0
-                  path: dojo
-
             - uses: software-mansion/setup-scarb@v1
               with:
                   scarb-version: "2.10.1"
 
-            - name: Set sozo version
-              run: asdf set -u sozo 1.7.0
+            - name: Build contracts
+              run: make contracts
+
+            - name: Build katana
+              run: cargo build --bin katana --release
 
             - name: Generate test database
               run: ./scripts/generate-test-db.sh --dojo-tag v1.6.0
+              env:
+                  KATANA_BIN: ./target/release/katana
 
             - name: Upload compat database artifact
               uses: actions/upload-artifact@v4
@@ -45,6 +45,8 @@ jobs:
         runs-on: ubuntu-latest
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            ASDF_SOZO_VERSION: "1.7.0"
         steps:
             - uses: actions/checkout@v4
               with:
@@ -53,9 +55,6 @@ jobs:
             # Workaround for https://github.com/actions/runner-images/issues/6775
             - run: git config --global --add safe.directory "*"
             - uses: Swatinem/rust-cache@v2
-
-            - name: Set sozo version
-              run: asdf set -u sozo 1.7.0
 
             - name: Build contracts
               run: make contracts

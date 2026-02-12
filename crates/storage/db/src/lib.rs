@@ -100,6 +100,42 @@ impl Db {
         let dir = tempfile::Builder::new().disable_cleanup(true).tempdir()?;
         let path = dir.path();
 
+        let version = if is_database_empty(path) {
+            fs::create_dir_all(path).with_context(|| {
+                format!("Creating database directory at path {}", path.display())
+            })?;
+
+            create_db_version_file(path, CURRENT_DB_VERSION).with_context(|| {
+                format!("Inserting database version file at path {}", path.display())
+            })?
+        } else {
+            match get_db_version(path) {
+                Ok(version) if version != CURRENT_DB_VERSION => {
+                    if !is_block_compatible_version(&version) {
+                        return Err(anyhow!(DatabaseVersionError::MismatchVersion {
+                            expected: CURRENT_DB_VERSION,
+                            found: version
+                        }));
+                    }
+                    debug!(target: "db", "Using database version {version} with block compatibility mode");
+                    version
+                }
+
+                Ok(version) => version,
+
+                Err(DatabaseVersionError::FileNotFound) => {
+                    create_db_version_file(path, CURRENT_DB_VERSION).with_context(|| {
+                        format!(
+                            "No database version file found. Inserting version file at path {}",
+                            path.display()
+                        )
+                    })?
+                }
+
+                Err(err) => return Err(anyhow!(err)),
+            }
+        };
+
         let env = mdbx::DbEnvBuilder::new()
             .max_size(GIGABYTE * 10)  // 10gb
             .growth_step((GIGABYTE / 2) as isize) // 512mb
@@ -108,7 +144,7 @@ impl Db {
 
         env.create_default_tables()?;
 
-        Ok(Self { env, version: CURRENT_DB_VERSION })
+        Ok(Self { env, version })
     }
 
     /// Opens an existing database at the given `path` with [`SyncMode::UtterlyNoSync`] for
@@ -129,6 +165,7 @@ impl Db {
             .max_size(GIGABYTE * 10)
             .growth_step((GIGABYTE / 2) as isize)
             .sync(SyncMode::UtterlyNoSync)
+            .existing_page_size()
             .build(path)?;
 
         env.create_default_tables()?;

@@ -33,6 +33,7 @@ pub struct DbEnvBuilder {
     max_readers: u64,
     max_size: usize,
     growth_step: isize,
+    page_size: Option<PageSize>,
 }
 
 impl DbEnvBuilder {
@@ -43,6 +44,7 @@ impl DbEnvBuilder {
             max_readers: DEFAULT_MAX_READERS,
             max_size: DEFAULT_MAX_SIZE,
             growth_step: DEFAULT_GROWTH_STEP,
+            page_size: Some(PageSize::Set(utils::default_page_size())),
         }
     }
 
@@ -72,6 +74,15 @@ impl DbEnvBuilder {
         self
     }
 
+    /// Uses the page size from an existing database instead of forcing the OS default.
+    ///
+    /// This is required when opening databases created on a platform with a different
+    /// page size (e.g., macOS Apple Silicon uses 16KB pages vs Linux x86_64 4KB pages).
+    pub fn existing_page_size(mut self) -> Self {
+        self.page_size = None;
+        self
+    }
+
     /// Builds the database environment at the specified path.
     pub fn build(self, path: impl AsRef<Path>) -> Result<DbEnv, DatabaseError> {
         let mut builder = libmdbx::Environment::builder();
@@ -85,7 +96,7 @@ impl DbEnvBuilder {
                 growth_step: Some(self.growth_step),
                 // The database never shrinks
                 shrink_threshold: None,
-                page_size: Some(PageSize::Set(utils::default_page_size())),
+                page_size: self.page_size,
             })
             .set_flags(EnvironmentFlags {
                 mode: self.mode,

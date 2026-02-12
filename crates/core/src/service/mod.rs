@@ -4,7 +4,6 @@ use std::task::{Context, Poll};
 
 use block_producer::BlockProductionError;
 use futures::stream::StreamExt;
-use katana_executor::ExecutorFactory;
 use katana_pool::{PendingTransactions, PoolOrd, TransactionPool, TxPool};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
@@ -25,14 +24,13 @@ pub(crate) const LOG_TARGET: &str = "node";
 /// to construct a new block.
 #[must_use = "BlockProductionTask does nothing unless polled"]
 #[allow(missing_debug_implementations)]
-pub struct BlockProductionTask<EF, O, PF>
+pub struct BlockProductionTask<O, PF>
 where
-    EF: ExecutorFactory,
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
     PF: ProviderFactory,
 {
     /// creates new blocks
-    pub(crate) block_producer: BlockProducer<EF, PF>,
+    pub(crate) block_producer: BlockProducer<PF>,
     /// the miner responsible to select transactions from the `pool´
     pub(crate) miner: TransactionMiner<O>,
     /// the pool that holds all transactions
@@ -41,24 +39,22 @@ where
     metrics: BlockProducerMetrics,
 }
 
-impl<EF, O, PF> BlockProductionTask<EF, O, PF>
+impl<O, PF> BlockProductionTask<O, PF>
 where
-    EF: ExecutorFactory,
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
     PF: ProviderFactory,
 {
     pub fn new(
         pool: TxPool,
         miner: TransactionMiner<O>,
-        block_producer: BlockProducer<EF, PF>,
+        block_producer: BlockProducer<PF>,
     ) -> Self {
         Self { block_producer, miner, pool, metrics: BlockProducerMetrics::default() }
     }
 }
 
-impl<EF, O, PF> Future for BlockProductionTask<EF, O, PF>
+impl<O, PF> Future for BlockProductionTask<O, PF>
 where
-    EF: ExecutorFactory,
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,

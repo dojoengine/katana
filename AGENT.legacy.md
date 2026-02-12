@@ -14,7 +14,7 @@ Katana is a fast and lightweight local Starknet-based sequencer, part of the Doj
 - `make build-explorer` - Build the Explorer UI (requires Bun)
 
 ### Test
-- `make test-artifacts` - **MUST RUN FIRST** - Prepares test artifacts
+- `make fixtures` - **MUST RUN FIRST** - Prepares test artifacts
 - `cargo nextest run` - Run all tests
 - `cargo nextest run <test_name>` - Run specific test by name
 - `cargo nextest run -p <crate_name>` - Run tests for specific crate (e.g., `cargo nextest run -p katana-core`)
@@ -86,7 +86,7 @@ When refactoring or modifying components, ensure to update the corresponding doc
 
 - Unit tests are colocated with source files
 - Integration tests in `tests/` directory
-- Test database must be extracted before running tests (`make test-artifacts`)
+- Test database must be extracted before running tests (`make fixtures`)
 - Use `rstest` for parameterized tests
 - Property-based testing with `proptest` for primitives
 
@@ -100,4 +100,4 @@ The Explorer is a submodule React application:
 
 ## Running Tests
 
-Before running any tests, you must first generate all required test artifacts. The test artifacts only need to be generated once unless the test database schema or SNOS artifacts change. If you encounter test failures related to missing artifacts or database issues, re-run `make test-artifacts` to refresh them.
+Before running any tests, you must first generate all required test artifacts. The test artifacts only need to be generated once unless the test database schema or SNOS artifacts change. If you encounter test failures related to missing artifacts or database issues, re-run `make fixtures` to refresh them.

@@ -59,9 +59,9 @@ use starknet_api::transaction::{
 const ALIAS_CONTRACT_ADDRESS: &str = "0x2";
 
 use super::state::CachedState;
-use crate::abstraction::ExecutionFlags;
+use crate::error::ExecutionError;
 use crate::utils::build_receipt;
-use crate::{ExecutionError, ExecutionResult, ExecutorResult};
+use crate::{ExecutionFlags, ExecutionResult, ExecutorResult};
 
 #[tracing::instrument(level = "trace", target = "executor", skip_all, fields(type = tx.transaction.r#type().as_ref(), validate = simulation_flags.account_validation()))]
 pub fn transact<S: StateReader>(
@@ -502,7 +502,7 @@ pub fn block_context_from_envs(
 }
 
 pub(super) fn state_update_from_cached_state(
-    state: &CachedState<'_>,
+    state: &CachedState,
     stateful_compression: bool,
 ) -> StateUpdatesWithClasses {
     let state_diff = if stateful_compression {

@@ -7,11 +7,10 @@ use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::state::{StateProofProvider, StateProvider, StateRootProvider};
 use katana_provider::api::ProviderResult;
 
-use crate::abstraction::{
-    BlockExecutor, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorFactory,
-    ExecutorResult,
+use crate::error::ExecutorError;
+use crate::{
+    ExecutionFlags, ExecutionOutput, ExecutionResult, Executor, ExecutorFactory, ExecutorResult,
 };
-use crate::ExecutorError;
 
 /// A no-op executor factory. Creates an executor that does nothing.
 #[derive(Debug, Default)]
@@ -27,24 +26,7 @@ impl NoopExecutorFactory {
 }
 
 impl ExecutorFactory for NoopExecutorFactory {
-    fn with_state<'a, P>(&self, state: P) -> Box<dyn BlockExecutor<'a> + 'a>
-    where
-        P: StateProvider + 'a,
-    {
-        let _ = state;
-        Box::<NoopExecutor>::default()
-    }
-
-    fn with_state_and_block_env<'a, P>(
-        &self,
-        state: P,
-        block_env: BlockEnv,
-    ) -> Box<dyn BlockExecutor<'a> + 'a>
-    where
-        P: StateProvider + 'a,
-    {
-        let _ = state;
-        let _ = block_env;
+    fn executor(&self, _state: Box<dyn StateProvider>, block_env: BlockEnv) -> Box<dyn Executor> {
         Box::new(NoopExecutor { block_env })
     }
 
@@ -62,7 +44,7 @@ struct NoopExecutor {
     block_env: BlockEnv,
 }
 
-impl<'a> BlockExecutor<'a> for NoopExecutor {
+impl Executor for NoopExecutor {
     fn execute_block(&mut self, block: ExecutableBlock) -> ExecutorResult<()> {
         let _ = block;
         Ok(())
@@ -79,7 +61,7 @@ impl<'a> BlockExecutor<'a> for NoopExecutor {
         Ok(ExecutionOutput::default())
     }
 
-    fn state(&self) -> Box<dyn StateProvider + 'a> {
+    fn state(&self) -> Box<dyn StateProvider> {
         Box::new(NoopStateProvider)
     }
 
@@ -89,15 +71,6 @@ impl<'a> BlockExecutor<'a> for NoopExecutor {
 
     fn block_env(&self) -> BlockEnv {
         self.block_env.clone()
-    }
-
-    fn set_storage_at(
-        &self,
-        _address: ContractAddress,
-        _key: StorageKey,
-        _value: StorageValue,
-    ) -> ExecutorResult<()> {
-        Ok(())
     }
 }
 
