@@ -2,7 +2,7 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use cainome::rs::abigen_legacy;
 use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
-use katana_node::config::fork::ForkingConfig;
+use katana_sequencer_node::config::fork::ForkingConfig;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;

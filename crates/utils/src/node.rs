@@ -6,12 +6,12 @@ use std::time::Duration;
 
 use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
-use katana_node::config::dev::DevConfig;
-use katana_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
-use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
-use katana_node::config::sequencing::SequencingConfig;
-use katana_node::config::Config;
-use katana_node::{LaunchedNode, Node};
+use katana_sequencer_node::config::dev::DevConfig;
+use katana_sequencer_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
+use katana_sequencer_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
+use katana_sequencer_node::config::sequencing::SequencingConfig;
+use katana_sequencer_node::config::Config;
+use katana_sequencer_node::{LaunchedNode, Node};
 use katana_primitives::address;
 use katana_primitives::chain::ChainId;
 use katana_provider::{

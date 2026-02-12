@@ -50,7 +50,7 @@ starknet-types-core = { workspace = true, optional = true }
 katana-chain-spec.workspace = true
 katana-contracts.workspace = true
 katana-messaging.workspace = true
-katana-node = { workspace = true, features = [ "cartridge" ] }
+katana-sequencer-node = { workspace = true, features = [ "cartridge" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-client.workspace = true
 katana-trie.workspace = true

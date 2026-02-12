@@ -6011,13 +6011,14 @@ dependencies = [
  "console",
  "katana-chain-spec",
  "katana-core",
+ "katana-full-node",
  "katana-gas-price-oracle",
  "katana-genesis",
  "katana-messaging",
- "katana-node",
  "katana-paymaster",
  "katana-primitives",
  "katana-rpc-server",
+ "katana-sequencer-node",
  "katana-slot-controller",
  "katana-tee",
  "katana-tracing",
@@ -6220,6 +6221,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-full-node"
+version = "1.7.0"
+dependencies = [
+ "anyhow",
+ "backon",
+ "futures",
+ "http 1.3.1",
+ "jsonrpsee 0.26.0",
+ "katana-chain-spec",
+ "katana-db",
+ "katana-executor",
+ "katana-gas-price-oracle",
+ "katana-gateway-client",
+ "katana-gateway-types",
+ "katana-metrics",
+ "katana-node-config",
+ "katana-pipeline",
+ "katana-pool",
+ "katana-pool-api",
+ "katana-primitives",
+ "katana-provider",
+ "katana-rpc-api",
+ "katana-rpc-server",
+ "katana-rpc-types",
+ "katana-stage",
+ "katana-tasks",
+ "parking_lot",
+ "serde",
+ "strum 0.25.0",
+ "strum_macros 0.25.3",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "katana-gas-price-oracle"
 version = "1.7.0"
 dependencies = [
@@ -6407,50 +6444,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-node"
-version = "1.7.0"
-dependencies = [
- "anyhow",
- "backon",
- "futures",
- "http 1.3.1",
- "jsonrpsee 0.26.0",
- "katana-chain-spec",
- "katana-core",
- "katana-db",
- "katana-executor",
- "katana-gas-price-oracle",
- "katana-gateway-client",
- "katana-gateway-server",
- "katana-gateway-types",
- "katana-grpc",
- "katana-messaging",
- "katana-metrics",
- "katana-pipeline",
- "katana-pool",
- "katana-pool-api",
- "katana-primitives",
- "katana-provider",
- "katana-rpc-api",
- "katana-rpc-client",
- "katana-rpc-server",
- "katana-rpc-types",
- "katana-stage",
- "katana-tasks",
- "katana-tee",
- "num-traits",
- "parking_lot",
- "serde",
- "strum 0.25.0",
- "strum_macros 0.25.3",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
 name = "katana-node-bindings"
 version = "1.7.0"
 dependencies = [
@@ -6466,6 +6459,17 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "katana-node-config"
+version = "1.7.0"
+dependencies = [
+ "http 1.3.1",
+ "serde",
+ "strum 0.25.0",
+ "strum_macros 0.25.3",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6689,7 +6693,6 @@ dependencies = [
  "katana-genesis",
  "katana-messaging",
  "katana-metrics",
- "katana-node",
  "katana-pool",
  "katana-primitives",
  "katana-provider",
@@ -6697,6 +6700,7 @@ dependencies = [
  "katana-rpc-client",
  "katana-rpc-types",
  "katana-rpc-types-builder",
+ "katana-sequencer-node",
  "katana-tasks",
  "katana-tee",
  "katana-tracing",
@@ -6779,6 +6783,47 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "katana-sequencer-node"
+version = "1.7.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "http 1.3.1",
+ "jsonrpsee 0.26.0",
+ "katana-chain-spec",
+ "katana-core",
+ "katana-db",
+ "katana-executor",
+ "katana-gas-price-oracle",
+ "katana-gateway-server",
+ "katana-grpc",
+ "katana-messaging",
+ "katana-metrics",
+ "katana-node-config",
+ "katana-pool",
+ "katana-pool-api",
+ "katana-primitives",
+ "katana-provider",
+ "katana-rpc-api",
+ "katana-rpc-client",
+ "katana-rpc-server",
+ "katana-rpc-types",
+ "katana-stage",
+ "katana-tasks",
+ "katana-tee",
+ "num-traits",
+ "parking_lot",
+ "serde",
+ "strum 0.25.0",
+ "strum_macros 0.25.3",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -6917,13 +6962,13 @@ dependencies = [
  "katana-core",
  "katana-db",
  "katana-executor",
- "katana-node",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-api",
  "katana-rpc-client",
  "katana-rpc-server",
  "katana-rpc-types",
+ "katana-sequencer-node",
  "katana-utils-macro",
  "rand 0.8.5",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",

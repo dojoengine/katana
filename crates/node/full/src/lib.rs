@@ -1,9 +1,16 @@
 //! Experimental full node implementation.
 
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
+pub mod config;
+
 use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
+use config::db::DbConfig;
+use config::metrics::MetricsConfig;
+use config::rpc::{RpcConfig, RpcModuleKind};
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
@@ -26,9 +33,7 @@ use katana_stage::{Blocks, Classes, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
 
-use crate::config::db::DbConfig;
-use crate::config::metrics::MetricsConfig;
-use crate::full::pending::PreconfStateFactory;
+use crate::pending::PreconfStateFactory;
 
 mod exit;
 mod pending;
@@ -38,8 +43,7 @@ pub mod tip_watcher;
 use exit::NodeStoppedFuture;
 use tip_watcher::ChainTipWatcher;
 
-use crate::config::rpc::{RpcConfig, RpcModuleKind};
-use crate::full::pool::{FullNodePool, GatewayProxyValidator};
+use crate::pool::{FullNodePool, GatewayProxyValidator};
 
 #[derive(
     Debug,

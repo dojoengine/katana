@@ -8,7 +8,7 @@ use katana_rpc_types::{
     PreConfirmedStateUpdate, ReceiptBlockInfo, RpcTxReceipt, RpcTxWithHash, TxReceiptWithBlockInfo,
 };
 
-use crate::full::pending::PreconfStateFactory;
+use crate::pending::PreconfStateFactory;
 
 impl PendingBlockProvider for PreconfStateFactory {
     fn get_pending_block_with_txs(

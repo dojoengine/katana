@@ -14,17 +14,17 @@ use std::path::PathBuf;
 
 use clap::Args;
 use katana_genesis::Genesis;
-use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
+use katana_sequencer_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
-use katana_node::config::gateway::{
+use katana_sequencer_node::config::gateway::{
     DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
 };
 #[cfg(feature = "server")]
-use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
+use katana_sequencer_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
+use katana_sequencer_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{
+use katana_sequencer_node::config::rpc::{
     DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
 };
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
@@ -794,7 +794,7 @@ fn default_page_size() -> u64 {
 
 #[cfg(feature = "server")]
 fn default_proof_keys() -> u64 {
-    katana_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS
+    katana_sequencer_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS
 }
 
 #[cfg(feature = "server")]
@@ -1050,10 +1050,10 @@ impl GrpcOptions {
 
 #[cfg(all(feature = "server", feature = "grpc"))]
 fn default_grpc_addr() -> IpAddr {
-    katana_node::config::grpc::DEFAULT_GRPC_ADDR
+    katana_sequencer_node::config::grpc::DEFAULT_GRPC_ADDR
 }
 
 #[cfg(all(feature = "server", feature = "grpc"))]
 fn default_grpc_port() -> u16 {
-    katana_node::config::grpc::DEFAULT_GRPC_PORT
+    katana_sequencer_node::config::grpc::DEFAULT_GRPC_PORT
 }

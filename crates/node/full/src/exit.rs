@@ -6,7 +6,7 @@ use anyhow::Result;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
-use crate::full::LaunchedNode;
+use crate::LaunchedNode;
 
 /// A Future that is resolved once the node has been stopped including all of its running tasks.
 #[must_use = "futures do nothing unless polled"]

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use assert_matches::assert_matches;
 use jsonrpsee::core::ClientError;
 use katana_chain_spec::ChainSpec;
-use katana_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS;
+use katana_sequencer_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{StorageKey, StorageValue};
