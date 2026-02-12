@@ -286,7 +286,7 @@ impl Client {
         &self,
         invoke_transaction: BroadcastedInvokeTx,
     ) -> Result<TxReceiptWithBlockInfo> {
-        katana_rpc_api::katana::KatanaApiClient::add_invoke_transaction(
+        katana_rpc_api::katana::KatanaApiClient::add_invoke_transaction_sync(
             &self.client,
             invoke_transaction,
         )
@@ -299,7 +299,7 @@ impl Client {
         &self,
         declare_transaction: BroadcastedDeclareTx,
     ) -> Result<TxReceiptWithBlockInfo> {
-        katana_rpc_api::katana::KatanaApiClient::add_declare_transaction(
+        katana_rpc_api::katana::KatanaApiClient::add_declare_transaction_sync(
             &self.client,
             declare_transaction,
         )
@@ -312,7 +312,7 @@ impl Client {
         &self,
         deploy_account_transaction: BroadcastedDeployAccountTx,
     ) -> Result<TxReceiptWithBlockInfo> {
-        katana_rpc_api::katana::KatanaApiClient::add_deploy_account_transaction(
+        katana_rpc_api::katana::KatanaApiClient::add_deploy_account_transaction_sync(
             &self.client,
             deploy_account_transaction,
         )

@@ -149,7 +149,7 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
-    async fn add_invoke_transaction(
+    async fn add_invoke_transaction_sync(
         &self,
         invoke_transaction: BroadcastedInvokeTx,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
@@ -157,7 +157,7 @@ where
         Ok(self.wait_for_tx_receipt(response.transaction_hash).await?)
     }
 
-    async fn add_declare_transaction(
+    async fn add_declare_transaction_sync(
         &self,
         declare_transaction: BroadcastedDeclareTx,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
@@ -165,7 +165,7 @@ where
         Ok(self.wait_for_tx_receipt(response.transaction_hash).await?)
     }
 
-    async fn add_deploy_account_transaction(
+    async fn add_deploy_account_transaction_sync(
         &self,
         deploy_account_transaction: BroadcastedDeployAccountTx,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
