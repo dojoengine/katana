@@ -54,6 +54,7 @@ vrf = [
 ]
 cartridge = [
 	"katana-sequencer-node/cartridge",
+	"katana-full-node/cartridge",
 	"katana-rpc-server/cartridge",
 	"paymaster",
 ]
