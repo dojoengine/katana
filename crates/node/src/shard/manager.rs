@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -11,13 +12,31 @@ use parking_lot::RwLock;
 
 use super::types::{Shard, ShardId};
 
-/// Registry of all active shards, with lazy creation support.
-#[derive(Clone)]
-pub struct ShardRegistry {
-    inner: Arc<ShardRegistryInner>,
+/// Pluggable abstraction for shard storage and creation policy.
+///
+/// Implementations decide what happens when a shard is requested:
+/// - [`LazyShardManager`] creates shards on first access (dev mode).
+/// - A future `OnchainShardManager` would only look up pre-registered shards (production mode,
+///   where shards are created from onchain events).
+pub trait ShardManager: Send + Sync + Debug + 'static {
+    /// Resolve a shard by ID. The creation policy is implementation-defined:
+    /// lazy managers create on miss, strict managers return an error.
+    fn get(&self, id: ShardId) -> Result<Arc<Shard>>;
+
+    /// List all registered shard IDs.
+    fn shard_ids(&self) -> Vec<ShardId>;
 }
 
-struct ShardRegistryInner {
+/// Dev-mode shard manager that lazily creates shards on first access.
+///
+/// Holds shared resources (chain spec, executor factory, gas oracle, etc.)
+/// needed to construct new shards. Uses double-checked locking to ensure
+/// at most one shard instance per ID.
+pub struct LazyShardManager {
+    inner: Arc<LazyShardManagerInner>,
+}
+
+struct LazyShardManagerInner {
     shards: RwLock<HashMap<ShardId, Arc<Shard>>>,
     // Shared resources for lazy shard creation
     chain_spec: Arc<ChainSpec>,
@@ -27,7 +46,7 @@ struct ShardRegistryInner {
     task_spawner: TaskSpawner,
 }
 
-impl ShardRegistry {
+impl LazyShardManager {
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         executor_factory: Arc<dyn ExecutorFactory>,
@@ -36,7 +55,7 @@ impl ShardRegistry {
         task_spawner: TaskSpawner,
     ) -> Self {
         Self {
-            inner: Arc::new(ShardRegistryInner {
+            inner: Arc::new(LazyShardManagerInner {
                 shards: RwLock::new(HashMap::new()),
                 chain_spec,
                 executor_factory,
@@ -47,13 +66,19 @@ impl ShardRegistry {
         }
     }
 
-    /// Look up a shard by id. Returns `None` if the shard doesn't exist.
-    pub fn get(&self, id: &ShardId) -> Option<Arc<Shard>> {
-        self.inner.shards.read().get(id).cloned()
+    /// Returns the number of registered shards.
+    pub fn len(&self) -> usize {
+        self.inner.shards.read().len()
     }
 
-    /// Get an existing shard or create a new one lazily.
-    pub fn get_or_create(&self, id: ShardId) -> Result<Arc<Shard>> {
+    /// Returns `true` if no shards are registered.
+    pub fn is_empty(&self) -> bool {
+        self.inner.shards.read().is_empty()
+    }
+}
+
+impl ShardManager for LazyShardManager {
+    fn get(&self, id: ShardId) -> Result<Arc<Shard>> {
         // Fast path: read lock
         {
             let shards = self.inner.shards.read();
@@ -83,24 +108,13 @@ impl ShardRegistry {
         Ok(shard)
     }
 
-    /// List all registered shard ids.
-    pub fn shard_ids(&self) -> Vec<ShardId> {
+    fn shard_ids(&self) -> Vec<ShardId> {
         self.inner.shards.read().keys().copied().collect()
-    }
-
-    /// Returns the number of registered shards.
-    pub fn len(&self) -> usize {
-        self.inner.shards.read().len()
-    }
-
-    /// Returns `true` if no shards are registered.
-    pub fn is_empty(&self) -> bool {
-        self.inner.shards.read().is_empty()
     }
 }
 
-impl std::fmt::Debug for ShardRegistry {
+impl Debug for LazyShardManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ShardRegistry").field("shard_count", &self.len()).finish_non_exhaustive()
+        f.debug_struct("LazyShardManager").field("shard_count", &self.len()).finish_non_exhaustive()
     }
 }

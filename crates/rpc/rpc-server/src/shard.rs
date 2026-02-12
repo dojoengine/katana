@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_primitives::block::BlockIdOrTag;
@@ -7,6 +5,7 @@ use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_api::shard::ShardApiServer;
+use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithTxHashesResponse,
     MaybePreConfirmedBlock,
@@ -25,115 +24,48 @@ use katana_rpc_types::{
     CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, TxStatus,
 };
 
-/// Placeholder types — the actual `ShardRegistry` and `ShardScheduler` live in `katana-node`.
-/// This module uses trait objects to avoid a circular dependency.
+/// Provides per-shard RPC capabilities to the [`ShardRpc`] implementation.
 ///
-/// Trait for looking up per-shard StarknetApi instances.
-pub trait ShardLookup: Send + Sync + 'static {
-    /// Get the StarknetApi for a shard. Returns an RPC error if the shard doesn't exist.
-    fn get_starknet_api(
-        &self,
-        shard_id: &ContractAddress,
-    ) -> Result<Arc<dyn ShardStarknetApi>, ErrorObjectOwned>;
+/// The node crate implements this trait to bridge its concrete shard types
+/// (manager, scheduler) into the RPC layer without creating a circular dependency.
+pub trait ShardProvider: Send + Sync + 'static {
+    /// The per-shard API type that handles Starknet RPC calls.
+    type Api: StarknetApiServer + StarknetWriteApiServer + StarknetTraceApiServer + Send + Sync;
 
-    /// Get or create the StarknetApi for a shard (for write operations).
-    fn get_or_create_starknet_api(
+    /// Resolve a shard's API by ID (for read operations).
+    fn starknet_api(&self, shard_id: ContractAddress) -> Result<Self::Api, ErrorObjectOwned>;
+
+    /// Resolve a shard's API by ID (for write operations — may create the shard).
+    fn starknet_api_for_write(
         &self,
         shard_id: ContractAddress,
-    ) -> Result<Arc<dyn ShardStarknetApi>, ErrorObjectOwned>;
+    ) -> Result<Self::Api, ErrorObjectOwned>;
 
-    /// Schedule a shard for execution (after a write operation adds txs).
-    fn schedule_shard(&self, shard_id: ContractAddress);
+    /// Schedule a shard for execution after a write operation.
+    fn schedule(&self, shard_id: ContractAddress);
 
-    /// List all shard ids.
+    /// List all registered shard IDs.
     fn shard_ids(&self) -> Vec<ContractAddress>;
 
-    /// Get the chain id.
+    /// Get the chain ID.
     fn chain_id(&self) -> Felt;
 }
 
-/// Trait abstracting the per-shard StarknetApi methods we need to delegate to.
-/// This avoids exposing concrete generic types from the node crate.
-#[async_trait]
-pub trait ShardStarknetApi: Send + Sync + 'static {
-    async fn get_block_with_tx_hashes(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<GetBlockWithTxHashesResponse>;
-
-    async fn get_block_with_txs(&self, block_id: BlockIdOrTag)
-        -> RpcResult<MaybePreConfirmedBlock>;
-
-    async fn get_storage_at(
-        &self,
-        contract_address: ContractAddress,
-        key: StorageKey,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<Felt>;
-
-    async fn get_nonce(
-        &self,
-        block_id: BlockIdOrTag,
-        contract_address: ContractAddress,
-    ) -> RpcResult<Nonce>;
-
-    async fn get_transaction_by_hash(&self, tx_hash: TxHash) -> RpcResult<RpcTxWithHash>;
-
-    async fn get_transaction_receipt(&self, tx_hash: TxHash) -> RpcResult<TxReceiptWithBlockInfo>;
-
-    async fn get_transaction_status(&self, tx_hash: TxHash) -> RpcResult<TxStatus>;
-
-    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse>;
-
-    async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<GetEventsResponse>;
-
-    async fn estimate_fee(
-        &self,
-        request: Vec<BroadcastedTx>,
-        simulation_flags: Vec<EstimateFeeSimulationFlag>,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<Vec<FeeEstimate>>;
-
-    async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse>;
-
-    async fn block_number(&self) -> RpcResult<BlockNumberResponse>;
-
-    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<StateUpdate>;
-
-    async fn add_invoke_transaction(
-        &self,
-        tx: BroadcastedInvokeTx,
-    ) -> RpcResult<AddInvokeTransactionResponse>;
-
-    async fn add_declare_transaction(
-        &self,
-        tx: BroadcastedDeclareTx,
-    ) -> RpcResult<AddDeclareTransactionResponse>;
-
-    async fn add_deploy_account_transaction(
-        &self,
-        tx: BroadcastedDeployAccountTx,
-    ) -> RpcResult<AddDeployAccountTransactionResponse>;
-
-    async fn trace_transaction(&self, tx_hash: TxHash) -> RpcResult<TxTrace>;
+/// Implements `ShardApiServer` by delegating to a [`ShardProvider`].
+pub struct ShardRpc<P> {
+    provider: P,
 }
 
-/// The ShardRpcApi implementation that delegates to per-shard StarknetApi instances.
-#[derive(Clone)]
-pub struct ShardRpcApi<L: ShardLookup> {
-    lookup: Arc<L>,
-}
-
-impl<L: ShardLookup> ShardRpcApi<L> {
-    pub fn new(lookup: L) -> Self {
-        Self { lookup: Arc::new(lookup) }
+impl<P: ShardProvider> ShardRpc<P> {
+    pub fn new(provider: P) -> Self {
+        Self { provider }
     }
 }
 
 #[async_trait]
-impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
+impl<P: ShardProvider> ShardApiServer for ShardRpc<P> {
     async fn list_shards(&self) -> RpcResult<Vec<ContractAddress>> {
-        Ok(self.lookup.shard_ids())
+        Ok(self.provider.shard_ids())
     }
 
     async fn get_block_with_tx_hashes(
@@ -141,8 +73,11 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         block_id: BlockIdOrTag,
     ) -> RpcResult<GetBlockWithTxHashesResponse> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_block_with_tx_hashes(block_id).await
+        StarknetApiServer::get_block_with_tx_hashes(
+            &self.provider.starknet_api(shard_id)?,
+            block_id,
+        )
+        .await
     }
 
     async fn get_block_with_txs(
@@ -150,8 +85,8 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         block_id: BlockIdOrTag,
     ) -> RpcResult<MaybePreConfirmedBlock> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_block_with_txs(block_id).await
+        StarknetApiServer::get_block_with_txs(&self.provider.starknet_api(shard_id)?, block_id)
+            .await
     }
 
     async fn get_storage_at(
@@ -161,8 +96,13 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         key: StorageKey,
         block_id: BlockIdOrTag,
     ) -> RpcResult<Felt> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_storage_at(contract_address, key, block_id).await
+        StarknetApiServer::get_storage_at(
+            &self.provider.starknet_api(shard_id)?,
+            contract_address,
+            key,
+            block_id,
+        )
+        .await
     }
 
     async fn get_nonce(
@@ -171,8 +111,12 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
     ) -> RpcResult<Nonce> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_nonce(block_id, contract_address).await
+        StarknetApiServer::get_nonce(
+            &self.provider.starknet_api(shard_id)?,
+            block_id,
+            contract_address,
+        )
+        .await
     }
 
     async fn get_transaction_by_hash(
@@ -180,8 +124,11 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         transaction_hash: TxHash,
     ) -> RpcResult<RpcTxWithHash> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_transaction_by_hash(transaction_hash).await
+        StarknetApiServer::get_transaction_by_hash(
+            &self.provider.starknet_api(shard_id)?,
+            transaction_hash,
+        )
+        .await
     }
 
     async fn get_transaction_receipt(
@@ -189,8 +136,11 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         transaction_hash: TxHash,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_transaction_receipt(transaction_hash).await
+        StarknetApiServer::get_transaction_receipt(
+            &self.provider.starknet_api(shard_id)?,
+            transaction_hash,
+        )
+        .await
     }
 
     async fn get_transaction_status(
@@ -198,8 +148,11 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         transaction_hash: TxHash,
     ) -> RpcResult<TxStatus> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_transaction_status(transaction_hash).await
+        StarknetApiServer::get_transaction_status(
+            &self.provider.starknet_api(shard_id)?,
+            transaction_hash,
+        )
+        .await
     }
 
     async fn call(
@@ -208,8 +161,7 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         request: FunctionCall,
         block_id: BlockIdOrTag,
     ) -> RpcResult<CallResponse> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.call(request, block_id).await
+        StarknetApiServer::call(&self.provider.starknet_api(shard_id)?, request, block_id).await
     }
 
     async fn get_events(
@@ -217,8 +169,7 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         filter: EventFilterWithPage,
     ) -> RpcResult<GetEventsResponse> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_events(filter).await
+        StarknetApiServer::get_events(&self.provider.starknet_api(shard_id)?, filter).await
     }
 
     async fn estimate_fee(
@@ -228,25 +179,28 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         simulation_flags: Vec<EstimateFeeSimulationFlag>,
         block_id: BlockIdOrTag,
     ) -> RpcResult<Vec<FeeEstimate>> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.estimate_fee(request, simulation_flags, block_id).await
+        StarknetApiServer::estimate_fee(
+            &self.provider.starknet_api(shard_id)?,
+            request,
+            simulation_flags,
+            block_id,
+        )
+        .await
     }
 
     async fn block_hash_and_number(
         &self,
         shard_id: ContractAddress,
     ) -> RpcResult<BlockHashAndNumberResponse> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.block_hash_and_number().await
+        StarknetApiServer::block_hash_and_number(&self.provider.starknet_api(shard_id)?).await
     }
 
     async fn block_number(&self, shard_id: ContractAddress) -> RpcResult<BlockNumberResponse> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.block_number().await
+        StarknetApiServer::block_number(&self.provider.starknet_api(shard_id)?).await
     }
 
     async fn chain_id(&self) -> RpcResult<Felt> {
-        Ok(self.lookup.chain_id())
+        Ok(self.provider.chain_id())
     }
 
     async fn get_state_update(
@@ -254,8 +208,7 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         block_id: BlockIdOrTag,
     ) -> RpcResult<StateUpdate> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.get_state_update(block_id).await
+        StarknetApiServer::get_state_update(&self.provider.starknet_api(shard_id)?, block_id).await
     }
 
     async fn add_invoke_transaction(
@@ -263,9 +216,10 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         invoke_transaction: BroadcastedInvokeTx,
     ) -> RpcResult<AddInvokeTransactionResponse> {
-        let api = self.lookup.get_or_create_starknet_api(shard_id)?;
-        let result = api.add_invoke_transaction(invoke_transaction).await?;
-        self.lookup.schedule_shard(shard_id);
+        let api = self.provider.starknet_api_for_write(shard_id)?;
+        let result =
+            StarknetWriteApiServer::add_invoke_transaction(&api, invoke_transaction).await?;
+        self.provider.schedule(shard_id);
         Ok(result)
     }
 
@@ -274,9 +228,10 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         declare_transaction: BroadcastedDeclareTx,
     ) -> RpcResult<AddDeclareTransactionResponse> {
-        let api = self.lookup.get_or_create_starknet_api(shard_id)?;
-        let result = api.add_declare_transaction(declare_transaction).await?;
-        self.lookup.schedule_shard(shard_id);
+        let api = self.provider.starknet_api_for_write(shard_id)?;
+        let result =
+            StarknetWriteApiServer::add_declare_transaction(&api, declare_transaction).await?;
+        self.provider.schedule(shard_id);
         Ok(result)
     }
 
@@ -285,9 +240,13 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         deploy_account_transaction: BroadcastedDeployAccountTx,
     ) -> RpcResult<AddDeployAccountTransactionResponse> {
-        let api = self.lookup.get_or_create_starknet_api(shard_id)?;
-        let result = api.add_deploy_account_transaction(deploy_account_transaction).await?;
-        self.lookup.schedule_shard(shard_id);
+        let api = self.provider.starknet_api_for_write(shard_id)?;
+        let result = StarknetWriteApiServer::add_deploy_account_transaction(
+            &api,
+            deploy_account_transaction,
+        )
+        .await?;
+        self.provider.schedule(shard_id);
         Ok(result)
     }
 
@@ -296,7 +255,10 @@ impl<L: ShardLookup> ShardApiServer for ShardRpcApi<L> {
         shard_id: ContractAddress,
         transaction_hash: TxHash,
     ) -> RpcResult<TxTrace> {
-        let api = self.lookup.get_starknet_api(&shard_id)?;
-        api.trace_transaction(transaction_hash).await
+        StarknetTraceApiServer::trace_transaction(
+            &self.provider.starknet_api(shard_id)?,
+            transaction_hash,
+        )
+        .await
     }
 }
