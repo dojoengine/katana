@@ -1,0 +1,48 @@
+name: ci-dagger
+
+on:
+    push:
+        branches:
+            - main
+            - "release/**"
+        paths:
+            - "Cargo.toml"
+            - "bin/**/*.rs"
+            - "bin/**/Cargo.toml"
+            - "crates/**/*.rs"
+            - "crates/**/Cargo.toml"
+            - "dagger/**"
+            - "dagger.json"
+            - ".github/workflows/ci-dagger.yml"
+
+    pull_request:
+        types: [opened, synchronize, ready_for_review]
+        paths:
+            - "Cargo.toml"
+            - "bin/**/*.rs"
+            - "bin/**/Cargo.toml"
+            - "crates/**/*.rs"
+            - "crates/**/Cargo.toml"
+            - "dagger/**"
+            - "dagger.json"
+            - ".github/workflows/ci-dagger.yml"
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    dagger:
+        runs-on: ubuntu-latest-32-cores
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+
+            - name: Run Dagger pipeline
+              uses: dagger/dagger-for-github@v8
+              with:
+                  verb: call
+                  args: all --src .
