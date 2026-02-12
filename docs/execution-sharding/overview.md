@@ -38,9 +38,14 @@ Unlike the standard sequencer node, shards do **not** have a block producer. Wor
 
 As a consequence, there is no concept of a "pending block" within a shard.
 
-### Lazy Shard Creation
+### Shard Creation
 
-Shards are created on demand when a transaction is first submitted to a given contract address. This avoids pre-allocating resources for contracts that may never receive traffic. Once created, a shard persists for the lifetime of the node.
+How shards are created is determined by the **shard manager** (`ShardManager` trait), which acts as both the shard store and the creation policy:
+
+- **Lazy (dev mode)** — `LazyShardManager` creates shards on demand when a transaction is first submitted to a given contract address. This avoids pre-allocating resources for contracts that may never receive traffic.
+- **Onchain (production)** — a future `OnchainShardManager` would only look up pre-registered shards; creation is driven by onchain events rather than RPC requests.
+
+Once created, a shard persists for the lifetime of the node regardless of the manager implementation.
 
 ## Architecture
 
@@ -51,8 +56,8 @@ Shards are created on demand when a transaction is first submitted to a given co
                           +--------+---------+
                                    |
                           +--------v---------+
-                          |  Shard Registry   |
-                          | (lazy creation)   |
+                          |  Shard Manager    |
+                          | (pluggable policy)|
                           +--------+---------+
                                    |
               +--------------------+--------------------+
@@ -139,7 +144,7 @@ katana node shard \
 Each component is documented in its own file:
 
 - [Shard](shard.md) -- per-contract isolated execution unit, block environment
-- [Shard Registry](registry.md) -- shard lookup and lazy creation
+- [Shard Manager](manager.md) -- shard lookup and pluggable creation policy
 - [Scheduler and Workers](scheduler.md) -- work queue, OS thread pool, execution loop
 - [RPC API](rpc.md) -- the `shard` JSON-RPC namespace
 - [Shutdown](shutdown.md) -- graceful shutdown behavior
