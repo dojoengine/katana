@@ -10,8 +10,8 @@ use katana_provider::ProviderFactory;
 use parking_lot::RwLock;
 use tracing::{error, info, trace};
 
-use super::scheduler::ShardScheduler;
-use super::types::{Shard, ShardState};
+use crate::scheduler::ShardScheduler;
+use crate::types::{Shard, ShardState};
 
 /// A worker that picks shards from the scheduler and executes their pending transactions.
 ///

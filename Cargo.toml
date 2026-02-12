@@ -50,6 +50,7 @@ members = [
 	"tests/db-compat",
 	"tests/reverse-proxy",
 	"crates/paymaster",
+	"crates/sharding",
 	# "tests/snos",
 ]
 
@@ -115,6 +116,7 @@ katana-tee = { path = "crates/tee" }
 katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
 katana-paymaster = { path = "crates/paymaster" }
+katana-sharding = { path = "crates/sharding" }
 katana-utils = { path = "crates/utils" }
 
 # cairo-lang

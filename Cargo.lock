@@ -6435,6 +6435,7 @@ dependencies = [
  "katana-rpc-client",
  "katana-rpc-server",
  "katana-rpc-types",
+ "katana-sharding",
  "katana-stage",
  "katana-tasks",
  "katana-tee",
@@ -6779,6 +6780,27 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "katana-sharding"
+version = "1.7.0"
+dependencies = [
+ "anyhow",
+ "katana-chain-spec",
+ "katana-core",
+ "katana-db",
+ "katana-executor",
+ "katana-gas-price-oracle",
+ "katana-pool",
+ "katana-primitives",
+ "katana-provider",
+ "katana-rpc-api",
+ "katana-rpc-server",
+ "katana-rpc-types",
+ "katana-tasks",
+ "parking_lot",
+ "tracing",
 ]
 
 [[package]]

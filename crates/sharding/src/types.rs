@@ -12,7 +12,8 @@ use katana_pool::validation::stateful::TxValidator;
 use katana_pool::TxPool;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::ContractAddress;
-use katana_provider::api::state::StateProvider;
+use katana_provider::api::env::BlockEnvProvider;
+use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::{DbProviderFactory, ProviderFactory};
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi, StarknetApiConfig};
 use katana_rpc_types::{
@@ -146,13 +147,9 @@ impl Shard {
         // Build per-shard transaction pool
         // Create validator from latest state
         let db_provider = provider.provider();
-        let block_env = katana_provider::api::env::BlockEnvProvider::block_env_at(
-            &db_provider,
-            katana_primitives::block::BlockHashOrNumber::Num(0),
-        )?
-        .unwrap_or_default();
 
-        let latest_state = katana_provider::api::state::StateFactoryProvider::latest(&db_provider)?;
+        let block_env = db_provider.block_env_at(0.into())?.unwrap_or_default();
+        let latest_state = db_provider.latest()?;
 
         let execution_flags = backend.executor_factory.execution_flags().clone();
         let cfg_env = backend.executor_factory.overrides().cloned();
