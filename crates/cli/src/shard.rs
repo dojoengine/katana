@@ -131,9 +131,8 @@ impl ShardNodeArgs {
         let dev = self.dev_config();
         let metrics = self.metrics_config();
 
-        let worker_count = self
-            .workers
-            .unwrap_or_else(katana_node::shard::config::default_worker_count);
+        let worker_count =
+            self.workers.unwrap_or_else(katana_node::shard::config::default_worker_count);
 
         Ok(ShardNodeConfig {
             chain,
