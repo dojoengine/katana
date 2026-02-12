@@ -60,6 +60,13 @@ license-file = "LICENSE"
 repository = "https://github.com/dojoengine/katana/"
 version = "1.7.0"
 
+[profile.iterate]
+inherits = "dev"
+debug = false
+strip = true
+codegen-units = 256
+incremental = true
+
 [profile.performance]
 codegen-units = 1
 incremental = false
@@ -260,3 +267,4 @@ paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", branch 
 # This patch fixes an issue where we're unable to correctly evaluate the accurate size
 # for constructing `Felt` from unstructured data (Arbitrary).
 starknet-types-core = { git = "https://github.com/kariy/types-rs", rev = "0f6ae31" }
+

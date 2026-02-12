@@ -2119,7 +2119,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.1.9",
  "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
@@ -6072,7 +6072,7 @@ dependencies = [
  "quote",
  "serde_json",
  "starknet-crypto 0.7.4",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.1.9",
  "syn 2.0.104",
 ]
 
@@ -10878,7 +10878,7 @@ dependencies = [
  "rfc6979",
  "sha2",
  "starknet-curve 0.5.1",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.1.9",
  "zeroize",
 ]
 
@@ -10945,7 +10945,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bcde6bd74269b8161948190ace6cf069ef20ac6e79cd2ba09b320efa7500b6de"
 dependencies = [
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.1.9",
 ]
 
 [[package]]
@@ -11074,9 +11074,12 @@ dependencies = [
 
 [[package]]
 name = "starknet-types-core"
-version = "0.1.8"
-source = "git+https://github.com/kariy/types-rs?rev=0f6ae31#0f6ae31a5a19352cc99b74604fab15cd9d1bb76e"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87af771d7f577931913089f9ca9a9f85d8a6238d59b2977f4c383d133c8abd3b"
 dependencies = [
+ "blake2",
+ "digest 0.10.7",
  "lambdaworks-crypto 0.10.0",
  "lambdaworks-math 0.10.0",
  "num-bigint",
@@ -13636,3 +13639,8 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "starknet-types-core"
+version = "0.1.8"
+source = "git+https://github.com/kariy/types-rs?rev=0f6ae31#0f6ae31a5a19352cc99b74604fab15cd9d1bb76e"
