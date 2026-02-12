@@ -45,23 +45,18 @@ impl ShardScheduler {
         }
     }
 
-    /// Dequeue the next shard to process. **Blocks the current thread** until
-    /// work is available or shutdown is signalled. Returns `None` on shutdown.
+    /// Dequeue the next shard to process. Blocks the current thread for up to
+    /// ~100 ms waiting for work. Returns `None` when no work is available.
     pub fn next_task(&self) -> Option<Arc<Shard>> {
         let mut queue = self.inner.queue.lock();
 
-        loop {
-            if self.inner.shutdown.load(Ordering::SeqCst) {
-                return None;
-            }
-
-            if let Some(shard) = queue.pop_front() {
-                return Some(shard);
-            }
-
-            // Block the thread until notified or timed out (periodic shutdown check).
-            self.inner.condvar.wait_for(&mut queue, Duration::from_millis(100));
+        if let Some(shard) = queue.pop_front() {
+            return Some(shard);
         }
+
+        // Block until notified (new work or shutdown wake) or timeout.
+        self.inner.condvar.wait_for(&mut queue, Duration::from_millis(100));
+        queue.pop_front()
     }
 
     /// Returns the time quantum for worker preemption.
