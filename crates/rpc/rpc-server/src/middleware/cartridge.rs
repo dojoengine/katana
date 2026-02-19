@@ -98,7 +98,7 @@ impl ControllerDeployment {
     }
 
     /// Handle the intercept of the 'starknet_estimateFee' end point.
-    pub async fn handle_estimate_fees(
+    pub async fn handle_estimate_fee_inner(
         &self,
         _block_id: katana_rpc_types::BlockIdOrTag,
         transactions: &Vec<BroadcastedTx>,
@@ -522,7 +522,7 @@ where
     ) -> S::MethodResponse {
         if let Some(params) = Self::parse_estimate_fee_params(&request) {
             let updated_txs = paymaster
-                .handle_estimate_fees(params.block_id, &params.txs)
+                .handle_estimate_fee_inner(params.block_id, &params.txs)
                 .await
                 .unwrap_or_default();
 
