@@ -40,5 +40,4 @@ pub struct StarknetApiConfig {
     /// [`VersionedConstants`](katana_executor::implementation::blockifier::blockifier::VersionedConstants)
     /// used for execution (i.e., estimates, simulation, and call)
     pub versioned_constant_overrides: Option<VersionedConstantsOverrides>,
-
 }

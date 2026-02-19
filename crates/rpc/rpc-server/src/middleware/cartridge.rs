@@ -4,6 +4,8 @@ use std::future::Future;
 use std::iter::once;
 
 use cainome_cairo_serde::CairoSerde;
+use cartridge::utils::find_request_rand_call;
+use cartridge::CartridgeApiClient;
 use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::http_client::HttpClient;
@@ -21,28 +23,26 @@ use katana_primitives::hash::{Poseidon, StarkHash};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::{ProviderFactory, ProviderRO};
-use katana_provider::{ProviderFactory, ProviderRO};
-use katana_rpc_types::broadcasted::BroadcastedTx;
+use katana_provider::{ProviderFactory, ProviderRO, ProviderRO};
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::outside_execution::{Call as OutsideExecutionCall, OutsideExecution};
-use katana_rpc_types::BroadcastedInvokeTx;
-use katana_rpc_types::FeeEstimate;
+use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate};
 use layer::PaymasterLayer;
 use serde::Deserialize;
+use serde_json::to_string;
 use starknet::core::types::SimulationFlagForEstimateFee;
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::JsonRpcResponse;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_types_core::hash::Pedersen;
-use tracing::{debug, trace};
-use tracing::{debug, trace};
+use tracing::{debug, trace, trace};
 use url::Url;
 
 use super::ControllerDeployment;
-use crate::cartridge::{VrfService, VrfServiceConfig};
+use crate::cartridge::{
+    build_execute_from_outside_call_from_vrf_result, VrfService, VrfServiceConfig,
+};
 use crate::utils::{self, encode_calls};
-use crate::Client;
 
 pub type PaymasterResult<T> = Result<T, Error>;
 
@@ -76,10 +76,8 @@ impl From<VrfClientError> for Error {
 #[derive(Debug)]
 pub struct ControllerDeployment {
     chain_id: ChainId,
-    cartridge_api: Client,
+    cartridge_api: CartridgeApiClient,
     paymaster_client: HttpClient,
-    // paymaster_key: SigningKey,
-    // paymaster_address: ContractAddress,
     vrf_service: Option<VrfService>,
 }
 
@@ -87,7 +85,7 @@ impl ControllerDeployment {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         chain_id: ChainId,
-        cartridge_api: Client,
+        cartridge_api: CartridgeApiClient,
         paymaster_client: HttpClient,
         vrf: Option<VrfServiceConfig>,
     ) -> Self {
@@ -309,22 +307,23 @@ impl ControllerDeployment {
         }
 
         if let Some(vrf_service) = &self.vrf_service {
-            if let Some((req_rand_call, position)) = utils::request_random_call(calls) {
-                if position + 1 >= calls_len {
+            if let Some((rand_call, pos)) = find_request_rand_call(calls) {
+                if pos + 1 >= calls_len {
                     return Err(Error::Vrf(format!(
                         "request_random call must be followed by another call",
                     )));
                 }
 
-                if req_rand_call.to != vrf_service.account_address() {
+                if rand_call.to != vrf_service.account_address() {
                     return Err(Error::Vrf(format!(
                         "request_random call must target the vrf account",
                     )));
                 }
 
                 let result = vrf_service
-                    .outside_execution(address, &outside_execution, &signature, self.chain_id.id())
-                    .await?;
+                    .outside_execution(address, &outside_execution, &signature, self.chain_id)
+                    .await
+                    .map_err(|e| Error::Vrf(e.to_string()))?;
 
                 user_address = result.address;
                 execute_from_outside_call =
@@ -367,8 +366,8 @@ impl ControllerDeployment {
         // let submit_random_call = OutsideExecutionCall {
         //     to: self.vrf_account_address,
         //     selector: selector!("submit_random"),
-        //     calldata: vec![seed, proof.gamma_x, proof.gamma_y, proof.c, proof.s, proof.sqrt_ratio],
-        // };
+        //     calldata: vec![seed, proof.gamma_x, proof.gamma_y, proof.c, proof.s,
+        // proof.sqrt_ratio], };
 
         // let assert_consumed_call = OutsideExecutionCall {
         //     selector: selector!("assert_consumed"),

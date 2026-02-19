@@ -1,5 +1,6 @@
 //! VRF (Verifiable Random Function) service for Cartridge.
 
+use cartridge::vrf::client::SignedOutsideExecution;
 use cartridge::vrf::{RequestContext, SignedOutsideExecution, VrfOutsideExecution};
 use cartridge::VrfClient;
 use katana_primitives::chain::ChainId;
@@ -68,7 +69,7 @@ impl VrfService {
     }
 }
 
-pub(super) fn request_random_call(
+pub(super) fn get_request_random_call(
     outside_execution: &OutsideExecution,
 ) -> Option<(katana_rpc_types::outside_execution::Call, usize)> {
     outside_execution
@@ -76,13 +77,6 @@ pub(super) fn request_random_call(
         .iter()
         .position(|call| call.selector == selector!("request_random"))
         .map(|position| (calls[position].clone(), position))
-}
-
-pub(super) fn outside_execution_calls_len(outside_execution: &OutsideExecution) -> usize {
-    match outside_execution {
-        OutsideExecution::V2(v2) => v2.calls.len(),
-        OutsideExecution::V3(v3) => v3.calls.len(),
-    }
 }
 
 #[cfg(test)]
@@ -117,7 +111,7 @@ mod tests {
         });
 
         let (call, position) =
-            request_random_call(&outside_execution).expect("request_random found");
+            get_request_random_call(&outside_execution).expect("request_random found");
         assert_eq!(position, 1);
         assert_eq!(call.selector, vrf_call.selector);
         assert_eq!(call.calldata, vrf_call.calldata);

@@ -8,26 +8,17 @@
 //!
 //! An important note is that the `execute_from_outside_[v2/v3]` functions are not expecting
 //! the serialized enum [`OutsideExecution`] but instead the aQ„ERariant already serialized for the
-//4 matching version.
+//! matching version.
 //! This is why [`OutsideExecution`] is not deriving `CairoSerde` directly.
 //! <https://github.com/cartridge-gg/argent-contracts-starknet/blob/35f21a533e7636f926484546652fb3470d2d478d/src/outside_execution/interface.cairo#L38>
 
 use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex};
 use cainome::cairo_serde_derive::CairoSerde;
-use katana_primitives::execution::EntryPointSelector;
+use cainome_cairo_serde::CairoSerde;
+use katana_primitives::execution::Call;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-
-/// A single call to be executed as part of an outside execution.
-#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
-pub struct Call {
-    /// Contract address to call.
-    pub to: ContractAddress,
-    /// Function selector to invoke.
-    pub selector: EntryPointSelector,
-    /// Arguments to pass to the function.
-    pub calldata: Vec<Felt>,
-}
+use starknet::macros::selector;
 
 /// Nonce channel
 #[derive(Clone, CairoSerde, PartialEq, Debug, Serialize, Deserialize)]
@@ -93,6 +84,28 @@ impl OutsideExecution {
             Self::V3(v) => &v.calls,
         }
     }
+
+    pub fn as_felts(&self) -> Vec<Felt> {
+        match self {
+            Self::V2(v) => OutsideExecutionV2::cairo_serialize(&v),
+            Self::V3(v) => OutsideExecutionV3::cairo_serialize(&v),
+        }
+    }
+
+    /// Returns the number of calls in the outside execution.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::V2(v) => v.calls.len(),
+            Self::V3(v) => v.calls.len(),
+        }
+    }
+
+    pub fn selector(&self) -> Felt {
+        match self {
+            Self::V2(_) => selector!("execute_from_outside_v2"),
+            Self::V3(_) => selector!("execute_from_outside_v3"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -112,10 +125,10 @@ mod tests {
             execute_before: 3000000000,
             calls: vec![
                 Call {
-                    to: address!(
+                    contract_address: address!(
                         "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
                     ),
-                    selector: selector!("approve"),
+                    entry_point_selector: selector!("approve"),
                     calldata: vec![
                         felt!("0x50302d9f4df7a96567423f64f1271ef07537469d8e8c4dd2409cf3cc4274de4"),
                         felt!("0x11c37937e08000"),
@@ -123,10 +136,10 @@ mod tests {
                     ],
                 },
                 Call {
-                    to: address!(
+                    contract_address: address!(
                         "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
                     ),
-                    selector: selector!("transfer"),
+                    entry_point_selector: selector!("transfer"),
                     calldata: vec![
                         felt!("0x50302d9f4df7a96567423f64f1271ef07537469d8e8c4dd2409cf3cc4274de4"),
                         felt!("0x11c37937e08000"),
@@ -177,10 +190,10 @@ mod tests {
             execute_before: 3000000000,
             calls: vec![
                 Call {
-                    to: address!(
+                    contract_address: address!(
                         "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
                     ),
-                    selector: selector!("approve"),
+                    entry_point_selector: selector!("approve"),
                     calldata: vec![
                         felt!("0x50302d9f4df7a96567423f64f1271ef07537469d8e8c4dd2409cf3cc4274de4"),
                         felt!("0x11c37937e08000"),
@@ -188,10 +201,10 @@ mod tests {
                     ],
                 },
                 Call {
-                    to: address!(
+                    contract_address: address!(
                         "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
                     ),
-                    selector: selector!("transfer"),
+                    entry_point_selector: selector!("transfer"),
                     calldata: vec![
                         felt!("0x50302d9f4df7a96567423f64f1271ef07537469d8e8c4dd2409cf3cc4274de4"),
                         felt!("0x11c37937e08000"),

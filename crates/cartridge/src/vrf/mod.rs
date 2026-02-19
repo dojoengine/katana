@@ -1,4 +1,6 @@
 //! Cartridge VRF (Verifiable Random Function) service.
 
-pub mod client;
+mod client;
 pub mod server;
+
+pub use client::*;

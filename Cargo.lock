@@ -6555,6 +6555,7 @@ dependencies = [
  "arbitrary",
  "assert_matches",
  "blockifier",
+ "cainome",
  "cainome-cairo-serde",
  "cairo-lang-sierra",
  "cairo-lang-starknet-classes",
