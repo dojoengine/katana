@@ -48,7 +48,7 @@ pub type ForkTestNode = TestNode<ForkProviderFactory>;
 #[derive(Debug)]
 pub struct TestNode<P = DbProviderFactory>
 where
-    P: ProviderFactory,
+    P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
@@ -140,7 +140,7 @@ impl ForkTestNode {
 
 impl<P> TestNode<P>
 where
-    P: ProviderFactory,
+    P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
@@ -194,6 +194,7 @@ where
     }
 
     /// Returns the address of the node's gRPC server (if enabled).
+    #[cfg(feature = "grpc")]
     pub fn grpc_addr(&self) -> Option<&SocketAddr> {
         self.node.grpc().map(|h| h.addr())
     }

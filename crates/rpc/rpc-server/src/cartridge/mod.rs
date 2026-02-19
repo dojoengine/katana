@@ -66,8 +66,10 @@ use starknet_paymaster::core::types::Call as PaymasterCall;
 use tracing::{debug, info};
 use url::Url;
 #[cfg(feature = "vrf")]
-pub use vrf::VrfServiceConfig;
 use vrf::{outside_execution_calls_len, request_random_call, VrfService};
+
+pub use vrf::VrfService;
+pub use vrf::VrfServiceConfig;
 
 #[derive(Debug, Clone)]
 pub struct CartridgeConfig {
@@ -86,7 +88,7 @@ pub struct CartridgeApi<PF: ProviderFactory> {
     backend: Arc<Backend<PF>>,
     block_producer: BlockProducer<PF>,
     pool: TxPool,
-    api_client: cartridge::Client,
+    api_client: cartridge::CartridgeApiClient,
     paymaster_client: HttpClient,
     /// The paymaster account address used for controller deployment.
     controller_deployer_address: ContractAddress,
@@ -129,7 +131,7 @@ where
         task_spawner: TaskSpawner,
         config: CartridgeConfig,
     ) -> anyhow::Result<Self> {
-        let api_client = cartridge::Client::new(config.api_url);
+        let api_client = cartridge::CartridgeApiClient::new(config.api_url);
         #[cfg(feature = "vrf")]
         let vrf_service = config.vrf.map(VrfService::new);
 
@@ -358,7 +360,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
     tx: &ExecutableTxWithHash,
     chain_id: ChainId,
     state: Arc<Box<dyn StateProvider>>,
-    cartridge_api_client: &cartridge::Client,
+    cartridge_api_client: &cartridge::CartridgeApiClient,
 ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
     // The whole Cartridge paymaster flow would only be accessible mainly from the Controller
     // wallet. The Controller wallet only supports V3 transactions (considering < V3
@@ -396,7 +398,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
 ///
 /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
 pub async fn craft_deploy_cartridge_controller_tx(
-    cartridge_api_client: &cartridge::Client,
+    cartridge_api_client: &cartridge::CartridgeApiClient,
     controller_address: ContractAddress,
     paymaster_address: ContractAddress,
     paymaster_private_key: Felt,

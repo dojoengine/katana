@@ -18,7 +18,7 @@ pub struct NodeStoppedFuture<'a> {
 impl<'a> NodeStoppedFuture<'a> {
     pub(crate) fn new<P>(handle: &'a LaunchedNode<P>) -> Self
     where
-        P: ProviderFactory,
+        P: ProviderFactory + Clone,
         <P as ProviderFactory>::Provider: ProviderRO,
         <P as ProviderFactory>::ProviderMut: ProviderRW,
     {

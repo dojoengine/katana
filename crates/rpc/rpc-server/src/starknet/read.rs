@@ -1,6 +1,3 @@
-#[cfg(feature = "cartridge")]
-use std::sync::Arc;
-
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_pool::TransactionPool;
@@ -9,8 +6,6 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
-#[cfg(feature = "cartridge")]
-use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
@@ -31,8 +26,6 @@ use katana_rpc_types::{
 };
 
 use super::StarknetApi;
-#[cfg(feature = "cartridge")]
-use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
@@ -221,7 +214,7 @@ where
             };
 
             for tx in &transactions {
-                let api = ::cartridge::Client::new(paymaster.cartridge_api_url.clone());
+                let api = ::cartridge::CartridgeApiClient::new(paymaster.cartridge_api_url.clone());
 
                 let deploy_controller_tx =
                     cartridge::get_controller_deploy_tx_if_controller_address(

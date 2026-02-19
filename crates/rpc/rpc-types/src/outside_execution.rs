@@ -7,8 +7,8 @@
 //! Based on [SNIP-9](https://github.com/starknet-io/SNIPs/blob/main/SNIPS/snip-9.md).
 //!
 //! An important note is that the `execute_from_outside_[v2/v3]` functions are not expecting
-//! the serialized enum [`OutsideExecution`] but instead the variant already serialized for the
-//! matching version.
+//! the serialized enum [`OutsideExecution`] but instead the aQ„ERariant already serialized for the
+//4 matching version.
 //! This is why [`OutsideExecution`] is not deriving `CairoSerde` directly.
 //! <https://github.com/cartridge-gg/argent-contracts-starknet/blob/35f21a533e7636f926484546652fb3470d2d478d/src/outside_execution/interface.cairo#L38>
 
@@ -84,6 +84,13 @@ impl OutsideExecution {
         match self {
             OutsideExecution::V2(v2) => v2.caller,
             OutsideExecution::V3(v3) => v3.caller,
+        }
+    }
+
+    pub fn calls(&self) -> &[Call] {
+        match self {
+            Self::V2(v) => &v.calls,
+            Self::V3(v) => &v.calls,
         }
     }
 }

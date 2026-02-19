@@ -71,12 +71,8 @@ impl VrfService {
 pub(super) fn request_random_call(
     outside_execution: &OutsideExecution,
 ) -> Option<(katana_rpc_types::outside_execution::Call, usize)> {
-    let calls = match outside_execution {
-        OutsideExecution::V2(v2) => &v2.calls,
-        OutsideExecution::V3(v3) => &v3.calls,
-    };
-
-    calls
+    outside_execution
+        .calls()
         .iter()
         .position(|call| call.selector == selector!("request_random"))
         .map(|position| (calls[position].clone(), position))

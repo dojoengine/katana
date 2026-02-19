@@ -171,8 +171,6 @@ impl Node {
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: ExecutionFlags::default(),
             versioned_constant_overrides: None,
-            #[cfg(feature = "cartridge")]
-            paymaster: None,
         };
 
         let chain_spec = match config.network {

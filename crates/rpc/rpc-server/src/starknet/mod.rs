@@ -69,8 +69,6 @@ mod read;
 mod trace;
 mod write;
 
-#[cfg(feature = "cartridge")]
-pub use config::CartridgePaymasterConfig;
 pub use config::StarknetApiConfig;
 pub use pending::PendingBlockProvider;
 

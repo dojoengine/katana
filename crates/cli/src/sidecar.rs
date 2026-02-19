@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use anyhow::{anyhow, Result};
 #[cfg(feature = "vrf")]
 pub use cartridge::vrf::{
-    get_vrf_account, VrfAccountCredentials, VrfBootstrapResult, VrfService, VrfServiceConfig,
+    get_vrf_account, VrfAccountCredentials, VrfBootstrapResult, VrfServer, VrfServerConfig,
     VrfServiceProcess, VRF_SERVER_PORT,
 };
 use katana_chain_spec::ChainSpec;
@@ -58,13 +58,13 @@ pub async fn bootstrap_vrf(
     options: &VrfOptions,
     rpc_addr: SocketAddr,
     chain: &ChainSpec,
-) -> Result<VrfService> {
+) -> Result<VrfServer> {
     let rpc_url = local_rpc_url(&rpc_addr);
     let (account_address, pk) = prefunded_account(chain, 0)?;
 
     let result = cartridge::vrf::bootstrap_vrf(rpc_url, account_address, pk).await?;
 
-    let mut vrf_service = VrfService::new(VrfServiceConfig {
+    let mut vrf_service = VrfServer::new(VrfServerConfig {
         secret_key: result.secret_key,
         vrf_account_address: result.vrf_account_address,
         vrf_private_key: result.vrf_account_private_key,
