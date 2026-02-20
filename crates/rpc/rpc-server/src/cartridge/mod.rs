@@ -187,34 +187,35 @@ where
             let pm_address = this.controller_deployer_address;
             let pm_private_key = this.controller_deployer_private_key;
 
-            // ====================== CONTROLLER DEPLOYMENT ======================
-            let state = this.state()?;
-            let is_controller_deployed = state.class_hash_of_contract(contract_address)?.is_some();
+            // // ====================== CONTROLLER DEPLOYMENT ======================
+            // let state = this.state()?;
+            // let is_controller_deployed =
+            // state.class_hash_of_contract(contract_address)?.is_some();
 
-            if !is_controller_deployed {
-                debug!(controller = %contract_address, "Controller not yet deployed");
+            // if !is_controller_deployed {
+            //     debug!(controller = %contract_address, "Controller not yet deployed");
 
-                let deploy_tx = craft_deploy_cartridge_controller_tx(
-                    &this.api_client,
-                    contract_address,
-                    pm_address,
-                    pm_private_key,
-                    this.backend.chain_spec.id(),
-                    this.nonce(pm_address)?.unwrap_or_default(),
-                )
-                .await?;
+            //     let deploy_tx = craft_deploy_cartridge_controller_tx(
+            //         &this.api_client,
+            //         contract_address,
+            //         pm_address,
+            //         pm_private_key,
+            //         this.backend.chain_spec.id(),
+            //         this.nonce(pm_address)?.unwrap_or_default(),
+            //     )
+            //     .await?;
 
-                if let Some(tx) = deploy_tx {
-                    debug!(controller = %contract_address, tx = format!("{:#x}", tx.hash), "Inserting Controller deployment transaction");
-                    this.pool.add_transaction(tx).await?;
-                    this.block_producer.force_mine();
-                }
-            }
-            // ===================================================================
+            //     if let Some(tx) = deploy_tx {
+            //         debug!(controller = %contract_address, tx = format!("{:#x}", tx.hash),
+            // "Inserting Controller deployment transaction");         this.pool.
+            // add_transaction(tx).await?;         this.block_producer.force_mine();
+            //     }
+            // }
+            // // ===================================================================
 
             let entry_point_selector = outside_execution.selector();
             let mut calldata = outside_execution.as_felts();
-            calldata.extend(signature);
+            calldata.extend(signature.clone());
 
             let mut call: Call = Call { contract_address, entry_point_selector, calldata };
             let mut user_address: Felt = contract_address.into();
@@ -257,7 +258,6 @@ where
                 _ => FeeMode::Sponsored { tip: Default::default() },
             };
 
-
             let invoke = RawInvokeParameters {
                 user_address,
                 gas_token: None,
@@ -274,12 +274,9 @@ where
                 parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
             };
 
-            let response = this
-                .paymaster_client
-                .execute_raw_transaction(request)
-                .await
-                .map_err(|e| CartridgeApiError::PaymasterExecutionFailed {
-                    reason: e.to_string(),
+            let response =
+                this.paymaster_client.execute_raw_transaction(request).await.map_err(|e| {
+                    CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() }
                 })?;
 
             Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })

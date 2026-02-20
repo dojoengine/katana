@@ -18,7 +18,7 @@ use katana_primitives::execution::Call;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::ContractAddress;
 use katana_provider::{ProviderFactory, ProviderRO};
-use katana_rpc_client::starknet::StarknetApiError;
+use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::{BroadcastedTx, BroadcastedTxWithChainId};
 use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate};
 use serde::Deserialize;
@@ -99,9 +99,10 @@ where
     vrf_service: Option<VrfService>,
 }
 
-impl<Pool, PP, PF> ControllerDeployment<Pool, PP, PF>
+impl<Pool, PoolTx, PP, PF> ControllerDeployment<Pool, PP, PF>
 where
-    Pool: TransactionPool,
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
@@ -110,9 +111,18 @@ where
         starknet: StarknetApi<Pool, PP, PF>,
         cartridge_api: CartridgeApiClient,
         paymaster_client: HttpClient,
+        deployer_address: ContractAddress,
+        deployer_private_key: SigningKey,
         vrf_service: Option<VrfService>,
     ) -> Self {
-        Self { starknet, cartridge_api, paymaster_client, vrf_service }
+        Self {
+            starknet,
+            cartridge_api,
+            paymaster_client,
+            deployer_address,
+            deployer_private_key,
+            vrf_service,
+        }
     }
 
     pub async fn handle_estimate_fee_inner(
@@ -168,6 +178,31 @@ where
             new_transactions.extend(updated_transactions);
             Ok(new_transactions)
         }
+    }
+
+    pub async fn handle_execute_outside_inner(
+        &self,
+        address: ContractAddress,
+    ) -> Result<(), Error> {
+        // check if the address has already been deployed.
+        match self.starknet.class_hash_at_address(block_id, address).await {
+            // attempt to deploy if the address belongs to a Controller account
+            Err(StarknetApiError::ContractNotFound) => {
+                let mut deployer_nonce =
+                    self.starknet.nonce_at(block_id, self.deployer_address).await.unwrap();
+
+                let result = self.get_controller_deployment_tx(address, deployer_nonce).await?;
+
+                // none means the address is not a Controller
+                if let Some(tx) = result {
+                    let _ = self.starknet.add_invoke_tx(tx).await.unwrap();
+                }
+            }
+            Err(e) => panic!("{}", e.to_string()),
+            Ok(..) => {}
+        }
+
+        Ok(())
     }
 
     async fn get_controller_deployment_tx(
@@ -241,18 +276,19 @@ where
             return self.service.call(request).await;
         };
 
-        let updated_txs = self
-            .inner
-            .handle_estimate_fee_inner(params.block_id, params.txs)
-            .await
-            .unwrap_or_default();
-
         // if `handle_estimate_fees` has added some new transactions at the
         // beginning of updated_txs, we have to remove
         // extras results from estimate_fees to be
         // sure to return the same number of result than the number
         // of transactions in the request.
         let nb_of_txs = params.txs.len();
+
+        let updated_txs = self
+            .inner
+            .handle_estimate_fee_inner(params.block_id, params.txs)
+            .await
+            .unwrap_or_default();
+
         let nb_of_extra_txs = updated_txs.len() - nb_of_txs;
 
         let new_request = build_new_estimate_fee_request(&request, &params, updated_txs);
@@ -274,7 +310,7 @@ where
                 );
 
                 // TODO: restore the real response
-                return Self::build_no_fee_response(&request, nb_of_txs);
+                return build_no_fee_response(&request, nb_of_txs);
             }
         }
 
@@ -305,10 +341,10 @@ where
         request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
         async move {
-            if request.method_name() == "starknet_estimateFee" {
-                self.handle_estimate_fee(request).await
-            } else {
-                self.service.call(request).await
+            match request.method_name() {
+                "starknet_estimateFee" => self.handle_estimate_fee(request).await,
+                "addExecuteOutsideTransaction" | "addExecuteFromOutside" => todo!(),
+                _ => self.service.call(request).await,
             }
         }
     }
