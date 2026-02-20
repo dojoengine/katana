@@ -5,7 +5,7 @@ use cartridge::vrf::{RequestContext, SignedOutsideExecution, VrfOutsideExecution
 use cartridge::VrfClient;
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_types::outside_execution::OutsideExecution;
 use starknet::macros::selector;
 use url::Url;
@@ -46,7 +46,7 @@ impl VrfService {
         outside_execution: &OutsideExecution,
         signature: &[Felt],
         chain_id: ChainId,
-    ) -> Result<SignedOutsideExecution, StarknetApiError> {
+    ) -> Result<SignedOutsideExecution, CartridgeApiError> {
         let vrf_outside_execution = match outside_execution {
             OutsideExecution::V2(v2) => VrfOutsideExecution::V2(v2.clone()),
             OutsideExecution::V3(v3) => VrfOutsideExecution::V3(v3.clone()),
@@ -63,9 +63,10 @@ impl VrfService {
             rpc_url: Some(self.rpc_url.clone()),
         };
 
-        self.client.outside_execution(request, context).await.map_err(|err| {
-            StarknetApiError::unexpected(format!("vrf outside_execution failed: {err}"))
-        })
+        self.client
+            .outside_execution(request, context)
+            .await
+            .map_err(|err| CartridgeApiError::VrfExecutionFailed { reason: err.to_string() })
     }
 }
 

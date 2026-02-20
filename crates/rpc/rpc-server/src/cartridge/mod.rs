@@ -49,7 +49,7 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::cartridge::CartridgeApiServer;
-use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_api::paymaster::PaymasterApiClient;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::cartridge::FeeSource;
@@ -163,14 +163,14 @@ where
         })
     }
 
-    fn nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
+    fn nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, CartridgeApiError> {
         match self.pool.get_nonce(address) {
             pending_nonce @ Some(..) => Ok(pending_nonce),
             None => Ok(self.state()?.nonce(address)?),
         }
     }
 
-    fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {
+    fn state(&self) -> Result<Box<dyn StateProvider>, CartridgeApiError> {
         match &*self.block_producer.producer.read() {
             BlockProducerMode::Instant(_) => Ok(self.backend.storage.provider().latest()?),
             BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
@@ -183,7 +183,7 @@ where
         outside_execution: OutsideExecution,
         signature: Vec<Felt>,
         fee_source: Option<FeeSource>,
-    ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
+    ) -> Result<AddInvokeTransactionResponse, CartridgeApiError> {
         debug!(%contract_address, ?outside_execution, "Adding execute outside transaction.");
         self.on_cpu_blocking_task(move |this| async move {
             let pm_address = this.controller_deployer_address;
@@ -228,15 +228,11 @@ where
                     get_request_random_call(&outside_execution)
                 {
                     if position + 1 >= outside_execution.len() {
-                        return Err(StarknetApiError::unexpected(
-                            "request_random call must be followed by another call",
-                        ));
+                        return Err(CartridgeApiError::VrfMissingFollowUpCall);
                     }
 
                     if request_random_call.to != vrf_service.account_address() {
-                        return Err(StarknetApiError::unexpected(
-                            "request_random call must target the vrf account",
-                        ));
+                        return Err(CartridgeApiError::VrfInvalidTarget);
                     }
 
                     // Delegate VRF computation to the VRF server
@@ -284,7 +280,9 @@ where
                 .paymaster_client
                 .execute_raw_transaction(request)
                 .await
-                .map_err(StarknetApiError::unexpected)?;
+                .map_err(|e| CartridgeApiError::PaymasterExecutionFailed {
+                    reason: e.to_string(),
+                })?;
 
             Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })
         })
@@ -293,7 +291,7 @@ where
 
     /// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking
     /// pool.
-    async fn on_cpu_blocking_task<T, F>(&self, func: T) -> Result<F::Output, StarknetApiError>
+    async fn on_cpu_blocking_task<T, F>(&self, func: T) -> Result<F::Output, CartridgeApiError>
     where
         T: FnOnce(Self) -> F,
         F: Future + Send + 'static,
@@ -315,9 +313,9 @@ where
 
         match self.task_spawner.cpu_bound().spawn(task).await {
             TaskResult::Ok(result) => Ok(result),
-            TaskResult::Err(err) => {
-                Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
-            }
+            TaskResult::Err(err) => Err(CartridgeApiError::InternalError {
+                reason: format!("task execution failed: {err}"),
+            }),
         }
     }
 }
