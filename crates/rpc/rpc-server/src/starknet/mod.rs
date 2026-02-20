@@ -8,7 +8,7 @@ use katana_chain_spec::ChainSpec;
 use katana_core::utils::get_current_timestamp;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_gas_price_oracle::GasPriceOracle;
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};

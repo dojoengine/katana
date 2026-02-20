@@ -32,11 +32,11 @@ pub mod permit;
 pub mod starknet;
 
 mod utils;
-use cors::Cors;
 use health::HealthCheck;
 pub use jsonrpsee::core::middleware::RpcServiceBuilder;
 pub use jsonrpsee::http_client::HttpClient;
 pub use katana_rpc_api as api;
+use middleware::cors::Cors;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;

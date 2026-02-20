@@ -1,6 +1,6 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
@@ -186,6 +186,8 @@ where
         // for more details.
         #[cfg(feature = "cartridge")]
         let transactions = if let Some(paymaster) = &self.inner.config.paymaster {
+            use std::sync::Arc;
+
             let paymaster_address = paymaster.paymaster_address;
             let paymaster_private_key = paymaster.paymaster_private_key;
 

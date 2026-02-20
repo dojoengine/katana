@@ -1,9 +1,8 @@
 //! VRF (Verifiable Random Function) service for Cartridge.
 
-use cartridge::vrf::client::SignedOutsideExecution;
-use cartridge::vrf::{RequestContext, SignedOutsideExecution, VrfOutsideExecution};
-use cartridge::VrfClient;
+use cartridge::vrf::{RequestContext, SignedOutsideExecution, VrfClient, VrfOutsideExecution};
 use katana_primitives::chain::ChainId;
+use katana_primitives::execution::Call;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_types::outside_execution::OutsideExecution;
@@ -17,7 +16,7 @@ pub struct VrfServiceConfig {
     pub vrf_contract: ContractAddress,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct VrfService {
     client: VrfClient,
     account_address: ContractAddress,
@@ -72,11 +71,11 @@ impl VrfService {
 
 pub(super) fn get_request_random_call(
     outside_execution: &OutsideExecution,
-) -> Option<(katana_rpc_types::outside_execution::Call, usize)> {
-    outside_execution
-        .calls()
+) -> Option<(Call, usize)> {
+    let calls = outside_execution.calls();
+    calls
         .iter()
-        .position(|call| call.selector == selector!("request_random"))
+        .position(|call| call.entry_point_selector == selector!("request_random"))
         .map(|position| (calls[position].clone(), position))
 }
 

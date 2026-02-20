@@ -6700,6 +6700,7 @@ dependencies = [
  "katana-genesis",
  "katana-messaging",
  "katana-metrics",
+ "katana-paymaster",
  "katana-pool",
  "katana-primitives",
  "katana-provider",

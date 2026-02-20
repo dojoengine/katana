@@ -32,14 +32,14 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use cainome::cairo_serde::CairoSerde;
-use cartridge::vrf::SignedOutsideExecution;
 use http::{HeaderMap, HeaderName, HeaderValue};
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
-use katana_pool::{TransactionPool, TxPool};
+use katana_pool::api::TransactionPool;
+use katana_pool::TxPool;
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
 use katana_primitives::execution::Call;
@@ -53,9 +53,7 @@ use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_api::paymaster::PaymasterApiClient;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::cartridge::FeeSource;
-use katana_rpc_types::outside_execution::{
-    OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
-};
+use katana_rpc_types::outside_execution::OutsideExecution;
 use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use paymaster_rpc::{
@@ -218,7 +216,7 @@ where
             let mut calldata = outside_execution.as_felts();
             calldata.extend(signature);
 
-            let mut call = Call { contract_address, entry_point_selector, calldata };
+            let mut call: Call = Call { contract_address, entry_point_selector, calldata };
             let mut user_address: Felt = contract_address.into();
 
             #[cfg(feature = "vrf")]
@@ -231,7 +229,7 @@ where
                         return Err(CartridgeApiError::VrfMissingFollowUpCall);
                     }
 
-                    if request_random_call.to != vrf_service.account_address() {
+                    if request_random_call.contract_address != vrf_service.account_address() {
                         return Err(CartridgeApiError::VrfInvalidTarget);
                     }
 
@@ -247,7 +245,7 @@ where
                         .await?;
 
                     user_address = result.address.into();
-                    call = build_execute_from_outside_call_from_vrf_result(&result);
+                    call = result.into();
                 }
             }
 
@@ -353,13 +351,8 @@ where
 pub fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
     let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
     for call in calls {
-        execute_calldata.push(call.contract_address.into());
-        execute_calldata.push(call.entry_point_selector);
-
-        execute_calldata.push(call.calldata.len().into());
-        execute_calldata.extend_from_slice(&call.calldata);
+        execute_calldata.extend(Call::cairo_serialize(&call));
     }
-
     execute_calldata
 }
 
@@ -461,21 +454,4 @@ pub async fn craft_deploy_cartridge_controller_tx(
     } else {
         Ok(None)
     }
-}
-
-pub fn build_execute_from_outside_call_from_vrf_result(result: &SignedOutsideExecution) -> Call {
-    let (selector, calldata) = match &result.outside_execution {
-        cartridge::vrf::VrfOutsideExecution::V2(v2) => {
-            let mut calldata = OutsideExecutionV2::cairo_serialize(v2);
-            calldata.extend(Vec::<Felt>::cairo_serialize(&result.signature));
-            (selector!("execute_from_outside_v2"), calldata)
-        }
-        cartridge::vrf::VrfOutsideExecution::V3(v3) => {
-            let mut calldata = OutsideExecutionV3::cairo_serialize(v3);
-            calldata.extend(Vec::<Felt>::cairo_serialize(&result.signature));
-            (selector!("execute_from_outside_v3"), calldata)
-        }
-    };
-
-    PaymasterCall { to: result.address, selector, calldata }
 }

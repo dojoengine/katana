@@ -1,5 +1,5 @@
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::transaction::TxHash;
 use katana_provider::{ProviderFactory, ProviderRO};
