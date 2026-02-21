@@ -48,16 +48,6 @@ where
     vrf_service: Option<VrfService>,
 }
 
-impl<Pool, PoolTx, PP, PF> ControllerDeployment<Pool, PP, PF>
-where
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
-    PP: PendingBlockProvider,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: ProviderRO,
-{
-}
-
 #[derive(Debug, Clone)]
 pub struct ControllerDeploymentService<S, Pool, PP, PF>
 where
@@ -190,7 +180,7 @@ where
 
         // None means the address is not of a Controller
         if let Some(tx) = deploy_tx {
-            if let Err(e) = self.inner.starknet.add_invoke_tx(tx).await {
+            if let Err(e) = self.starknet.add_invoke_tx(tx).await {
                 return Err(CartridgeApiError::ControllerDeployment {
                     reason: format!("failed to submit deployment tx: {e}"),
                 });
