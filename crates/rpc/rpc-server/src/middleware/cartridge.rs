@@ -7,8 +7,8 @@ use cartridge::CartridgeApiClient;
 use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::http_client::HttpClient;
-use jsonrpsee::types::Request;
-use jsonrpsee::MethodResponse;
+use jsonrpsee::types::{ErrorObjectOwned, Request, Response, ResponsePayload};
+use jsonrpsee::{rpc_params, MethodResponse};
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::api::{PoolError, TransactionPool};
 use katana_primitives::block::BlockIdOrTag;
@@ -16,15 +16,15 @@ use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::execution::Call;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
-use katana_primitives::ContractAddress;
+use katana_primitives::{ContractAddress, Felt};
 use katana_provider::{ProviderFactory, ProviderRO};
+use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::{BroadcastedTx, BroadcastedTxWithChainId};
-use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate};
+use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate, FeeSource, OutsideExecution};
 use serde::Deserialize;
 use starknet::core::types::SimulationFlagForEstimateFee;
 use starknet::macros::selector;
-use starknet::providers::jsonrpc::JsonRpcResponse;
 use starknet::signers::local_wallet::SignError;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, trace};
@@ -39,57 +39,6 @@ where
     PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
-{
-    inner: ControllerDeployment<Pool, PP, PF>,
-}
-
-impl<S, Pool, PP, PF> tower::Layer<S> for ControllerDeploymentLayer<Pool, PP, PF>
-where
-    Pool: TransactionPool + 'static,
-    PP: PendingBlockProvider,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: ProviderRO,
-{
-    type Service = ControllerDeploymentService<S, Pool, PP, PF>;
-
-    fn layer(&self, service: S) -> Self::Service {
-        ControllerDeploymentService { service, inner: self.inner.clone() }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("cartridge api error: {0}")]
-    Client(#[from] cartridge::api::Error),
-
-    #[error("provider error: {0}")]
-    Provider(#[from] katana_provider::api::ProviderError),
-
-    #[error("paymaster not found")]
-    PaymasterNotFound(ContractAddress),
-
-    #[error("VRF error: {0}")]
-    Vrf(String),
-
-    #[error("failed to sign with paymaster: {0}")]
-    SigningError(SignError),
-
-    #[error("failed to add deploy controller transaction to the pool: {0}")]
-    FailedToAddTransaction(#[from] PoolError),
-}
-
-impl From<VrfClientError> for Error {
-    fn from(e: VrfClientError) -> Self {
-        Error::Vrf(e.to_string())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ControllerDeployment<Pool, PP, PF>
-where
-    Pool: TransactionPool,
-    PP: PendingBlockProvider,
-    PF: ProviderFactory,
 {
     starknet: StarknetApi<Pool, PP, PF>,
     cartridge_api: CartridgeApiClient,
@@ -107,31 +56,156 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
-    pub fn new(
-        starknet: StarknetApi<Pool, PP, PF>,
-        cartridge_api: CartridgeApiClient,
-        paymaster_client: HttpClient,
-        deployer_address: ContractAddress,
-        deployer_private_key: SigningKey,
-        vrf_service: Option<VrfService>,
-    ) -> Self {
-        Self {
-            starknet,
-            cartridge_api,
-            paymaster_client,
-            deployer_address,
-            deployer_private_key,
-            vrf_service,
+}
+
+#[derive(Debug, Clone)]
+pub struct ControllerDeploymentService<S, Pool, PP, PF>
+where
+    Pool: TransactionPool,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    starknet: StarknetApi<Pool, PP, PF>,
+    cartridge_api: CartridgeApiClient,
+    paymaster_client: HttpClient,
+    deployer_address: ContractAddress,
+    deployer_private_key: SigningKey,
+    vrf_service: Option<VrfService>,
+    service: S,
+}
+
+impl<S, Pool, PoolTx, PP, PF> ControllerDeploymentService<S, Pool, PP, PF>
+where
+    S: RpcServiceT<MethodResponse = MethodResponse>,
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    // if `handle_estimate_fees` has added some new transactions at the
+    // beginning of updated_txs, we have to remove
+    // extras results from estimate_fees to be
+    // sure to return the same number of result than the number
+    // of transactions in the request.
+    async fn handle_estimate_fee<'a>(
+        &self,
+        params: EstimateFeeParams,
+        request: Request<'a>,
+    ) -> S::MethodResponse {
+        let EstimateFeeParams { block_id, simulation_flags, txs } = params;
+
+        let deploy_controller_txs =
+            self.get_deploy_controller_txs(block_id, &txs).await.unwrap_or_default();
+
+        // no Controller to deploy, simply forward the request
+        if deploy_controller_txs.is_empty() {
+            return self.service.call(request).await;
+        }
+
+        let original_txs_count = txs.len();
+        let deploy_controller_txs_count = deploy_controller_txs.len();
+
+        let new_txs = [deploy_controller_txs, txs].concat();
+        let new_txs_count = new_txs.len();
+
+        // craft a new estimate fee request with the deploy Controller txs included
+        let new_request = {
+            let params = rpc_params!(new_txs, simulation_flags, block_id);
+            let params = params.to_rpc_params().unwrap();
+
+            let mut new_request = request.clone();
+            new_request.params = params.map(Cow::Owned);
+
+            new_request
+        };
+
+        let response = self.service.call(new_request).await;
+
+        let res = response.as_json().get();
+        let mut res = serde_json::from_str::<Response<Vec<FeeEstimate>>>(res).unwrap();
+
+        match res.payload {
+            ResponsePayload::Success(estimates) => {
+                assert_eq!(estimates.len(), new_txs_count);
+                estimates.to_mut().drain(0..deploy_controller_txs_count);
+                build_no_fee_response(&request, original_txs_count)
+            }
+
+            ResponsePayload::Error(..) => response,
         }
     }
 
-    pub async fn handle_estimate_fee_inner(
+    async fn handle_execute_outside<'a>(
+        &self,
+        params: AddExecuteOutsideParams,
+        request: Request<'a>,
+    ) -> S::MethodResponse {
+        if let Err(err) = self.handle_execute_outside_inner(params).await {
+            MethodResponse::error(request.id().clone(), ErrorObjectOwned::from(err))
+        } else {
+            self.service.call(request).await
+        }
+    }
+
+    async fn handle_execute_outside_inner(
+        &self,
+        params: AddExecuteOutsideParams,
+    ) -> Result<(), CartridgeApiError> {
+        let address = params.address;
+        let block_id = BlockIdOrTag::PreConfirmed;
+
+        // check if the address has already been deployed.
+        let is_deployed = match self.starknet.class_hash_at_address(block_id, address).await {
+            Ok(..) => true,
+            Err(StarknetApiError::ContractNotFound) => false,
+            Err(e) => {
+                return Err(CartridgeApiError::ControllerDeployment {
+                    reason: format!("failed to check Controller deployment status: {e}"),
+                });
+            }
+        };
+
+        if is_deployed {
+            return Ok(());
+        }
+
+        let result = self.starknet.nonce_at(block_id, self.deployer_address).await;
+        let nonce = match result {
+            Ok(nonce) => nonce,
+            Err(e) => {
+                return Err(CartridgeApiError::ControllerDeployment {
+                    reason: format!("failed to get deployer nonce: {e}"),
+                });
+            }
+        };
+
+        let result = self.get_controller_deployment_tx(address, nonce).await;
+        let deploy_tx = match result {
+            Ok(tx) => tx,
+            Err(e) => {
+                return Err(CartridgeApiError::ControllerDeployment { reason: e.to_string() });
+            }
+        };
+
+        // None means the address is not of a Controller
+        if let Some(tx) = deploy_tx {
+            if let Err(e) = self.inner.starknet.add_invoke_tx(tx).await {
+                return Err(CartridgeApiError::ControllerDeployment {
+                    reason: format!("failed to submit deployment tx: {e}"),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn get_deploy_controller_txs(
         &self,
         block_id: BlockIdOrTag,
-        transactions: Vec<BroadcastedTx>,
+        transactions: &[BroadcastedTx],
     ) -> Result<Vec<BroadcastedTx>, Error> {
-        let mut new_transactions: Vec<BroadcastedTx> = Vec::new();
-        let mut updated_transactions: Vec<BroadcastedTx> = Vec::new();
+        let mut deploy_transactions: Vec<BroadcastedTx> = Vec::new();
         let mut deployed_controllers: HashSet<ContractAddress> = HashSet::new();
 
         let mut deployer_nonce =
@@ -139,7 +213,7 @@ where
 
         // iterate thru all txs and deploy any undeployed contract (if they are a Controller)
         for tx in transactions {
-            let contract_address = match &tx {
+            let contract_address = match tx {
                 BroadcastedTx::Invoke(tx) => tx.sender_address,
                 BroadcastedTx::Declare(tx) => tx.sender_address,
                 _ => continue,
@@ -162,7 +236,7 @@ where
                     // none means the address is not a Controller
                     if let Some(tx) = result {
                         deployed_controllers.insert(contract_address);
-                        new_transactions.push(tx);
+                        deploy_transactions.push(tx);
                         deployer_nonce += Nonce::ONE;
                     }
                 }
@@ -172,37 +246,7 @@ where
             }
         }
 
-        if new_transactions.is_empty() {
-            Ok(transactions)
-        } else {
-            new_transactions.extend(updated_transactions);
-            Ok(new_transactions)
-        }
-    }
-
-    pub async fn handle_execute_outside_inner(
-        &self,
-        address: ContractAddress,
-    ) -> Result<(), Error> {
-        // check if the address has already been deployed.
-        match self.starknet.class_hash_at_address(block_id, address).await {
-            // attempt to deploy if the address belongs to a Controller account
-            Err(StarknetApiError::ContractNotFound) => {
-                let mut deployer_nonce =
-                    self.starknet.nonce_at(block_id, self.deployer_address).await.unwrap();
-
-                let result = self.get_controller_deployment_tx(address, deployer_nonce).await?;
-
-                // none means the address is not a Controller
-                if let Some(tx) = result {
-                    let _ = self.starknet.add_invoke_tx(tx).await.unwrap();
-                }
-            }
-            Err(e) => panic!("{}", e.to_string()),
-            Ok(..) => {}
-        }
-
-        Ok(())
+        Ok(deploy_transactions)
     }
 
     async fn get_controller_deployment_tx(
@@ -252,82 +296,12 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ControllerDeploymentService<S, Pool, PP, PF>
-where
-    Pool: TransactionPool,
-    PP: PendingBlockProvider,
-    PF: ProviderFactory,
-{
-    inner: ControllerDeployment<Pool, PP, PF>,
-    service: S,
-}
-
-impl<S, Pool, PP, PF> ControllerDeploymentService<S, Pool, PP, PF>
-where
-    S: RpcServiceT<MethodResponse = MethodResponse>,
-    Pool: TransactionPool + 'static,
-    PP: PendingBlockProvider,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: ProviderRO,
-{
-    async fn handle_estimate_fee<'a>(&self, request: Request<'a>) -> S::MethodResponse {
-        let Some(params) = parse_estimate_fee_params(&request) else {
-            return self.service.call(request).await;
-        };
-
-        // if `handle_estimate_fees` has added some new transactions at the
-        // beginning of updated_txs, we have to remove
-        // extras results from estimate_fees to be
-        // sure to return the same number of result than the number
-        // of transactions in the request.
-        let nb_of_txs = params.txs.len();
-
-        let updated_txs = self
-            .inner
-            .handle_estimate_fee_inner(params.block_id, params.txs)
-            .await
-            .unwrap_or_default();
-
-        let nb_of_extra_txs = updated_txs.len() - nb_of_txs;
-
-        let new_request = build_new_estimate_fee_request(&request, &params, updated_txs);
-        let response = self.service.call(new_request).await;
-
-        if response.is_success() && nb_of_extra_txs > 0 {
-            if let Ok(JsonRpcResponse::Success { result: mut estimate_fees, .. }) =
-                serde_json::from_str::<JsonRpcResponse<Vec<FeeEstimate>>>(response.to_json().get())
-            {
-                if estimate_fees.len() >= nb_of_extra_txs {
-                    estimate_fees.drain(0..nb_of_extra_txs);
-                }
-
-                trace!(
-                    target: "cartridge",
-                    nb_of_extra_txs = nb_of_extra_txs,
-                        nb_of_estimate_fees = estimate_fees.len(),
-                    "Removing extra transactions from estimate fees response",
-                );
-
-                // TODO: restore the real response
-                return build_no_fee_response(&request, nb_of_txs);
-            }
-        }
-
-        // TODO: restore the real response
-        build_no_fee_response(&request, nb_of_txs)
-    }
-}
-
-impl<S, Pool, PP, PF> RpcServiceT for ControllerDeploymentService<S, Pool, PP, PF>
+impl<S, Pool, PoolTx, PP, PF> RpcServiceT for ControllerDeploymentService<S, Pool, PP, PF>
 where
     S: RpcServiceT + Send + Sync + Clone + 'static,
-    S: RpcServiceT<
-        MethodResponse = MethodResponse,
-        BatchResponse = MethodResponse,
-        NotificationResponse = MethodResponse,
-    >,
-    Pool: TransactionPool + 'static,
+    S: RpcServiceT<MethodResponse = MethodResponse>,
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
@@ -341,11 +315,27 @@ where
         request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
         async move {
-            match request.method_name() {
-                "starknet_estimateFee" => self.handle_estimate_fee(request).await,
-                "addExecuteOutsideTransaction" | "addExecuteFromOutside" => todo!(),
-                _ => self.service.call(request).await,
+            let method = request.method_name();
+
+            match method {
+                "starknet_estimateFee" => {
+                    trace!(%method, "Intercepting JSON-RPC method.");
+                    if let Some(params) = parse_estimate_fee_params(&request) {
+                        return self.handle_estimate_fee(params, request).await;
+                    }
+                }
+
+                "addExecuteOutsideTransaction" | "addExecuteFromOutside" => {
+                    trace!(%method, "Intercepting JSON-RPC method.");
+                    if let Some(params) = parse_execute_outside_params(&request) {
+                        return self.handle_execute_outside(params, request).await;
+                    }
+                }
+
+                _ => {}
             }
+
+            self.service.call(request).await
         }
     }
 
@@ -364,6 +354,41 @@ where
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("cartridge api error: {0}")]
+    Client(#[from] cartridge::api::Error),
+
+    #[error("provider error: {0}")]
+    Provider(#[from] katana_provider::api::ProviderError),
+
+    #[error("paymaster not found")]
+    PaymasterNotFound(ContractAddress),
+
+    #[error("VRF error: {0}")]
+    Vrf(String),
+
+    #[error("failed to sign with paymaster: {0}")]
+    SigningError(SignError),
+
+    #[error("failed to add deploy controller transaction to the pool: {0}")]
+    FailedToAddTransaction(#[from] PoolError),
+}
+
+impl From<VrfClientError> for Error {
+    fn from(e: VrfClientError) -> Self {
+        Error::Vrf(e.to_string())
+    }
+}
+
+#[derive(Deserialize)]
+struct AddExecuteOutsideParams {
+    address: ContractAddress,
+    outside_execution: OutsideExecution,
+    signature: Vec<Felt>,
+    fee_source: Option<FeeSource>,
+}
+
 #[derive(Deserialize)]
 struct EstimateFeeParams {
     #[serde(alias = "request")]
@@ -372,6 +397,40 @@ struct EstimateFeeParams {
     simulation_flags: Vec<SimulationFlagForEstimateFee>,
     #[serde(alias = "blockId")]
     block_id: BlockIdOrTag,
+}
+
+fn parse_execute_outside_params(request: &Request<'_>) -> Option<AddExecuteOutsideParams> {
+    let params = request.params();
+
+    if params.is_object() {
+        match params.parse() {
+            Ok(p) => Some(p),
+            Err(..) => {
+                debug!(target: "cartridge", "Failed to parse execute outside params.");
+                None
+            }
+        }
+    } else {
+        let mut seq = params.sequence();
+
+        let address: Result<ContractAddress, _> = seq.next();
+        let outside_execution: Result<OutsideExecution, _> = seq.next();
+        let signature: Result<Vec<Felt>, _> = seq.next();
+        let fee_source: Result<Option<FeeSource>, _> = seq.next();
+
+        match (address, outside_execution, signature) {
+            (Ok(address), Ok(outside_execution), Ok(signature)) => Some(AddExecuteOutsideParams {
+                address,
+                outside_execution,
+                signature,
+                fee_source: fee_source.ok().flatten(),
+            }),
+            _ => {
+                debug!(target: "cartridge", "Failed to parse execute outside params.");
+                None
+            }
+        }
+    }
 }
 
 /// Extract estimate_fee parameters from the request.
@@ -403,24 +462,6 @@ fn parse_estimate_fee_params(request: &Request<'_>) -> Option<EstimateFeeParams>
             }
         }
     }
-}
-
-/// Build a new estimate fee request with the updated transactions.
-fn build_new_estimate_fee_request<'a>(
-    request: &Request<'a>,
-    params: &EstimateFeeParams,
-    updated_txs: Vec<BroadcastedTx>,
-) -> Request<'a> {
-    let mut new_request = request.clone();
-
-    let mut new_params = jsonrpsee::core::params::ArrayParams::new();
-    new_params.insert(updated_txs).unwrap();
-    new_params.insert(params.simulation_flags.clone()).unwrap();
-    new_params.insert(params.block_id).unwrap();
-
-    let new_params = new_params.to_rpc_params().unwrap();
-    new_request.params = new_params.map(Cow::Owned);
-    new_request
 }
 
 // <--- TODO: this function should be removed once estimateFee will return 0 fees
