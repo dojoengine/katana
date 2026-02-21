@@ -14,7 +14,6 @@ katana-explorer = { workspace = true, features = [ "jsonrpsee" ], optional = tru
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
-katana-paymaster.workspace = true
 katana-genesis = { workspace = true, optional = true }
 katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }

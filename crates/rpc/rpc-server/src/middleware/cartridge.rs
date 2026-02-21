@@ -111,7 +111,7 @@ where
         let mut undeployed_addresses: Vec<ContractAddress> = Vec::new();
 
         // iterate thru all txs and deploy any undeployed contract (if they are a Controller)
-        for tx in transactions {
+        for tx in &transactions {
             let address = match tx {
                 BroadcastedTx::Invoke(tx) => tx.sender_address,
                 BroadcastedTx::Declare(tx) => tx.sender_address,
@@ -122,18 +122,18 @@ where
         }
 
         let deployer_nonce = self.starknet.nonce_at(block_id, self.deployer_address).await.unwrap();
-        let deploy_txs =
+        let deploy_controller_txs =
             self.get_controller_deployment_txs(undeployed_addresses, deployer_nonce).await.unwrap();
 
         // no Controller to deploy, simply forward the request
-        if deploy_txs.is_empty() {
+        if deploy_controller_txs.is_empty() {
             return Ok(self.service.call(request).await);
         }
 
-        let original_txs_count = txs.len();
+        let original_txs_count = transactions.len();
         let deploy_controller_txs_count = deploy_controller_txs.len();
 
-        let new_txs = [deploy_controller_txs, txs].concat();
+        let new_txs = [deploy_controller_txs, transactions].concat();
         let new_txs_count = new_txs.len();
 
         // craft a new estimate fee request with the deploy Controller txs included
@@ -153,7 +153,7 @@ where
         let mut res = serde_json::from_str::<Response<Vec<FeeEstimate>>>(res).unwrap();
 
         match res.payload {
-            ResponsePayload::Success(estimates) => {
+            ResponsePayload::Success(mut estimates) => {
                 assert_eq!(estimates.len(), new_txs_count);
                 estimates.to_mut().drain(0..deploy_controller_txs_count);
                 Ok(build_no_fee_response(&request, original_txs_count))
@@ -318,21 +318,21 @@ where
                 "starknet_estimateFee" => {
                     trace!(%method, "Intercepting JSON-RPC method.");
                     if let Some(params) = parse_estimate_fee_params(&request) {
-                        return self.handle_estimate_fee(params, request).await;
+                        return this.handle_estimate_fee(params, request).await;
                     }
                 }
 
                 "addExecuteOutsideTransaction" | "addExecuteFromOutside" => {
                     trace!(%method, "Intercepting JSON-RPC method.");
                     if let Some(params) = parse_execute_outside_params(&request) {
-                        return self.handle_execute_outside(params, request).await;
+                        return this.handle_execute_outside(params, request).await;
                     }
                 }
 
                 _ => {}
             }
 
-            self.service.call(request).await
+            this.service.call(request).await
         }
     }
 
