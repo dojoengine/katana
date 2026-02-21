@@ -1,7 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod api;
-pub mod utils;
 pub mod vrf;
 
 pub use api::CartridgeApiClient;

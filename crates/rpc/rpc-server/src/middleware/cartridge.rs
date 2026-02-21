@@ -32,7 +32,7 @@ use tracing::{debug, trace};
 use crate::cartridge::{encode_calls, VrfService};
 use crate::starknet::{PendingBlockProvider, StarknetApi};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ControllerDeploymentLayer<Pool, PP, PF>
 where
     Pool: TransactionPool + 'static,
@@ -48,7 +48,7 @@ where
     vrf_service: Option<VrfService>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ControllerDeploymentService<S, Pool, PP, PF>
 where
     Pool: TransactionPool,
@@ -83,14 +83,51 @@ where
         params: EstimateFeeParams,
         request: Request<'a>,
     ) -> S::MethodResponse {
-        let EstimateFeeParams { block_id, simulation_flags, txs } = params;
+        match self.handle_estimate_fee_inner(params, request).await {
+            Ok(response) => response,
+            Err(err) => MethodResponse::error(request.id().clone(), ErrorObjectOwned::from(err)),
+        }
+    }
 
-        let deploy_controller_txs =
-            self.get_deploy_controller_txs(block_id, &txs).await.unwrap_or_default();
+    async fn handle_execute_outside<'a>(
+        &self,
+        params: AddExecuteOutsideParams,
+        request: Request<'a>,
+    ) -> S::MethodResponse {
+        if let Err(err) = self.handle_execute_outside_inner(params).await {
+            MethodResponse::error(request.id().clone(), ErrorObjectOwned::from(err))
+        } else {
+            self.service.call(request).await
+        }
+    }
+
+    async fn handle_estimate_fee_inner<'a>(
+        &self,
+        params: EstimateFeeParams,
+        request: Request<'a>,
+    ) -> Result<S::MethodResponse, CartridgeApiError> {
+        let EstimateFeeParams { block_id, simulation_flags, transactions } = params;
+
+        let mut undeployed_addresses: Vec<ContractAddress> = Vec::new();
+
+        // iterate thru all txs and deploy any undeployed contract (if they are a Controller)
+        for tx in transactions {
+            let address = match tx {
+                BroadcastedTx::Invoke(tx) => tx.sender_address,
+                BroadcastedTx::Declare(tx) => tx.sender_address,
+                _ => continue,
+            };
+
+            undeployed_addresses.push(address);
+        }
+
+        let deployer_nonce = self.starknet.nonce_at(block_id, self.deployer_address).await.unwrap();
+        let deploy_txs =
+            self.get_controller_deployment_txs(undeployed_addresses, deployer_nonce).await.unwrap();
 
         // no Controller to deploy, simply forward the request
-        if deploy_controller_txs.is_empty() {
-            return self.service.call(request).await;
+        if deploy_txs.is_empty() {
+            return Ok(self.service.call(request).await);
         }
 
         let original_txs_count = txs.len();
@@ -119,22 +156,10 @@ where
             ResponsePayload::Success(estimates) => {
                 assert_eq!(estimates.len(), new_txs_count);
                 estimates.to_mut().drain(0..deploy_controller_txs_count);
-                build_no_fee_response(&request, original_txs_count)
+                Ok(build_no_fee_response(&request, original_txs_count))
             }
 
-            ResponsePayload::Error(..) => response,
-        }
-    }
-
-    async fn handle_execute_outside<'a>(
-        &self,
-        params: AddExecuteOutsideParams,
-        request: Request<'a>,
-    ) -> S::MethodResponse {
-        if let Err(err) = self.handle_execute_outside_inner(params).await {
-            MethodResponse::error(request.id().clone(), ErrorObjectOwned::from(err))
-        } else {
-            self.service.call(request).await
+            ResponsePayload::Error(..) => Ok(response),
         }
     }
 
@@ -190,49 +215,29 @@ where
         Ok(())
     }
 
-    async fn get_deploy_controller_txs(
+    async fn get_controller_deployment_txs(
         &self,
-        block_id: BlockIdOrTag,
-        transactions: &[BroadcastedTx],
+        controller_addreses: Vec<ContractAddress>,
+        initial_nonce: Nonce,
     ) -> Result<Vec<BroadcastedTx>, Error> {
         let mut deploy_transactions: Vec<BroadcastedTx> = Vec::new();
-        let mut deployed_controllers: HashSet<ContractAddress> = HashSet::new();
+        let mut processed_addresses: Vec<ContractAddress> = Vec::new();
 
-        let mut deployer_nonce =
-            self.starknet.nonce_at(block_id, self.deployer_address).await.unwrap();
+        let mut deployer_nonce = initial_nonce;
 
-        // iterate thru all txs and deploy any undeployed contract (if they are a Controller)
-        for tx in transactions {
-            let contract_address = match tx {
-                BroadcastedTx::Invoke(tx) => tx.sender_address,
-                BroadcastedTx::Declare(tx) => tx.sender_address,
-                _ => continue,
-            };
-
+        for address in controller_addreses {
             // If the address has already been processed in this txs batch, just skip.
-            if deployed_controllers.contains(&contract_address) {
+            if processed_addresses.contains(&address) {
                 continue;
             }
 
-            // check if the address has already been deployed.
-            match self.starknet.class_hash_at_address(block_id, contract_address).await {
-                // attempt to deploy if the address belongs to a Controller account
-                Err(StarknetApiError::ContractNotFound) => {
-                    let result = self
-                        .get_controller_deployment_tx(contract_address, deployer_nonce)
-                        .await?
-                        .map(BroadcastedTx::Invoke);
+            let deploy_tx = self.get_controller_deployment_tx(address, deployer_nonce).await?;
 
-                    // none means the address is not a Controller
-                    if let Some(tx) = result {
-                        deployed_controllers.insert(contract_address);
-                        deploy_transactions.push(tx);
-                        deployer_nonce += Nonce::ONE;
-                    }
-                }
-
-                Err(e) => panic!("{}", e.to_string()),
-                Ok(..) => continue,
+            // None means the address is not a Controller
+            if let Some(tx) = deploy_tx {
+                deployer_nonce += Nonce::ONE;
+                processed_addresses.push(address);
+                deploy_transactions.push(BroadcastedTx::Invoke(tx));
             }
         }
 
@@ -304,6 +309,8 @@ where
         &self,
         request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
+        let this = self.clone();
+
         async move {
             let method = request.method_name();
 
@@ -341,6 +348,26 @@ where
         n: Notification<'a>,
     ) -> impl Future<Output = Self::NotificationResponse> + Send + 'a {
         self.service.notification(n)
+    }
+}
+
+impl<S, Pool, PP, PF> Clone for ControllerDeploymentService<S, Pool, PP, PF>
+where
+    S: Clone,
+    Pool: TransactionPool,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    fn clone(&self) -> Self {
+        Self {
+            service: self.service.clone(),
+            starknet: self.starknet.clone(),
+            vrf_service: self.vrf_service.clone(),
+            cartridge_api: self.cartridge_api.clone(),
+            paymaster_client: self.paymaster_client.clone(),
+            deployer_address: self.deployer_address.clone(),
+            deployer_private_key: self.deployer_private_key.clone(),
+        }
     }
 }
 
@@ -382,7 +409,7 @@ struct AddExecuteOutsideParams {
 #[derive(Deserialize)]
 struct EstimateFeeParams {
     #[serde(alias = "request")]
-    txs: Vec<BroadcastedTx>,
+    transactions: Vec<BroadcastedTx>,
     #[serde(alias = "simulationFlags")]
     simulation_flags: Vec<SimulationFlagForEstimateFee>,
     #[serde(alias = "blockId")]
@@ -444,7 +471,7 @@ fn parse_estimate_fee_params(request: &Request<'_>) -> Option<EstimateFeeParams>
 
         match (txs_result, simulation_flags_result, block_id_result) {
             (Ok(txs), Ok(simulation_flags), Ok(block_id)) => {
-                Some(EstimateFeeParams { txs, simulation_flags, block_id })
+                Some(EstimateFeeParams { transactions: txs, simulation_flags, block_id })
             }
             _ => {
                 debug!(target: "cartridge", "Failed to parse estimate fee params.");
