@@ -470,6 +470,7 @@ impl From<VrfClientError> for Error {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct AddExecuteOutsideParams {
     address: ContractAddress,
