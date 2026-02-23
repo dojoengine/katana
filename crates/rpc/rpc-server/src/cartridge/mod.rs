@@ -74,8 +74,6 @@ pub struct CartridgeConfig {
     pub api_url: Url,
     pub paymaster_url: Url,
     pub paymaster_api_key: Option<String>,
-    pub controller_deployer_address: ContractAddress,
-    pub controller_deployer_private_key: Felt,
     #[cfg(feature = "vrf")]
     pub vrf: Option<vrf::VrfServiceConfig>,
 }
@@ -88,10 +86,6 @@ pub struct CartridgeApi<PF: ProviderFactory> {
     pool: TxPool,
     api_client: cartridge::CartridgeApiClient,
     paymaster_client: HttpClient,
-    /// The paymaster account address used for controller deployment.
-    controller_deployer_address: ContractAddress,
-    /// The paymaster account private key.
-    controller_deployer_private_key: Felt,
     #[cfg(feature = "vrf")]
     vrf_service: Option<VrfService>,
 }
@@ -108,8 +102,6 @@ where
             pool: self.pool.clone(),
             api_client: self.api_client.clone(),
             paymaster_client: self.paymaster_client.clone(),
-            controller_deployer_address: self.controller_deployer_address,
-            controller_deployer_private_key: self.controller_deployer_private_key,
             #[cfg(feature = "vrf")]
             vrf_service: self.vrf_service.clone(),
         }
@@ -154,8 +146,6 @@ where
             pool,
             api_client,
             paymaster_client,
-            controller_deployer_address: config.controller_deployer_address,
-            controller_deployer_private_key: config.controller_deployer_private_key,
             #[cfg(feature = "vrf")]
             vrf_service,
         })

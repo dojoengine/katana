@@ -37,10 +37,9 @@ const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE: &str = "cartridge_addExecuteFromOutsid
 const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX: &str = "cartridge_addExecuteOutsideTransaction";
 
 #[derive(Debug)]
-pub struct ControllerDeploymentLayer<Pool, PoolTx, PP, PF>
+pub struct ControllerDeploymentLayer<Pool, PP, PF>
 where
-    Pool: TransactionPool<Transaction = PoolTx> + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
@@ -53,10 +52,9 @@ where
     vrf_service: Option<VrfService>,
 }
 
-impl<Pool, PoolTx, PP, PF> ControllerDeploymentLayer<Pool, PoolTx, PP, PF>
+impl<Pool, PP, PF> ControllerDeploymentLayer<Pool, PP, PF>
 where
-    Pool: TransactionPool<Transaction = PoolTx> + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
@@ -80,7 +78,7 @@ where
     }
 }
 
-impl<S, Pool, PoolTx, PP, PF> Layer<S> for ControllerDeploymentLayer<Pool, PoolTx, PP, PF>
+impl<S, Pool, PoolTx, PP, PF> Layer<S> for ControllerDeploymentLayer<Pool, PP, PF>
 where
     Pool: TransactionPool<Transaction = PoolTx> + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
