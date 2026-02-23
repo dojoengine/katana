@@ -105,7 +105,7 @@ where
     config: Arc<Config>,
     pool: TxPool,
     #[cfg(feature = "cartridge")]
-    rpc_server: NodeRpcServer<P>,
+    rpc_server: NodeRpcServer<TxPool, PP, P>,
     #[cfg(not(feature = "cartridge"))]
     rpc_server: NodeRpcServer,
     #[cfg(feature = "grpc")]
