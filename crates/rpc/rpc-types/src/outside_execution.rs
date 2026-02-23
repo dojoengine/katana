@@ -87,8 +87,8 @@ impl OutsideExecution {
 
     pub fn as_felts(&self) -> Vec<Felt> {
         match self {
-            Self::V2(v) => OutsideExecutionV2::cairo_serialize(&v),
-            Self::V3(v) => OutsideExecutionV3::cairo_serialize(&v),
+            Self::V2(v) => OutsideExecutionV2::cairo_serialize(v),
+            Self::V3(v) => OutsideExecutionV3::cairo_serialize(v),
         }
     }
 
@@ -97,6 +97,13 @@ impl OutsideExecution {
         match self {
             Self::V2(v) => v.calls.len(),
             Self::V3(v) => v.calls.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::V2(v) => v.calls.is_empty(),
+            Self::V3(v) => v.calls.is_empty(),
         }
     }
 
