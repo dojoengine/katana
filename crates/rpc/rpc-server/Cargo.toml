@@ -65,6 +65,7 @@ alloy-provider = { workspace = true, default-features = false, features = [ "anv
 alloy-sol-types.workspace = true
 
 assert_matches.workspace = true
+axum.workspace = true
 cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
 indexmap.workspace = true
