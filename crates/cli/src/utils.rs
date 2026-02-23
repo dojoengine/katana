@@ -15,7 +15,7 @@ use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
-use katana_rpc_server::cors::HeaderValue;
+use katana_rpc_server::middleware::cors::HeaderValue;
 use katana_tracing::LogFormat;
 use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;

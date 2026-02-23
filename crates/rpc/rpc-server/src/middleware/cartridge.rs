@@ -42,7 +42,6 @@ where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     starknet: StarknetApi<Pool, PP, PF>,
     cartridge_api: CartridgeApiClient,
@@ -57,7 +56,6 @@ where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     pub fn new(
         starknet: StarknetApi<Pool, PP, PF>,
@@ -404,6 +402,24 @@ where
         n: Notification<'a>,
     ) -> impl Future<Output = Self::NotificationResponse> + Send + 'a {
         self.service.notification(n)
+    }
+}
+
+impl<Pool, PP, PF> Clone for ControllerDeploymentLayer<Pool, PP, PF>
+where
+    Pool: TransactionPool,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    fn clone(&self) -> Self {
+        Self {
+            starknet: self.starknet.clone(),
+            vrf_service: self.vrf_service.clone(),
+            cartridge_api: self.cartridge_api.clone(),
+            paymaster_client: self.paymaster_client.clone(),
+            deployer_address: self.deployer_address.clone(),
+            deployer_private_key: self.deployer_private_key.clone(),
+        }
     }
 }
 

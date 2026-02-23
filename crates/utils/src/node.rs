@@ -194,7 +194,6 @@ where
     }
 
     /// Returns the address of the node's gRPC server (if enabled).
-    #[cfg(feature = "grpc")]
     pub fn grpc_addr(&self) -> Option<&SocketAddr> {
         self.node.grpc().map(|h| h.addr())
     }

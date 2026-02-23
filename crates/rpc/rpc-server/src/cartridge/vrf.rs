@@ -91,15 +91,17 @@ mod tests {
     #[test]
     fn request_random_call_finds_position() {
         let vrf_address = ContractAddress::from(felt!("0x123"));
-        let other_call = katana_rpc_types::outside_execution::Call {
-            to: vrf_address,
-            selector: selector!("transfer"),
+
+        let other_call = Call {
             calldata: vec![Felt::ONE],
+            contract_address: vrf_address,
+            entry_point_selector: selector!("transfer"),
         };
-        let vrf_call = katana_rpc_types::outside_execution::Call {
-            to: vrf_address,
-            selector: selector!("request_random"),
+
+        let vrf_call = Call {
             calldata: vec![Felt::TWO],
+            contract_address: vrf_address,
+            entry_point_selector: selector!("request_random"),
         };
 
         let outside_execution = OutsideExecution::V2(OutsideExecutionV2 {
@@ -112,8 +114,9 @@ mod tests {
 
         let (call, position) =
             get_request_random_call(&outside_execution).expect("request_random found");
+
         assert_eq!(position, 1);
-        assert_eq!(call.selector, vrf_call.selector);
+        assert_eq!(call.entry_point_selector, vrf_call.entry_point_selector);
         assert_eq!(call.calldata, vrf_call.calldata);
     }
 }

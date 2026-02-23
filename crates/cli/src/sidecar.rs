@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use anyhow::{anyhow, Result};
 #[cfg(feature = "vrf")]
-pub use cartridge::vrf::{
+pub use cartridge::vrf::server::{
     get_vrf_account, VrfAccountCredentials, VrfBootstrapResult, VrfServer, VrfServerConfig,
     VrfServiceProcess, VRF_SERVER_PORT,
 };
@@ -62,7 +62,7 @@ pub async fn bootstrap_vrf(
     let rpc_url = local_rpc_url(&rpc_addr);
     let (account_address, pk) = prefunded_account(chain, 0)?;
 
-    let result = cartridge::vrf::bootstrap_vrf(rpc_url, account_address, pk).await?;
+    let result = cartridge::vrf::server::bootstrap_vrf(rpc_url, account_address, pk).await?;
 
     let mut vrf_service = VrfServer::new(VrfServerConfig {
         secret_key: result.secret_key,

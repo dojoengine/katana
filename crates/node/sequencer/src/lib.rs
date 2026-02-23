@@ -75,8 +75,8 @@ use crate::exit::NodeStoppedFuture;
 
 /// The concrete type of the RPC middleware stack used by the node.
 #[cfg(feature = "cartridge")]
-type NodeRpcMiddleware<Pool, PP, PF> = Stack<
-    Either<ControllerDeploymentLayer<Pool, PP, PF>, Identity>,
+type NodeRpcMiddleware<PF> = Stack<
+    Either<ControllerDeploymentLayer<TxPool, BlockProducer<PF>, PF>, Identity>,
     Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
 >;
 
@@ -84,7 +84,7 @@ type NodeRpcMiddleware<Pool, PP, PF> = Stack<
 type NodeRpcMiddleware = Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>;
 
 #[cfg(feature = "cartridge")]
-pub type NodeRpcServer<Pool, PP, PF> = RpcServer<NodeRpcMiddleware<Pool, PP, PF>>;
+pub type NodeRpcServer<PF> = RpcServer<NodeRpcMiddleware<PF>>;
 
 #[cfg(not(feature = "cartridge"))]
 pub type NodeRpcServer = RpcServer<NodeRpcMiddleware>;
@@ -105,7 +105,7 @@ where
     config: Arc<Config>,
     pool: TxPool,
     #[cfg(feature = "cartridge")]
-    rpc_server: NodeRpcServer<TxPool, PP, P>,
+    rpc_server: NodeRpcServer<P>,
     #[cfg(not(feature = "cartridge"))]
     rpc_server: NodeRpcServer,
     #[cfg(feature = "grpc")]
@@ -352,7 +352,7 @@ where
                 Some(ControllerDeploymentLayer::new(
                     starknet_api.clone(),
                     cartridge_api_client,
-                    HttpClient::builder().build(cfg.url)?,
+                    HttpClient::builder().build(cfg.url.clone())?,
                     cartridge_api_cfg.controller_deployer_address,
                     SigningKey::from_secret_scalar(
                         cartridge_api_cfg.controller_deployer_private_key,
