@@ -36,7 +36,7 @@ use http::{HeaderMap, HeaderName, HeaderValue};
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
-use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
+use katana_core::service::block_producer::BlockProducer;
 use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
@@ -161,20 +161,6 @@ where
         })
     }
 
-    fn nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, CartridgeApiError> {
-        match self.pool.get_nonce(address) {
-            pending_nonce @ Some(..) => Ok(pending_nonce),
-            None => Ok(self.state()?.nonce(address)?),
-        }
-    }
-
-    fn state(&self) -> Result<Box<dyn StateProvider>, CartridgeApiError> {
-        match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => Ok(self.backend.storage.provider().latest()?),
-            BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
-        }
-    }
-
     pub async fn execute_outside(
         &self,
         contract_address: ContractAddress,
@@ -261,6 +247,7 @@ where
     where
         T: FnOnce(Self) -> F,
         F: Future + Send + 'static,
+        F::Output: Send + 'static,
     {
         use tokio::runtime::Builder;
 

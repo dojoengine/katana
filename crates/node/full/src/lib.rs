@@ -26,7 +26,7 @@ use katana_pool::ordering::TipOrdering;
 use katana_provider::DbProviderFactory;
 use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
-use katana_rpc_server::cors::Cors;
+use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_stage::blocks::BatchBlockDownloader;

@@ -238,11 +238,15 @@ where
 
         let mut rpc_modules = RpcModule::new(());
 
-        let cors = Cors::new()
-        .allow_origins(config.rpc.cors_origins.clone())
         // Allow `POST` when accessing the resource
-        .allow_methods([Method::POST, Method::GET])
-        .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
+        let cors = Cors::new()
+            .allow_origins(config.rpc.cors_origins.clone())
+            .allow_methods([Method::POST, Method::GET])
+            .allow_headers([
+                CONTENT_TYPE,
+                "argent-client".parse().unwrap(),
+                "argent-version".parse().unwrap(),
+            ]);
 
         #[cfg(feature = "paymaster")]
         if let Some(cfg) = &config.paymaster {
@@ -251,8 +255,12 @@ where
         };
 
         #[cfg(feature = "cartridge")]
-        if let Some(cfg) = &config.paymaster {
+        let controller_deployment_layer = if let Some(cfg) = &config.paymaster {
             if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
+                use katana_rpc_client::HttpClient;
+                use katana_rpc_server::cartridge::VrfService;
+                use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
+
                 anyhow::ensure!(
                     config.rpc.apis.contains(&RpcModuleKind::Cartridge),
                     "Cartridge API should be enabled when paymaster is set"
@@ -274,6 +282,9 @@ where
                     None
                 };
 
+                let cartridge_api_client =
+                    cartridge::CartridgeApiClient::new(cartridge_api_cfg.cartridge_api_url.clone());
+
                 let cartridge_api_config = CartridgeConfig {
                     paymaster_url: cfg.url.clone(),
                     paymaster_api_key: cfg.api_key.clone(),
@@ -282,7 +293,7 @@ where
                     controller_deployer_private_key: cartridge_api_cfg
                         .controller_deployer_private_key,
                     #[cfg(feature = "vrf")]
-                    vrf,
+                    vrf: vrf.clone(),
                 };
 
                 let cartrige_api = CartridgeApi::new(
@@ -295,11 +306,16 @@ where
 
                 rpc_modules.merge(CartridgeApiServer::into_rpc(cartrige_api))?;
 
-                Some(CartridgePaymasterConfig {
-                    cartridge_api_url: cartridge_api_cfg.cartridge_api_url.clone(),
-                    paymaster_address: cartridge_api_cfg.controller_deployer_address,
-                    paymaster_private_key: cartridge_api_cfg.controller_deployer_private_key,
-                })
+                Some(ControllerDeploymentLayer::new(
+                    starknet_api.clone(),
+                    cartridge_api_client,
+                    HttpClient::builder().build(cfg.url)?,
+                    cartridge_api_cfg.controller_deployer_address,
+                    SigningKey::from_secret_scalar(
+                        cartridge_api_cfg.controller_deployer_private_key,
+                    ),
+                    vrf.map(VrfService::new),
+                ))
             } else {
                 None
             }
@@ -381,46 +397,6 @@ where
             }
         }
 
-        // --- build paymaster tower layer (if configured)
-
-        #[cfg(feature = "cartridge")]
-        let paymaster = if let Some(cfg) = &config.paymaster {
-            if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
-                if let Some(vrf_cfg) = &cartridge_api_cfg.vrf {
-                    info!(target: "cartridge", "Paymaster tower layer enabled");
-
-                    let cartridge_api_client = cartridge::CartridgeApiClient::new(
-                        cartridge_api_cfg.cartridge_api_url.clone(),
-                    );
-
-                    let rpc_url = url::Url::parse(&format!("http://{}", config.rpc.socket_addr()))
-                        .expect("valid rpc url");
-
-                    let vrf_client = cartridge::VrfClient::new(vrf_cfg.url.clone());
-
-                    Some(Paymaster::new(
-                        provider.clone(),
-                        cartridge_api_client,
-                        pool.clone(),
-                        config.chain.id(),
-                        cartridge_api_cfg.controller_deployer_address,
-                        SigningKey::from_secret_scalar(
-                            cartridge_api_cfg.controller_deployer_private_key,
-                        ),
-                        vrf_client,
-                        vrf_cfg.vrf_account,
-                        rpc_url,
-                    ))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
         // --- build rpc middleware
 
         let rpc_middleware = RpcServiceBuilder::new()
@@ -428,7 +404,7 @@ where
             .layer(RpcLoggerLayer::new());
 
         #[cfg(feature = "cartridge")]
-        let rpc_middleware = rpc_middleware.option_layer(paymaster.map(|p| p.layer()));
+        let rpc_middleware = rpc_middleware.option_layer(controller_deployment_layer);
 
         #[allow(unused_mut)]
         let mut rpc_server = RpcServer::new()

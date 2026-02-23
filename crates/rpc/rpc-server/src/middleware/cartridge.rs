@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::future::Future;
 
 use cartridge::vrf::VrfClientError;
@@ -27,6 +26,7 @@ use starknet::core::types::SimulationFlagForEstimateFee;
 use starknet::macros::selector;
 use starknet::signers::local_wallet::SignError;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
+use tower::Layer;
 use tracing::{debug, trace};
 
 use crate::cartridge::{encode_calls, VrfService};
@@ -37,9 +37,10 @@ const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE: &str = "cartridge_addExecuteFromOutsid
 const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX: &str = "cartridge_addExecuteOutsideTransaction";
 
 #[derive(Debug)]
-pub struct ControllerDeploymentLayer<Pool, PP, PF>
+pub struct ControllerDeploymentLayer<Pool, PoolTx, PP, PF>
 where
-    Pool: TransactionPool + 'static,
+    Pool: TransactionPool<Transaction = PoolTx> + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
@@ -50,6 +51,56 @@ where
     deployer_address: ContractAddress,
     deployer_private_key: SigningKey,
     vrf_service: Option<VrfService>,
+}
+
+impl<Pool, PoolTx, PP, PF> ControllerDeploymentLayer<Pool, PoolTx, PP, PF>
+where
+    Pool: TransactionPool<Transaction = PoolTx> + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    pub fn new(
+        starknet: StarknetApi<Pool, PP, PF>,
+        cartridge_api: CartridgeApiClient,
+        paymaster_client: HttpClient,
+        deployer_address: ContractAddress,
+        deployer_private_key: SigningKey,
+        vrf_service: Option<VrfService>,
+    ) -> Self {
+        Self {
+            starknet,
+            cartridge_api,
+            paymaster_client,
+            deployer_address,
+            deployer_private_key,
+            vrf_service,
+        }
+    }
+}
+
+impl<S, Pool, PoolTx, PP, PF> Layer<S> for ControllerDeploymentLayer<Pool, PoolTx, PP, PF>
+where
+    Pool: TransactionPool<Transaction = PoolTx> + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    type Service = ControllerDeploymentService<S, Pool, PP, PF>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        ControllerDeploymentService {
+            service: inner,
+            starknet: self.starknet.clone(),
+            cartridge_api: self.cartridge_api.clone(),
+            paymaster_client: self.paymaster_client.clone(),
+            vrf_service: self.vrf_service.clone(),
+            deployer_address: self.deployer_address,
+            deployer_private_key: self.deployer_private_key.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -89,7 +140,7 @@ where
         request: Request<'a>,
     ) -> S::MethodResponse {
         let request_id = request.id().clone();
-        match self.handle_estimate_fee_inner(params, request).await {
+        match self.starknet_estimate_fee_inner(params, request).await {
             Ok(response) => response,
             Err(err) => MethodResponse::error(request_id, ErrorObjectOwned::from(err)),
         }
@@ -100,14 +151,14 @@ where
         params: AddExecuteOutsideParams,
         request: Request<'a>,
     ) -> S::MethodResponse {
-        if let Err(err) = self.handle_execute_outside_inner(params).await {
+        if let Err(err) = self.cartridge_add_execute_from_outside_inner(params).await {
             MethodResponse::error(request.id().clone(), ErrorObjectOwned::from(err))
         } else {
             self.service.call(request).await
         }
     }
 
-    async fn handle_estimate_fee_inner<'a>(
+    async fn starknet_estimate_fee_inner<'a>(
         &self,
         params: EstimateFeeParams,
         request: Request<'a>,
@@ -169,7 +220,7 @@ where
         }
     }
 
-    async fn handle_execute_outside_inner(
+    async fn cartridge_add_execute_from_outside_inner(
         &self,
         params: AddExecuteOutsideParams,
     ) -> Result<(), CartridgeApiError> {
@@ -180,6 +231,7 @@ where
         let is_deployed = match self.starknet.class_hash_at_address(block_id, address).await {
             Ok(..) => true,
             Err(StarknetApiError::ContractNotFound) => false,
+
             Err(e) => {
                 return Err(CartridgeApiError::ControllerDeployment {
                     reason: format!("failed to check Controller deployment status: {e}"),
