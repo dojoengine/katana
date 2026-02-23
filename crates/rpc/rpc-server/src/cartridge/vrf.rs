@@ -52,7 +52,7 @@ impl VrfService {
         };
 
         let request = SignedOutsideExecution {
-            address: address.into(),
+            address,
             outside_execution: vrf_outside_execution,
             signature: signature.to_vec(),
         };

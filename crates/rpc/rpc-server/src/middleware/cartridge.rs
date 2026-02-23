@@ -192,7 +192,7 @@ where
         let response = self.service.call(new_request).await;
 
         let res = response.as_json().get();
-        let res = serde_json::from_str::<Response<Vec<FeeEstimate>>>(res).unwrap();
+        let res = serde_json::from_str::<Response<'_, Vec<FeeEstimate>>>(res).unwrap();
 
         match res.payload {
             ResponsePayload::Success(mut estimates) => {
@@ -405,7 +405,7 @@ where
             starknet: self.starknet.clone(),
             cartridge_api: self.cartridge_api.clone(),
             paymaster_client: self.paymaster_client.clone(),
-            deployer_address: self.deployer_address.clone(),
+            deployer_address: self.deployer_address,
             deployer_private_key: self.deployer_private_key.clone(),
         }
     }
@@ -424,7 +424,7 @@ where
             starknet: self.starknet.clone(),
             cartridge_api: self.cartridge_api.clone(),
             paymaster_client: self.paymaster_client.clone(),
-            deployer_address: self.deployer_address.clone(),
+            deployer_address: self.deployer_address,
             deployer_private_key: self.deployer_private_key.clone(),
         }
     }
