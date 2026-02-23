@@ -29,7 +29,7 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tower::Layer;
 use tracing::{debug, trace};
 
-use crate::cartridge::{encode_calls, VrfService};
+use crate::cartridge::encode_calls;
 use crate::starknet::{PendingBlockProvider, StarknetApi};
 
 const STARKNET_ESTIMATE_FEE: &str = "starknet_estimateFee";
@@ -48,7 +48,6 @@ where
     paymaster_client: HttpClient,
     deployer_address: ContractAddress,
     deployer_private_key: SigningKey,
-    vrf_service: Option<VrfService>,
 }
 
 impl<Pool, PP, PF> ControllerDeploymentLayer<Pool, PP, PF>
@@ -63,16 +62,8 @@ where
         paymaster_client: HttpClient,
         deployer_address: ContractAddress,
         deployer_private_key: SigningKey,
-        vrf_service: Option<VrfService>,
     ) -> Self {
-        Self {
-            starknet,
-            cartridge_api,
-            paymaster_client,
-            deployer_address,
-            deployer_private_key,
-            vrf_service,
-        }
+        Self { starknet, cartridge_api, paymaster_client, deployer_address, deployer_private_key }
     }
 }
 
@@ -92,7 +83,6 @@ where
             starknet: self.starknet.clone(),
             cartridge_api: self.cartridge_api.clone(),
             paymaster_client: self.paymaster_client.clone(),
-            vrf_service: self.vrf_service.clone(),
             deployer_address: self.deployer_address,
             deployer_private_key: self.deployer_private_key.clone(),
         }
@@ -111,7 +101,6 @@ where
     paymaster_client: HttpClient,
     deployer_address: ContractAddress,
     deployer_private_key: SigningKey,
-    vrf_service: Option<VrfService>,
     service: S,
 }
 
@@ -414,7 +403,6 @@ where
     fn clone(&self) -> Self {
         Self {
             starknet: self.starknet.clone(),
-            vrf_service: self.vrf_service.clone(),
             cartridge_api: self.cartridge_api.clone(),
             paymaster_client: self.paymaster_client.clone(),
             deployer_address: self.deployer_address.clone(),
@@ -434,7 +422,6 @@ where
         Self {
             service: self.service.clone(),
             starknet: self.starknet.clone(),
-            vrf_service: self.vrf_service.clone(),
             cartridge_api: self.cartridge_api.clone(),
             paymaster_client: self.paymaster_client.clone(),
             deployer_address: self.deployer_address.clone(),

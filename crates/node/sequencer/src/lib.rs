@@ -304,7 +304,6 @@ where
             if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
                 use anyhow::ensure;
                 use katana_rpc_client::HttpClient;
-                use katana_rpc_server::cartridge::VrfService;
                 use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
 
                 ensure!(
@@ -357,7 +356,6 @@ where
                     SigningKey::from_secret_scalar(
                         cartridge_api_cfg.controller_deployer_private_key,
                     ),
-                    vrf.map(VrfService::new),
                 ))
             } else {
                 None
