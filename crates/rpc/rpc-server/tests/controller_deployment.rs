@@ -1,9 +1,6 @@
 #![cfg(feature = "cartridge")]
 
 //! Integration tests for the `ControllerDeploymentService` middleware.
-//!
-//! These tests cover all code paths in the middleware's `starknet_estimateFee` and
-//! `cartridge_addExecuteFromOutside` interception logic.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -37,10 +34,440 @@ use tower::Layer;
 use url::Url;
 
 // ---------------------------------------------------------------------------
-// Mock types
+// Group 1: starknet_estimateFee
 // ---------------------------------------------------------------------------
 
-type TestPool = Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
+/// ## Case:
+///
+/// The sender address 0x1 already exists and requires no extra deployment.
+///
+/// ## Expected:
+///
+/// Since no Controllers need deployment, the request is forwarded unchanged
+/// and the response is passed through.
+#[tokio::test(flavor = "multi_thread")]
+async fn estimate_fee_forwards_when_no_controllers() {
+    let inner_responses = {
+        let mut m = HashMap::new();
+        // Return a valid fee estimate response for 1 transaction.
+        m.insert(
+            "starknet_estimateFee".to_string(),
+            json!([{
+                "l1_gas_consumed": "0x1",
+                "l1_gas_price": "0x2",
+                "l2_gas_consumed": "0x3",
+                "l2_gas_price": "0x4",
+                "l1_data_gas_consumed": "0x5",
+                "l1_data_gas_price": "0x6",
+                "overall_fee": "0x7"
+            }]),
+        );
+        m
+    };
+
+    let setup = setup_test(HashMap::new(), inner_responses).await;
+
+    let tx = make_invoke_tx_json(DEPLOYER_ADDRESS);
+    let params = json!([[tx], [], "latest"]);
+    let raw = make_rpc_request_str("starknet_estimateFee", &params);
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let response = setup.service.call(request).await;
+
+    // The inner service should have been called exactly once.
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1, "inner service should be called once");
+    assert_eq!(calls[0].method, "starknet_estimateFee");
+
+    // The response should contain the fee estimate from the inner service (passed through).
+    let response_json: serde_json::Value = serde_json::from_str(response.as_json().get()).unwrap();
+    let result = response_json.get("result").expect("response should have result");
+    assert!(result.is_array());
+    assert_eq!(result.as_array().unwrap().len(), 1);
+}
+
+/// ## Case:
+///
+/// Address 0xDEAD is not yet deployed and belongs to a Controller account.
+///
+/// ## Expected:
+///
+/// The middleware prepends a deploy transaction to the estimate fee
+/// request and returns estimates for the original transactions only.
+#[tokio::test(flavor = "multi_thread")]
+async fn estimate_fee_prepends_deploy_tx_for_controller() {
+    let cartridge_responses = {
+        let mut m = HashMap::new();
+        m.insert(CONTROLLER_ADDRESS.to_string(), controller_calldata_response(CONTROLLER_ADDRESS));
+        m
+    };
+
+    let inner_responses = {
+        let mut m = HashMap::new();
+        // The inner service will receive 2 txs (1 deploy + 1 original).
+        m.insert(
+            "starknet_estimateFee".to_string(),
+            json!([
+                {
+                    "l1_gas_consumed": "0xa",
+                    "l1_gas_price": "0xb",
+                    "l2_gas_consumed": "0xc",
+                    "l2_gas_price": "0xd",
+                    "l1_data_gas_consumed": "0xe",
+                    "l1_data_gas_price": "0xf",
+                    "overall_fee": "0x10"
+                },
+                {
+                    "l1_gas_consumed": "0x1",
+                    "l1_gas_price": "0x2",
+                    "l2_gas_consumed": "0x3",
+                    "l2_gas_price": "0x4",
+                    "l1_data_gas_consumed": "0x5",
+                    "l1_data_gas_price": "0x6",
+                    "overall_fee": "0x7"
+                }
+            ]),
+        );
+        m
+    };
+
+    let setup = setup_test(cartridge_responses, inner_responses).await;
+
+    let tx = make_invoke_tx_json(CONTROLLER_ADDRESS);
+    let params = json!([[tx], [], "latest"]);
+    let raw = make_rpc_request_str("starknet_estimateFee", &params);
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let response = setup.service.call(request).await;
+
+    // Inner service should receive 2 txs: deploy tx + original tx.
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1, "inner service should be called once");
+    assert_eq!(
+        calls[0].tx_count,
+        Some(2),
+        "inner service should receive 2 transactions (deploy + original)"
+    );
+
+    // The middleware response should have 1 zero-fee estimate (for the original tx only).
+    let response_json: serde_json::Value = serde_json::from_str(response.as_json().get()).unwrap();
+    let result = response_json.get("result").expect("response should have result");
+    let estimates = result.as_array().unwrap();
+    assert_eq!(estimates.len(), 1, "response should have 1 estimate for the original tx");
+
+    // All fee fields should be zero.
+    let est = &estimates[0];
+    assert_eq!(est["overall_fee"], "0x0");
+    assert_eq!(est["l1_gas_consumed"], "0x0");
+    assert_eq!(est["l2_gas_consumed"], "0x0");
+}
+
+/// ## Case:
+///
+/// Address 0xBEEF is not deployed and the Cartridge API does not recognize it as a
+/// Controller.
+///
+/// ## Expected:
+///
+/// Even though the address is undeployed, no deploy transaction is created and the original request
+/// is forwarded unchanged.
+#[tokio::test(flavor = "multi_thread")]
+async fn estimate_fee_forwards_for_non_controller() {
+    let inner_responses = {
+        let mut m = HashMap::new();
+        m.insert(
+            "starknet_estimateFee".to_string(),
+            json!([{
+                "l1_gas_consumed": "0x1",
+                "l1_gas_price": "0x2",
+                "l2_gas_consumed": "0x3",
+                "l2_gas_price": "0x4",
+                "l1_data_gas_consumed": "0x5",
+                "l1_data_gas_price": "0x6",
+                "overall_fee": "0x7"
+            }]),
+        );
+        m
+    };
+
+    let setup = setup_test(HashMap::new(), inner_responses).await;
+
+    let tx = make_invoke_tx_json(NON_CONTROLLER_ADDRESS);
+    let params = json!([[tx], [], "latest"]);
+    let raw = make_rpc_request_str("starknet_estimateFee", &params);
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let response = setup.service.call(request).await;
+
+    // Inner service receives the request unchanged (1 tx).
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "starknet_estimateFee");
+
+    // Response is passed through.
+    let response_json: serde_json::Value = serde_json::from_str(response.as_json().get()).unwrap();
+    let result = response_json.get("result").expect("response should have result");
+    assert_eq!(result.as_array().unwrap().len(), 1);
+}
+
+/// ## Case:
+///
+/// Three invoke transactions all from undeployed Controller address 0xDEAD.
+///
+/// ## Expected:
+///
+/// The middleware deduplicates by sender address, creating only one deploy transaction
+/// despite three transactions from the same sender.
+///
+/// Inner service receives 4 txs (1 deploy + 3 original); middleware returns 3 zero-fee estimates.
+#[tokio::test(flavor = "multi_thread")]
+async fn estimate_fee_deduplicates_same_controller() {
+    let cartridge_responses = {
+        let mut m = HashMap::new();
+        m.insert(CONTROLLER_ADDRESS.to_string(), controller_calldata_response(CONTROLLER_ADDRESS));
+        m
+    };
+
+    let inner_responses = {
+        let mut m = HashMap::new();
+        // Inner service receives 4 txs (1 deploy + 3 original).
+        m.insert(
+            "starknet_estimateFee".to_string(),
+            json!([
+                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
+                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
+                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
+                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" }
+            ]),
+        );
+        m
+    };
+
+    let setup = setup_test(cartridge_responses, inner_responses).await;
+
+    let tx1 = make_invoke_tx_json(CONTROLLER_ADDRESS);
+    let tx2 = make_invoke_tx_json(CONTROLLER_ADDRESS);
+    let tx3 = make_invoke_tx_json(CONTROLLER_ADDRESS);
+    let params = json!([[tx1, tx2, tx3], [], "latest"]);
+    let raw = make_rpc_request_str("starknet_estimateFee", &params);
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let response = setup.service.call(request).await;
+
+    // Inner service should receive 4 txs: 1 deploy + 3 original.
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        calls[0].tx_count,
+        Some(4),
+        "inner service should receive 4 transactions (1 deploy + 3 original)"
+    );
+
+    // Middleware should return 3 zero-fee estimates (one per original tx).
+    let response_json: serde_json::Value = serde_json::from_str(response.as_json().get()).unwrap();
+    let result = response_json.get("result").expect("response should have result");
+    let estimates = result.as_array().unwrap();
+    assert_eq!(estimates.len(), 3, "response should have 3 estimates for the 3 original txs");
+
+    for est in estimates {
+        assert_eq!(est["overall_fee"], "0x0");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Group 2: cartridge_addExecuteFromOutside
+// ---------------------------------------------------------------------------
+
+/// ## Case:
+///
+/// The sender address (0x1) is already deployed.
+///
+/// ## Expected:
+///
+/// The middleware detects this and skips Controller deployment, forwarding the
+/// request unchanged without querying the Cartridge API.
+///
+/// Inner service receives request unchanged; pool remains empty; Cartridge API receives no
+/// requests.
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_outside_skips_deploy_when_already_deployed() {
+    let setup = setup_test(HashMap::new(), HashMap::new()).await;
+
+    let params = make_execute_outside_params(DEPLOYER_ADDRESS);
+    let raw = make_rpc_request_str("cartridge_addExecuteFromOutside", &params);
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let _response = setup.service.call(request).await;
+
+    // Pool should be empty — no deploy tx was added.
+    assert_eq!(setup.pool.size(), 0, "pool should be empty");
+
+    // Inner service should have been called (request forwarded).
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
+
+    // Cartridge API should not have been queried.
+    let api_requests = setup.mock_api_state.received_requests.lock().unwrap();
+    assert!(api_requests.is_empty(), "Cartridge API should not have been queried");
+}
+
+/// ## Case:
+///
+/// The sender address (0xDEAD) is not deployed and belongs to a Controller account.
+///
+/// ## Expected:
+///
+/// The middleware creates a deploy transaction, adds it to the pool, and then forwards
+/// the original request to the inner service.
+///
+/// Pool contains 1 deploy transaction; inner service receives request.
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_outside_deploys_controller() {
+    let cartridge_responses = {
+        let mut m = HashMap::new();
+        m.insert(CONTROLLER_ADDRESS.to_string(), controller_calldata_response(CONTROLLER_ADDRESS));
+        m
+    };
+
+    let setup = setup_test(cartridge_responses, HashMap::new()).await;
+
+    let params = make_execute_outside_params(CONTROLLER_ADDRESS);
+    let raw = make_rpc_request_str("cartridge_addExecuteFromOutside", &params);
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let _response = setup.service.call(request).await;
+
+    // A deploy transaction should have been added to the pool.
+    assert_eq!(setup.pool.size(), 1, "pool should contain 1 deploy transaction");
+
+    // Inner service should have been called (request forwarded).
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
+}
+
+/// ## Case:
+///
+/// The sender address (0xBEEF) is not deployed and is not a Controller.
+///
+/// ## Expected:
+///
+/// The middleware skips deployment and forwards the request unchanged.
+///
+/// Pool remains empty; inner service receives request.
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_outside_skips_deploy_for_non_controller() {
+    let setup = setup_test(HashMap::new(), HashMap::new()).await;
+
+    let params = make_execute_outside_params(NON_CONTROLLER_ADDRESS);
+    let raw = make_rpc_request_str("cartridge_addExecuteFromOutside", &params);
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let _response = setup.service.call(request).await;
+
+    // Pool should be empty — no deploy tx was added.
+    assert_eq!(setup.pool.size(), 0, "pool should be empty");
+
+    // Inner service should have been called.
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
+}
+
+/// ## Case:
+///
+/// Same scenario as `execute_outside_deploys_controller` but uses the alternate
+/// method name "cartridge_addExecuteOutsideTransaction" to verify both method
+/// names are intercepted by the middleware.
+///
+/// ## Expected:
+///
+/// Deploy transaction added to pool and request forwarded.
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_outside_tx_method_variant() {
+    let cartridge_responses = {
+        let mut m = HashMap::new();
+        m.insert(CONTROLLER_ADDRESS.to_string(), controller_calldata_response(CONTROLLER_ADDRESS));
+        m
+    };
+
+    let setup = setup_test(cartridge_responses, HashMap::new()).await;
+
+    let params = make_execute_outside_params(CONTROLLER_ADDRESS);
+    let raw = make_rpc_request_str("cartridge_addExecuteOutsideTransaction", &params);
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let _response = setup.service.call(request).await;
+
+    // A deploy transaction should have been added to the pool.
+    assert_eq!(setup.pool.size(), 1, "pool should contain 1 deploy transaction");
+
+    // Inner service should have been called with the alternate method name.
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "cartridge_addExecuteOutsideTransaction");
+}
+
+// ---------------------------------------------------------------------------
+// Group 3: Passthrough
+// ---------------------------------------------------------------------------
+
+/// ## Case:
+///
+/// A request for "starknet_getBlockNumber" is not intercepted by the middleware
+/// and is forwarded directly to the inner service.
+///
+/// ## Expected:
+///
+/// inner service receives request unchanged; no Cartridge API requests made.
+#[tokio::test(flavor = "multi_thread")]
+async fn passthrough_other_methods() {
+    let setup = setup_test(HashMap::new(), HashMap::new()).await;
+
+    let raw = make_rpc_request_str("starknet_getBlockNumber", &json!([]));
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let _response = setup.service.call(request).await;
+
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "starknet_getBlockNumber");
+
+    let api_requests = setup.mock_api_state.received_requests.lock().unwrap();
+    assert!(api_requests.is_empty(), "Cartridge API should not have been queried");
+}
+
+/// ## Case:
+///
+/// When starknet_estimateFee is called with malformed params, the middleware
+/// should gracefully falls through to the inner service rather than erroring.
+///
+/// ## Expected:
+///
+/// Inner service receives request unchanged.
+#[tokio::test(flavor = "multi_thread")]
+async fn passthrough_malformed_estimate_fee() {
+    let setup = setup_test(HashMap::new(), HashMap::new()).await;
+
+    // Malformed params — not a valid array of transactions.
+    let raw = make_rpc_request_str("starknet_estimateFee", &json!(["not_valid"]));
+
+    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
+    let _response = setup.service.call(request).await;
+
+    // The inner service should have received the request (fallthrough).
+    let calls = setup.mock_rpc.recorded_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "starknet_estimateFee");
+}
+
+// ---------------------------------------------------------------------------
+// Test Fixtures
+// ---------------------------------------------------------------------------
+
+type TestPool =
+    Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
 
 /// A no-op pending block provider. All methods return `Ok(None)`, matching
 /// instant-mining mode behaviour.
@@ -109,10 +536,6 @@ impl PendingBlockProvider for NoPendingBlockProvider {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mock Cartridge API HTTP server
-// ---------------------------------------------------------------------------
-
 #[derive(Clone)]
 struct MockCartridgeApiState {
     /// Map from hex address (with "0x" prefix, lowercase) to the response JSON.
@@ -145,8 +568,9 @@ async fn start_mock_cartridge_api(
         received_requests: Arc::new(Mutex::new(Vec::new())),
     };
 
-    let app =
-        Router::new().route("/accounts/calldata", post(mock_cartridge_handler)).with_state(state.clone());
+    let app = Router::new()
+        .route("/accounts/calldata", post(mock_cartridge_handler))
+        .with_state(state.clone());
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -253,10 +677,6 @@ impl RpcServiceT for MockRpcService {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test fixture helpers
-// ---------------------------------------------------------------------------
-
 /// An undeployed address that the mock API will recognize as a Controller.
 const CONTROLLER_ADDRESS: &str = "0xdead";
 /// An undeployed address that the mock API will NOT recognize as a Controller.
@@ -361,9 +781,8 @@ async fn setup_test(
 
     // Create a dummy paymaster HTTP client — pointed at a non-routable address.
     // The tested code paths do not use the paymaster client.
-    let paymaster_client = jsonrpsee::http_client::HttpClientBuilder::default()
-        .build("http://127.0.0.1:1")
-        .unwrap();
+    let paymaster_client =
+        jsonrpsee::http_client::HttpClientBuilder::default().build("http://127.0.0.1:1").unwrap();
 
     let deployer_address = Felt::from(1u64).into();
     let deployer_private_key = SigningKey::from_secret_scalar(Felt::from(1u64));
@@ -381,436 +800,6 @@ async fn setup_test(
 
     TestSetup { service, mock_rpc, mock_api_state, pool }
 }
-
-// ---------------------------------------------------------------------------
-// Group 1: starknet_estimateFee
-// ---------------------------------------------------------------------------
-
-/// Code path: starknet_estimate_fee_inner -> get_controller_deployment_txs returns empty
-///            -> deploy_controller_txs.is_empty() == true -> forwards request as-is.
-///
-/// The sender address 0x1 exists in genesis. The middleware queries the Cartridge API
-/// for this address, which returns "Address not found" (not a Controller). Since no
-/// Controllers need deployment, the request is forwarded unchanged to the inner service.
-///
-/// Expected: inner service receives the exact same request; response is passed through.
-#[tokio::test(flavor = "multi_thread")]
-async fn estimate_fee_forwards_when_no_controllers() {
-    let inner_responses = {
-        let mut m = HashMap::new();
-        // Return a valid fee estimate response for 1 transaction.
-        m.insert(
-            "starknet_estimateFee".to_string(),
-            json!([{
-                "l1_gas_consumed": "0x1",
-                "l1_gas_price": "0x2",
-                "l2_gas_consumed": "0x3",
-                "l2_gas_price": "0x4",
-                "l1_data_gas_consumed": "0x5",
-                "l1_data_gas_price": "0x6",
-                "overall_fee": "0x7"
-            }]),
-        );
-        m
-    };
-
-    let setup = setup_test(HashMap::new(), inner_responses).await;
-
-    let tx = make_invoke_tx_json(DEPLOYER_ADDRESS);
-    let params = json!([[tx], [], "latest"]);
-    let raw = make_rpc_request_str("starknet_estimateFee", &params);
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let response = setup.service.call(request).await;
-
-    // The inner service should have been called exactly once.
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1, "inner service should be called once");
-    assert_eq!(calls[0].method, "starknet_estimateFee");
-
-    // The response should contain the fee estimate from the inner service (passed through).
-    let response_json: serde_json::Value = serde_json::from_str(response.as_json().get()).unwrap();
-    let result = response_json.get("result").expect("response should have result");
-    assert!(result.is_array());
-    assert_eq!(result.as_array().unwrap().len(), 1);
-}
-
-/// Code path: starknet_estimate_fee_inner -> get_controller_deployment_txs returns 1 deploy tx
-///            -> crafts new request with [deploy_tx, original_tx] -> calls inner service
-///            -> strips deploy tx result from response -> returns zero-fee estimates
-///            via build_no_fee_response.
-///
-/// Address 0xDEAD is not deployed (not in genesis). The Cartridge API returns constructor
-/// calldata for it, indicating it IS a Controller. The middleware creates a deploy tx signed
-/// by the deployer (0x1), prepends it to the estimate fee request, and after the inner
-/// service responds, returns zero-fee estimates for the original tx count only.
-///
-/// Expected: inner service receives 2 txs; middleware response has 1 zero-fee estimate.
-#[tokio::test(flavor = "multi_thread")]
-async fn estimate_fee_prepends_deploy_tx_for_controller() {
-    let cartridge_responses = {
-        let mut m = HashMap::new();
-        m.insert(CONTROLLER_ADDRESS.to_string(), controller_calldata_response(CONTROLLER_ADDRESS));
-        m
-    };
-
-    let inner_responses = {
-        let mut m = HashMap::new();
-        // The inner service will receive 2 txs (1 deploy + 1 original).
-        m.insert(
-            "starknet_estimateFee".to_string(),
-            json!([
-                {
-                    "l1_gas_consumed": "0xa",
-                    "l1_gas_price": "0xb",
-                    "l2_gas_consumed": "0xc",
-                    "l2_gas_price": "0xd",
-                    "l1_data_gas_consumed": "0xe",
-                    "l1_data_gas_price": "0xf",
-                    "overall_fee": "0x10"
-                },
-                {
-                    "l1_gas_consumed": "0x1",
-                    "l1_gas_price": "0x2",
-                    "l2_gas_consumed": "0x3",
-                    "l2_gas_price": "0x4",
-                    "l1_data_gas_consumed": "0x5",
-                    "l1_data_gas_price": "0x6",
-                    "overall_fee": "0x7"
-                }
-            ]),
-        );
-        m
-    };
-
-    let setup = setup_test(cartridge_responses, inner_responses).await;
-
-    let tx = make_invoke_tx_json(CONTROLLER_ADDRESS);
-    let params = json!([[tx], [], "latest"]);
-    let raw = make_rpc_request_str("starknet_estimateFee", &params);
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let response = setup.service.call(request).await;
-
-    // Inner service should receive 2 txs: deploy tx + original tx.
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1, "inner service should be called once");
-    assert_eq!(
-        calls[0].tx_count,
-        Some(2),
-        "inner service should receive 2 transactions (deploy + original)"
-    );
-
-    // The middleware response should have 1 zero-fee estimate (for the original tx only).
-    let response_json: serde_json::Value = serde_json::from_str(response.as_json().get()).unwrap();
-    let result = response_json.get("result").expect("response should have result");
-    let estimates = result.as_array().unwrap();
-    assert_eq!(estimates.len(), 1, "response should have 1 estimate for the original tx");
-
-    // All fee fields should be zero.
-    let est = &estimates[0];
-    assert_eq!(est["overall_fee"], "0x0");
-    assert_eq!(est["l1_gas_consumed"], "0x0");
-    assert_eq!(est["l2_gas_consumed"], "0x0");
-}
-
-/// Code path: starknet_estimate_fee_inner -> get_controller_deployment_txs
-///            -> get_controller_deployment_tx calls CartridgeAPI which returns None
-///            -> deploy list is empty -> forwards request as-is.
-///
-/// Address 0xBEEF is not deployed and the Cartridge API returns "Address not found"
-/// (not a Controller). Even though the address is undeployed, no deploy tx is created
-/// because it's not a recognized Controller address.
-///
-/// Expected: inner service receives the original request unchanged.
-#[tokio::test(flavor = "multi_thread")]
-async fn estimate_fee_forwards_for_non_controller() {
-    let inner_responses = {
-        let mut m = HashMap::new();
-        m.insert(
-            "starknet_estimateFee".to_string(),
-            json!([{
-                "l1_gas_consumed": "0x1",
-                "l1_gas_price": "0x2",
-                "l2_gas_consumed": "0x3",
-                "l2_gas_price": "0x4",
-                "l1_data_gas_consumed": "0x5",
-                "l1_data_gas_price": "0x6",
-                "overall_fee": "0x7"
-            }]),
-        );
-        m
-    };
-
-    let setup = setup_test(HashMap::new(), inner_responses).await;
-
-    let tx = make_invoke_tx_json(NON_CONTROLLER_ADDRESS);
-    let params = json!([[tx], [], "latest"]);
-    let raw = make_rpc_request_str("starknet_estimateFee", &params);
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let response = setup.service.call(request).await;
-
-    // Inner service receives the request unchanged (1 tx).
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "starknet_estimateFee");
-
-    // Response is passed through.
-    let response_json: serde_json::Value = serde_json::from_str(response.as_json().get()).unwrap();
-    let result = response_json.get("result").expect("response should have result");
-    assert_eq!(result.as_array().unwrap().len(), 1);
-}
-
-/// Code path: starknet_estimate_fee_inner -> get_controller_deployment_txs
-///            -> processes 3 txs from same address -> dedup via processed_addresses
-///            -> only 1 deploy tx created -> new request has 4 txs total.
-///
-/// Three invoke txs all from undeployed Controller address 0xDEAD. The middleware
-/// deduplicates by tracking processed addresses, creating only one deploy tx despite
-/// three txs from the same sender.
-///
-/// Expected: inner service receives 4 txs (1 deploy + 3 original);
-///           middleware returns 3 zero-fee estimates.
-#[tokio::test(flavor = "multi_thread")]
-async fn estimate_fee_deduplicates_same_controller() {
-    let cartridge_responses = {
-        let mut m = HashMap::new();
-        m.insert(CONTROLLER_ADDRESS.to_string(), controller_calldata_response(CONTROLLER_ADDRESS));
-        m
-    };
-
-    let inner_responses = {
-        let mut m = HashMap::new();
-        // Inner service receives 4 txs (1 deploy + 3 original).
-        m.insert(
-            "starknet_estimateFee".to_string(),
-            json!([
-                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
-                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
-                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
-                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" }
-            ]),
-        );
-        m
-    };
-
-    let setup = setup_test(cartridge_responses, inner_responses).await;
-
-    let tx1 = make_invoke_tx_json(CONTROLLER_ADDRESS);
-    let tx2 = make_invoke_tx_json(CONTROLLER_ADDRESS);
-    let tx3 = make_invoke_tx_json(CONTROLLER_ADDRESS);
-    let params = json!([[tx1, tx2, tx3], [], "latest"]);
-    let raw = make_rpc_request_str("starknet_estimateFee", &params);
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let response = setup.service.call(request).await;
-
-    // Inner service should receive 4 txs: 1 deploy + 3 original.
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(
-        calls[0].tx_count,
-        Some(4),
-        "inner service should receive 4 transactions (1 deploy + 3 original)"
-    );
-
-    // Middleware should return 3 zero-fee estimates (one per original tx).
-    let response_json: serde_json::Value = serde_json::from_str(response.as_json().get()).unwrap();
-    let result = response_json.get("result").expect("response should have result");
-    let estimates = result.as_array().unwrap();
-    assert_eq!(estimates.len(), 3, "response should have 3 estimates for the 3 original txs");
-
-    for est in estimates {
-        assert_eq!(est["overall_fee"], "0x0");
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Group 2: cartridge_addExecuteFromOutside
-// ---------------------------------------------------------------------------
-
-/// Code path: cartridge_add_execute_from_outside_inner -> class_hash_at_address returns Ok
-///            -> is_deployed == true -> returns Ok(()) early -> forwards to inner service.
-///
-/// Address 0x1 exists in genesis with a class hash. The middleware checks deployment
-/// status via class_hash_at_address, finds it deployed, and short-circuits without
-/// querying the Cartridge API or adding any deploy transaction to the pool.
-///
-/// Expected: inner service receives request unchanged; pool remains empty;
-///           Cartridge API receives no requests.
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_outside_skips_deploy_when_already_deployed() {
-    let setup = setup_test(HashMap::new(), HashMap::new()).await;
-
-    let params = make_execute_outside_params(DEPLOYER_ADDRESS);
-    let raw = make_rpc_request_str("cartridge_addExecuteFromOutside", &params);
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let _response = setup.service.call(request).await;
-
-    // Pool should be empty — no deploy tx was added.
-    assert_eq!(setup.pool.size(), 0, "pool should be empty");
-
-    // Inner service should have been called (request forwarded).
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
-
-    // Cartridge API should not have been queried.
-    let api_requests = setup.mock_api_state.received_requests.lock().unwrap();
-    assert!(api_requests.is_empty(), "Cartridge API should not have been queried");
-}
-
-/// Code path: cartridge_add_execute_from_outside_inner -> class_hash_at_address returns
-///            ContractNotFound -> is_deployed == false -> gets deployer nonce
-///            -> get_controller_deployment_tx returns Some(tx) -> add_invoke_tx adds
-///            deploy tx to pool -> forwards original request to inner service.
-///
-/// Address 0xDEAD is not deployed. The Cartridge API returns constructor calldata.
-/// The middleware creates a deploy invoke tx signed by the deployer, adds it to the
-/// transaction pool, and then forwards the original request to the inner service.
-///
-/// Expected: pool.size() == 1 (deploy tx was added); inner service receives request.
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_outside_deploys_controller() {
-    let cartridge_responses = {
-        let mut m = HashMap::new();
-        m.insert(CONTROLLER_ADDRESS.to_string(), controller_calldata_response(CONTROLLER_ADDRESS));
-        m
-    };
-
-    let setup = setup_test(cartridge_responses, HashMap::new()).await;
-
-    let params = make_execute_outside_params(CONTROLLER_ADDRESS);
-    let raw = make_rpc_request_str("cartridge_addExecuteFromOutside", &params);
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let _response = setup.service.call(request).await;
-
-    // A deploy transaction should have been added to the pool.
-    assert_eq!(setup.pool.size(), 1, "pool should contain 1 deploy transaction");
-
-    // Inner service should have been called (request forwarded).
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
-}
-
-/// Code path: cartridge_add_execute_from_outside_inner -> class_hash_at_address returns
-///            ContractNotFound -> is_deployed == false -> get_controller_deployment_tx
-///            returns None (CartridgeAPI says not a Controller) -> forwards to inner service.
-///
-/// Address 0xBEEF is not deployed and the Cartridge API returns "Address not found".
-/// The middleware skips deployment since the address is not a Controller, and
-/// forwards the original request unchanged.
-///
-/// Expected: pool remains empty; inner service receives request.
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_outside_skips_deploy_for_non_controller() {
-    let setup = setup_test(HashMap::new(), HashMap::new()).await;
-
-    let params = make_execute_outside_params(NON_CONTROLLER_ADDRESS);
-    let raw = make_rpc_request_str("cartridge_addExecuteFromOutside", &params);
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let _response = setup.service.call(request).await;
-
-    // Pool should be empty — no deploy tx was added.
-    assert_eq!(setup.pool.size(), 0, "pool should be empty");
-
-    // Inner service should have been called.
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
-}
-
-/// Code path: Same as execute_outside_deploys_controller but verifies that the
-///            alternate method name "cartridge_addExecuteOutsideTransaction" is also
-///            intercepted.
-///
-/// Expected: Same behavior as execute_outside_deploys_controller — deploy tx added
-///           to pool and request forwarded.
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_outside_tx_method_variant() {
-    let cartridge_responses = {
-        let mut m = HashMap::new();
-        m.insert(CONTROLLER_ADDRESS.to_string(), controller_calldata_response(CONTROLLER_ADDRESS));
-        m
-    };
-
-    let setup = setup_test(cartridge_responses, HashMap::new()).await;
-
-    let params = make_execute_outside_params(CONTROLLER_ADDRESS);
-    let raw = make_rpc_request_str("cartridge_addExecuteOutsideTransaction", &params);
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let _response = setup.service.call(request).await;
-
-    // A deploy transaction should have been added to the pool.
-    assert_eq!(setup.pool.size(), 1, "pool should contain 1 deploy transaction");
-
-    // Inner service should have been called with the alternate method name.
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "cartridge_addExecuteOutsideTransaction");
-}
-
-// ---------------------------------------------------------------------------
-// Group 3: Passthrough
-// ---------------------------------------------------------------------------
-
-/// Code path: RpcServiceT::call -> method name doesn't match any intercepted method
-///            -> falls through to this.service.call(request).
-///
-/// A request for "starknet_getBlockNumber" should be forwarded directly to the
-/// inner service without any interception or Cartridge API calls.
-///
-/// Expected: inner service receives request unchanged; no Cartridge API requests made.
-#[tokio::test(flavor = "multi_thread")]
-async fn passthrough_other_methods() {
-    let setup = setup_test(HashMap::new(), HashMap::new()).await;
-
-    let raw = make_rpc_request_str("starknet_getBlockNumber", &json!([]));
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let _response = setup.service.call(request).await;
-
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "starknet_getBlockNumber");
-
-    let api_requests = setup.mock_api_state.received_requests.lock().unwrap();
-    assert!(api_requests.is_empty(), "Cartridge API should not have been queried");
-}
-
-/// Code path: RpcServiceT::call -> method matches STARKNET_ESTIMATE_FEE
-///            -> parse_estimate_fee_params returns None (malformed params)
-///            -> falls through to this.service.call(request).
-///
-/// When starknet_estimateFee is called with params that cannot be deserialized,
-/// the middleware gracefully falls through to the inner service rather than erroring.
-///
-/// Expected: inner service receives request unchanged.
-#[tokio::test(flavor = "multi_thread")]
-async fn passthrough_malformed_estimate_fee() {
-    let setup = setup_test(HashMap::new(), HashMap::new()).await;
-
-    // Malformed params — not a valid array of transactions.
-    let raw = make_rpc_request_str("starknet_estimateFee", &json!(["not_valid"]));
-
-    let request: Request<'_> = serde_json::from_str(&raw).unwrap();
-    let _response = setup.service.call(request).await;
-
-    // The inner service should have received the request (fallthrough).
-    let calls = setup.mock_rpc.recorded_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "starknet_estimateFee");
-}
-
-// ---------------------------------------------------------------------------
-// Helper to build execute outside params
-// ---------------------------------------------------------------------------
 
 fn make_execute_outside_params(address: &str) -> serde_json::Value {
     json!([
