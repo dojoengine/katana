@@ -32,6 +32,10 @@ use tracing::{debug, trace};
 use crate::cartridge::{encode_calls, VrfService};
 use crate::starknet::{PendingBlockProvider, StarknetApi};
 
+const STARKNET_ESTIMATE_FEE: &str = "starknet_estimateFee";
+const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE: &str = "cartridge_addExecuteFromOutside";
+const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX: &str = "cartridge_addExecuteOutsideTransaction";
+
 #[derive(Debug)]
 pub struct ControllerDeploymentLayer<Pool, PP, PF>
 where
@@ -66,8 +70,9 @@ where
 
 impl<S, Pool, PoolTx, PP, PF> ControllerDeploymentService<S, Pool, PP, PF>
 where
+    S: RpcServiceT + Send + Sync + Clone + 'static,
     S: RpcServiceT<MethodResponse = MethodResponse>,
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    Pool: TransactionPool<Transaction = PoolTx> + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
@@ -78,18 +83,19 @@ where
     // extras results from estimate_fees to be
     // sure to return the same number of result than the number
     // of transactions in the request.
-    async fn handle_estimate_fee<'a>(
+    async fn starknet_estimate_fee<'a>(
         &self,
         params: EstimateFeeParams,
         request: Request<'a>,
     ) -> S::MethodResponse {
+        let request_id = request.id().clone();
         match self.handle_estimate_fee_inner(params, request).await {
             Ok(response) => response,
-            Err(err) => MethodResponse::error(request.id().clone(), ErrorObjectOwned::from(err)),
+            Err(err) => MethodResponse::error(request_id, ErrorObjectOwned::from(err)),
         }
     }
 
-    async fn handle_execute_outside<'a>(
+    async fn cartridge_add_execute_from_outside<'a>(
         &self,
         params: AddExecuteOutsideParams,
         request: Request<'a>,
@@ -150,7 +156,7 @@ where
         let response = self.service.call(new_request).await;
 
         let res = response.as_json().get();
-        let mut res = serde_json::from_str::<Response<Vec<FeeEstimate>>>(res).unwrap();
+        let res = serde_json::from_str::<Response<Vec<FeeEstimate>>>(res).unwrap();
 
         match res.payload {
             ResponsePayload::Success(mut estimates) => {
@@ -295,7 +301,7 @@ impl<S, Pool, PoolTx, PP, PF> RpcServiceT for ControllerDeploymentService<S, Poo
 where
     S: RpcServiceT + Send + Sync + Clone + 'static,
     S: RpcServiceT<MethodResponse = MethodResponse>,
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    Pool: TransactionPool<Transaction = PoolTx> + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
@@ -315,17 +321,17 @@ where
             let method = request.method_name();
 
             match method {
-                "starknet_estimateFee" => {
+                STARKNET_ESTIMATE_FEE => {
                     trace!(%method, "Intercepting JSON-RPC method.");
                     if let Some(params) = parse_estimate_fee_params(&request) {
-                        return this.handle_estimate_fee(params, request).await;
+                        return this.starknet_estimate_fee(params, request).await;
                     }
                 }
 
-                "addExecuteOutsideTransaction" | "addExecuteFromOutside" => {
+                CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE | CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX => {
                     trace!(%method, "Intercepting JSON-RPC method.");
                     if let Some(params) = parse_execute_outside_params(&request) {
-                        return this.handle_execute_outside(params, request).await;
+                        return this.cartridge_add_execute_from_outside(params, request).await;
                     }
                 }
 

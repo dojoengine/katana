@@ -153,11 +153,11 @@ pub struct Error {
     /// The hash of the transaction that failed validation.
     pub hash: TxHash,
     /// The actual error object.
-    pub error: Box<dyn std::error::Error + Send>,
+    pub error: Box<dyn std::error::Error + Send + Sync + 'static>,
 }
 
 impl Error {
-    pub fn new(hash: TxHash, error: Box<dyn std::error::Error + Send>) -> Self {
+    pub fn new(hash: TxHash, error: Box<dyn std::error::Error + Send + Sync + 'static>) -> Self {
         Self { hash, error }
     }
 }
