@@ -21,7 +21,7 @@ use katana_pool::ordering::FiFo;
 use katana_pool::pool::Pool;
 use katana_pool::validation::NoopValidator;
 use katana_primitives::transaction::ExecutableTxWithHash;
-use katana_primitives::Felt;
+use katana_primitives::{felt, Felt};
 use katana_provider::test_utils::test_provider;
 use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi, StarknetApiConfig};
@@ -49,18 +49,17 @@ use url::Url;
 async fn estimate_fee_forwards_when_no_controllers() {
     let inner_responses = {
         let mut m = HashMap::new();
-        // Return a valid fee estimate response for 1 transaction.
         m.insert(
             "starknet_estimateFee".to_string(),
-            json!([{
-                "l1_gas_consumed": "0x1",
-                "l1_gas_price": "0x2",
-                "l2_gas_consumed": "0x3",
-                "l2_gas_price": "0x4",
-                "l1_data_gas_consumed": "0x5",
-                "l1_data_gas_price": "0x6",
-                "overall_fee": "0x7"
-            }]),
+            vec![FeeEstimate {
+                l1_gas_consumed: felt!("1"),
+                l1_gas_price: felt!("2"),
+                l2_gas_consumed: felt!("3"),
+                l2_gas_price: felt!("4"),
+                l1_data_gas_consumed: felt!("5"),
+                l1_data_gas_price: felt!("6"),
+                overall_fee: felt!("7"),
+            }],
         );
         m
     };
@@ -107,26 +106,26 @@ async fn estimate_fee_prepends_deploy_tx_for_controller() {
         // The inner service will receive 2 txs (1 deploy + 1 original).
         m.insert(
             "starknet_estimateFee".to_string(),
-            json!([
-                {
-                    "l1_gas_consumed": "0xa",
-                    "l1_gas_price": "0xb",
-                    "l2_gas_consumed": "0xc",
-                    "l2_gas_price": "0xd",
-                    "l1_data_gas_consumed": "0xe",
-                    "l1_data_gas_price": "0xf",
-                    "overall_fee": "0x10"
+            vec![
+                FeeEstimate {
+                    l1_gas_consumed: felt!("0xa"),
+                    l1_gas_price: felt!("0xb"),
+                    l2_gas_consumed: felt!("0xc"),
+                    l2_gas_price: felt!("0xd"),
+                    l1_data_gas_consumed: felt!("0xe"),
+                    l1_data_gas_price: felt!("0xf"),
+                    overall_fee: felt!("0x10"),
                 },
-                {
-                    "l1_gas_consumed": "0x1",
-                    "l1_gas_price": "0x2",
-                    "l2_gas_consumed": "0x3",
-                    "l2_gas_price": "0x4",
-                    "l1_data_gas_consumed": "0x5",
-                    "l1_data_gas_price": "0x6",
-                    "overall_fee": "0x7"
-                }
-            ]),
+                FeeEstimate {
+                    l1_gas_consumed: felt!("1"),
+                    l1_gas_price: felt!("2"),
+                    l2_gas_consumed: felt!("3"),
+                    l2_gas_price: felt!("4"),
+                    l1_data_gas_consumed: felt!("5"),
+                    l1_data_gas_price: felt!("6"),
+                    overall_fee: felt!("7"),
+                },
+            ],
         );
         m
     };
@@ -177,15 +176,15 @@ async fn estimate_fee_forwards_for_non_controller() {
         let mut m = HashMap::new();
         m.insert(
             "starknet_estimateFee".to_string(),
-            json!([{
-                "l1_gas_consumed": "0x1",
-                "l1_gas_price": "0x2",
-                "l2_gas_consumed": "0x3",
-                "l2_gas_price": "0x4",
-                "l1_data_gas_consumed": "0x5",
-                "l1_data_gas_price": "0x6",
-                "overall_fee": "0x7"
-            }]),
+            vec![FeeEstimate {
+                l1_gas_consumed: felt!("1"),
+                l1_gas_price: felt!("2"),
+                l2_gas_consumed: felt!("3"),
+                l2_gas_price: felt!("4"),
+                l1_data_gas_consumed: felt!("5"),
+                l1_data_gas_price: felt!("6"),
+                overall_fee: felt!("7"),
+            }],
         );
         m
     };
@@ -228,17 +227,22 @@ async fn estimate_fee_deduplicates_same_controller() {
         m
     };
 
+    let zero_fee = FeeEstimate {
+        l1_gas_consumed: felt!("0"),
+        l1_gas_price: felt!("0"),
+        l2_gas_consumed: felt!("0"),
+        l2_gas_price: felt!("0"),
+        l1_data_gas_consumed: felt!("0"),
+        l1_data_gas_price: felt!("0"),
+        overall_fee: felt!("0"),
+    };
+
     let inner_responses = {
         let mut m = HashMap::new();
         // Inner service receives 4 txs (1 deploy + 3 original).
         m.insert(
             "starknet_estimateFee".to_string(),
-            json!([
-                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
-                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
-                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" },
-                { "l1_gas_consumed": "0x0", "l1_gas_price": "0x0", "l2_gas_consumed": "0x0", "l2_gas_price": "0x0", "l1_data_gas_consumed": "0x0", "l1_data_gas_price": "0x0", "overall_fee": "0x0" }
-            ]),
+            vec![zero_fee.clone(), zero_fee.clone(), zero_fee.clone(), zero_fee],
         );
         m
     };
@@ -600,11 +604,11 @@ struct MockRpcService {
     /// Records all calls.
     calls: Arc<Mutex<Vec<RecordedCall>>>,
     /// Pre-configured response JSON per method name.
-    responses: Arc<HashMap<String, serde_json::Value>>,
+    responses: Arc<HashMap<String, Vec<FeeEstimate>>>,
 }
 
 impl MockRpcService {
-    fn new(responses: HashMap<String, serde_json::Value>) -> Self {
+    fn new(responses: HashMap<String, Vec<FeeEstimate>>) -> Self {
         Self { calls: Arc::new(Mutex::new(Vec::new())), responses: Arc::new(responses) }
     }
 
@@ -748,7 +752,7 @@ struct TestSetup {
 
 async fn setup_test(
     cartridge_api_responses: HashMap<String, serde_json::Value>,
-    inner_rpc_responses: HashMap<String, serde_json::Value>,
+    inner_rpc_responses: HashMap<String, Vec<FeeEstimate>>,
 ) -> TestSetup {
     let (mock_url, mock_api_state) = start_mock_cartridge_api(cartridge_api_responses).await;
 
