@@ -20,7 +20,7 @@ use katana_rpc_server::shard::{ShardProvider, ShardRpc};
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_sharding::manager::{LazyShardManager, ShardManager};
-use katana_sharding::runtime::{RuntimeHandle, ShardRuntime};
+use katana_sharding::runtime::{Runtime, RuntimeHandle};
 use katana_sharding::types::NoPendingBlockProvider;
 use katana_tasks::TaskManager;
 use parking_lot::Mutex;
@@ -38,7 +38,7 @@ pub struct Node {
     pub handle: RuntimeHandle,
     pub task_manager: TaskManager,
     pub rpc_server: RpcServer,
-    pub runtime: Mutex<Option<ShardRuntime>>,
+    pub runtime: Mutex<Option<Runtime>>,
 }
 
 impl Node {
@@ -89,12 +89,10 @@ impl Node {
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: executor_factory.execution_flags().clone(),
             versioned_constant_overrides,
-            #[cfg(feature = "cartridge")]
-            paymaster: None,
         };
 
         // --- Build runtime (scheduler + workers)
-        let runtime = ShardRuntime::new(config.worker_count, config.time_quantum);
+        let runtime = Runtime::new(config.worker_count, config.time_quantum);
         let handle = runtime.handle();
 
         // --- Build shard manager

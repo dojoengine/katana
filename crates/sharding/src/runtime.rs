@@ -2,9 +2,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::scheduler::ShardScheduler;
+use anyhow::Result;
+
+use crate::scheduler::Scheduler;
 use crate::types::Shard;
-use crate::worker;
+use crate::worker::Worker;
 
 /// Owns the execution resources (scheduler + worker threads) for the shard node.
 ///
@@ -19,10 +21,10 @@ use crate::worker;
 ///   so workers detach immediately.
 /// - **Drop** — if the runtime has not been consumed by one of the above methods, the `Drop` impl
 ///   signals the scheduler and blocks until all workers exit.
-pub struct ShardRuntime {
+pub struct Runtime {
     handle: RuntimeHandle,
     worker_count: usize,
-    worker_handles: Vec<thread::JoinHandle<()>>,
+    worker_handles: Vec<thread::JoinHandle<Result<()>>>,
 }
 
 /// Cheap, cloneable reference for scheduling work on the [`ShardRuntime`].
@@ -30,7 +32,7 @@ pub struct ShardRuntime {
 /// Analogous to `tokio::runtime::Handle`.
 #[derive(Clone, Debug)]
 pub struct RuntimeHandle {
-    scheduler: ShardScheduler,
+    scheduler: Scheduler,
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +46,7 @@ impl RuntimeHandle {
     }
 
     /// Returns a reference to the underlying scheduler.
-    pub fn scheduler(&self) -> &ShardScheduler {
+    pub fn scheduler(&self) -> &Scheduler {
         &self.scheduler
     }
 }
@@ -53,10 +55,10 @@ impl RuntimeHandle {
 // ShardRuntime
 // ---------------------------------------------------------------------------
 
-impl ShardRuntime {
+impl Runtime {
     /// Creates a new runtime. Workers are **not** spawned until [`start`](Self::start) is called.
     pub fn new(worker_count: usize, time_quantum: Duration) -> Self {
-        let scheduler = ShardScheduler::new(time_quantum);
+        let scheduler = Scheduler::new(time_quantum);
         let handle = RuntimeHandle { scheduler };
         Self { handle, worker_count, worker_handles: Vec::new() }
     }
@@ -69,8 +71,21 @@ impl ShardRuntime {
     /// Spawns the worker threads. Must be called exactly once.
     pub fn start(&mut self) {
         assert!(self.worker_handles.is_empty(), "ShardRuntime::start called more than once");
-        self.worker_handles =
-            worker::spawn_workers(self.worker_count, self.handle.scheduler.clone());
+
+        let total_workers = self.worker_count;
+        let scheduler_handle = self.handle.scheduler.clone();
+
+        self.worker_handles = (0..total_workers)
+            .map(|worker_id| {
+                let worker = Worker::new(worker_id, scheduler_handle.clone());
+                let worker_thread_name = format!("shard-worker-{worker_id}");
+
+                std::thread::Builder::new()
+                    .name(worker_thread_name)
+                    .spawn(move || worker.run())
+                    .expect("failed to spawn shard worker thread")
+            })
+            .collect::<Vec<thread::JoinHandle<Result<()>>>>();
     }
 
     /// Signals the scheduler to shut down, then joins worker threads up to `duration`.
@@ -109,7 +124,7 @@ impl ShardRuntime {
     }
 }
 
-impl Drop for ShardRuntime {
+impl Drop for Runtime {
     fn drop(&mut self) {
         if !self.worker_handles.is_empty() {
             self.handle.scheduler.shutdown();
@@ -120,7 +135,7 @@ impl Drop for ShardRuntime {
     }
 }
 
-impl std::fmt::Debug for ShardRuntime {
+impl std::fmt::Debug for Runtime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ShardRuntime")
             .field("worker_count", &self.worker_count)

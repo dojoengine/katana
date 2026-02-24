@@ -16,7 +16,6 @@ pub mod tee;
 pub mod grpc;
 
 use db::DbConfig;
-use dev::DevConfig;
 use fork::ForkingConfig;
 use gateway::GatewayConfig;
 #[cfg(feature = "grpc")]

@@ -9,9 +9,9 @@ use katana_executor::ExecutorFactory;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::ordering::FiFo;
 use katana_pool::validation::stateful::TxValidator;
-use katana_pool::TxPool;
+use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::env::BlockEnv;
-use katana_primitives::transaction::TxHash;
+use katana_primitives::transaction::{ExecutableTxWithHash, TxHash};
 use katana_primitives::ContractAddress;
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
@@ -210,5 +210,39 @@ impl Shard {
         self.state
             .compare_exchange(expected as u8, new as u8, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
+    }
+
+    pub fn execute(&self) -> Result<()> {
+        // // Collect pending transactions from the shard's pool
+        let txs = self
+            .pool
+            .pending_transactions()
+            .all
+            .map(|ptx| (*ptx.tx).clone())
+            .collect::<Vec<ExecutableTxWithHash>>();
+
+        if txs.is_empty() {
+            return Ok(());
+        }
+
+        let tx_hashes: Vec<_> = txs.iter().map(|tx| tx.hash).collect();
+        let _tx_count = txs.len();
+
+        // // Read block env from the shard's own context
+        let block_env = self.block_env.read().clone();
+
+        let state = self.provider.provider().latest()?;
+
+        let mut executor = self.backend.executor_factory.executor(state, block_env.clone());
+
+        executor.execute_transactions(txs)?;
+        let output = executor.take_execution_output()?;
+
+        self.backend.do_mine_block(&block_env, output)?;
+
+        // Remove executed txs from pool
+        self.pool.remove_transactions(&tx_hashes);
+
+        Ok(())
     }
 }

@@ -6816,7 +6816,6 @@ dependencies = [
  "katana-rpc-client",
  "katana-rpc-server",
  "katana-rpc-types",
- "katana-sharding",
  "katana-stage",
  "katana-tasks",
  "katana-tee",

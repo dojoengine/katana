@@ -12,7 +12,7 @@ use crate::types::{Shard, ShardState};
 /// Workers block on [`next_task`](ShardScheduler::next_task) using a condvar,
 /// so they must run on dedicated OS threads (not async tasks).
 #[derive(Debug, Clone)]
-pub struct ShardScheduler {
+pub struct Scheduler {
     inner: Arc<SchedulerInner>,
 }
 
@@ -23,7 +23,7 @@ struct SchedulerInner {
     shutdown: AtomicBool,
 }
 
-impl ShardScheduler {
+impl Scheduler {
     pub fn new(time_quantum: Duration) -> Self {
         Self {
             inner: Arc::new(SchedulerInner {
@@ -50,13 +50,13 @@ impl ShardScheduler {
     pub fn next_task(&self) -> Option<Arc<Shard>> {
         let mut queue = self.inner.queue.lock();
 
-        if let Some(shard) = queue.pop_front() {
-            return Some(shard);
+        if let shard @ Some(..) = queue.pop_front() {
+            shard
+        } else {
+            // Block until notified (new work or shutdown wake) or timeout.
+            self.inner.condvar.wait_for(&mut queue, Duration::from_millis(100));
+            queue.pop_front()
         }
-
-        // Block until notified (new work or shutdown wake) or timeout.
-        self.inner.condvar.wait_for(&mut queue, Duration::from_millis(100));
-        queue.pop_front()
     }
 
     /// Returns the time quantum for worker preemption.

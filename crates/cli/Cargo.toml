@@ -20,7 +20,7 @@ katana-tracing.workspace = true
 katana-paymaster = { workspace = true, optional = true }
 katana-utils.workspace = true
 serde-utils.workspace = true
-cartridge = { path = "../cartridge", optional = true }
+cartridge = { workspace = true, optional = true }
 
 alloy-primitives.workspace = true
 anyhow.workspace = true

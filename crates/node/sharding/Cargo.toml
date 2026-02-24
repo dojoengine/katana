@@ -39,3 +39,6 @@ jsonrpsee.workspace = true
 serde.workspace = true
 tracing.workspace = true
 url.workspace = true
+
+[features]
+native = ["katana-executor/native", "katana-node-config/native"]

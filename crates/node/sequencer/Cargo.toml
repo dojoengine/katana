@@ -23,7 +23,6 @@ katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
-katana-sharding.workspace = true
 katana-stage.workspace = true
 katana-tasks.workspace = true
 katana-tee = { workspace = true, optional = true }
