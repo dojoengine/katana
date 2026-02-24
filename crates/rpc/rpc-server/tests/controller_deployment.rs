@@ -52,13 +52,13 @@ async fn estimate_fee_forwards_when_no_controllers() {
         m.insert(
             "starknet_estimateFee".to_string(),
             vec![FeeEstimate {
-                l1_gas_consumed: felt!("1"),
-                l1_gas_price: felt!("2"),
-                l2_gas_consumed: felt!("3"),
-                l2_gas_price: felt!("4"),
-                l1_data_gas_consumed: felt!("5"),
-                l1_data_gas_price: felt!("6"),
-                overall_fee: felt!("7"),
+                l1_gas_consumed: 1,
+                l1_gas_price: 2,
+                l2_gas_consumed: 3,
+                l2_gas_price: 4,
+                l1_data_gas_consumed: 5,
+                l1_data_gas_price: 6,
+                overall_fee: 7,
             }],
         );
         m
@@ -108,22 +108,22 @@ async fn estimate_fee_prepends_deploy_tx_for_controller() {
             "starknet_estimateFee".to_string(),
             vec![
                 FeeEstimate {
-                    l1_gas_consumed: felt!("0xa"),
-                    l1_gas_price: felt!("0xb"),
-                    l2_gas_consumed: felt!("0xc"),
-                    l2_gas_price: felt!("0xd"),
-                    l1_data_gas_consumed: felt!("0xe"),
-                    l1_data_gas_price: felt!("0xf"),
-                    overall_fee: felt!("0x10"),
+                    l1_gas_consumed: 0xa,
+                    l1_gas_price: 0xb,
+                    l2_gas_consumed: 0xc,
+                    l2_gas_price: 0xd,
+                    l1_data_gas_consumed: 0xe,
+                    l1_data_gas_price: 0xf,
+                    overall_fee: 0x10,
                 },
                 FeeEstimate {
-                    l1_gas_consumed: felt!("1"),
-                    l1_gas_price: felt!("2"),
-                    l2_gas_consumed: felt!("3"),
-                    l2_gas_price: felt!("4"),
-                    l1_data_gas_consumed: felt!("5"),
-                    l1_data_gas_price: felt!("6"),
-                    overall_fee: felt!("7"),
+                    l1_gas_consumed: 1,
+                    l1_gas_price: 2,
+                    l2_gas_consumed: 3,
+                    l2_gas_price: 4,
+                    l1_data_gas_consumed: 5,
+                    l1_data_gas_price: 6,
+                    overall_fee: 7,
                 },
             ],
         );
@@ -177,13 +177,13 @@ async fn estimate_fee_forwards_for_non_controller() {
         m.insert(
             "starknet_estimateFee".to_string(),
             vec![FeeEstimate {
-                l1_gas_consumed: felt!("1"),
-                l1_gas_price: felt!("2"),
-                l2_gas_consumed: felt!("3"),
-                l2_gas_price: felt!("4"),
-                l1_data_gas_consumed: felt!("5"),
-                l1_data_gas_price: felt!("6"),
-                overall_fee: felt!("7"),
+                l1_gas_consumed: 1,
+                l1_gas_price: 2,
+                l2_gas_consumed: 3,
+                l2_gas_price: 4,
+                l1_data_gas_consumed: 5,
+                l1_data_gas_price: 6,
+                overall_fee: 7,
             }],
         );
         m
@@ -228,13 +228,13 @@ async fn estimate_fee_deduplicates_same_controller() {
     };
 
     let zero_fee = FeeEstimate {
-        l1_gas_consumed: felt!("0"),
-        l1_gas_price: felt!("0"),
-        l2_gas_consumed: felt!("0"),
-        l2_gas_price: felt!("0"),
-        l1_data_gas_consumed: felt!("0"),
-        l1_data_gas_price: felt!("0"),
-        overall_fee: felt!("0"),
+        l1_gas_consumed: 0,
+        l1_gas_price: 0,
+        l2_gas_consumed: 0,
+        l2_gas_price: 0,
+        l1_data_gas_consumed: 0,
+        l1_data_gas_price: 0,
+        overall_fee: 0,
     };
 
     let inner_responses = {
