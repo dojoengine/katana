@@ -42,6 +42,7 @@ cartridge = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 katana-tee = { workspace = true, optional = true }
+katana-trie = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 starknet-types-core = { workspace = true, optional = true }
 
@@ -94,6 +95,7 @@ cartridge = [
 explorer = ["dep:katana-explorer"]
 tee = [
 	"dep:katana-tee",
+	"dep:katana-trie",
 	"dep:hex",
 	"dep:starknet-types-core",
 	"katana-rpc-api/tee",

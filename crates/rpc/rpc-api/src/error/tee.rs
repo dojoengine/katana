@@ -4,6 +4,7 @@ use jsonrpsee::types::ErrorObjectOwned;
 const TEE_NOT_AVAILABLE: i32 = 100;
 const TEE_QUOTE_GENERATION_FAILED: i32 = 101;
 const TEE_PROVIDER_ERROR: i32 = 102;
+const TEE_EVENT_PROOF_ERROR: i32 = 103;
 
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum TeeApiError {
@@ -15,6 +16,9 @@ pub enum TeeApiError {
 
     #[error("Provider error: {0}")]
     ProviderError(String),
+
+    #[error("Event proof error: {0}")]
+    EventProofError(String),
 }
 
 impl From<TeeApiError> for ErrorObjectOwned {
@@ -23,6 +27,7 @@ impl From<TeeApiError> for ErrorObjectOwned {
             TeeApiError::NotAvailable(_) => TEE_NOT_AVAILABLE,
             TeeApiError::QuoteGenerationFailed(_) => TEE_QUOTE_GENERATION_FAILED,
             TeeApiError::ProviderError(_) => TEE_PROVIDER_ERROR,
+            TeeApiError::EventProofError(_) => TEE_EVENT_PROOF_ERROR,
         };
         ErrorObjectOwned::owned(code, err.to_string(), None::<()>)
     }

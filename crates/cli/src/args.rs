@@ -459,7 +459,9 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "tee")]
     fn tee_config(&self) -> Option<TeeConfig> {
-        self.tee.tee_provider.map(|provider_type| TeeConfig { provider_type })
+        self.tee
+            .tee_provider
+            .map(|provider_type| TeeConfig { provider_type, fork_block_number: None })
     }
 
     /// Parse the node config from the command line arguments and the config file,

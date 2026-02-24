@@ -310,7 +310,8 @@ where
                     }
                 };
 
-                let api = TeeApi::new(provider.clone(), tee_provider);
+                let api =
+                    TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
                 rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 
                 info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
@@ -457,6 +458,12 @@ impl Node<ForkProviderFactory> {
 
         let block_num = forked_block.block_number;
         let genesis_block_num = block_num + 1;
+
+        // Store fork block number in TEE config so report_data includes it
+        #[cfg(feature = "tee")]
+        if let Some(ref mut tee_config) = config.tee {
+            tee_config.fork_block_number = Some(block_num);
+        }
 
         chain_spec.id = chain_id.into();
 

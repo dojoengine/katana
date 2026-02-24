@@ -2,6 +2,7 @@ use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::Felt;
+use katana_rpc_types::trie::Nodes;
 use serde::{Deserialize, Serialize};
 
 /// Response type for TEE quote generation.
@@ -19,6 +20,50 @@ pub struct TeeQuoteResponse {
 
     /// The number of the attested block.
     pub block_number: BlockNumber,
+
+    /// The block number Katana forked from (if running in fork mode).
+    /// Attested by TEE hardware via report_data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fork_block_number: Option<BlockNumber>,
+
+    /// Merkle root of all events in the attested block.
+    /// Included in report_data: Poseidon(state_root, block_hash, fork_block, events_commitment).
+    pub events_commitment: Felt,
+}
+
+/// Response type for event inclusion proof.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventProofResponse {
+    /// The block number containing the event.
+    pub block_number: BlockNumber,
+
+    /// Merkle root of all events in the block (from block header).
+    pub events_commitment: Felt,
+
+    /// Total number of events in the block.
+    pub events_count: u32,
+
+    /// Poseidon hash of the event: H(tx_hash, from_address, H(keys), H(data)).
+    pub event_hash: Felt,
+
+    /// Index of the event in the block's flattened events list.
+    pub event_index: u32,
+
+    /// Merkle-Patricia trie proof nodes (same format as storage proofs).
+    pub merkle_proof: Nodes,
+
+    /// Transaction hash that emitted the event.
+    pub tx_hash: Felt,
+
+    /// Address of the contract that emitted the event.
+    pub from_address: Felt,
+
+    /// Event keys.
+    pub keys: Vec<Felt>,
+
+    /// Event data.
+    pub data: Vec<Felt>,
 }
 
 /// TEE API for generating hardware attestation quotes.
@@ -34,12 +79,19 @@ pub trait TeeApi {
     /// The quote includes a commitment to the latest block's state root
     /// and block hash, allowing verifiers to cryptographically verify
     /// that the state was attested from within a trusted execution environment.
-    ///
-    /// # Returns
-    /// - `TeeQuoteResponse` containing the quote and the attested state information.
-    ///
-    /// # Errors
-    /// - Returns an error if TEE quote generation fails or TEE is not available.
     #[method(name = "generateQuote")]
     async fn generate_quote(&self) -> RpcResult<TeeQuoteResponse>;
+
+    /// Get a Merkle inclusion proof for a specific event in a block.
+    ///
+    /// Returns a proof that event at `event_index` is included in the block's
+    /// `events_commitment` (Merkle root). The `events_commitment` is bound to the
+    /// TEE attestation via `report_data`, so this proof chain connects an individual
+    /// event to the hardware attestation.
+    #[method(name = "getEventProof")]
+    async fn get_event_proof(
+        &self,
+        block_number: BlockNumber,
+        event_index: u32,
+    ) -> RpcResult<EventProofResponse>;
 }

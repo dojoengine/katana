@@ -215,6 +215,44 @@ where
     Ok(bs.root_hash(IDENTIFIER).unwrap())
 }
 
+/// Build a Merkle trie from `values` (same as `compute_merkle_root`) and return
+/// the root hash together with a Merkle proof for the element at `proof_index`.
+pub fn compute_merkle_root_with_proof<H>(
+    values: &[Felt],
+    proof_index: usize,
+) -> anyhow::Result<(Felt, MultiProof)>
+where
+    H: StarkHash + Send + Sync,
+{
+    use bonsai_trie::id::BasicId;
+    use bonsai_trie::{databases, BonsaiStorage, BonsaiStorageConfig};
+
+    anyhow::ensure!(proof_index < values.len(), "proof_index out of bounds");
+
+    const IDENTIFIER: &[u8] = b"1";
+
+    let config = BonsaiStorageConfig::default();
+    let bonsai_db = databases::HashMapDb::<BasicId>::default();
+    let mut bs = BonsaiStorage::<_, _, H>::new(bonsai_db, config, 64);
+
+    for (id, value) in values.iter().enumerate() {
+        let key = BitVec::from_iter(id.to_be_bytes());
+        bs.insert(IDENTIFIER, key.as_bitslice(), value).unwrap();
+    }
+
+    let id = bonsai_trie::id::BasicIdBuilder::new().new_id();
+    bs.commit(id).unwrap();
+
+    let root = bs.root_hash(IDENTIFIER).unwrap();
+
+    let proof_key = BitVec::from_iter(proof_index.to_be_bytes());
+    let proof = bs
+        .get_multi_proof(IDENTIFIER, vec![proof_key])
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    Ok((root, proof))
+}
+
 // H(H(H(class_hash, storage_root), nonce), 0), where H is the pedersen hash
 pub fn compute_contract_state_hash(
     class_hash: &ClassHash,
