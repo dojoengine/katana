@@ -36,7 +36,7 @@ use http::{HeaderMap, HeaderName, HeaderValue};
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
-use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
+use katana_core::service::block_producer::BlockProducer;
 use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::chain::ChainId;
@@ -169,9 +169,10 @@ where
     }
 
     fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {
-        match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => Ok(self.backend.storage.provider().latest()?),
-            BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
+        if let Some(state) = self.block_producer.pending_state() {
+            Ok(state)
+        } else {
+            Ok(self.backend.storage.provider().latest()?)
         }
     }
 

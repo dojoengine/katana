@@ -1179,7 +1179,7 @@ async fn fetch_pending_blocks() {
     }
 }
 
-// Querying for pending blocks in instant mining mode will always return the last accepted block.
+// Querying for pending blocks in instant mode returns the current preconfirmed block snapshot.
 #[tokio::test]
 async fn fetch_pending_blocks_in_instant_mode() {
     let sequencer = TestNode::new().await;
@@ -1188,10 +1188,6 @@ async fn fetch_pending_blocks_in_instant_mode() {
     let dev_client = sequencer.rpc_http_client();
     let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
-
-    // Get the latest block hash before sending the tx beacuse the tx will generate a new block.
-    let latest_block_hash_n_num = provider.block_hash_and_number().await.unwrap();
-    let latest_block_hash = latest_block_hash_n_num.block_hash;
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
@@ -1204,41 +1200,38 @@ async fn fetch_pending_blocks_in_instant_mode() {
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
+    let latest_block_number = provider.block_hash_and_number().await.unwrap().block_number;
+
     let block_id = BlockIdOrTag::PreConfirmed;
 
     // -----------------------------------------------------------------------
 
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
-    if let MaybePreConfirmedBlock::Confirmed(block) = block_with_txs {
-        assert_eq!(block.transactions.len(), 1);
-        assert_eq!(block.parent_hash, latest_block_hash);
-        assert_eq!(block.transactions[0].transaction_hash, res.transaction_hash);
+    if let MaybePreConfirmedBlock::PreConfirmed(block) = block_with_txs {
+        assert_eq!(block.block_number, latest_block_number + 1);
+        assert_eq!(block.transactions.len(), 0);
     } else {
         panic!("expected pending block with transactions")
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
-    if let GetBlockWithTxHashesResponse::Block(block) = block_with_tx_hashes {
-        assert_eq!(block.transactions.len(), 1);
-        assert_eq!(block.parent_hash, latest_block_hash);
-        assert_eq!(block.transactions[0], res.transaction_hash);
+    if let GetBlockWithTxHashesResponse::PreConfirmed(block) = block_with_tx_hashes {
+        assert_eq!(block.block_number, latest_block_number + 1);
+        assert_eq!(block.transactions.len(), 0);
     } else {
         panic!("expected pending block with transaction hashes")
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
-    if let GetBlockWithReceiptsResponse::Block(block) = block_with_receipts {
-        assert_eq!(block.transactions.len(), 1);
-        assert_eq!(block.parent_hash, latest_block_hash);
-        assert_eq!(block.transactions[0].receipt.transaction_hash, res.transaction_hash);
+    if let GetBlockWithReceiptsResponse::PreConfirmed(block) = block_with_receipts {
+        assert_eq!(block.block_number, latest_block_number + 1);
+        assert_eq!(block.transactions.len(), 0);
     } else {
         panic!("expected pending block with transaction receipts")
     }
 
-    // Get the recently generated block from the sent tx
-    let latest_block_hash_n_num = provider.block_hash_and_number().await.unwrap();
-    let latest_block_hash = latest_block_hash_n_num.block_hash;
+    let latest_block_number = provider.block_hash_and_number().await.unwrap().block_number;
 
     // Generate an empty block
     dev_client.generate_block().await.unwrap();
@@ -1247,25 +1240,25 @@ async fn fetch_pending_blocks_in_instant_mode() {
 
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
-    if let MaybePreConfirmedBlock::Confirmed(block) = block_with_txs {
+    if let MaybePreConfirmedBlock::PreConfirmed(block) = block_with_txs {
+        assert_eq!(block.block_number, latest_block_number + 2);
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.parent_hash, latest_block_hash);
     } else {
         panic!("expected block with transactions")
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
-    if let GetBlockWithTxHashesResponse::Block(block) = block_with_tx_hashes {
+    if let GetBlockWithTxHashesResponse::PreConfirmed(block) = block_with_tx_hashes {
+        assert_eq!(block.block_number, latest_block_number + 2);
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.parent_hash, latest_block_hash);
     } else {
         panic!("expected block with transaction hashes")
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
-    if let GetBlockWithReceiptsResponse::Block(block) = block_with_receipts {
+    if let GetBlockWithReceiptsResponse::PreConfirmed(block) = block_with_receipts {
+        assert_eq!(block.block_number, latest_block_number + 2);
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.parent_hash, latest_block_hash);
     } else {
         panic!("expected block with transaction receipts")
     }

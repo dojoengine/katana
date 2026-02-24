@@ -129,7 +129,7 @@ async fn test_dev_api_enabled() {
     assert!(!accounts.is_empty(), "predeployed accounts should not be empty");
 }
 
-/// Test set_storage_at in instant mining mode (no pending block)
+/// Test set_storage_at in instant mode with unified pending state.
 #[tokio::test]
 async fn test_set_storage_at() {
     let sequencer = TestNode::new().await;
@@ -151,12 +151,16 @@ async fn test_set_storage_at() {
     // Set the storage value via RPC
     client.set_storage_at(contract_address, key, value).await.unwrap();
 
-    // Verify the storage value was set correctly
+    // In the unified producer, storage updates are applied to pending state first.
+    // Mine a block to persist the update.
+    client.generate_block().await.unwrap();
+
+    // Verify the storage value was persisted correctly
     {
         let provider = backend.storage.provider();
         let state = provider.latest().unwrap();
         let read_val = state.storage(contract_address, key).unwrap();
-        assert_eq!(read_val, Some(value), "storage value should be set correctly");
+        assert_eq!(read_val, Some(value), "storage value should persist after block is mined");
     }
 }
 

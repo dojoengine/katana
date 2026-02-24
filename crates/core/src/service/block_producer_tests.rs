@@ -1,5 +1,8 @@
+use std::task::Poll;
+use std::time::Duration;
+
 use arbitrary::{Arbitrary, Unstructured};
-use futures::pin_mut;
+use futures::future::poll_fn;
 use katana_chain_spec::ChainSpec;
 use katana_executor::noop::NoopExecutorFactory;
 use katana_gas_price_oracle::GasPriceOracle;
@@ -20,55 +23,52 @@ fn test_backend() -> Arc<Backend<DbProviderFactory>> {
     backend
 }
 
-#[tokio::test]
-async fn interval_initial_state() {
-    let backend = test_backend();
-    let producer = IntervalBlockProducer::new(backend, Some(1000));
-
-    assert!(producer.timer.is_none());
-    assert!(producer.queued.is_empty());
-    assert!(producer.ongoing_mining.is_none());
-    assert!(producer.ongoing_execution.is_none());
+async fn wait_for_mined_block(producer: &BlockProducer<DbProviderFactory>) -> MinedBlockOutcome {
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        poll_fn(|cx| match producer.poll_next(cx) {
+            Poll::Ready(Some(res)) => Poll::Ready(res),
+            Poll::Ready(None) | Poll::Pending => Poll::Pending,
+        }),
+    )
+    .await
+    .expect("timeout waiting for mined block")
+    .expect("block production should succeed")
 }
 
 #[tokio::test]
-async fn interval_force_mine_without_transactions() {
+async fn pending_executor_exists_for_all_modes() {
     let backend = test_backend();
 
-    let mut producer = IntervalBlockProducer::new(backend.clone(), None);
+    let instant = BlockProducer::instant(backend.clone());
+    let interval = BlockProducer::interval(backend.clone(), 1_000);
+    let on_demand = BlockProducer::on_demand(backend);
+
+    assert!(instant.pending_executor().is_some());
+    assert!(interval.pending_executor().is_some());
+    assert!(on_demand.pending_executor().is_some());
+}
+
+#[tokio::test]
+async fn on_demand_force_mine_without_transactions() {
+    let backend = test_backend();
+    let producer = BlockProducer::on_demand(backend.clone());
+
     producer.force_mine();
 
-    let latest_num = backend.storage.provider().latest_number().unwrap();
-    assert_eq!(latest_num, 1);
+    let outcome = wait_for_mined_block(&producer).await;
+    assert_eq!(outcome.block_number, 1);
+    assert_eq!(backend.storage.provider().latest_number().unwrap(), 1);
 }
 
 #[tokio::test]
-async fn interval_mine_after_timer() {
+async fn interval_mines_after_timer() {
     let backend = test_backend();
-    let mut producer = IntervalBlockProducer::new(backend.clone(), Some(1000));
-    // no timer should be set when no block is opened.
-    assert!(producer.timer.is_none());
+    let producer = BlockProducer::interval(backend.clone(), 20);
 
-    producer.queued.push_back(vec![dummy_transaction()]);
+    producer.queue(vec![dummy_transaction()]);
 
-    let stream = producer;
-    pin_mut!(stream);
-
-    let waker = futures::task::noop_waker();
-    let mut context = Context::from_waker(&waker);
-
-    // mine the block
-    let poll_result = stream.as_mut().poll_next(&mut context);
-
-    // based on how the `Stream` trait is implemented, there is a possibility that a single
-    // call to `poll_next` can complete the whole production flow so we added this just in case.
-    if poll_result.is_pending() {
-        assert!(stream.timer.is_some(), "timer should start once we received a tx");
-    } else {
-        assert!(stream.timer.is_none(), "no timer if block has been mined");
-    }
-
-    let outcome = stream.next().await.expect("should mine block").unwrap();
+    let outcome = wait_for_mined_block(&producer).await;
     assert_eq!(outcome.block_number, 1);
     assert_eq!(backend.storage.provider().latest_number().unwrap(), 1);
 }

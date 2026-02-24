@@ -6,9 +6,9 @@ use anyhow::Result;
 use futures::future::{self, BoxFuture};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProductionError};
-use katana_core::service::{BlockProductionTask, TransactionMiner};
+use katana_core::service::BlockProductionTask;
 use katana_messaging::{MessagingConfig, MessagingService, MessagingTask};
-use katana_pool::{TransactionPool, TxPool};
+use katana_pool::TxPool;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_tasks::{JoinHandle, TaskSpawner};
 use tracing::error;
@@ -62,10 +62,8 @@ where
     }
 
     fn run_block_production(&self) -> JoinHandle<Result<(), BlockProductionError>> {
-        // Create a new transaction miner with a subscription to the pool's pending transactions.
-        let miner = TransactionMiner::new(self.pool.pending_transactions());
         let block_producer = self.block_producer.clone();
-        let service = BlockProductionTask::new(self.pool.clone(), miner, block_producer);
+        let service = BlockProductionTask::new(self.pool.clone(), block_producer);
         self.task_spawner.build_task().name("Block production").spawn(service)
     }
 }

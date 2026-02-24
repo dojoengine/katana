@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
-use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
+use katana_core::service::block_producer::{BlockProducer, PendingExecutor};
 use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
 use katana_provider::api::state::StateWriter;
 use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
@@ -29,20 +29,13 @@ where
         Self { backend, block_producer }
     }
 
-    /// Returns the pending state if the sequencer is running in _interval_ mode. Otherwise `None`.
+    /// Returns the pending executor snapshot managed by the block producer.
     fn pending_executor(&self) -> Option<PendingExecutor> {
-        match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => None,
-            BlockProducerMode::Interval(producer) => Some(producer.executor()),
-        }
+        self.block_producer.pending_executor()
     }
 
     fn has_pending_transactions(&self) -> bool {
-        if let Some(ref exec) = self.pending_executor() {
-            !exec.read().transactions().is_empty()
-        } else {
-            false
-        }
+        self.block_producer.has_pending_transactions()
     }
 
     pub fn set_next_block_timestamp(&self, timestamp: u64) -> Result<(), DevApiError> {
@@ -73,8 +66,8 @@ where
         key: StorageKey,
         value: StorageValue,
     ) -> Result<(), DevApiError> {
-        // If there's a pending executor (interval mining mode), update the pending state
-        // so that the change is visible to the pending block.
+        // If there's a pending executor, update the pending state so the change is visible to
+        // the next block view immediately.
         if let Some(pending_executor) = self.pending_executor() {
             // Leaky-leaky abstraction:
             // The logic here might seem counterintuitive because we're taking a non-mutable
