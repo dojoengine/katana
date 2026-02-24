@@ -82,6 +82,7 @@ pub fn build_verifier_input(
         cert_chain.to_ders(),
         0,
         None,
+        None,
     )
 }
 

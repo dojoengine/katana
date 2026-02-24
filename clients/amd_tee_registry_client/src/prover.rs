@@ -91,6 +91,20 @@ pub struct StorageProofParams {
     // Replay protection
     pub contract_address: B256,
     pub nonce: u64,
+    // Fork block number (0 = non-fork mode)
+    pub fork_block_number: u64,
+}
+
+/// Parameters for event inclusion proof (C2: proves shard ending).
+/// Verifies a specific event is in the block's events_commitment Merkle root.
+#[derive(Debug, Clone)]
+pub struct EventProofParams {
+    pub events_commitment: B256,
+    pub event_hash: B256,
+    pub event_index: u32,
+    pub events_count: u32,
+    pub event_merkle_proof: Vec<Bytes>,
+    pub end_block_number: u64,
 }
 
 /// Proof result with cache metadata for transparency
@@ -212,12 +226,14 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         report_bytes: &[u8],
         registry_client: &StarknetRegistryClient,
         storage: Option<StorageProofParams>,
+        event_proof: Option<EventProofParams>,
     ) -> Result<ProofWithCacheInfo, Error> {
         self.prove_with_timestamp_and_storage(
             report_bytes,
             current_timestamp()?,
             registry_client,
             storage,
+            event_proof,
         )
         .await
     }
@@ -229,17 +245,18 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         timestamp: u64,
         registry_client: &StarknetRegistryClient,
     ) -> Result<ProofWithCacheInfo, Error> {
-        self.prove_with_timestamp_and_storage(report_bytes, timestamp, registry_client, None)
+        self.prove_with_timestamp_and_storage(report_bytes, timestamp, registry_client, None, None)
             .await
     }
 
-    /// Generate an SP1 Groth16 proof with timestamp, cache lookup, and optional storage proof.
+    /// Generate an SP1 Groth16 proof with timestamp, cache lookup, and optional storage/event proofs.
     pub async fn prove_with_timestamp_and_storage(
         &self,
         report_bytes: &[u8],
         timestamp: u64,
         registry_client: &StarknetRegistryClient,
         storage: Option<StorageProofParams>,
+        event_proof: Option<EventProofParams>,
     ) -> Result<ProofWithCacheInfo, Error> {
         let report = AttestationReportBytes::new(report_bytes)?;
         let report_struct = AttestationReport::from_bytes(report.as_bytes())
@@ -288,6 +305,7 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
                 vek_der_chain,
                 trusted_prefix_len,
                 storage,
+                event_proof,
             );
 
             let raw_proof = prover
@@ -365,6 +383,7 @@ pub fn prepare_verifier_input_with_storage(
     vek_der_chain: Vec<Bytes>,
     trusted_certs_prefix_len: u8,
     storage: Option<StorageProofParams>,
+    event_proof: Option<EventProofParams>,
 ) -> VerifierInput {
     let mut input = VerifierInput {
         timestamp,
@@ -387,6 +406,15 @@ pub fn prepare_verifier_input_with_storage(
         // Replay protection
         contractAddress: B256::ZERO,
         nonce: 0,
+        // Fork block (set by caller if in fork mode)
+        forkBlockNumber: 0,
+        // Event proof (empty = no event proof)
+        eventsCommitment: B256::ZERO,
+        eventHash: B256::ZERO,
+        eventIndex: 0,
+        eventsCount: 0,
+        eventMerkleProof: vec![],
+        endBlockNumber: 0,
     };
     if let Some(s) = storage {
         input.globalStateRoot = s.global_state_root;
@@ -401,6 +429,15 @@ pub fn prepare_verifier_input_with_storage(
         input.storageProofNodes = s.storage_proof_nodes;
         input.contractAddress = s.contract_address;
         input.nonce = s.nonce;
+        input.forkBlockNumber = s.fork_block_number;
+    }
+    if let Some(e) = event_proof {
+        input.eventsCommitment = e.events_commitment;
+        input.eventHash = e.event_hash;
+        input.eventIndex = e.event_index;
+        input.eventsCount = e.events_count;
+        input.eventMerkleProof = e.event_merkle_proof;
+        input.endBlockNumber = e.end_block_number;
     }
     input
 }

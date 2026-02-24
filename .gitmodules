@@ -1,9 +1,11 @@
 [submodule "crates/katana"]
 	path = crates/katana
-	url = https://github.com/dojoengine/katana.git
+	url = https://github.com/michalpalkowski/katana.git
+	branch = feature/event-proof
 [submodule "crates/amd-sev-snp-attestation-sdk"]
 	path = crates/amd-sev-snp-attestation-sdk
-	url = https://github.com/feltroidprime/amd-sev-snp-attestation-sdk.git
+	url = https://github.com/michalpalkowski/amd-sev-snp-attestation-sdk.git
+	branch = feature/sharding
 [submodule "crates/starknet-rust"]
 	path = crates/starknet-rust
 	url = https://github.com/software-mansion/starknet-rust.git

@@ -53,7 +53,7 @@ allow-prebuilt-plugins = ["snforge_std"]
 # unstable-add-statements-functions-debug-info = true        # Should be used if you want to use coverage/profiler
 # inlining-strategy = "avoid"                                # Should be used if you want to use coverage
 
-# [features]                                                 # Used for conditional compilation
+[features]                                                 # Used for conditional compilation
 # enable_for_tests = []                                      # Feature name and list of other features that should be enabled with it
 
 # Fork configs for snforge tests (uses env vars from .env)

@@ -123,9 +123,11 @@ pub mod StorageCommitment {
             //     return false; // State root unchanged
             // }
 
-            if info.nonce > 0 {
-                assert(global_state_root != info.latest_global_state_root, 'State root unchanged');
-            }
+            // Reject zero state root (default/invalid value)
+            assert(global_state_root != 0, 'Invalid zero state root');
+            // Ensure state root changed since last verification.
+            // Works for nonce=0 too: latest_global_state_root defaults to 0, which we reject above.
+            assert(global_state_root != info.latest_global_state_root, 'State root unchanged');
 
             self.commitments.write(expected_commitment, false);
 

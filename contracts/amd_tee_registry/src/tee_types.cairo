@@ -102,6 +102,10 @@ pub struct VerifierJournal {
     pub trusted_certs_prefix_len: u8,
     /// Commitment to verified storage. 0 when no storage proof.
     pub storage_commitment: felt252,
+    /// Fork block number (0 = non-fork mode).
+    pub fork_block_number: u64,
+    /// Shard end block number where ShardFinished event was proven (0 = no event proof).
+    pub end_block_number: u64,
 }
 
 // ============================================================================

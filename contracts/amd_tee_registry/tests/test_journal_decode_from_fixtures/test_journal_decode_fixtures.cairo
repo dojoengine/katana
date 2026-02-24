@@ -133,7 +133,9 @@ pub fn get_block_0_expected() -> VerifierJournal {
         certs,
         cert_serials,
         trusted_certs_prefix_len,
-        storage_commitment: u256 { low: 0, high: 0 },
+        storage_commitment: 0,
+        fork_block_number: 0,
+        end_block_number: 0,
     }
 }
 
@@ -267,7 +269,9 @@ pub fn get_block_1_expected() -> VerifierJournal {
         certs,
         cert_serials,
         trusted_certs_prefix_len,
-        storage_commitment: u256 { low: 0, high: 0 },
+        storage_commitment: 0,
+        fork_block_number: 0,
+        end_block_number: 0,
     }
 }
 
@@ -401,7 +405,9 @@ pub fn get_block_2_expected() -> VerifierJournal {
         certs,
         cert_serials,
         trusted_certs_prefix_len,
-        storage_commitment: u256 { low: 0, high: 0 },
+        storage_commitment: 0,
+        fork_block_number: 0,
+        end_block_number: 0,
     }
 }
 

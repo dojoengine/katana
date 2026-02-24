@@ -1,22 +1,19 @@
-// /// The report data is: Poseidon(state_root, block_hash) padded to 64 bytes.
-// fn compute_report_data(&self, state_root: Felt, block_hash: Felt) -> [u8; 64] {
-//     // Compute Poseidon hash of state_root and block_hash
-//     let commitment = Poseidon::hash(&state_root, &block_hash);
-
-//     // Convert Felt to bytes (32 bytes) and pad to 64 bytes
-//     let commitment_bytes = commitment.to_bytes_be();
-
-//     let mut report_data = [0u8; 64];
-//     // Place the 32-byte hash in the first half
-//     report_data[..32].copy_from_slice(&commitment_bytes);
-//     // Second half remains zeros (or could include additional metadata)
-
 use core::integer::{u128_byte_reverse, u512};
-use core::poseidon::hades_permutation;
+use core::poseidon::poseidon_hash_span;
 
 
+/// Verify that report_data matches the Poseidon commitment.
+///
+/// commitment = poseidon_hash_span([state_root, block_hash, fork_block_number, events_commitment])
+///
+/// The TEE hardware embeds this hash in the attestation report's report_data field.
+/// SP1 proves the report is authentic; this function verifies the hash binding.
 pub fn verify_katana_report_data(
-    report_data: u512, state_root: felt252, block_hash: felt252,
+    report_data: u512,
+    state_root: felt252,
+    block_hash: felt252,
+    fork_block_number: u64,
+    events_commitment: felt252,
 ) -> bool {
     assert(report_data.limb2 == 0, 'Report data limb2 must be 0');
     assert(report_data.limb3 == 0, 'Report data limb3 must be 0');
@@ -25,7 +22,9 @@ pub fn verify_katana_report_data(
         low: u128_byte_reverse(report_data.limb1), high: u128_byte_reverse(report_data.limb0),
     };
 
-    let (commitment, _, _) = hades_permutation(state_root, block_hash, 2);
+    let commitment = poseidon_hash_span(
+        array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),
+    );
 
     assert(commitment.into() == expected_commitment, 'Commitment mismatch');
 

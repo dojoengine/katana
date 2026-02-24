@@ -74,6 +74,11 @@ pub struct TeeQuoteResponse {
 
     /// The number of the attested block.
     pub block_number: u64,
+
+    /// Merkle root of all events in the attested block (hex-encoded Felt).
+    /// Included in report_data: Poseidon(state_root, block_hash, fork_block, events_commitment).
+    #[serde(default)]
+    pub events_commitment: Option<String>,
 }
 
 impl TeeQuoteResponse {

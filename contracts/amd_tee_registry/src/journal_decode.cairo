@@ -41,7 +41,7 @@ pub fn decode_verifier_journal(public_inputs: Span<u256>) -> VerifierJournal {
 
 fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
     assert(words.len() % 8 == 0, 'Invalid ABI length');
-    assert(words.len() >= 8 * 8, 'ABI too short');
+    assert(words.len() >= 10 * 8, 'ABI too short');
 
     let result_word = read_word_u32(words, 0);
     let timestamp_word = read_word_u32(words, 1);
@@ -99,6 +99,9 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
         k += 1;
     }
 
+    let fork_block_number = word_to_u64(read_word_u32(words, 8));
+    let end_block_number = word_to_u64(read_word_u32(words, 9));
+
     VerifierJournal {
         result,
         timestamp,
@@ -108,6 +111,8 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
         cert_serials,
         trusted_certs_prefix_len,
         storage_commitment: u256_to_felt(storage_commitment),
+        fork_block_number,
+        end_block_number,
     }
 }
 
