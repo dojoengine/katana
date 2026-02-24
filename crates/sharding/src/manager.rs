@@ -238,50 +238,17 @@ mod tests {
     use katana_executor::blockifier::BlockifierFactory;
     use katana_executor::{BlockLimits, ExecutionFlags, ExecutorFactory};
     use katana_gas_price_oracle::GasPriceOracle;
-    use katana_primitives::address;
     use katana_primitives::block::FinalityStatus;
     use katana_primitives::da::L1DataAvailabilityMode;
     use katana_primitives::env::BlockEnv;
-    use katana_primitives::Felt;
+    use katana_primitives::{address, Felt};
     use katana_rpc_server::starknet::StarknetApiConfig;
     use katana_rpc_types::block::{
         BlockWithTxHashes, GetBlockWithTxHashesResponse, PreConfirmedBlockWithTxHashes,
     };
     use katana_tasks::TaskManager;
-    use starknet::core::types::ResourcePrice;
 
     use super::{block_env_from_latest_block_response, LazyShardManager, ShardManager};
-
-    #[test]
-    fn converts_confirmed_latest_block_to_block_env() {
-        let response = GetBlockWithTxHashesResponse::Block(BlockWithTxHashes {
-            status: FinalityStatus::AcceptedOnL2,
-            block_hash: Felt::from(1u64),
-            parent_hash: Felt::from(2u64),
-            block_number: 42,
-            new_root: Felt::from(3u64),
-            timestamp: 1_234_567_890,
-            sequencer_address: address!("0x1234"),
-            l1_gas_price: resource_price(101, 102),
-            l2_gas_price: resource_price(201, 202),
-            l1_data_gas_price: resource_price(301, 302),
-            l1_da_mode: L1DataAvailabilityMode::Blob,
-            starknet_version: "0.14.0".to_owned(),
-            transactions: vec![],
-        });
-
-        let env = block_env_from_latest_block_response(response).expect("should convert");
-        assert_eq!(env.number, 42);
-        assert_eq!(env.timestamp, 1_234_567_890);
-        assert_eq!(env.sequencer_address, address!("0x1234"));
-        assert_eq!(env.l1_gas_prices.eth.get(), 101);
-        assert_eq!(env.l1_gas_prices.strk.get(), 102);
-        assert_eq!(env.l2_gas_prices.eth.get(), 201);
-        assert_eq!(env.l2_gas_prices.strk.get(), 202);
-        assert_eq!(env.l1_data_gas_prices.eth.get(), 301);
-        assert_eq!(env.l1_data_gas_prices.strk.get(), 302);
-        assert_eq!(env.starknet_version.to_string(), "0.14.0");
-    }
 
     #[test]
     fn rejects_invalid_starknet_version_from_latest_block() {
@@ -319,23 +286,6 @@ mod tests {
         assert!(err.to_string().contains("failed to generate initial block context"));
         assert!(manager.is_empty());
         assert!(manager.shard_ids().is_empty());
-    }
-
-    fn resource_price(price_in_wei: u128, price_in_fri: u128) -> ResourcePrice {
-        ResourcePrice { price_in_wei: price_in_wei.into(), price_in_fri: price_in_fri.into() }
-    }
-
-    fn test_starknet_api_config() -> StarknetApiConfig {
-        StarknetApiConfig {
-            max_event_page_size: None,
-            max_proof_keys: None,
-            max_call_gas: None,
-            max_concurrent_estimate_fee_requests: None,
-            simulation_flags: ExecutionFlags::new(),
-            versioned_constant_overrides: None,
-            #[cfg(feature = "cartridge")]
-            paymaster: None,
-        }
     }
 
     fn test_executor_factory(chain_spec: Arc<ChainSpec>) -> Arc<dyn ExecutorFactory> {

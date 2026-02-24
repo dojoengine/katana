@@ -128,10 +128,7 @@ impl ShardWorker {
 }
 
 /// Spawn a pool of shard workers on dedicated OS threads.
-pub fn spawn_workers(
-    count: usize,
-    scheduler: ShardScheduler,
-) -> Vec<thread::JoinHandle<()>> {
+pub fn spawn_workers(count: usize, scheduler: ShardScheduler) -> Vec<thread::JoinHandle<()>> {
     (0..count)
         .map(|id| {
             let worker = ShardWorker::new(id, scheduler.clone());

@@ -23,11 +23,11 @@ use gateway::GatewayConfig;
 use grpc::GrpcConfig;
 use katana_chain_spec::ChainSpec;
 use katana_messaging::MessagingConfig;
+pub use katana_node_config::dev::DevConfig;
+pub use katana_node_config::execution::ExecutionConfig;
 use metrics::MetricsConfig;
 use rpc::RpcConfig;
 use sequencing::SequencingConfig;
-
-pub use katana_node_config::{dev::DevConfig, execution::ExecutionConfig};
 
 /// Node configurations.
 ///

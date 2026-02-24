@@ -55,11 +55,7 @@ impl RuntimeHandle {
 
 impl ShardRuntime {
     /// Creates a new runtime. Workers are **not** spawned until [`start`](Self::start) is called.
-    pub fn new(
-        worker_count: usize,
-        time_quantum: Duration,
-        block_env: Arc<RwLock<BlockEnv>>,
-    ) -> Self {
+    pub fn new(worker_count: usize, time_quantum: Duration) -> Self {
         let scheduler = ShardScheduler::new(time_quantum);
         let handle = RuntimeHandle { scheduler };
         Self { handle, worker_count, worker_handles: Vec::new() }

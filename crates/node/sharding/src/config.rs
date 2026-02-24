@@ -2,12 +2,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use katana_chain_spec::ChainSpec;
-use url::Url;
-
 use katana_node_config::dev::DevConfig;
 use katana_node_config::execution::ExecutionConfig;
 use katana_node_config::metrics::MetricsConfig;
 use katana_node_config::rpc::RpcConfig;
+use url::Url;
 
 /// Default number of shard workers (matches available CPU cores).
 pub fn default_worker_count() -> usize {
