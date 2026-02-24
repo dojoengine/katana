@@ -20,6 +20,54 @@ use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 use starknet::macros::selector;
 
+mod calls_serde {
+    use katana_primitives::execution::Call;
+    use katana_primitives::{ContractAddress, Felt};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize)]
+    struct CallRef<'a> {
+        #[serde(rename = "to")]
+        contract_address: &'a ContractAddress,
+        #[serde(rename = "selector")]
+        entry_point_selector: &'a Felt,
+        calldata: &'a Vec<Felt>,
+    }
+
+    #[derive(Deserialize)]
+    struct CallDe {
+        #[serde(rename = "to")]
+        contract_address: ContractAddress,
+        #[serde(rename = "selector")]
+        entry_point_selector: Felt,
+        calldata: Vec<Felt>,
+    }
+
+    pub fn serialize<S: Serializer>(calls: &Vec<Call>, serializer: S) -> Result<S::Ok, S::Error> {
+        let refs: Vec<CallRef<'_>> = calls
+            .iter()
+            .map(|c| CallRef {
+                contract_address: &c.contract_address,
+                entry_point_selector: &c.entry_point_selector,
+                calldata: &c.calldata,
+            })
+            .collect();
+        refs.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Call>, D::Error> {
+        let items = Vec::<CallDe>::deserialize(deserializer)?;
+        Ok(items
+            .into_iter()
+            .map(|c| Call {
+                contract_address: c.contract_address,
+                entry_point_selector: c.entry_point_selector,
+                calldata: c.calldata,
+            })
+            .collect())
+    }
+}
+
 /// Nonce channel
 #[derive(Clone, CairoSerde, PartialEq, Debug, Serialize, Deserialize)]
 pub struct NonceChannel(
@@ -41,6 +89,7 @@ pub struct OutsideExecutionV2 {
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
     pub execute_before: u64,
     /// Calls to execute in order.
+    #[serde(with = "calls_serde")]
     pub calls: Vec<Call>,
 }
 
@@ -58,6 +107,7 @@ pub struct OutsideExecutionV3 {
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
     pub execute_before: u64,
     /// Calls to execute in order.
+    #[serde(with = "calls_serde")]
     pub calls: Vec<Call>,
 }
 

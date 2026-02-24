@@ -30,10 +30,8 @@ pub type EntryPointSelector = Felt;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Call {
     /// The address of the contract whose function you're calling.
-    #[serde(alias = "to")]
     pub contract_address: ContractAddress,
     /// The contract function selector.
-    #[serde(alias = "selector")]
     pub entry_point_selector: EntryPointSelector,
     /// The input to the function.
     pub calldata: Vec<Felt>,
