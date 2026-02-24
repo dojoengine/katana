@@ -29,6 +29,7 @@ pub mod health;
 pub mod metrics;
 pub mod permit;
 pub mod starknet;
+pub mod txpool;
 
 mod logger;
 mod utils;

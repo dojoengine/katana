@@ -5,6 +5,7 @@ pub mod error;
 pub mod katana;
 pub mod starknet;
 pub mod starknet_ext;
+pub mod txpool;
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
