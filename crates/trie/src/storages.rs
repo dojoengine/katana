@@ -79,7 +79,7 @@ where
         &mut self,
         storage_key: StorageKey,
         storage_value: StorageValue,
-        proof: MultiProof,
+        proof: &MultiProof,
         original_root: Felt,
     ) {
         self.trie.insert_with_proof(

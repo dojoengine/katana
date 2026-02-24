@@ -158,7 +158,7 @@ where
         id: &[u8],
         key: Felt,
         value: Felt,
-        proof: MultiProof,
+        proof: &MultiProof,
         original_root: Felt,
     ) {
         let key: BitVec = key.to_bytes_be().as_bits()[5..].to_owned();
@@ -320,5 +320,42 @@ mod tests {
 
         // After revert, root should match block 0
         assert_eq!(root_after_second_revert, root_at_block_0);
+    }
+
+    #[test]
+    fn compute_contract_state_hash_with_nonzero_nonce() {
+        use starknet_types_core::hash::StarkHash;
+
+        // H(H(H(class_hash, storage_root), nonce), 0) with non-zero nonce
+        let class_hash = felt!("0x1234");
+        let storage_root = felt!("0x5678");
+        let nonce = felt!("0x42");
+
+        let expected = {
+            let h1 = hash::Pedersen::hash(&class_hash, &storage_root);
+            let h2 = hash::Pedersen::hash(&h1, &nonce);
+            hash::Pedersen::hash(&h2, &Felt::ZERO)
+        };
+
+        let result = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn compute_contract_state_hash_all_zeros() {
+        use starknet_types_core::hash::StarkHash;
+
+        let result = compute_contract_state_hash(&Felt::ZERO, &Felt::ZERO, &Felt::ZERO);
+
+        // H(H(H(0, 0), 0), 0)
+        let expected = {
+            let h1 = hash::Pedersen::hash(&Felt::ZERO, &Felt::ZERO);
+            let h2 = hash::Pedersen::hash(&h1, &Felt::ZERO);
+            hash::Pedersen::hash(&h2, &Felt::ZERO)
+        };
+
+        assert_eq!(result, expected);
+        // Pedersen hash of zeros is not zero
+        assert_ne!(result, Felt::ZERO);
     }
 }

@@ -69,7 +69,9 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
             .backend
             .get_global_roots(self.fork_db.block_id)?
             .map(|roots| roots.global_roots.contracts_tree_root)
-            .expect("global roots should exist for fork point");
+            .ok_or_else(|| {
+                ProviderError::ParsingError("missing global roots for fork point".to_string())
+            })?;
 
         let (contracts_proof, contract_leaves_data) =
             if let Some(proof_response) = contracts_proof_result {
@@ -142,12 +144,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
                         .unwrap_or(Felt::ZERO);
 
                     for (key, value) in storage_entries {
-                        storage_trie_db.insert(
-                            *key,
-                            *value,
-                            storage_proof.clone(),
-                            original_storage_root,
-                        );
+                        storage_trie_db.insert(*key, *value, storage_proof, original_storage_root);
                     }
 
                     contract_leafs.insert(*address, Default::default());
@@ -216,7 +213,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
                         }
 
                         let leaf_hash =
-                            contract_state_leaf_hash(latest_state.as_ref(), &address, &leaf);
+                            contract_state_leaf_hash(latest_state.as_ref(), &address, &leaf)?;
 
                         Ok((address, leaf_hash))
                     })
@@ -224,7 +221,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
             };
 
             for (k, v) in leaf_hashes {
-                contract_trie_db.insert(k, v, proof.clone(), original_root);
+                contract_trie_db.insert(k, v, &proof, original_root);
             }
 
             contract_trie_db.commit(block_number);
@@ -254,11 +251,10 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
             classes_proof_result.map(|response| response.classes_proof.nodes.into());
 
         // Fetch global roots (always needed as fallback when no changes)
-        let global_roots = self
-            .fork_db
-            .backend
-            .get_global_roots(self.fork_db.block_id)?
-            .expect("global roots should exist for fork point");
+        let global_roots =
+            self.fork_db.backend.get_global_roots(self.fork_db.block_id)?.ok_or_else(|| {
+                ProviderError::ParsingError("missing global roots for fork point".to_string())
+            })?;
 
         let original_root = global_roots.global_roots.classes_tree_root;
 
@@ -270,7 +266,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
             );
 
             for (class_hash, compiled_hash) in classes {
-                trie.insert(class_hash, compiled_hash, proof.clone(), original_root);
+                trie.insert(class_hash, compiled_hash, &proof, original_root);
             }
 
             trie.commit(block_number);
@@ -300,20 +296,27 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
     }
 }
 
-// computes the contract state leaf hash
+/// Computes the contract state leaf hash: `H(H(H(class_hash, storage_root), nonce), 0)`.
+///
+/// Falls back to querying the state provider for missing fields (nonce, class_hash).
 fn contract_state_leaf_hash(
-    provider: impl StateProvider,
+    provider: &dyn StateProvider,
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
-) -> Felt {
-    let nonce =
-        contract_leaf.nonce.unwrap_or(provider.nonce(*address).unwrap().unwrap_or_default());
+) -> ProviderResult<Felt> {
+    let nonce = match contract_leaf.nonce {
+        Some(n) => n,
+        None => provider.nonce(*address)?.unwrap_or_default(),
+    };
 
-    let class_hash = contract_leaf.class_hash.unwrap_or_else(|| {
-        provider.class_hash_of_contract(*address).ok().flatten().unwrap_or_default()
-    });
+    let class_hash = match contract_leaf.class_hash {
+        Some(h) => h,
+        None => provider.class_hash_of_contract(*address)?.unwrap_or_default(),
+    };
 
-    let storage_root = contract_leaf.storage_root.expect("root need to set");
+    let storage_root = contract_leaf.storage_root.ok_or_else(|| {
+        ProviderError::ParsingError(format!("missing storage root for contract {}", address))
+    })?;
 
-    compute_contract_state_hash(&class_hash, &storage_root, &nonce)
+    Ok(compute_contract_state_hash(&class_hash, &storage_root, &nonce))
 }

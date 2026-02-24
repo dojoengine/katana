@@ -101,7 +101,7 @@ where
         &mut self,
         hash: ClassHash,
         compiled_hash: CompiledClassHash,
-        proof: MultiProof,
+        proof: &MultiProof,
         original_root: Felt,
     ) {
         let value = compute_classes_trie_value(compiled_hash);
