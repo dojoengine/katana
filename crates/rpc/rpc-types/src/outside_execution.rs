@@ -140,7 +140,7 @@ mod calls_serde {
         calldata: Vec<Felt>,
     }
 
-    pub fn serialize<S: Serializer>(calls: &Vec<Call>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(calls: &[Call], serializer: S) -> Result<S::Ok, S::Error> {
         let refs: Vec<CallRef<'_>> = calls
             .iter()
             .map(|c| CallRef {
