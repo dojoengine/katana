@@ -122,6 +122,14 @@ impl TestNode {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/db/simple");
         Self::new_from_db(&db_path).await
     }
+
+    /// Stops the node and releases all resources including the database.
+    ///
+    /// This ensures the MDBX environment is properly closed and all pending writes are
+    /// flushed. Must be called before archiving or copying database files.
+    pub async fn stop(self) -> anyhow::Result<()> {
+        self.node.stop().await
+    }
 }
 
 impl ForkTestNode {
