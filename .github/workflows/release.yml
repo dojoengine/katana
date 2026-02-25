@@ -10,6 +10,7 @@ on:
     types: [closed]
     branches:
       - main
+      - "release/**"
 
 env:
   RUST_VERSION: 1.86.0
@@ -97,16 +98,6 @@ jobs:
             target: aarch64-unknown-linux-gnu
             arch: arm64
             svm_target_platform: linux-aarch64
-            native_build: false
-          - os: macos-13
-            platform: darwin
-            target: x86_64-apple-darwin
-            arch: amd64
-            native_build: true
-          - os: macos-13
-            platform: darwin
-            target: x86_64-apple-darwin
-            arch: amd64
             native_build: false
           - os: macos-latest-xlarge
             platform: darwin
@@ -217,13 +208,13 @@ jobs:
         if: ${{ matrix.job.native_build == false }}
         shell: bash
         run: |
-          cargo build --bin katana --profile performance --target ${{ matrix.job.target }}
+          cargo build -p katana --bin katana --profile performance --target ${{ matrix.job.target }}
 
       - name: Build binary ( w/ cairo-native )
         if: ${{ matrix.job.native_build == true }}
         shell: bash
         run: |
-          cargo build --bin katana --profile performance --features native --target ${{ matrix.job.target }}
+          cargo build -p katana --bin katana --profile performance --features native --target ${{ matrix.job.target }}
 
       - name: Archive binaries
         id: artifacts

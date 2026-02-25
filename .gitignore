@@ -31,9 +31,10 @@ tests/snos/snos
 snos-env
 tests/fixtures/katana_db
 
-# Ignore all files under tests/fixtures/db except .tar.gz files
+# Ignore generated DB fixture directories; keep only committed tarballs
 tests/fixtures/db/*
-!tests/fixtures/db/*.tar.gz
+!tests/fixtures/db/1_6_0.tar.gz
+!tests/fixtures/db/snos.tar.gz
 
 crates/contracts/build/
 !crates/contracts/build/legacy/

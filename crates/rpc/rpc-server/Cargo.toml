@@ -30,7 +30,7 @@ jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
 serde_json.workspace = true
 starknet = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
+starknet-paymaster = { package = "starknet", git = "https://github.com/xJonathanLEI/starknet-rs", tag = "starknet/v0.17.0", optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
@@ -39,6 +39,7 @@ tracing.workspace = true
 
 cainome = { workspace = true, optional = true }
 cartridge = { workspace = true, optional = true }
+paymaster-rpc = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 katana-tee = { workspace = true, optional = true }
@@ -49,12 +50,12 @@ starknet-types-core = { workspace = true, optional = true }
 katana-chain-spec.workspace = true
 katana-contracts.workspace = true
 katana-messaging.workspace = true
-katana-node.workspace = true
+katana-sequencer-node = { workspace = true, features = [ "cartridge" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-client.workspace = true
 katana-trie.workspace = true
 katana-genesis.workspace = true
-katana-utils.workspace = true
+katana-utils = { workspace = true, features = ["node"] }
 
 alloy-contract = { workspace = true, default-features = false }
 alloy-node-bindings = "1.0.24"
@@ -74,18 +75,28 @@ serde.workspace = true
 serde_json.workspace = true
 similar-asserts.workspace = true
 starknet.workspace = true
+stark-vrf.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 url.workspace = true
 
 [features]
+paymaster = [
+	"dep:paymaster-rpc",
+	"dep:url",
+	"katana-rpc-api/paymaster",
+]
+vrf = [
+	"paymaster",
+]
 cartridge = [
 	"dep:cainome",
-	"dep:futures",
 	"dep:cartridge",
 	"dep:katana-genesis",
 	"dep:starknet",
-	"dep:url",
+	"dep:starknet-paymaster",
+	"paymaster",
+	"vrf",
 	"katana-rpc-api/cartridge",
 ]
 explorer = ["dep:katana-explorer"]

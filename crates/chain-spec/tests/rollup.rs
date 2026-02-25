@@ -5,8 +5,8 @@ use katana_chain_spec::rollup::utils::GenesisTransactionsBuilder;
 use katana_chain_spec::rollup::{ChainSpec, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
 use katana_chain_spec::{FeeContracts, SettlementLayer};
 use katana_contracts::contracts;
-use katana_executor::implementation::blockifier::cache::ClassCache;
-use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_executor::blockifier::cache::ClassCache;
+use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::{BlockLimits, ExecutorFactory};
 use katana_genesis::allocation::{
     DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
@@ -69,7 +69,8 @@ fn valid_transactions() {
     let provider = provider.provider();
     let ef = executor(chain_spec.clone());
 
-    let mut executor = ef.with_state(provider.latest().unwrap());
+    let mut executor =
+        ef.executor(provider.latest().unwrap(), katana_primitives::env::BlockEnv::default());
     executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
 
     let output = executor.take_execution_output().unwrap();
@@ -87,7 +88,8 @@ fn genesis_states() {
     let provider = provider.provider();
     let ef = executor(chain_spec.clone());
 
-    let mut executor = ef.with_state(provider.latest().unwrap());
+    let mut executor =
+        ef.executor(provider.latest().unwrap(), katana_primitives::env::BlockEnv::default());
     executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
 
     let genesis_state = executor.state();

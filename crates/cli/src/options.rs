@@ -14,23 +14,27 @@ use std::path::PathBuf;
 
 use clap::Args;
 use katana_genesis::Genesis;
-use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
+use katana_primitives::block::{BlockHashOrNumber, GasPrice};
+use katana_primitives::chain::ChainId;
+#[cfg(feature = "vrf")]
+use katana_primitives::ContractAddress;
 #[cfg(feature = "server")]
-use katana_node::config::gateway::{
+use katana_rpc_server::cors::HeaderValue;
+use katana_sequencer_node::config::execution::{
+    DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
+};
+#[cfg(feature = "server")]
+use katana_sequencer_node::config::gateway::{
     DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
 };
 #[cfg(feature = "server")]
-use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
+use katana_sequencer_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
+use katana_sequencer_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{
+use katana_sequencer_node::config::rpc::{
     DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
 };
-use katana_primitives::block::{BlockHashOrNumber, GasPrice};
-use katana_primitives::chain::ChainId;
-#[cfg(feature = "server")]
-use katana_rpc_server::cors::HeaderValue;
 use katana_tracing::{default_log_file_directory, gcloud, otlp, LogColor, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
 use serde_utils::serialize_opt_as_hex;
@@ -534,47 +538,130 @@ pub struct GasPriceOracleOptions {
     pub l1_strk_data_gas_price: Option<GasPrice>,
 }
 
+#[cfg(feature = "paymaster")]
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Paymaster options")]
+pub struct PaymasterOptions {
+    /// Enable the paymaster service.
+    ///
+    /// By default, the paymaster runs as a sidecar process. If `--paymaster.url` is provided,
+    /// it will connect to an external paymaster service instead.
+    #[arg(long = "paymaster", id = "paymaster_enabled")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Paymaster JSON-RPC endpoint for external paymaster service.
+    ///
+    /// When provided, the paymaster will run in external mode, connecting to this URL
+    /// instead of spawning a sidecar process.
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(long = "paymaster.url", value_name = "URL", id = "paymaster_url")]
+    #[serde(default)]
+    pub url: Option<Url>,
+
+    /// API key to send via `x-paymaster-api-key` when proxying requests.
+    #[arg(requires = "paymaster_url")]
+    #[arg(long = "paymaster.api-key", value_name = "KEY")]
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// API key for the Avnu price provider (used by the sidecar).
+    ///
+    /// Only required when running in sidecar mode. Not needed if `--paymaster.url` is provided.
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(conflicts_with = "paymaster_url")]
+    #[arg(long = "paymaster.price-api-key", value_name = "KEY")]
+    #[serde(default)]
+    pub price_api_key: Option<String>,
+
+    /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--paymaster.url` is provided.
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(conflicts_with = "paymaster_url")]
+    #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+#[cfg(feature = "paymaster")]
+impl PaymasterOptions {
+    /// Returns true if the paymaster should run in external mode (URL provided).
+    pub fn is_external(&self) -> bool {
+        self.url.is_some()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.enabled {
+                self.enabled = other.enabled;
+            }
+
+            if self.url.is_none() {
+                self.url = other.url.clone();
+            }
+
+            if self.api_key.is_none() {
+                self.api_key = other.api_key.clone();
+            }
+
+            if self.price_api_key.is_none() {
+                self.price_api_key = other.price_api_key.clone();
+            }
+
+            if self.bin.is_none() {
+                self.bin = other.bin.clone();
+            }
+        }
+    }
+}
+
 #[cfg(feature = "cartridge")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Cartridge options")]
 pub struct CartridgeOptions {
-    /// Declare all versions of the Controller class at genesis. This is implictly enabled if
-    /// `--cartridge.paymaster` is provided.
+    /// Declare all versions of the Controller class at genesis.
     #[arg(long = "cartridge.controllers")]
     pub controllers: bool,
 
-    /// Whether to use the Cartridge paymaster.
-    /// This has the cost to call the Cartridge API to check
-    /// if a controller account exists on each estimate fee call.
-    ///
-    /// Mostly used for local development using controller, and must be
-    /// disabled for slot deployments.
-    #[arg(long = "cartridge.paymaster")]
-    #[arg(default_value_t = false)]
+    /// Enable Cartridge paymaster
+    #[cfg(feature = "paymaster")]
+    #[arg(requires = "paymaster_enabled")]
+    #[arg(long = "cartridge.paymaster", id = "cartridge_paymaster")]
     #[serde(default)]
     pub paymaster: bool,
 
-    /// The root URL for the Cartridge API.
+    /// The base URL for the Cartridge API.
     ///
     /// This is used to fetch the calldata for the constructor of the given controller
     /// address (at the moment). Must be configurable for local development
     /// with local cartridge API.
-    #[arg(long = "cartridge.api", requires = "paymaster")]
+    #[arg(long = "cartridge.api")]
+    #[cfg(feature = "paymaster")]
     #[arg(default_value = "https://api.cartridge.gg")]
+    #[arg(requires = "cartridge_paymaster")]
     #[serde(default = "default_api_url")]
-    pub api: Url,
+    pub cartridge_api: Url,
+
+    #[cfg(all(feature = "paymaster", feature = "vrf"))]
+    #[command(flatten)]
+    pub vrf: VrfOptions,
 }
 
 #[cfg(feature = "cartridge")]
 impl CartridgeOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
-            if self.paymaster == default_paymaster() {
-                self.paymaster = other.paymaster;
+            if !self.controllers {
+                self.controllers = other.controllers;
             }
 
-            if self.api == default_api_url() {
-                self.api = other.api.clone();
+            if self.cartridge_api == default_api_url() {
+                self.cartridge_api = other.cartridge_api.clone();
+            }
+
+            if self.vrf == VrfOptions::default() {
+                self.vrf = other.vrf.clone();
             }
         }
     }
@@ -585,8 +672,76 @@ impl Default for CartridgeOptions {
     fn default() -> Self {
         CartridgeOptions {
             controllers: false,
-            paymaster: default_paymaster(),
-            api: default_api_url(),
+            paymaster: false,
+            cartridge_api: default_api_url(),
+            #[cfg(feature = "vrf")]
+            vrf: VrfOptions::default(),
+        }
+    }
+}
+
+#[cfg(feature = "vrf")]
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Cartridge VRF options")]
+pub struct VrfOptions {
+    /// Enable the Cartridge VRF service.
+    ///
+    /// By default, the VRF runs as a sidecar process. If `--vrf.url` is provided,
+    /// it will connect to an external VRF service instead.
+    ///
+    /// Requires the Cartridge paymaster to be enabled i.e., `--paymaster.cartridge`.
+    #[arg(long = "vrf", id = "vrf_enabled")]
+    #[arg(requires = "cartridge_paymaster")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// VRF service endpoint for external VRF service.
+    ///
+    /// When provided, the VRF will run in external mode, connecting to this URL
+    /// instead of spawning a sidecar process.
+    #[arg(requires_all = ["vrf_enabled", "vrf_account_contract"])]
+    #[arg(long = "vrf.url", value_name = "URL", id = "vrf_url")]
+    #[serde(default)]
+    pub url: Option<Url>,
+
+    #[arg(requires = "vrf_url")]
+    #[arg(long = "vrf.contract", value_name = "ADDRESS", id = "vrf_account_contract")]
+    #[serde(default)]
+    pub vrf_account_contract: Option<ContractAddress>,
+
+    /// Optional path to the VRF sidecar binary (defaults to `vrf-server` in PATH).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(requires = "vrf_enabled", conflicts_with = "vrf_url")]
+    #[arg(long = "vrf.bin", value_name = "PATH", id = "vrf_bin")]
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+#[cfg(feature = "vrf")]
+impl VrfOptions {
+    /// Returns true if the VRF should run in external mode (URL provided).
+    pub fn is_external(&self) -> bool {
+        self.url.is_some()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.enabled {
+                self.enabled = other.enabled;
+            }
+
+            if self.url.is_none() {
+                self.url = other.url.clone();
+            }
+
+            if self.vrf_account_contract.is_none() {
+                self.vrf_account_contract = other.vrf_account_contract;
+            }
+
+            if self.bin.is_none() {
+                self.bin = other.bin.clone();
+            }
         }
     }
 }
@@ -641,7 +796,7 @@ fn default_page_size() -> u64 {
 
 #[cfg(feature = "server")]
 fn default_proof_keys() -> u64 {
-    katana_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS
+    katana_sequencer_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS
 }
 
 #[cfg(feature = "server")]
@@ -696,11 +851,6 @@ where
         .map(GasPrice::new)
         .map(Some)
         .ok_or_else(|| D::Error::custom("value cannot be zero"))
-}
-
-#[cfg(feature = "cartridge")]
-fn default_paymaster() -> bool {
-    false
 }
 
 #[cfg(feature = "cartridge")]
@@ -834,4 +984,78 @@ impl TeeOptions {
             }
         }
     }
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "gRPC server options")]
+pub struct GrpcOptions {
+    /// Enable the gRPC server.
+    ///
+    /// When enabled, the gRPC server will start alongside the JSON-RPC server,
+    /// providing high-performance endpoints for Starknet operations.
+    #[arg(long = "grpc")]
+    #[serde(default)]
+    pub grpc_enable: bool,
+
+    /// gRPC server listening interface.
+    #[arg(requires = "grpc_enable")]
+    #[arg(long = "grpc.addr", value_name = "ADDRESS")]
+    #[arg(default_value_t = default_grpc_addr())]
+    #[serde(default = "default_grpc_addr")]
+    pub grpc_addr: IpAddr,
+
+    /// gRPC server listening port.
+    #[arg(requires = "grpc_enable")]
+    #[arg(long = "grpc.port", value_name = "PORT")]
+    #[arg(default_value_t = default_grpc_port())]
+    #[serde(default = "default_grpc_port")]
+    pub grpc_port: u16,
+
+    /// gRPC request timeout in seconds.
+    #[arg(requires = "grpc_enable")]
+    #[arg(long = "grpc.timeout", value_name = "TIMEOUT")]
+    pub grpc_timeout: Option<u64>,
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+impl Default for GrpcOptions {
+    fn default() -> Self {
+        GrpcOptions {
+            grpc_enable: false,
+            grpc_addr: default_grpc_addr(),
+            grpc_port: default_grpc_port(),
+            grpc_timeout: None,
+        }
+    }
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+impl GrpcOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.grpc_enable {
+                self.grpc_enable = other.grpc_enable;
+            }
+            if self.grpc_addr == default_grpc_addr() {
+                self.grpc_addr = other.grpc_addr;
+            }
+            if self.grpc_port == default_grpc_port() {
+                self.grpc_port = other.grpc_port;
+            }
+            if self.grpc_timeout.is_none() {
+                self.grpc_timeout = other.grpc_timeout;
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+fn default_grpc_addr() -> IpAddr {
+    katana_sequencer_node::config::grpc::DEFAULT_GRPC_ADDR
+}
+
+#[cfg(all(feature = "server", feature = "grpc"))]
+fn default_grpc_port() -> u16 {
+    katana_sequencer_node::config::grpc::DEFAULT_GRPC_PORT
 }

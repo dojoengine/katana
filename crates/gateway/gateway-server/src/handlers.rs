@@ -1,9 +1,7 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::service::block_producer::BlockProducer;
-use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_gateway_types::{
     Block, ConfirmedReceipt, ConfirmedTransaction, ContractClass, ErrorCode, GatewayError,
     ReceiptBody, StateUpdate, StateUpdateWithBlock,
@@ -11,7 +9,7 @@ use katana_gateway_types::{
 use katana_pool_api::TransactionPool;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClassCompilationError};
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
 use katana_provider_api::transaction::ReceiptProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
@@ -28,7 +26,7 @@ where
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
-    pub api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>,
+    pub api: StarknetApi<Pool, BlockProducer<PF>, PF>,
 }
 
 impl<Pool, PF> Clone for AppState<Pool, PF>

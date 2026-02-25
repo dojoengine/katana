@@ -2,11 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 pub use clap::Parser;
-use katana_node::config::db::DbConfig;
-use katana_node::config::metrics::MetricsConfig;
-use katana_node::config::rpc::RpcConfig;
-use katana_node::full;
-use katana_node::full::Network;
+use katana_full_node::config::db::DbConfig;
+use katana_full_node::config::metrics::MetricsConfig;
+use katana_full_node::config::rpc::RpcConfig;
+use katana_full_node::Network;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -78,7 +77,7 @@ impl FullNodeArgs {
     async fn start_node(&self) -> Result<()> {
         // Build the node
         let config = self.config()?;
-        let node = full::Node::build(config).context("failed to build full node")?;
+        let node = katana_full_node::Node::build(config).context("failed to build full node")?;
 
         if !self.silent {
             info!(target: LOG_TARGET, "Starting full node");
@@ -102,13 +101,13 @@ impl FullNodeArgs {
         Ok(())
     }
 
-    fn config(&self) -> Result<full::Config> {
+    fn config(&self) -> Result<katana_full_node::Config> {
         let db = self.db_config();
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
         let pruning = self.pruning_config();
 
-        Ok(full::Config {
+        Ok(katana_full_node::Config {
             db,
             rpc,
             metrics,
@@ -118,7 +117,7 @@ impl FullNodeArgs {
         })
     }
 
-    fn pruning_config(&self) -> full::PruningConfig {
+    fn pruning_config(&self) -> katana_full_node::PruningConfig {
         use crate::options::PruningMode;
 
         // Translate CLI pruning mode to distance from tip
@@ -127,7 +126,7 @@ impl FullNodeArgs {
             PruningMode::Full(n) => Some(n),
         };
 
-        full::PruningConfig { distance }
+        katana_full_node::PruningConfig { distance }
     }
 
     fn db_config(&self) -> DbConfig {

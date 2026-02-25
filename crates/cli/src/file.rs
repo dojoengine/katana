@@ -13,7 +13,8 @@ pub struct NodeArgsConfig {
     pub no_mining: Option<bool>,
     pub block_time: Option<u64>,
     pub block_cairo_steps_limit: Option<u64>,
-    pub db_dir: Option<PathBuf>,
+    #[serde(alias = "db_dir")]
+    pub data_dir: Option<PathBuf>,
     pub messaging: Option<MessagingConfig>,
     pub logging: Option<LoggingOptions>,
     pub starknet: Option<StarknetOptions>,
@@ -25,8 +26,12 @@ pub struct NodeArgsConfig {
     pub server: Option<ServerOptions>,
     #[cfg(feature = "server")]
     pub metrics: Option<MetricsOptions>,
+    #[cfg(all(feature = "server", feature = "grpc"))]
+    pub grpc: Option<GrpcOptions>,
     #[cfg(feature = "cartridge")]
     pub cartridge: Option<CartridgeOptions>,
+    #[cfg(feature = "paymaster")]
+    pub paymaster: Option<PaymasterOptions>,
     #[cfg(feature = "explorer")]
     pub explorer: Option<ExplorerOptions>,
 }
@@ -49,7 +54,7 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
             no_mining: if args.no_mining { Some(true) } else { None },
             block_time: args.block_time,
             block_cairo_steps_limit: args.block_cairo_steps_limit,
-            db_dir: args.db_dir,
+            data_dir: args.data_dir,
             messaging: args.messaging,
             ..Default::default()
         };
@@ -75,12 +80,27 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
                 if args.metrics == MetricsOptions::default() { None } else { Some(args.metrics) };
         }
 
+        #[cfg(all(feature = "server", feature = "grpc"))]
+        {
+            node_config.grpc =
+                if args.grpc == GrpcOptions::default() { None } else { Some(args.grpc) };
+        }
+
         #[cfg(feature = "cartridge")]
         {
             node_config.cartridge = if args.cartridge == CartridgeOptions::default() {
                 None
             } else {
                 Some(args.cartridge)
+            };
+        }
+
+        #[cfg(feature = "paymaster")]
+        {
+            node_config.paymaster = if args.paymaster == PaymasterOptions::default() {
+                None
+            } else {
+                Some(args.paymaster)
             };
         }
 

@@ -215,8 +215,9 @@ mod tests {
 
     use alloy_primitives::{address, b256, LogData, U256};
     use katana_primitives::chain::{ChainId, NamedChainId};
+    use katana_primitives::felt;
     use katana_primitives::utils::transaction::compute_l1_to_l2_message_hash;
-    use starknet::macros::{felt, selector};
+    use starknet::macros::selector;
 
     use super::*;
 

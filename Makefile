@@ -17,16 +17,25 @@ SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
 COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/1_6_0.tar.gz
 COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/1_6_0
 
+SPAWN_AND_MOVE_DB := $(DB_FIXTURES_DIR)/spawn_and_move
+SIMPLE_DB := $(DB_FIXTURES_DIR)/simple
+
 CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
+
+VRF_DIR := $(CONTRACTS_DIR)/vrf
+AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
+
+# The scarb version required by the AVNU contracts (no .tool-versions in that directory)
+AVNU_SCARB_VERSION := 2.11.4
 
 # The `scarb` version that is required to compile the feature contracts in katana-contracts
 SCARB_VERSION := 2.8.4
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts install-pyenv
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
 
 usage help:
 	@echo "Usage:"
@@ -34,9 +43,10 @@ usage help:
 	@echo "    snos-deps:                 Install SNOS test dependencies (pyenv, Python 3.9.15)."
 	@echo "    build-explorer:            Build the explorer."
 	@echo "    contracts:                 Build the contracts."
-	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
+	@echo "    fixtures:            	  Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
+	@echo "    generate-db-fixtures:      Generate spawn-and-move and simple DB fixtures (requires scarb + sozo)."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
@@ -62,8 +72,8 @@ snos-artifacts: $(SNOS_OUTPUT)
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
 
-test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) contracts
-	@echo "All test artifacts prepared successfully."
+fixtures: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB) $(SIMPLE_DB) contracts
+	@echo "All test fixtures prepared successfully."
 
 build-explorer:
 	@which bun >/dev/null 2>&1 || { echo "Error: bun is required but not installed. Please install bun first."; exit 1; }
@@ -73,10 +83,16 @@ contracts: $(CONTRACTS_BUILD_DIR)
 
 # Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
 $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
-	@echo "Building contracts..."
-	@cd $(CONTRACTS_DIR) && scarb build
-	@mkdir -p build && \
-		mv $(CONTRACTS_DIR)/target/dev/* $@ || { echo "Contracts build failed!"; exit 1; }
+	@mkdir -p $@
+	@echo "Building main contracts..."
+	@cd $(CONTRACTS_DIR) && asdf exec scarb build || { echo "Main contracts build failed!"; exit 1; }
+	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
+	@echo "Building VRF contracts..."
+	@cd $(VRF_DIR) && asdf exec scarb build || { echo "VRF contracts build failed!"; exit 1; }
+	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
+	@echo "Building AVNU contracts..."
+	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
+	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."
@@ -94,7 +110,7 @@ $(SNOS_OUTPUT): $(SNOS_DB_DIR)
 	@git submodule update --init --recursive
 	@echo "Setting up SNOS tests..."
 	@cd tests/snos/snos && \
-		. ./setup-scripts/setup-cairo.sh && \
+		PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5 . ./setup-scripts/setup-cairo.sh && \
 		. ./setup-scripts/setup-tests.sh || { echo "SNOS setup failed\!"; exit 1; }
 
 $(SNOS_DB_DIR): $(SNOS_DB_TAR)
@@ -109,6 +125,30 @@ $(COMPATIBILITY_DB_DIR): $(COMPATIBILITY_DB_TAR)
 		tar -xzf $(notdir $(COMPATIBILITY_DB_TAR)) && \
 		mv katana_db $(notdir $(COMPATIBILITY_DB_DIR)) || { echo "Failed to extract backward compatibility test database\!"; exit 1; }
 	@echo "Backward compatibility database extracted successfully."
+
+$(SPAWN_AND_MOVE_DB): $(SPAWN_AND_MOVE_DB).tar.gz
+	@echo "Extracting Dojo example spawn-and-move test database..."
+	@tar -xzf $< -C $(DB_FIXTURES_DIR) || { echo "Failed to extract spawn-and-move test database\!"; exit 1; }
+	@echo "Example Dojo spawn-and-move database extracted successfully."
+
+$(SIMPLE_DB): $(SIMPLE_DB).tar.gz
+	@echo "Extracting Dojo example simple test database..."
+	@tar -xzf $< -C $(DB_FIXTURES_DIR) || { echo "Failed to extract spawn-and-move test database\!"; exit 1; }
+	@echo "Example Dojo simple database extracted successfully."
+
+generate-db-fixtures:
+	@echo "Building generate_migration_db binary..."
+	cargo build --bin generate_migration_db --features node -p katana-utils
+	@echo "Generating spawn-and-move database fixture..."
+	./target/debug/generate_migration_db --example spawn-and-move --output /tmp/spawn_and_move.tar.gz
+	@echo "Generating simple database fixture..."
+	./target/debug/generate_migration_db --example simple --output /tmp/simple.tar.gz
+	@echo "Extracting spawn-and-move fixture..."
+	@mkdir -p $(DB_FIXTURES_DIR)
+	@cd $(DB_FIXTURES_DIR) && tar -xzf /tmp/spawn_and_move.tar.gz
+	@echo "Extracting simple fixture..."
+	@cd $(DB_FIXTURES_DIR) && tar -xzf /tmp/simple.tar.gz
+	@echo "DB fixtures generated successfully."
 
 check-llvm:
 ifndef MLIR_SYS_190_PREFIX
@@ -180,5 +220,5 @@ snos-deps-macos: install-pyenv
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
+	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB) $(SIMPLE_DB) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
 	echo "Clean complete."

@@ -884,7 +884,6 @@ impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use katana_primitives::address;
     use katana_primitives::block::{
         Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
     };
@@ -894,12 +893,12 @@ mod tests {
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxWithHash};
+    use katana_primitives::{address, felt};
     use katana_provider_api::block::{
         BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     };
     use katana_provider_api::state::StateFactoryProvider;
     use katana_provider_api::transaction::TransactionProvider;
-    use starknet::macros::felt;
 
     use crate::{DbProviderFactory, ProviderFactory};
 

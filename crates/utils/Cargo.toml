@@ -6,13 +6,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-chain-spec.workspace = true
-katana-core.workspace = true
-katana-executor.workspace = true
-katana-node.workspace = true
 katana-primitives.workspace = true
-katana-provider.workspace = true
-katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
@@ -24,9 +18,38 @@ assert_matches.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 rand.workspace = true
-starknet.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = [ "macros", "signal", "time" ], default-features = false }
+tokio = { workspace = true, features = [ "macros", "rt-multi-thread", "signal", "time" ], default-features = false }
+
+# node-only dependencies
+katana-chain-spec = { workspace = true, optional = true }
+katana-core = { workspace = true, optional = true }
+katana-db = { workspace = true, optional = true }
+katana-executor = { workspace = true, optional = true }
+katana-sequencer-node = { workspace = true, optional = true }
+katana-provider = { workspace = true, optional = true }
+katana-rpc-server = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+starknet = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
 
 [features]
-explorer = [ "katana-node/explorer" ]
+node = [
+	"katana-sequencer-node/grpc",
+    "clap",
+    "katana-chain-spec",
+    "katana-core",
+    "katana-db",
+    "katana-executor",
+    "katana-sequencer-node",
+    "katana-provider",
+    "katana-rpc-server",
+    "starknet",
+    "tempfile",
+]
+explorer = [ "node", "katana-sequencer-node/explorer" ]
+
+[[bin]]
+name = "generate_migration_db"
+path = "src/bin/generate_migration_db.rs"
+required-features = [ "node" ]

@@ -308,18 +308,19 @@ mod tests {
     use assert_matches::assert_matches;
     use katana_primitives::block::FinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
     use katana_primitives::fee::PriceUnit;
+    use katana_primitives::felt;
     use katana_rpc_types::receipt::ExecutionResult::{Reverted, Succeeded};
     use katana_rpc_types::receipt::{
         ExecutionResult, ReceiptBlockInfo, RpcInvokeTxReceipt, RpcTxReceipt, TxReceiptWithBlockInfo,
     };
     use katana_rpc_types::{ExecutionResources, FeePayment};
-    use starknet::macros::felt;
 
     use super::{Duration, TxWaiter};
-    use crate::{TestNode, TxWaitingError};
+    use crate::TxWaitingError;
 
-    async fn create_test_sequencer() -> TestNode {
-        TestNode::new().await
+    #[cfg(feature = "node")]
+    async fn create_test_sequencer() -> crate::TestNode {
+        crate::TestNode::new().await
     }
 
     const EXECUTION_RESOURCES: ExecutionResources =
@@ -365,6 +366,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "node")]
     #[tokio::test]
     async fn should_timeout_on_nonexistant_transaction() {
         let sequencer = create_test_sequencer().await;

@@ -281,6 +281,45 @@ impl Client {
             .map_err(Into::into)
     }
 
+    /// Submit a new transaction and wait until the receipt is available.
+    pub async fn katana_add_invoke_transaction(
+        &self,
+        invoke_transaction: BroadcastedInvokeTx,
+    ) -> Result<TxReceiptWithBlockInfo> {
+        katana_rpc_api::katana::KatanaApiClient::add_invoke_transaction_sync(
+            &self.client,
+            invoke_transaction,
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Submit a new class declaration transaction and wait until the receipt is available.
+    pub async fn katana_add_declare_transaction(
+        &self,
+        declare_transaction: BroadcastedDeclareTx,
+    ) -> Result<TxReceiptWithBlockInfo> {
+        katana_rpc_api::katana::KatanaApiClient::add_declare_transaction_sync(
+            &self.client,
+            declare_transaction,
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Submit a new deploy account transaction and wait until the receipt is available.
+    pub async fn katana_add_deploy_account_transaction(
+        &self,
+        deploy_account_transaction: BroadcastedDeployAccountTx,
+    ) -> Result<TxReceiptWithBlockInfo> {
+        katana_rpc_api::katana::KatanaApiClient::add_deploy_account_transaction_sync(
+            &self.client,
+            deploy_account_transaction,
+        )
+        .await
+        .map_err(Into::into)
+    }
+
     ////////////////////////////////////////////////////////////////////////////
     // Trace API methods
     ////////////////////////////////////////////////////////////////////////////

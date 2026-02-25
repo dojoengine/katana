@@ -3,8 +3,7 @@ pub mod transaction;
 use alloy_primitives::U256;
 use katana_chain_spec::ChainSpec;
 use katana_contracts::contracts;
-use katana_executor::implementation::noop::NoopExecutorFactory;
-use katana_executor::{ExecutionFlags, ExecutorFactory};
+use katana_executor::ExecutionFlags;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_primitives::block::{
@@ -21,11 +20,10 @@ use katana_primitives::transaction::{
 };
 use katana_primitives::utils::class::{parse_compiled_class, parse_sierra_class};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
-use katana_primitives::{address, Felt};
+use katana_primitives::{address, felt, Felt};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
-use starknet::macros::felt;
 
 // TODO: remove support for legacy contract declaration
 #[allow(unused)]
@@ -253,17 +251,8 @@ pub fn flags(
     ExecutionFlags::new().with_account_validation(!skip_validate).with_fee(!skip_fee_transfer)
 }
 
-/// A fixture that provides a default `ExecutorFactory` implementation.
-#[rstest::fixture]
-#[default(NoopExecutorFactory)]
-pub fn executor_factory<EF: ExecutorFactory>(
-    #[default(NoopExecutorFactory::new())] factory: EF,
-) -> EF {
-    factory
-}
-
-use katana_executor::implementation::blockifier::cache::ClassCache;
-use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_executor::blockifier::cache::ClassCache;
+use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
 
 #[rstest::fixture]

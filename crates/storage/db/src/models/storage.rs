@@ -88,7 +88,7 @@ impl Decompress for ContractStorageEntry {
 
 #[cfg(test)]
 mod tests {
-    use starknet::macros::felt;
+    use katana_primitives::felt;
 
     use crate::codecs::{Compress, Decompress};
 

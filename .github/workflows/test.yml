@@ -1,380 +1,375 @@
 name: test
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "Cargo.toml"
-      - "bin/**/*.rs"
-      - "bin/**/Cargo.toml"
-      - "crates/**/*.rs"
-      - "crates/**/Cargo.toml"
-      - ".github/workflows/test.yml"
+    push:
+        branches:
+            - main
+            - "release/**"
+        paths:
+            - "Cargo.toml"
+            - "bin/**/*.rs"
+            - "bin/**/Cargo.toml"
+            - "crates/**/*.rs"
+            - "crates/**/Cargo.toml"
+            - ".github/workflows/test.yml"
 
-  pull_request:
-    types: [opened, synchronize, ready_for_review]
-    paths:
-      - "Cargo.toml"
-      - "bin/**/*.rs"
-      - "bin/**/Cargo.toml"
-      - "crates/**/*.rs"
-      - "crates/**/Cargo.toml"
-      - ".github/workflows/test.yml"
+    pull_request:
+        types: [opened, synchronize, ready_for_review]
+        paths:
+            - "Cargo.toml"
+            - "bin/**/*.rs"
+            - "bin/**/Cargo.toml"
+            - "crates/**/*.rs"
+            - "crates/**/Cargo.toml"
+            - ".github/workflows/test.yml"
 
 # Cancel in progress workflow when a new one is triggered by running in a concurrency group
 # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
 
 env:
-  CARGO_TERM_COLOR: always
+    CARGO_TERM_COLOR: always
 
 jobs:
-  fmt:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    steps:
-      - uses: actions/checkout@v3
-      - run: scripts/rust_fmt.sh --check
+    fmt:
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        steps:
+            - uses: actions/checkout@v3
+            - run: scripts/rust_fmt.sh --check
 
-  generate-test-artifacts:
-    needs: [fmt]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Workaround for https://github.com/actions/runner-images/issues/6775
-      - run: git config --global --add safe.directory "*"
+    generate-test-artifacts:
+        needs: [fmt]
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
 
-      - name: Check if test artifacts need to be generated
-        id: check-files
-        run: |
-          if [[ $(git diff --name-only HEAD^ | grep -q "^tests/snos/snos/") ]]; then
-            echo "files_changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "files_changed=false" >> $GITHUB_OUTPUT
-          fi
+            - name: Restore cached test fixtures
+              id: cache
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      tests/snos/snos/build
+                      crates/contracts/build
+                      tests/fixtures/db/spawn_and_move
+                      tests/fixtures/db/simple
+                      tests/fixtures/db/1_6_0
+                      tests/fixtures/db/snos
+                  key: test-fixtures-${{ hashFiles('Makefile', 'crates/contracts/contracts/**', 'tests/fixtures/db/*.tar.gz') }}
 
-      - name: Try to restore cached test artifacts
-        id: download
-        uses: actions/download-artifact@v5
-        continue-on-error: true
-        with:
-          name: test-artifacts
+            - name: Generate test fixtures
+              if: steps.cache.outputs.cache-hit != 'true'
+              run: make fixtures
 
-      # Only generate the test artifacts if the snos submodule changes or the downloading the artifacts failed
-      - name: Generate test artifacts
-        if: steps.check-files.outputs.files_changed == 'true' || steps.download.outcome == 'failure'
-        run: make test-artifacts
+            - name: Upload test artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: fixtures
+                  overwrite: true
+                  retention-days: 14
+                  if-no-files-found: error
+                  path: |
+                      tests/snos/snos/build
+                      crates/contracts/build
+                      tests/fixtures/db/spawn_and_move
+                      tests/fixtures/db/simple
+                      tests/fixtures/db/1_6_0
+                      tests/fixtures/db/snos
 
-      - name: Cache test artifacts
-        if: steps.check-files.outputs.files_changed == 'true' || steps.download.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-artifacts
-          overwrite: true
-          retention-days: 14
-          if-no-files-found: error
-          path: |
-            ./tests/snos/snos/build
-            ./crates/contracts/build
+    build-katana-binary:
+        needs: [fmt, clippy, generate-test-artifacts]
+        runs-on: ubuntu-latest-32-cores
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+            LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+            TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
 
-  build-katana-binary:
-    needs: [fmt, clippy, generate-test-artifacts]
-    runs-on: ubuntu-latest-32-cores
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    env:
-      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
-      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
-      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Workaround for https://github.com/actions/runner-images/issues/6775
-      - run: git config --global --add safe.directory "*"
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ci-${{ github.job }}
-          shared-key: katana-ci-cache
+            - name: Download contract artifacts
+              uses: actions/download-artifact@v5
+              with:
+                  name: fixtures
 
-      - name: Download contract artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: test-artifacts
+            - name: Build binary with all features
+              run: cargo build --bin katana --all-features
 
-      - name: Build binary with all features
-        run: cargo build --bin katana --all-features
+            - name: Upload binary
+              uses: actions/upload-artifact@v4
+              with:
+                  name: binary
+                  overwrite: true
+                  retention-days: 1
+                  if-no-files-found: error
+                  path: ./target/debug/katana
 
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary
-          overwrite: true
-          retention-days: 1
-          if-no-files-found: error
-          path: ./target/debug/katana
+    clippy:
+        needs: [generate-test-artifacts]
+        runs-on: ubuntu-latest-4-cores
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+            LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+            TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
 
-  clippy:
-    needs: [generate-test-artifacts]
-    runs-on: ubuntu-latest-4-cores
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    env:
-      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
-      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
-      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Workaround for https://github.com/actions/runner-images/issues/6775
-      - run: git config --global --add safe.directory "*"
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache-nightly
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ci-${{ github.job }}
-          shared-key: katana-ci-cache
+            - name: Download test artifacts
+              uses: actions/download-artifact@v5
+              with:
+                  name: fixtures
 
-      - name: Download test artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: test-artifacts
+            - name: Run Clippy
+              run: ./scripts/clippy.sh
 
-      - name: Run Clippy
-        run: ./scripts/clippy.sh
+    test:
+        needs: [fmt, clippy, generate-test-artifacts, build-katana-binary]
+        runs-on: ubuntu-latest-32-cores
+        timeout-minutes: 30
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+            LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+            TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+            NEXTEST_PROFILE: ci
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
 
-  test:
-    needs: [fmt, clippy, generate-test-artifacts, build-katana-binary]
-    runs-on: ubuntu-latest-32-cores
-    timeout-minutes: 30
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    env:
-      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
-      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
-      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
-      NEXTEST_PROFILE: ci
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Workaround for https://github.com/actions/runner-images/issues/6775
-      - run: git config --global --add safe.directory "*"
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ci-${{ github.job }}
-          shared-key: katana-ci-cache
+            - name: Download test artifacts
+              uses: actions/download-artifact@v5
+              with:
+                  name: fixtures
 
-      - name: Download test artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: test-artifacts
+            - name: Download Katana binary
+              uses: actions/download-artifact@v5
+              with:
+                  name: binary
 
-      - name: Download Katana binary
-        uses: actions/download-artifact@v5
-        with:
-          name: binary
+            - name: Add binary to PATH
+              run: |
+                  chmod +x katana
+                  echo "$(pwd)" >> $GITHUB_PATH
 
-      - name: Add binary to PATH
-        run: |
-          chmod +x katana
-          export PATH="$(pwd):$GITHUB_PATH"
-          echo $PATH > $GITHUB_PATH
+            - name: Run tests
+              if: github.event_name != 'pull_request'
+              run: |
+                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
 
-      - name: Run tests
-        if: github.event_name != 'pull_request'
-        run: |
-          cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
+            - name: Run tests w/ code coverage
+              if: github.event_name == 'pull_request'
+              run: |
+                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
+                  cargo llvm-cov report --lcov --output-path lcov.info
 
-      - name: Run tests w/ code coverage
-        if: github.event_name == 'pull_request'
-        run: |
-          cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
-          cargo llvm-cov report --lcov --output-path lcov.info
+            - name: Upload code coverage
+              uses: codecov/codecov-action@v4
+              if: github.event_name == 'pull_request'
+              with:
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  files: lcov.info
 
-      - name: Upload code coverage
-        uses: codecov/codecov-action@v4
-        if: github.event_name == 'pull_request'
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
+    # TODO: re-enable once the snos crate is added back to the workspace
+    # snos-integration-test:
+    #   needs: [fmt, clippy]
+    #   runs-on: ubuntu-latest-32-cores
+    #   timeout-minutes: 30
+    #   if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    #   container:
+    #     image: ghcr.io/dojoengine/katana-dev:latest
+    #   env:
+    #     MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+    #     LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+    #     TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+    #   steps:
+    #     - uses: actions/checkout@v3
+    #       with:
+    #         submodules: recursive
+    #     # Workaround for https://github.com/actions/runner-images/issues/6775
+    #     - run: git config --global --add safe.directory "*"
 
-  # TODO: re-enable once the snos crate is added back to the workspace
-  # snos-integration-test:
-  #   needs: [fmt, clippy]
-  #   runs-on: ubuntu-latest-32-cores
-  #   timeout-minutes: 30
-  #   if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-  #   container:
-  #     image: ghcr.io/dojoengine/katana-dev:latest
-  #   env:
-  #     MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
-  #     LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
-  #     TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: recursive
-  #     # Workaround for https://github.com/actions/runner-images/issues/6775
-  #     - run: git config --global --add safe.directory "*"
+    #     - uses: Swatinem/rust-cache@v2
+    #       with:
+    #         key: ci-${{ github.job }}
+    #         shared-key: katana-ci-cache
 
-  #     - uses: Swatinem/rust-cache@v2
-  #       with:
-  #         key: ci-${{ github.job }}
-  #         shared-key: katana-ci-cache
+    #     - name: Download test artifacts
+    #       uses: actions/download-artifact@v5
+    #       with:
+    #         name: fixtures
 
-  #     - name: Download test artifacts
-  #       uses: actions/download-artifact@v5
-  #       with:
-  #         name: test-artifacts
+    #     - name: Prepare SNOS test environment
+    #       run: |
+    #         if [ ! -d "./tests/snos/snos/build" ]; then
+    #           make snos-artifacts
+    #         fi
 
-  #     - name: Prepare SNOS test environment
-  #       run: |
-  #         if [ ! -d "./tests/snos/snos/build" ]; then
-  #           make snos-artifacts
-  #         fi
+    #     - run: |
+    #         cargo run -p snos-integration-test
 
-  #     - run: |
-  #         cargo run -p snos-integration-test
+    explorer-reverse-proxy:
+        needs: [fmt, clippy, build-katana-binary]
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache
 
-  explorer-reverse-proxy:
-    needs: [fmt, clippy, build-katana-binary]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Workaround for https://github.com/actions/runner-images/issues/6775
-      - run: git config --global --add safe.directory "*"
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ci-${{ github.job }}
-          shared-key: katana-ci-cache
+            - name: Download Katana binary
+              uses: actions/download-artifact@v5
+              with:
+                  name: binary
 
-      - name: Download Katana binary
-        uses: actions/download-artifact@v5
-        with:
-          name: binary
+            - name: Setup Katana binary
+              run: chmod +x ./katana
 
-      - name: Setup Katana binary
-        run: chmod +x ./katana
+            # chrome executable required by puppeteer
+            - uses: browser-actions/setup-chrome@v1
 
-      # chrome executable required by puppeteer
-      - uses: browser-actions/setup-chrome@v1
+            - name: Run reverse proxy test
+              run: |
+                  KATANA_BIN=./katana ./scripts/reverse-proxy-test.sh
 
-      - name: Run reverse proxy test
-        run: |
-          KATANA_BIN=./katana ./scripts/reverse-proxy-test.sh
+    dojo-integration-test:
+        needs: [fmt, clippy, build-katana-binary]
+        runs-on: ubuntu-latest-32-cores
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            ASDF_SOZO_VERSION: "1.7.0"
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
 
-  dojo-integration-test:
-    needs: [fmt, clippy, build-katana-binary]
-    runs-on: ubuntu-latest-32-cores
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Workaround for https://github.com/actions/runner-images/issues/6775
-      - run: git config --global --add safe.directory "*"
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ci-${{ github.job }}
-          shared-key: katana-ci-cache
+            - name: Download test artifacts
+              uses: actions/download-artifact@v5
+              with:
+                  name: fixtures
 
-      - name: Download test artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: test-artifacts
+            - name: Download Katana binary
+              uses: actions/download-artifact@v5
+              with:
+                  name: binary
 
-      - name: Download Katana binary
-        uses: actions/download-artifact@v5
-        with:
-          name: binary
+            - name: Setup Katana binary
+              run: chmod +x ./katana
 
-      - name: Setup Katana binary
-        run: chmod +x ./katana
+            - name: Start Katana
+              run: ./katana > katana.log 2>&1 &
 
-      - name: Start Katana
-        run: ./katana > katana.log 2>&1 &
+            - name: Checkout Dojo repository
+              uses: actions/checkout@v3
+              with:
+                  repository: dojoengine/dojo
+                  ref: v1.7.0-alpha.2
+                  path: dojo
 
-      - name: Checkout Dojo repository
-        uses: actions/checkout@v3
-        with:
-          repository: dojoengine/dojo
-          ref: v1.7.0-alpha.2
-          path: dojo
+            - uses: software-mansion/setup-scarb@v1
+              with:
+                  scarb-version: "dev-2025-09-05"
 
-      - uses: software-mansion/setup-scarb@v1
-        with:
-          scarb-version: "dev-2025-09-05"
+            - name: Build and migrate `spawn-and-move` project
+              run: |
+                  cd dojo/examples/spawn-and-move
+                  sozo build && sozo migrate
 
-      - name: Build and migrate `spawn-and-move` project
-        run: |
-          cd dojo
-          cargo install --path bin/sozo --locked --force
+            - name: Output Katana logs on failure
+              if: failure()
+              run: |
+                  echo "=== Last 50 lines of Katana logs ==="
+                  tail -n 50 katana.log
 
-          cd examples/spawn-and-move
-          sozo build && sozo migrate
+    db-compatibility-check:
+        needs: [fmt, clippy, build-katana-binary]
+        runs-on: ubuntu-latest-4-cores
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
 
-      - name: Output Katana logs on failure
-        if: failure()
-        run: |
-          echo "=== Last 50 lines of Katana logs ==="
-          tail -n 50 katana.log
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: release-checks-${{ github.job }}
+                  shared-key: katana-ci-cache
 
-  db-compatibility-check:
-    needs: [fmt, clippy, build-katana-binary]
-    runs-on: ubuntu-latest-4-cores
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Workaround for https://github.com/actions/runner-images/issues/6775
-      - run: git config --global --add safe.directory "*"
+            - name: Download Katana binary
+              uses: actions/download-artifact@v5
+              with:
+                  name: binary
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: release-checks-${{ github.job }}
-          shared-key: katana-ci-cache
+            - name: Download test artifacts
+              uses: actions/download-artifact@v5
+              with:
+                  name: fixtures
 
-      - name: Download Katana binary
-        uses: actions/download-artifact@v5
-        with:
-          name: binary
+            - name: Setup Katana binary
+              run: chmod +x ./katana
 
-      - name: Download test artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: test-artifacts
-
-      - name: Setup Katana binary
-        run: chmod +x ./katana
-
-      - name: Generate test artifacts
-        run: make db-compat-artifacts
-
-      - name: Run database compatibility check
-        run: KATANA_BIN=./katana cargo run -p db-compat-test
+            - name: Run database compatibility check
+              run: KATANA_BIN=./katana cargo run -p db-compat-test

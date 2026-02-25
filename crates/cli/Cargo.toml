@@ -9,15 +9,18 @@ version.workspace = true
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-messaging.workspace = true
-katana-node.workspace = true
+katana-sequencer-node.workspace = true
+katana-full-node.workspace = true
 katana-genesis.workspace = true
 katana-primitives.workspace = true
 katana-rpc-server.workspace = true
 katana-slot-controller = { workspace = true, optional = true }
 katana-tee = { workspace = true, optional = true }
 katana-tracing.workspace = true
+katana-paymaster = { workspace = true, optional = true }
 katana-utils.workspace = true
 serde-utils.workspace = true
+cartridge = { path = "../cartridge", optional = true }
 
 alloy-primitives.workspace = true
 anyhow.workspace = true
@@ -37,13 +40,27 @@ katana-gas-price-oracle.workspace = true
 starknet.workspace = true
 
 [features]
-cartridge = [
+paymaster = [
+	"dep:katana-paymaster",
 	"dep:katana-slot-controller",
-	"katana-node/cartridge",
-	"katana-rpc-server/cartridge",
+	"katana-sequencer-node/paymaster",
+	"katana-rpc-server/paymaster",
 ]
-default = ["cartridge", "server", "tee"]
-explorer = ["katana-node/explorer", "katana-utils/explorer"]
-native = ["katana-node/native"]
+vrf = [
+	"cartridge",
+	"dep:cartridge",
+	"katana-sequencer-node/vrf",
+	"katana-rpc-server/vrf",
+]
+cartridge = [
+	"katana-sequencer-node/cartridge",
+	"katana-full-node/cartridge",
+	"katana-rpc-server/cartridge",
+	"paymaster",
+]
+grpc = [ "katana-sequencer-node/grpc" ]
+default = ["server", "tee", "vrf", "paymaster", "cartridge", "grpc"]
+explorer = ["katana-sequencer-node/explorer", "katana-full-node/explorer", "katana-utils/explorer"]
+native = ["katana-sequencer-node/native"]
 server = []
-tee = ["dep:katana-tee", "katana-node/tee", "katana-node/tee-snp", "katana-tee/snp"]
+tee = ["dep:katana-tee", "katana-sequencer-node/tee", "katana-sequencer-node/tee-snp", "katana-tee/snp"]

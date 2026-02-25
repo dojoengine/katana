@@ -1,34 +1,31 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
-use katana_executor::ExecutorFactory;
-use katana_primitives::Felt;
-use katana_provider::ProviderFactory;
+use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
+use katana_provider::api::state::StateWriter;
+use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::error::dev::DevApiError;
 use katana_rpc_types::account::Account;
 
 #[allow(missing_debug_implementations)]
-pub struct DevApi<EF, PF>
+pub struct DevApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
 {
-    backend: Arc<Backend<EF, PF>>,
-    block_producer: BlockProducer<EF, PF>,
+    backend: Arc<Backend<PF>>,
+    block_producer: BlockProducer<PF>,
 }
 
-impl<EF, PF> DevApi<EF, PF>
+impl<PF> DevApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
-    pub fn new(backend: Arc<Backend<EF, PF>>, block_producer: BlockProducer<EF, PF>) -> Self {
+    pub fn new(backend: Arc<Backend<PF>>, block_producer: BlockProducer<PF>) -> Self {
         Self { backend, block_producer }
     }
 
@@ -69,12 +66,40 @@ where
 
         Ok(())
     }
+
+    pub fn set_storage_at(
+        &self,
+        contract_address: ContractAddress,
+        key: StorageKey,
+        value: StorageValue,
+    ) -> Result<(), DevApiError> {
+        // If there's a pending executor (interval mining mode), update the pending state
+        // so that the change is visible to the pending block.
+        if let Some(pending_executor) = self.pending_executor() {
+            // Leaky-leaky abstraction:
+            // The logic here might seem counterintuitive because we're taking a non-mutable
+            // reference (ie read lock) but we're allowed to update the pending state.
+            pending_executor
+                .read()
+                .set_storage_at(contract_address, key, value)
+                .map_err(DevApiError::unexpected_error)?;
+        } else {
+            let provider = self.backend.storage.provider_mut();
+
+            provider
+                .set_storage(contract_address, key, value)
+                .map_err(DevApiError::unexpected_error)?;
+
+            provider.commit().map_err(DevApiError::unexpected_error)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
-impl<EF, PF> DevApiServer for DevApi<EF, PF>
+impl<PF> DevApiServer for DevApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
@@ -99,15 +124,11 @@ where
 
     async fn set_storage_at(
         &self,
-        _contract_address: Felt,
-        _key: Felt,
-        _value: Felt,
+        contract_address: ContractAddress,
+        key: StorageKey,
+        value: StorageValue,
     ) -> RpcResult<()> {
-        // self.sequencer
-        //     .set_storage_at(contract_address.into(), key, value)
-        //     .await
-        //     .map_err(|_| Error::from(KatanaApiError::FailedToUpdateStorage))
-        Ok(())
+        Ok(self.set_storage_at(contract_address, key, value)?)
     }
 
     async fn predeployed_accounts(&self) -> RpcResult<Vec<Account>> {

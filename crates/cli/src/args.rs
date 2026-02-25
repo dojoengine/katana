@@ -14,23 +14,26 @@ use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_messaging::MessagingConfig;
-use katana_node::config::db::DbConfig;
-use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
-use katana_node::config::execution::ExecutionConfig;
-use katana_node::config::fork::ForkingConfig;
-#[cfg(feature = "server")]
-use katana_node::config::gateway::GatewayConfig;
-use katana_node::config::metrics::MetricsConfig;
+use katana_sequencer_node::config::db::DbConfig;
+use katana_sequencer_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
+use katana_sequencer_node::config::execution::ExecutionConfig;
+use katana_sequencer_node::config::fork::ForkingConfig;
+use katana_sequencer_node::config::gateway::GatewayConfig;
+#[cfg(all(feature = "server", feature = "grpc"))]
+use katana_sequencer_node::config::grpc::GrpcConfig;
+use katana_sequencer_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
-use katana_node::config::paymaster::PaymasterConfig;
-use katana_node::config::rpc::RpcConfig;
+use katana_sequencer_node::config::paymaster::PaymasterConfig;
+#[cfg(feature = "vrf")]
+use katana_sequencer_node::config::paymaster::VrfConfig;
+use katana_sequencer_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
-use katana_node::config::sequencing::SequencingConfig;
+use katana_sequencer_node::config::rpc::{RpcModuleKind, RpcModulesList};
+use katana_sequencer_node::config::sequencing::SequencingConfig;
 #[cfg(feature = "tee")]
-use katana_node::config::tee::TeeConfig;
-use katana_node::config::Config;
-use katana_node::Node;
+use katana_sequencer_node::config::tee::TeeConfig;
+use katana_sequencer_node::config::Config;
+use katana_sequencer_node::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use url::Url;
@@ -71,9 +74,9 @@ pub struct SequencerNodeArgs {
     ///
     /// The path must either be an empty directory or a directory which already contains a
     /// previously initialized Katana database.
-    #[arg(long)]
+    #[arg(long, alias = "db-dir")]
     #[arg(value_name = "PATH")]
-    pub db_dir: Option<PathBuf>,
+    pub data_dir: Option<PathBuf>,
 
     /// Configuration file
     #[arg(long)]
@@ -128,6 +131,10 @@ pub struct SequencerNodeArgs {
     #[command(flatten)]
     pub explorer: ExplorerOptions,
 
+    #[cfg(feature = "paymaster")]
+    #[command(flatten)]
+    pub paymaster: PaymasterOptions,
+
     #[cfg(feature = "cartridge")]
     #[command(flatten)]
     pub cartridge: CartridgeOptions,
@@ -135,6 +142,10 @@ pub struct SequencerNodeArgs {
     #[cfg(feature = "tee")]
     #[command(flatten)]
     pub tee: TeeOptions,
+
+    #[cfg(all(feature = "server", feature = "grpc"))]
+    #[command(flatten)]
+    pub grpc: GrpcOptions,
 }
 
 impl SequencerNodeArgs {
@@ -154,19 +165,56 @@ impl SequencerNodeArgs {
     }
 
     async fn start_node(&self) -> Result<()> {
-        // Build the node
+        // Build the node configuration
         let config = self.config()?;
 
         if config.forking.is_some() {
-            let node = Node::build_forked(config).await.context("failed to build forked node")?;
+            let node =
+                Node::build_forked(config.clone()).await.context("failed to build forked node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
             }
 
-            // Launch the node
             let handle = node.launch().await.context("failed to launch forked node")?;
 
+            #[cfg(feature = "paymaster")]
+            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
+                use crate::sidecar::bootstrap_paymaster;
+
+                let paymaster = bootstrap_paymaster(
+                    &self.paymaster,
+                    config.paymaster.unwrap().url.clone(),
+                    *handle.rpc().addr(),
+                    &handle.node().config().chain,
+                )
+                .await?
+                .start()
+                .await?;
+
+                Some(paymaster)
+            } else {
+                None
+            };
+
+            #[cfg(feature = "vrf")]
+            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+                use crate::sidecar::bootstrap_vrf;
+
+                let vrf = bootstrap_vrf(
+                    &self.cartridge.vrf,
+                    *handle.rpc().addr(),
+                    &handle.node().config().chain,
+                )
+                .await?
+                .start()
+                .await?;
+
+                Some(vrf)
+            } else {
+                None
+            };
+
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
                 _ = katana_utils::wait_shutdown_signals() => {
@@ -176,15 +224,61 @@ impl SequencerNodeArgs {
 
                 _ = handle.stopped() => { }
             }
+
+            #[cfg(feature = "paymaster")]
+            if let Some(ref mut s) = paymaster {
+                s.shutdown().await?;
+            }
+
+            #[cfg(feature = "vrf")]
+            if let Some(ref mut s) = vrf {
+                s.shutdown().await?;
+            }
         } else {
-            let node = Node::build(config).context("failed to build node")?;
+            let node = Node::build(config.clone()).context("failed to build node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
             }
 
-            // Launch the node
             let handle = node.launch().await.context("failed to launch node")?;
+
+            #[cfg(feature = "paymaster")]
+            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
+                use crate::sidecar::bootstrap_paymaster;
+
+                let paymaster = bootstrap_paymaster(
+                    &self.paymaster,
+                    config.paymaster.unwrap().url.clone(),
+                    *handle.rpc().addr(),
+                    &handle.node().config().chain,
+                )
+                .await?
+                .start()
+                .await?;
+
+                Some(paymaster)
+            } else {
+                None
+            };
+
+            #[cfg(feature = "vrf")]
+            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+                use crate::sidecar::bootstrap_vrf;
+
+                let vrf = bootstrap_vrf(
+                    &self.cartridge.vrf,
+                    *handle.rpc().addr(),
+                    &handle.node().config().chain,
+                )
+                .await?
+                .start()
+                .await?;
+
+                Some(vrf)
+            } else {
+                None
+            };
 
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
@@ -194,6 +288,16 @@ impl SequencerNodeArgs {
                 },
 
                 _ = handle.stopped() => { }
+            }
+
+            #[cfg(feature = "paymaster")]
+            if let Some(ref mut s) = paymaster {
+                s.shutdown().await?;
+            }
+
+            #[cfg(feature = "vrf")]
+            if let Some(ref mut s) = vrf {
+                s.shutdown().await?;
             }
         }
 
@@ -202,16 +306,21 @@ impl SequencerNodeArgs {
         Ok(())
     }
 
-    pub fn config(&self) -> Result<katana_node::config::Config> {
+    pub fn config(&self) -> Result<Config> {
         let db = self.db_config();
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
         let (chain, cs_messaging) = self.chain_spec()?;
         let metrics = self.metrics_config();
         let gateway = self.gateway_config();
+        #[cfg(all(feature = "server", feature = "grpc"))]
+        let grpc = self.grpc_config();
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
+
+        #[cfg(feature = "paymaster")]
+        let paymaster = self.paymaster_config(&chain)?;
 
         // the `katana init` will automatically generate a messaging config. so if katana is run
         // with `--chain` then the `--messaging` flag is not required. this is temporary and
@@ -222,6 +331,8 @@ impl SequencerNodeArgs {
             db,
             dev,
             rpc,
+            #[cfg(feature = "grpc")]
+            grpc,
             chain,
             metrics,
             gateway,
@@ -230,7 +341,7 @@ impl SequencerNodeArgs {
             messaging,
             sequencing,
             #[cfg(feature = "cartridge")]
-            paymaster: self.cartridge_config(),
+            paymaster,
             #[cfg(feature = "tee")]
             tee: self.tee_config(),
         })
@@ -337,7 +448,7 @@ impl SequencerNodeArgs {
             }
 
             // Generate dev accounts.
-            // If `cartridge` is enabled, the first account will be the paymaster.
+            // If paymaster is enabled, the first account is used by default.
             let accounts = DevAllocationsGenerator::new(self.development.total_accounts)
                 .with_seed(parse_seed(&self.development.seed))
                 .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
@@ -346,7 +457,7 @@ impl SequencerNodeArgs {
             chain_spec.genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
             #[cfg(feature = "cartridge")]
-            if self.cartridge.controllers || self.cartridge.paymaster {
+            if self.cartridge.controllers {
                 katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
                 katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
             }
@@ -415,7 +526,7 @@ impl SequencerNodeArgs {
     }
 
     fn db_config(&self) -> DbConfig {
-        DbConfig { dir: self.db_dir.clone() }
+        DbConfig { dir: self.data_dir.clone() }
     }
 
     fn metrics_config(&self) -> Option<MetricsConfig> {
@@ -448,12 +559,117 @@ impl SequencerNodeArgs {
         None
     }
 
-    #[cfg(feature = "cartridge")]
-    fn cartridge_config(&self) -> Option<PaymasterConfig> {
-        if self.cartridge.paymaster {
-            Some(PaymasterConfig { cartridge_api_url: self.cartridge.api.clone() })
+    #[cfg(all(feature = "server", feature = "grpc"))]
+    fn grpc_config(&self) -> Option<GrpcConfig> {
+        if self.grpc.grpc_enable {
+            use std::time::Duration;
+
+            Some(GrpcConfig {
+                addr: self.grpc.grpc_addr,
+                port: self.grpc.grpc_port,
+                timeout: self.grpc.grpc_timeout.map(Duration::from_secs),
+            })
         } else {
             None
+        }
+    }
+
+    #[cfg(feature = "paymaster")]
+    fn paymaster_config(
+        &self,
+        chain_spec: &Arc<katana_chain_spec::ChainSpec>,
+    ) -> Result<Option<PaymasterConfig>> {
+        if !self.paymaster.enabled {
+            return Ok(None);
+        }
+
+        use crate::sidecar::DEFAULT_PAYMASTER_API_KEY;
+
+        let mut config = if self.paymaster.is_external() {
+            let url = self.paymaster.url.clone().expect("URL must be set in external mode");
+            let api_key = self.paymaster.api_key.clone();
+            PaymasterConfig { url, api_key, cartridge_api: None }
+        } else {
+            // find free port
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let url = Url::parse(&format!("http://{}", listener.local_addr()?))?;
+
+            let api_key = self
+                .paymaster
+                .api_key
+                .clone()
+                .unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
+
+            if !api_key.starts_with("paymaster_") {
+                anyhow::bail!(
+                    "invalid api key {api_key}; paymaster api key must start with `paymaster_`"
+                );
+            }
+
+            PaymasterConfig { url, api_key: Some(api_key), cartridge_api: None }
+        };
+
+        #[cfg(feature = "cartridge")]
+        if self.cartridge.paymaster {
+            #[cfg(feature = "vrf")]
+            let vrf = self.vrf_config(chain_spec)?;
+
+            use anyhow::anyhow;
+            use katana_genesis::allocation::GenesisAccountAlloc;
+            use katana_sequencer_node::config::paymaster::CartridgeApiConfig;
+
+            // Derive paymaster credentials from genesis account 0
+            let (address, private_key) = {
+                let (address, allocation) = chain_spec
+                    .genesis()
+                    .accounts()
+                    .next()
+                    .ok_or_else(|| anyhow!("no genesis accounts available for paymaster"))?;
+
+                let private_key = match allocation {
+                    GenesisAccountAlloc::DevAccount(account) => account.private_key,
+                    _ => return Err(anyhow!("paymaster account {address} has no private key")),
+                };
+
+                (*address, private_key)
+            };
+
+            config.cartridge_api = Some(CartridgeApiConfig {
+                #[cfg(feature = "vrf")]
+                vrf,
+                controller_deployer_address: address,
+                controller_deployer_private_key: private_key,
+                cartridge_api_url: self.cartridge.cartridge_api.clone(),
+            });
+        }
+
+        Ok(Some(config))
+    }
+
+    #[cfg(feature = "vrf")]
+    fn vrf_config(&self, _chain: &ChainSpec) -> Result<Option<VrfConfig>> {
+        let options = &self.cartridge.vrf;
+
+        if !options.enabled {
+            return Ok(None);
+        }
+
+        if options.is_external() {
+            let url = options.url.clone().expect("must be set if external");
+            let vrf_account = options.vrf_account_contract.expect("must be set if external");
+
+            Ok(Some(VrfConfig { url, vrf_account }))
+        } else {
+            use cartridge::get_vrf_account;
+
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let addr = listener.local_addr()?;
+            let url = Url::parse(&format!("http://{addr}"))?;
+
+            let vrf_account_info = get_vrf_account()?;
+            let vrf_account_address = vrf_account_info.account_address;
+
+            Ok(Some(VrfConfig { url, vrf_account: vrf_account_address }))
         }
     }
 
@@ -483,8 +699,8 @@ impl SequencerNodeArgs {
             self.block_time = config.block_time;
         }
 
-        if self.db_dir.is_none() {
-            self.db_dir = config.db_dir;
+        if self.data_dir.is_none() {
+            self.data_dir = config.data_dir;
         }
 
         if self.logging == LoggingOptions::default() {
@@ -508,6 +724,11 @@ impl SequencerNodeArgs {
             }
         }
 
+        #[cfg(all(feature = "server", feature = "grpc"))]
+        {
+            self.grpc.merge(config.grpc.as_ref());
+        }
+
         self.starknet.merge(config.starknet.as_ref());
         self.development.merge(config.development.as_ref());
 
@@ -526,6 +747,11 @@ impl SequencerNodeArgs {
         #[cfg(feature = "cartridge")]
         {
             self.cartridge.merge(config.cartridge.as_ref());
+        }
+
+        #[cfg(feature = "paymaster")]
+        {
+            self.paymaster.merge(config.paymaster.as_ref());
         }
 
         #[cfg(feature = "explorer")]
@@ -554,19 +780,21 @@ mod test {
         DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_ETH_L2_GAS_PRICE,
         DEFAULT_STRK_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE,
     };
-    use katana_node::config::execution::{
-        DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
-    };
-    use katana_node::config::rpc::RpcModuleKind;
     use katana_primitives::chain::ChainId;
     use katana_primitives::{address, felt, Felt};
+    use katana_sequencer_node::config::execution::{
+        DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
+    };
+    #[cfg(feature = "server")]
+    use katana_sequencer_node::config::rpc::RpcModuleKind;
 
     use super::*;
 
     #[test]
     fn test_starknet_config_default() {
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result;
 
         assert!(config.dev.fee);
         assert!(config.dev.account_validation);
@@ -591,10 +819,11 @@ mod test {
             "200",
             "--validate-max-steps",
             "100",
-            "--db-dir",
+            "--data-dir",
             "/path/to/db",
         ]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result;
 
         assert!(!config.dev.fee);
         assert!(!config.dev.account_validation);
@@ -606,51 +835,59 @@ mod test {
     }
 
     #[test]
-    fn custom_fixed_gas_prices() {
-        let config = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
-        assert!(config.dev.fixed_gas_prices.is_none());
+    fn test_db_dir_alias() {
+        // --db-dir should work as an alias for --data-dir
+        let args = SequencerNodeArgs::parse_from(["katana", "--db-dir", "/path/to/db"]);
+        let result = args.config().unwrap();
+        assert_eq!(result.db.dir, Some(PathBuf::from("/path/to/db")));
+    }
 
-        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-gas-price", "10"])
+    #[test]
+    fn custom_fixed_gas_prices() {
+        let result = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
+        assert!(result.dev.fixed_gas_prices.is_none());
+
+        let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-gas-price", "10"])
             .config()
             .unwrap();
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 10);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_ETH_L2_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-gas-price", "20"])
+        let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-gas-price", "20"])
             .config()
             .unwrap();
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk.get(), 20);
             assert_eq!(prices.l1_data_gas_prices.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"])
+        let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"])
             .config()
             .unwrap();
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.eth.get(), 2);
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-data-gas-price", "2"])
+        let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-data-gas-price", "2"])
             .config()
             .unwrap();
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.strk.get(), 2);
         });
 
-        let config = SequencerNodeArgs::parse_from([
+        let result = SequencerNodeArgs::parse_from([
             "katana",
             "--gpo.l1-eth-gas-price",
             "10",
@@ -660,7 +897,7 @@ mod test {
         .config()
         .unwrap();
 
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 10);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
@@ -669,7 +906,7 @@ mod test {
 
         // Set all the gas prices options
 
-        let config = SequencerNodeArgs::parse_from([
+        let result = SequencerNodeArgs::parse_from([
             "katana",
             "--gpo.l1-eth-gas-price",
             "10",
@@ -683,7 +920,7 @@ mod test {
         .config()
         .unwrap();
 
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 10);
             assert_eq!(prices.l1_gas_prices.strk.get(), 20);
             assert_eq!(prices.l1_data_gas_prices.eth.get(), 1);
@@ -693,7 +930,7 @@ mod test {
 
     #[test]
     fn genesis_with_fixed_gas_prices() {
-        let config = SequencerNodeArgs::parse_from([
+        let result = SequencerNodeArgs::parse_from([
             "katana",
             "--genesis",
             "./test-data/genesis.json",
@@ -708,6 +945,7 @@ mod test {
         ])
         .config()
         .unwrap();
+        let config = &result;
 
         assert_eq!(config.chain.genesis().number, 0);
         assert_eq!(config.chain.genesis().parent_hash, felt!("0x999"));
@@ -716,7 +954,7 @@ mod test {
         assert_eq!(config.chain.genesis().sequencer_address, address!("0x100"));
         assert_eq!(config.chain.genesis().gas_prices.eth.get(), 9999);
         assert_eq!(config.chain.genesis().gas_prices.strk.get(), 8888);
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(&config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 100);
             assert_eq!(prices.l1_gas_prices.strk.get(), 200);
             assert_eq!(prices.l1_data_gas_prices.eth.get(), 111);
@@ -764,16 +1002,17 @@ explorer = true
             "0x123",
         ];
 
-        let config = SequencerNodeArgs::parse_from(args.clone())
+        let result = SequencerNodeArgs::parse_from(args.clone())
             .with_config_file()
             .unwrap()
             .config()
             .unwrap();
+        let config = &result;
 
         assert_eq!(config.execution.validation_max_steps, 1234);
         assert_eq!(config.execution.invocation_max_steps, 9988);
         assert!(!config.dev.fee);
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(&config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 254);
             assert_eq!(prices.l1_gas_prices.strk.get(), 200);
             assert_eq!(prices.l1_data_gas_prices.eth.get(), 111);
@@ -797,7 +1036,7 @@ explorer = true
     fn parse_cors_origins() {
         use katana_rpc_server::cors::HeaderValue;
 
-        let config = SequencerNodeArgs::parse_from([
+        let result = SequencerNodeArgs::parse_from([
             "katana",
             "--http.cors_origins",
             "*,http://localhost:3000,https://example.com",
@@ -805,7 +1044,7 @@ explorer = true
         .config()
         .unwrap();
 
-        let cors_origins = config.rpc.cors_origins;
+        let cors_origins = &result.rpc.cors_origins;
 
         assert_eq!(cors_origins.len(), 3);
         assert!(cors_origins.contains(&HeaderValue::from_static("*")));
@@ -813,18 +1052,19 @@ explorer = true
         assert!(cors_origins.contains(&HeaderValue::from_static("https://example.com")));
     }
 
+    #[cfg(feature = "server")]
     #[test]
     fn http_modules() {
         // If the `--http.api` isn't specified, only starknet module will be exposed.
-        let config = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
-        let modules = config.rpc.apis;
+        let result = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
+        let modules = &result.rpc.apis;
         assert_eq!(modules.len(), 1);
         assert!(modules.contains(&RpcModuleKind::Starknet));
 
         // If the `--http.api` is specified, only the ones in the list will be exposed.
-        let config =
+        let result =
             SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet"]).config().unwrap();
-        let modules = config.rpc.apis;
+        let modules = &result.rpc.apis;
         assert_eq!(modules.len(), 1);
         assert!(modules.contains(&RpcModuleKind::Starknet));
 
@@ -837,63 +1077,99 @@ explorer = true
             .contains("The `dev` module can only be enabled in dev mode (ie `--dev` flag)"));
     }
 
+    #[cfg(feature = "server")]
     #[test]
     fn test_dev_api_enabled() {
         let args = SequencerNodeArgs::parse_from(["katana", "--dev"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
 
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Dev));
+        assert!(result.rpc.apis.contains(&RpcModuleKind::Dev));
     }
 
-    #[cfg(feature = "cartridge")]
+    #[cfg(all(feature = "cartridge", feature = "paymaster"))]
     #[test]
     fn cartridge_paymaster() {
-        let args = SequencerNodeArgs::parse_from(["katana", "--cartridge.paymaster"]);
-        let config = args.config().unwrap();
+        // Test with --paymaster flag (sidecar mode)
+        let args =
+            SequencerNodeArgs::parse_from(["katana", "--paymaster", "--cartridge.paymaster"]);
+        let result = args.config().unwrap();
 
-        // Verify cartridge module is automatically enabled
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+        // Verify cartridge module is automatically enabled when paymaster is enabled
+        assert!(result.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test with paymaster explicitly specified in RPC modules
         let args = SequencerNodeArgs::parse_from([
             "katana",
-            "--cartridge.paymaster",
             "--http.api",
             "starknet",
+            "--paymaster",
+            "--cartridge.paymaster",
         ]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
 
         // Verify cartridge module is still enabled even when not in explicit RPC list
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Starknet));
+        assert!(result.rpc.apis.contains(&RpcModuleKind::Cartridge));
+        assert!(result.rpc.apis.contains(&RpcModuleKind::Starknet));
 
-        // Verify that all the Controller classes are added to the genesis
+        // Test with --paymaster.url (external mode - also enables paymaster)
+        let args = SequencerNodeArgs::parse_from([
+            "katana",
+            "--paymaster",
+            "--paymaster.url",
+            "http://localhost:8080",
+            "--cartridge.paymaster",
+        ]);
+        let result = args.config().unwrap();
+        assert!(result.rpc.apis.contains(&RpcModuleKind::Cartridge));
+
+        // Test without paymaster enabled
+        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
+        let result = args.config().unwrap();
+
+        // Verify cartridge module is not enabled by default
+        assert!(!result.rpc.apis.contains(&RpcModuleKind::Cartridge));
+
+        // Test without paymaster enabled
+        let args = SequencerNodeArgs::parse_from(["katana"]);
+        let result = args.config().unwrap();
+
+        // Verify cartridge module is not enabled by default
+        assert!(!result.rpc.apis.contains(&RpcModuleKind::Cartridge));
+    }
+
+    #[cfg(feature = "cartridge")]
+    #[test]
+    fn cartridge_controllers() {
         use katana_slot_controller::{
             ControllerLatest, ControllerV104, ControllerV105, ControllerV106, ControllerV107,
             ControllerV108, ControllerV109,
         };
 
-        assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV106::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV107::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_some());
-        assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_some());
+        // Test with controllers enabled
+        let args = SequencerNodeArgs::parse_from(["katana", "--cartridge.controllers"]);
+        let result = args.config().unwrap();
+        let config = &result;
 
-        // Test without paymaster enabled
+        // Verify that all the Controller classes are added to the genesis
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV105::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV106::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV107::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
+        assert!(config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
+
+        // Test without controllers enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result;
 
-        // Verify cartridge module is not enabled by default
-        assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
-
-        assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV106::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV107::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_none());
-        assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_none());
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV105::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV106::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV107::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
+        assert!(!config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
     }
 }

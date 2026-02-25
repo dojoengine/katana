@@ -3,20 +3,18 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_executor::implementation::blockifier::blockifier::blockifier::stateful_validator::{
+use katana_executor::blockifier::blockifier::blockifier::stateful_validator::{
     StatefulValidator, StatefulValidatorError,
 };
-use katana_executor::implementation::blockifier::blockifier::blockifier::transaction_executor::TransactionExecutorError;
-use katana_executor::implementation::blockifier::blockifier::state::cached_state::CachedState;
-use katana_executor::implementation::blockifier::blockifier::transaction::errors::{
+use katana_executor::blockifier::blockifier::blockifier::transaction_executor::TransactionExecutorError;
+use katana_executor::blockifier::blockifier::state::cached_state::CachedState;
+use katana_executor::blockifier::blockifier::transaction::errors::{
     TransactionExecutionError, TransactionFeeError, TransactionPreValidationError,
 };
-use katana_executor::implementation::blockifier::blockifier::transaction::transaction_execution::Transaction;
-use katana_executor::implementation::blockifier::cache::ClassCache;
-use katana_executor::implementation::blockifier::state::StateProviderDb;
-use katana_executor::implementation::blockifier::utils::{
-    block_context_from_envs, to_address, to_executor_tx,
-};
+use katana_executor::blockifier::blockifier::transaction::transaction_execution::Transaction;
+use katana_executor::blockifier::cache::ClassCache;
+use katana_executor::blockifier::state::StateProviderDb;
+use katana_executor::blockifier::utils::{block_context_from_envs, to_address, to_executor_tx};
 use katana_executor::ExecutionFlags;
 use katana_pool_api::validation::{
     Error, InsufficientFundsError, InsufficientIntrinsicFeeError, InvalidTransactionError,
@@ -92,7 +90,7 @@ impl Debug for Inner {
 impl Inner {
     // Prepare the stateful validator with the current state and block env to be used
     // for transaction validation.
-    fn prepare(&self) -> StatefulValidator<StateProviderDb<'static>> {
+    fn prepare(&self) -> StatefulValidator<StateProviderDb> {
         let state = Box::new(self.state.clone());
         let class_cache = ClassCache::global().clone();
         let state_provider = StateProviderDb::new_with_class_cache(state, class_cache);
@@ -189,7 +187,7 @@ impl Validator for TxValidator {
 
 // perform validation on the pool transaction using the provided stateful validator
 fn validate(
-    mut validator: StatefulValidator<StateProviderDb<'static>>,
+    mut validator: StatefulValidator<StateProviderDb>,
     pool_tx: ExecutableTxWithHash,
     skip_validate: bool,
     skip_fee_check: bool,

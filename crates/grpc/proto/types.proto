@@ -2,15 +2,36 @@ syntax = "proto3";
 
 package types;
 
-message Felt {
-  bytes value = 1;
+import "common.proto";
+
+// Block tag for identifying special blocks.
+enum BlockTag {
+  BLOCK_TAG_LATEST = 0;
+  BLOCK_TAG_PRE_CONFIRMED = 1;
+  BLOCK_TAG_L1_ACCEPTED = 2;
 }
 
 message BlockID {
   oneof identifier {
     uint64 number = 1 [json_name = "block_number"];
-    Felt hash = 2 [json_name = "block_hash"];
-    string tag = 3 [json_name = "block_tag"];
+    common.Felt hash = 2 [json_name = "block_hash"];
+    BlockTag tag = 3 [json_name = "block_tag"];
+  }
+}
+
+// Block tag for confirmed blocks only (no PRE_CONFIRMED).
+enum ConfirmedBlockTag {
+  CONFIRMED_BLOCK_TAG_LATEST = 0;
+  CONFIRMED_BLOCK_TAG_L1_ACCEPTED = 1;
+}
+
+// Block identifier for confirmed blocks only.
+// Used by trace methods that cannot operate on pending blocks.
+message ConfirmedBlockId {
+  oneof identifier {
+    uint64 number = 1 [json_name = "block_number"];
+    common.Felt hash = 2 [json_name = "block_hash"];
+    ConfirmedBlockTag tag = 3 [json_name = "block_tag"];
   }
 }
 
@@ -18,6 +39,19 @@ enum SimulationFlag {
   SKIP_FEE_CHARGE = 0;
   SKIP_EXECUTE = 1;
   SKIP_VALIDATE = 2;
+}
+
+// Finality status of a canonical block.
+enum FinalityStatus {
+  FINALITY_STATUS_ACCEPTED_ON_L2 = 0;
+  FINALITY_STATUS_ACCEPTED_ON_L1 = 1;
+  FINALITY_STATUS_PRE_CONFIRMED = 2;
+}
+
+// L1 data availability mode.
+enum L1DataAvailabilityMode {
+  L1_DATA_AVAILABILITY_MODE_BLOB = 0;
+  L1_DATA_AVAILABILITY_MODE_CALLDATA = 1;
 }
 
 message Transaction {
@@ -29,137 +63,161 @@ message Transaction {
     DeclareTxnV3 declare_v3 = 5;
     DeployAccountTxn deploy_account = 6;
     DeployAccountTxnV3 deploy_account_v3 = 7;
+    L1HandlerTxn l1_handler = 8;
+    DeployTxn deploy = 9;
   }
 }
 
 message InvokeTxnV1 {
-  Felt max_fee = 1 [json_name = "max_fee"];
+  common.Felt max_fee = 1 [json_name = "max_fee"];
   string version = 2 [json_name = "version"];
-  repeated Felt signature = 3 [json_name = "signature"];
-  Felt nonce = 4 [json_name = "nonce"];
+  repeated common.Felt signature = 3 [json_name = "signature"];
+  common.Felt nonce = 4 [json_name = "nonce"];
   string type = 5 [json_name = "type"];
-  Felt sender_address = 6 [json_name = "sender_address"];
-  repeated Felt calldata = 7 [json_name = "calldata"];
+  common.Felt sender_address = 6 [json_name = "sender_address"];
+  repeated common.Felt calldata = 7 [json_name = "calldata"];
 }
 
 message InvokeTxnV3 {
   string type = 1 [json_name = "type"];
-  Felt sender_address = 2 [json_name = "sender_address"];
-  repeated Felt calldata = 3 [json_name = "calldata"];
+  common.Felt sender_address = 2 [json_name = "sender_address"];
+  repeated common.Felt calldata = 3 [json_name = "calldata"];
   string version = 4 [json_name = "version"];
-  repeated Felt signature = 5 [json_name = "signature"];
-  Felt nonce = 6 [json_name = "nonce"];
+  repeated common.Felt signature = 5 [json_name = "signature"];
+  common.Felt nonce = 6 [json_name = "nonce"];
   ResourceBoundsMapping resource_bounds = 7 [json_name = "resource_bounds"];
-  Felt tip = 8 [json_name = "tip"];
-  repeated Felt paymaster_data = 9 [json_name = "paymaster_data"];
-  repeated Felt account_deployment_data = 10 [json_name = "account_deployment_data"];
+  common.Felt tip = 8 [json_name = "tip"];
+  repeated common.Felt paymaster_data = 9 [json_name = "paymaster_data"];
+  repeated common.Felt account_deployment_data = 10 [json_name = "account_deployment_data"];
   string nonce_data_availability_mode = 11 [json_name = "nonce_data_availability_mode"];
   string fee_data_availability_mode = 12 [json_name = "fee_data_availability_mode"];
 }
 
 message DeclareTxnV1 {
-  Felt max_fee = 1 [json_name = "max_fee"];
+  common.Felt max_fee = 1 [json_name = "max_fee"];
   string version = 2 [json_name = "version"];
-  repeated Felt signature = 3 [json_name = "signature"];
-  Felt nonce = 4 [json_name = "nonce"];
+  repeated common.Felt signature = 3 [json_name = "signature"];
+  common.Felt nonce = 4 [json_name = "nonce"];
   string type = 5 [json_name = "type"];
-  Felt class_hash = 6 [json_name = "class_hash"];
-  Felt sender_address = 7 [json_name = "sender_address"];
+  common.Felt class_hash = 6 [json_name = "class_hash"];
+  common.Felt sender_address = 7 [json_name = "sender_address"];
 }
 
 message DeclareTxnV2 {
   string type = 1 [json_name = "type"];
-  Felt sender_address = 2 [json_name = "sender_address"];
-  Felt compiled_class_hash = 3 [json_name = "compiled_class_hash"];
-  Felt max_fee = 4 [json_name = "max_fee"];
+  common.Felt sender_address = 2 [json_name = "sender_address"];
+  common.Felt compiled_class_hash = 3 [json_name = "compiled_class_hash"];
+  common.Felt max_fee = 4 [json_name = "max_fee"];
   string version = 5 [json_name = "version"];
-  repeated Felt signature = 6 [json_name = "signature"];
-  Felt nonce = 7 [json_name = "nonce"];
+  repeated common.Felt signature = 6 [json_name = "signature"];
+  common.Felt nonce = 7 [json_name = "nonce"];
   bytes class = 8 [json_name = "contract_class"];
 }
 
 message DeclareTxnV3 {
   string type = 1 [json_name = "type"];
-  Felt sender_address = 2 [json_name = "sender_address"];
-  Felt compiled_class_hash = 3 [json_name = "compiled_class_hash"];
+  common.Felt sender_address = 2 [json_name = "sender_address"];
+  common.Felt compiled_class_hash = 3 [json_name = "compiled_class_hash"];
   string version = 4 [json_name = "version"];
-  repeated Felt signature = 5 [json_name = "signature"];
-  Felt nonce = 6 [json_name = "nonce"];
-  Felt class_hash = 7 [json_name = "class_hash"];
+  repeated common.Felt signature = 5 [json_name = "signature"];
+  common.Felt nonce = 6 [json_name = "nonce"];
+  common.Felt class_hash = 7 [json_name = "class_hash"];
   ResourceBoundsMapping resource_bounds = 8 [json_name = "resource_bounds"];
-  Felt tip = 9 [json_name = "tip"];
-  repeated Felt paymaster_data = 10 [json_name = "paymaster_data"];
-  repeated Felt account_deployment_data = 11 [json_name = "account_deployment_data"];
+  common.Felt tip = 9 [json_name = "tip"];
+  repeated common.Felt paymaster_data = 10 [json_name = "paymaster_data"];
+  repeated common.Felt account_deployment_data = 11 [json_name = "account_deployment_data"];
   string nonce_data_availability_mode = 12 [json_name = "nonce_data_availability_mode"];
   string fee_data_availability_mode = 13 [json_name = "fee_data_availability_mode"];
 }
 
 message DeployAccountTxn {
-  Felt max_fee = 1 [json_name = "max_fee"];
+  common.Felt max_fee = 1 [json_name = "max_fee"];
   string version = 2 [json_name = "version"];
-  repeated Felt signature = 3 [json_name = "signature"];
-  Felt nonce = 4 [json_name = "nonce"];
+  repeated common.Felt signature = 3 [json_name = "signature"];
+  common.Felt nonce = 4 [json_name = "nonce"];
   string type = 5 [json_name = "type"];
-  Felt class_hash = 6 [json_name = "class_hash"];
-  Felt contract_address_salt = 7 [json_name = "contract_address_salt"];
-  repeated Felt constructor_calldata = 8 [json_name = "constructor_calldata"];
+  common.Felt class_hash = 6 [json_name = "class_hash"];
+  common.Felt contract_address_salt = 7 [json_name = "contract_address_salt"];
+  repeated common.Felt constructor_calldata = 8 [json_name = "constructor_calldata"];
 }
 
 message DeployAccountTxnV3 {
   string type = 1 [json_name = "type"];
   string version = 2 [json_name = "version"];
-  repeated Felt signature = 3 [json_name = "signature"];
-  Felt nonce = 4 [json_name = "nonce"];
-  Felt contract_address_salt = 5 [json_name = "contract_address_salt"];
-  repeated Felt constructor_calldata = 6 [json_name = "constructor_calldata"];
-  Felt class_hash = 7 [json_name = "class_hash"];
+  repeated common.Felt signature = 3 [json_name = "signature"];
+  common.Felt nonce = 4 [json_name = "nonce"];
+  common.Felt contract_address_salt = 5 [json_name = "contract_address_salt"];
+  repeated common.Felt constructor_calldata = 6 [json_name = "constructor_calldata"];
+  common.Felt class_hash = 7 [json_name = "class_hash"];
   ResourceBoundsMapping resource_bounds = 8 [json_name = "resource_bounds"];
-  Felt tip = 9 [json_name = "tip"];
-  repeated Felt paymaster_data = 10 [json_name = "paymaster_data"];
+  common.Felt tip = 9 [json_name = "tip"];
+  repeated common.Felt paymaster_data = 10 [json_name = "paymaster_data"];
   string nonce_data_availability_mode = 11 [json_name = "nonce_data_availability_mode"];
   string fee_data_availability_mode = 12 [json_name = "fee_data_availability_mode"];
 }
 
+// L1 Handler transaction (from L1 to L2 messages)
+message L1HandlerTxn {
+  string type = 1 [json_name = "type"];
+  string version = 2 [json_name = "version"];
+  common.Felt nonce = 3 [json_name = "nonce"];
+  common.Felt contract_address = 4 [json_name = "contract_address"];
+  common.Felt entry_point_selector = 5 [json_name = "entry_point_selector"];
+  repeated common.Felt calldata = 6 [json_name = "calldata"];
+}
+
+// Legacy deploy transaction
+message DeployTxn {
+  string type = 1 [json_name = "type"];
+  string version = 2 [json_name = "version"];
+  common.Felt class_hash = 3 [json_name = "class_hash"];
+  common.Felt contract_address_salt = 4 [json_name = "contract_address_salt"];
+  repeated common.Felt constructor_calldata = 5 [json_name = "constructor_calldata"];
+}
+
 message ResourceBoundsMapping {
-  ResourceBounds l1_gas = 1 [json_name = "L1_GAS"];
-  ResourceBounds l2_gas = 2 [json_name = "L2_GAS"];
+  ResourceBounds l1_gas = 1 [json_name = "l1_gas"];
+  ResourceBounds l2_gas = 2 [json_name = "l2_gas"];
+  ResourceBounds l1_data_gas = 3 [json_name = "l1_data_gas"];  // For v0.14.0+
 }
 
 message ResourceBounds {
-  Felt max_amount = 1 [json_name = "max_amount"];
-  Felt max_price_per_unit = 2 [json_name = "max_price_per_unit"];
+  common.Felt max_amount = 1 [json_name = "max_amount"];
+  common.Felt max_price_per_unit = 2 [json_name = "max_price_per_unit"];
 }
 
+// Fee estimate matching JSON-RPC FeeEstimate
 message FeeEstimate {
-  Felt gas_consumed = 1 [json_name = "gas_consumed"];
-  Felt gas_price = 2 [json_name = "gas_price"];
-  Felt data_gas_consumed = 3 [json_name = "data_gas_consumed"];
-  Felt data_gas_price = 4 [json_name = "data_gas_price"];
-  Felt overall_fee = 5 [json_name = "overall_fee"];
-  string unit = 6 [json_name = "unit"];
+  common.Felt l1_gas_consumed = 1 [json_name = "l1_gas_consumed"];
+  common.Felt l1_gas_price = 2 [json_name = "l1_gas_price"];
+  common.Felt l2_gas_consumed = 3 [json_name = "l2_gas_consumed"];
+  common.Felt l2_gas_price = 4 [json_name = "l2_gas_price"];
+  common.Felt l1_data_gas_consumed = 5 [json_name = "l1_data_gas_consumed"];
+  common.Felt l1_data_gas_price = 6 [json_name = "l1_data_gas_price"];
+  common.Felt overall_fee = 7 [json_name = "overall_fee"];
 }
 
 message BlockWithTxHashes {
-    string status = 1;
+    FinalityStatus status = 1;
     BlockHeader header = 2;
-    repeated Felt transactions = 3;
+    repeated common.Felt transactions = 3;
 }
 
 message BlockWithTxs {
-    string status = 1;
+    FinalityStatus status = 1;
     BlockHeader header = 2;
     repeated Transaction transactions = 3;
 }
 
 message BlockWithReceipts {
-    string status = 1;
+    FinalityStatus status = 1;
     BlockHeader header = 2;
     repeated TransactionWithReceipt transactions = 3;
 }
 
 message PendingBlockWithTxHashes {
     BlockHeader header = 1;
-    repeated Felt transactions = 2;
+    repeated common.Felt transactions = 2;
 }
 
 message PendingBlockWithTxs {
@@ -173,20 +231,20 @@ message PendingBlockWithReceipts {
 }
 
 message StateUpdate {
-    Felt block_hash = 1;
-    Felt old_root = 2;
-    Felt new_root = 3;
+    common.Felt block_hash = 1;
+    common.Felt old_root = 2;
+    common.Felt new_root = 3;
     StateDiff state_diff = 4;
 }
 
 message PendingStateUpdate {
-    Felt old_root = 1;
+    common.Felt old_root = 1;
     StateDiff state_diff = 2;
 }
 
 message StateDiff {
     repeated StorageDiff storage_diffs = 1;
-    repeated Felt deprecated_declared_classes = 2;
+    repeated common.Felt deprecated_declared_classes = 2;
     repeated DeclaredClass declared_classes = 3;
     repeated DeployedContract deployed_contracts = 4;
     repeated ReplacedClass replaced_classes = 5;
@@ -194,51 +252,52 @@ message StateDiff {
 }
 
 message StorageDiff {
-    Felt address = 1;
+    common.Felt address = 1;
     repeated StorageEntry storage_entries = 2;
 }
 
 message StorageEntry {
-    Felt key = 1;
-    Felt value = 2;
+    common.Felt key = 1;
+    common.Felt value = 2;
 }
 
 message DeclaredClass {
-    Felt class_hash = 1;
-    Felt compiled_class_hash = 2;
+    common.Felt class_hash = 1;
+    common.Felt compiled_class_hash = 2;
 }
 
 message DeployedContract {
-    Felt address = 1;
-    Felt class_hash = 2;
+    common.Felt address = 1;
+    common.Felt class_hash = 2;
 }
 
 message ReplacedClass {
-    Felt contract_address = 1;
-    Felt class_hash = 2;
+    common.Felt contract_address = 1;
+    common.Felt class_hash = 2;
 }
 
 message Nonce {
-    Felt contract_address = 1;
-    Felt nonce = 2;
+    common.Felt contract_address = 1;
+    common.Felt nonce = 2;
 }
 
 message BlockHeader {
-    Felt block_hash = 1;
-    Felt parent_hash = 2;
+    common.Felt block_hash = 1;
+    common.Felt parent_hash = 2;
     uint64 block_number = 3;
-    Felt new_root = 4;
+    common.Felt new_root = 4;
     uint64 timestamp = 5;
-    Felt sequencer_address = 6;
+    common.Felt sequencer_address = 6;
     ResourcePrice l1_gas_price = 7;
     ResourcePrice l1_data_gas_price = 8;
-    string l1_da_mode = 9;
-    string starknet_version = 10;
+    ResourcePrice l2_gas_price = 9;
+    L1DataAvailabilityMode l1_da_mode = 10;
+    string starknet_version = 11;
 }
 
 message ResourcePrice {
-    Felt price_in_wei = 1;
-    Felt price_in_fri = 2;
+    common.Felt price_in_wei = 1;
+    common.Felt price_in_fri = 2;
 }
 
 message TransactionWithReceipt {
@@ -246,92 +305,89 @@ message TransactionWithReceipt {
     TransactionReceipt receipt = 2;
 }
 
+// Transaction receipt matching JSON-RPC structure
 message TransactionReceipt {
     string type = 1;
-    Felt transaction_hash = 2;
+    common.Felt transaction_hash = 2;
     FeePayment actual_fee = 3;
-    string finality_status = 4;
+    FinalityStatus finality_status = 4;
     repeated MessageToL1 messages_sent = 5;
     repeated Event events = 6;
     ExecutionResources execution_resources = 7;
     string execution_status = 8;
     string revert_reason = 9;
+    // Type-specific fields
+    common.Felt contract_address = 10;  // For Deploy and DeployAccount receipts
+    common.Felt message_hash = 11;      // For L1Handler receipts
+    uint64 block_number = 12;
+    common.Felt block_hash = 13;
 }
 
 message FeePayment {
-    Felt amount = 1;
+    common.Felt amount = 1;
     string unit = 2;
 }
 
 message MessageToL1 {
-    Felt from_address = 1;
-    Felt to_address = 2;
-    repeated Felt payload = 3;
+    common.Felt from_address = 1;
+    common.Felt to_address = 2;
+    repeated common.Felt payload = 3;
 }
 
 message Event {
-    Felt from_address = 1;
-    repeated Felt keys = 2;
-    repeated Felt data = 3;
+    common.Felt from_address = 1;
+    repeated common.Felt keys = 2;
+    repeated common.Felt data = 3;
 }
 
+// Execution resources matching JSON-RPC ExecutionResources (simple gas fields only)
 message ExecutionResources {
-    uint64 steps = 1;
-    uint64 memory_holes = 2;
-    uint64 range_check_builtin_applications = 3;
-    uint64 pedersen_builtin_applications = 4;
-    uint64 poseidon_builtin_applications = 5;
-    uint64 ec_op_builtin_applications = 6;
-    uint64 ecdsa_builtin_applications = 7;
-    uint64 bitwise_builtin_applications = 8;
-    uint64 keccak_builtin_applications = 9;
-    uint64 segment_arena_builtin = 10;
-    DataAvailability data_availability = 11;
-}
-
-message DataAvailability {
     uint64 l1_gas = 1;
     uint64 l1_data_gas = 2;
+    uint64 l2_gas = 3;
 }
 
 message FunctionCall {
-    Felt contract_address = 1;
-    Felt entry_point_selector = 2;
-    repeated Felt calldata = 3;
+    common.Felt contract_address = 1;
+    common.Felt entry_point_selector = 2;
+    repeated common.Felt calldata = 3;
 }
 
 message MessageFromL1 {
     string from_address = 1;
-    Felt to_address = 2;
-    Felt entry_point_selector = 3;
-    repeated Felt payload = 4;
+    common.Felt to_address = 2;
+    common.Felt entry_point_selector = 3;
+    repeated common.Felt payload = 4;
 }
 
+// Emitted event with index fields
 message EmittedEvent {
-    Event event = 1;
-    Felt block_hash = 2;
-    uint64 block_number = 3;
-    Felt transaction_hash = 4;
+    common.Felt from_address = 1;
+    repeated common.Felt keys = 2;
+    repeated common.Felt data = 3;
+    common.Felt block_hash = 4;
+    uint64 block_number = 5;
+    common.Felt transaction_hash = 6;
 }
 
 message EventFilter {
     BlockID from_block = 1;
     BlockID to_block = 2;
-    Felt address = 3;
-    repeated Felt keys = 4;
+    common.Felt address = 3;
+    repeated common.Felt keys = 4;
 }
 
 message SyncStatus {
-    Felt starting_block_hash = 1;
+    common.Felt starting_block_hash = 1;
     uint64 starting_block_num = 2;
-    Felt current_block_hash = 3;
+    common.Felt current_block_hash = 3;
     uint64 current_block_num = 4;
-    Felt highest_block_hash = 5;
+    common.Felt highest_block_hash = 5;
     uint64 highest_block_num = 6;
 }
 
 message ContractClass {
-    repeated Felt sierra_program = 1;
+    repeated common.Felt sierra_program = 1;
     string contract_class_version = 2;
     EntryPointsByType entry_points_by_type = 3;
     string abi = 4;
@@ -356,11 +412,233 @@ message DeprecatedEntryPointsByType {
 }
 
 message SierraEntryPoint {
-    Felt selector = 1;
+    common.Felt selector = 1;
     uint64 function_idx = 2;
 }
 
 message DeprecatedCairoEntryPoint {
     string offset = 1;
-    Felt selector = 2;
+    common.Felt selector = 2;
+}
+
+// ============================================================
+// Broadcasted Transaction Types (for write operations)
+// ============================================================
+
+// Broadcasted INVOKE transaction - flat structure matching RPC types
+message BroadcastedInvokeTransaction {
+    common.Felt sender_address = 1;
+    repeated common.Felt calldata = 2;
+    repeated common.Felt signature = 3;
+    common.Felt nonce = 4;
+    repeated common.Felt paymaster_data = 5;
+    common.Felt tip = 6;
+    repeated common.Felt account_deployment_data = 7;
+    ResourceBoundsMapping resource_bounds = 8;
+    string fee_data_availability_mode = 9;
+    string nonce_data_availability_mode = 10;
+    common.Felt version = 11;
+}
+
+// Broadcasted DECLARE transaction - flat structure matching RPC types
+message BroadcastedDeclareTransaction {
+    common.Felt sender_address = 1;
+    common.Felt compiled_class_hash = 2;
+    repeated common.Felt signature = 3;
+    common.Felt nonce = 4;
+    ContractClass contract_class = 5;
+    repeated common.Felt paymaster_data = 6;
+    common.Felt tip = 7;
+    repeated common.Felt account_deployment_data = 8;
+    ResourceBoundsMapping resource_bounds = 9;
+    string fee_data_availability_mode = 10;
+    string nonce_data_availability_mode = 11;
+    common.Felt version = 12;
+}
+
+// Broadcasted DEPLOY_ACCOUNT transaction - flat structure matching RPC types
+message BroadcastedDeployAccountTransaction {
+    repeated common.Felt signature = 1;
+    common.Felt nonce = 2;
+    common.Felt contract_address_salt = 3;
+    repeated common.Felt constructor_calldata = 4;
+    common.Felt class_hash = 5;
+    repeated common.Felt paymaster_data = 6;
+    common.Felt tip = 7;
+    ResourceBoundsMapping resource_bounds = 8;
+    string fee_data_availability_mode = 9;
+    string nonce_data_availability_mode = 10;
+    common.Felt version = 11;
+}
+
+// ============================================================
+// Transaction Trace Types (for trace operations)
+// ============================================================
+
+message TransactionTrace {
+    oneof trace {
+        InvokeTransactionTrace invoke_trace = 1;
+        DeclareTransactionTrace declare_trace = 2;
+        DeployAccountTransactionTrace deploy_account_trace = 3;
+        L1HandlerTransactionTrace l1_handler_trace = 4;
+    }
+}
+
+message InvokeTransactionTrace {
+    FunctionInvocation execute_invocation = 1;
+    FunctionInvocation validate_invocation = 2;
+    FunctionInvocation fee_transfer_invocation = 3;
+    StateDiff state_diff = 4;
+    ExecutionResources execution_resources = 5;
+}
+
+message DeclareTransactionTrace {
+    FunctionInvocation validate_invocation = 1;
+    FunctionInvocation fee_transfer_invocation = 2;
+    StateDiff state_diff = 3;
+    ExecutionResources execution_resources = 4;
+}
+
+message DeployAccountTransactionTrace {
+    FunctionInvocation constructor_invocation = 1;
+    FunctionInvocation validate_invocation = 2;
+    FunctionInvocation fee_transfer_invocation = 3;
+    StateDiff state_diff = 4;
+    ExecutionResources execution_resources = 5;
+}
+
+message L1HandlerTransactionTrace {
+    FunctionInvocation function_invocation = 1;
+    StateDiff state_diff = 2;
+    ExecutionResources execution_resources = 3;
+}
+
+// Function invocation matching JSON-RPC FunctionInvocation
+message FunctionInvocation {
+    common.Felt contract_address = 1;
+    common.Felt entry_point_selector = 2;
+    repeated common.Felt calldata = 3;
+    common.Felt caller_address = 4;
+    common.Felt class_hash = 5;
+    string entry_point_type = 6;
+    string call_type = 7;
+    repeated common.Felt result = 8;
+    repeated FunctionInvocation calls = 9;
+    repeated OrderedEvent events = 10;
+    repeated OrderedL2ToL1Message messages = 11;
+    ExecutionResources execution_resources = 12;
+    bool is_reverted = 13;
+}
+
+// Ordered event (events in traces have order)
+message OrderedEvent {
+    uint64 order = 1;
+    repeated common.Felt keys = 2;
+    repeated common.Felt data = 3;
+}
+
+// Ordered L2 to L1 message (messages in traces have order)
+message OrderedL2ToL1Message {
+    uint64 order = 1;
+    common.Felt from_address = 2;
+    common.Felt to_address = 3;
+    repeated common.Felt payload = 4;
+}
+
+message SimulatedTransaction {
+    TransactionTrace transaction_trace = 1;
+    FeeEstimate fee_estimation = 2;
+}
+
+// ============================================================
+// Storage Proof Types
+// ============================================================
+
+message StorageProof {
+    GlobalRoots global_roots = 1;
+    ClassesProof classes_proof = 2;
+    ContractsProof contracts_proof = 3;
+    ContractStorageProofs contracts_storage_proofs = 4;
+}
+
+message GlobalRoots {
+    common.Felt block_hash = 1;
+    common.Felt classes_tree_root = 2;
+    common.Felt contracts_tree_root = 3;
+}
+
+message ClassesProof {
+    repeated MerkleProofNode nodes = 1;
+}
+
+message ContractsProof {
+    repeated MerkleProofNode nodes = 1;
+    repeated ContractLeafData contract_leaves_data = 2;
+}
+
+message ContractLeafData {
+    common.Felt storage_root = 1;
+    common.Felt class_hash = 2;
+    common.Felt nonce = 3;
+}
+
+message ContractStorageProofs {
+    repeated ContractStorageProof proofs = 1;
+}
+
+message ContractStorageProof {
+    repeated MerkleProofNode nodes = 1;
+}
+
+message MerkleProofNode {
+    oneof node {
+        BinaryNode binary = 1;
+        EdgeNode edge = 2;
+    }
+}
+
+message BinaryNode {
+    common.Felt left = 1;
+    common.Felt right = 2;
+}
+
+message EdgeNode {
+    common.Felt path = 1;
+    uint32 length = 2;
+    common.Felt child = 3;
+}
+
+message ContractStorageKeysRequest {
+    common.Felt contract_address = 1;
+    repeated common.Felt keys = 2;
+}
+
+// ============================================================
+// Compiled CASM Class Type
+// ============================================================
+
+message CasmContractClass {
+    string prime = 1;
+    string compiler_version = 2;
+    repeated CasmContractEntryPoint entry_points_by_type_external = 3;
+    repeated CasmContractEntryPoint entry_points_by_type_l1_handler = 4;
+    repeated CasmContractEntryPoint entry_points_by_type_constructor = 5;
+    repeated bytes bytecode = 6;
+    repeated BytecodeSegmentLength bytecode_segment_lengths = 7;
+    repeated Hint hints = 8;
+}
+
+message CasmContractEntryPoint {
+    common.Felt selector = 1;
+    uint64 offset = 2;
+    repeated common.Felt builtins = 3;
+}
+
+message BytecodeSegmentLength {
+    uint64 length = 1;
+}
+
+message Hint {
+    uint64 id = 1;
+    string code = 2;
 }
