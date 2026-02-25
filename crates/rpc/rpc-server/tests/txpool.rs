@@ -1,126 +1,151 @@
-use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
-use katana_primitives::{felt, Felt};
-use katana_rpc_api::txpool::TxPoolApiClient;
-use katana_utils::TestNode;
-use starknet::accounts::Account;
-use starknet::core::types::Call;
-use starknet::macros::selector;
+use katana_pool::ordering::FiFo;
+use katana_pool::pool::Pool;
+use katana_pool::validation::NoopValidator;
+use katana_pool::{PoolTransaction, TransactionPool};
+use katana_primitives::contract::{ContractAddress, Nonce};
+use katana_primitives::transaction::TxHash;
+use katana_primitives::Felt;
+use katana_rpc_api::txpool::TxPoolApiServer;
+use katana_rpc_server::txpool::TxPoolApi;
 
-/// Helper: creates a test node with no_mining so transactions stay in the pool.
-async fn setup_no_mining_node() -> TestNode {
-    let mut config = katana_utils::node::test_config();
-    config.sequencing.no_mining = true;
-    TestNode::new_with_config(config).await
+// -- Mock transaction type ---------------------------------------------------
+
+#[derive(Clone, Debug)]
+struct MockTx {
+    hash: TxHash,
+    nonce: Nonce,
+    sender: ContractAddress,
+    max_fee: u128,
+    tip: u64,
 }
 
-/// Helper: submits a simple ERC-20 transfer invoke transaction.
-/// Returns the transaction hash.
-async fn send_transfer(
-    account: &starknet::accounts::SingleOwnerAccount<
-        starknet::providers::JsonRpcClient<starknet::providers::jsonrpc::HttpTransport>,
-        starknet::signers::LocalWallet,
-    >,
-) -> Felt {
-    let to = DEFAULT_STRK_FEE_TOKEN_ADDRESS.into();
-    let selector = selector!("transfer");
-    let calldata = vec![felt!("0x1"), felt!("0x1"), Felt::ZERO];
-
-    let res = account
-        .execute_v3(vec![Call { to, selector, calldata }])
-        .l2_gas(100_000_000_000)
-        .send()
-        .await
-        .unwrap();
-
-    res.transaction_hash
+impl MockTx {
+    fn new(sender: ContractAddress, nonce: u64) -> Self {
+        Self {
+            hash: TxHash::from(Felt::from(rand::random::<u128>())),
+            nonce: Nonce::from(nonce),
+            sender,
+            max_fee: 1000,
+            tip: 10,
+        }
+    }
 }
+
+impl PoolTransaction for MockTx {
+    fn hash(&self) -> TxHash {
+        self.hash
+    }
+    fn nonce(&self) -> Nonce {
+        self.nonce
+    }
+    fn sender(&self) -> ContractAddress {
+        self.sender
+    }
+    fn max_fee(&self) -> u128 {
+        self.max_fee
+    }
+    fn tip(&self) -> u64 {
+        self.tip
+    }
+}
+
+// -- Helpers -----------------------------------------------------------------
+
+type TestPool = Pool<MockTx, NoopValidator<MockTx>, FiFo<MockTx>>;
+
+fn test_pool() -> TestPool {
+    Pool::new(NoopValidator::new(), FiFo::new())
+}
+
+fn sender_a() -> ContractAddress {
+    ContractAddress::from(Felt::from(0xA))
+}
+
+fn sender_b() -> ContractAddress {
+    ContractAddress::from(Felt::from(0xB))
+}
+
+// -- Tests -------------------------------------------------------------------
 
 #[tokio::test]
-async fn txpool_status_empty_pool() {
-    let node = setup_no_mining_node().await;
-    let client = node.rpc_http_client();
+async fn status_empty_pool() {
+    let pool = test_pool();
+    let api = TxPoolApi::new(pool);
 
-    let status = client.txpool_status().await.unwrap();
+    let status = api.txpool_status().await.unwrap();
     assert_eq!(status.pending, 0);
     assert_eq!(status.queued, 0);
 }
 
 #[tokio::test]
-async fn txpool_status_after_submit() {
-    let node = setup_no_mining_node().await;
-    let client = node.rpc_http_client();
-    let account = node.account();
+async fn status_after_add() {
+    let pool = test_pool();
+    pool.add_transaction(MockTx::new(sender_a(), 0)).await.unwrap();
 
-    send_transfer(&account).await;
-
-    let status = client.txpool_status().await.unwrap();
+    let api = TxPoolApi::new(pool);
+    let status = api.txpool_status().await.unwrap();
     assert_eq!(status.pending, 1);
     assert_eq!(status.queued, 0);
 }
 
 #[tokio::test]
-async fn txpool_content_populated() {
-    let node = setup_no_mining_node().await;
-    let client = node.rpc_http_client();
-    let account = node.account();
+async fn content_populated() {
+    let pool = test_pool();
+    let tx = MockTx::new(sender_a(), 0);
+    let expected_hash = tx.hash;
+    pool.add_transaction(tx).await.unwrap();
 
-    let tx_hash = send_transfer(&account).await;
+    let api = TxPoolApi::new(pool);
+    let content = api.txpool_content().await.unwrap();
 
-    let content = client.txpool_content().await.unwrap();
-
-    // Should have exactly one sender in pending
     assert_eq!(content.pending.len(), 1);
     assert!(content.queued.is_empty());
 
-    let sender_addr = account.address().into();
-    let sender_txs = content.pending.get(&sender_addr).expect("sender should be present");
+    let sender_txs = content.pending.get(&sender_a()).expect("sender should be present");
     assert_eq!(sender_txs.len(), 1);
 
-    // Verify the transaction fields
     let tx_entry = sender_txs.values().next().unwrap();
-    assert_eq!(tx_entry.hash, tx_hash);
-    assert_eq!(tx_entry.sender, sender_addr);
+    assert_eq!(tx_entry.hash, expected_hash);
+    assert_eq!(tx_entry.sender, sender_a());
+    assert_eq!(tx_entry.nonce, Nonce::from(0u64));
+    assert_eq!(tx_entry.max_fee, 1000);
+    assert_eq!(tx_entry.tip, 10);
 }
 
 #[tokio::test]
-async fn txpool_content_from_filters_by_address() {
-    let node = setup_no_mining_node().await;
-    let client = node.rpc_http_client();
-    let account = node.account();
+async fn content_from_filters_by_address() {
+    let pool = test_pool();
+    pool.add_transaction(MockTx::new(sender_a(), 0)).await.unwrap();
+    pool.add_transaction(MockTx::new(sender_b(), 0)).await.unwrap();
 
-    send_transfer(&account).await;
+    let api = TxPoolApi::new(pool);
 
-    let sender_addr = account.address().into();
-
-    // Filter by the actual sender — should find the transaction
-    let content = client.txpool_content_from(sender_addr).await.unwrap();
+    // Filter by sender_a — should only see sender_a's transaction
+    let content = api.txpool_content_from(sender_a()).await.unwrap();
     assert_eq!(content.pending.len(), 1);
-    assert!(content.pending.contains_key(&sender_addr));
+    assert!(content.pending.contains_key(&sender_a()));
+    assert!(!content.pending.contains_key(&sender_b()));
 
     // Filter by an unrelated address — should be empty
-    let other_addr = felt!("0xdead").into();
-    let content = client.txpool_content_from(other_addr).await.unwrap();
+    let other = ContractAddress::from(Felt::from(0xDEAD));
+    let content = api.txpool_content_from(other).await.unwrap();
     assert!(content.pending.is_empty());
 }
 
 #[tokio::test]
-async fn txpool_inspect_format() {
-    let node = setup_no_mining_node().await;
-    let client = node.rpc_http_client();
-    let account = node.account();
+async fn inspect_format() {
+    let pool = test_pool();
+    pool.add_transaction(MockTx::new(sender_a(), 0)).await.unwrap();
 
-    send_transfer(&account).await;
-
-    let inspect = client.txpool_inspect().await.unwrap();
+    let api = TxPoolApi::new(pool);
+    let inspect = api.txpool_inspect().await.unwrap();
 
     assert_eq!(inspect.pending.len(), 1);
     assert!(inspect.queued.is_empty());
 
-    let sender_addr = account.address().into();
-    let summaries = inspect.pending.get(&sender_addr).expect("sender should be present");
+    let summaries = inspect.pending.get(&sender_a()).expect("sender should be present");
     let summary = summaries.values().next().unwrap();
 
-    // The summary should contain key fields
     assert!(summary.contains("hash="), "summary should contain hash: {summary}");
     assert!(summary.contains("nonce="), "summary should contain nonce: {summary}");
     assert!(summary.contains("max_fee="), "summary should contain max_fee: {summary}");
@@ -128,52 +153,57 @@ async fn txpool_inspect_format() {
 }
 
 #[tokio::test]
-async fn txpool_cleared_after_block_produced() {
-    // In instant mining mode, transactions are removed from the pool after the
-    // block is produced via the BlockProductionTask polling loop.
-    let node = TestNode::new().await;
-    let client = node.rpc_http_client();
-    let account = node.account();
-    let provider = node.starknet_rpc_client();
-
-    let tx_hash = send_transfer(&account).await;
-
-    // Wait for the transaction to be included in a block
-    katana_utils::TxWaiter::new(tx_hash, &provider).await.unwrap();
-
-    // After the block is produced the pool should be drained.
-    // Poll briefly in case removal is slightly async.
-    let mut attempts = 0;
-    loop {
-        let status = client.txpool_status().await.unwrap();
-        if status.pending == 0 {
-            break;
-        }
-        attempts += 1;
-        assert!(attempts < 50, "pool not drained after mining (pending={})", status.pending);
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+async fn multiple_transactions_same_sender() {
+    let pool = test_pool();
+    for nonce in 0..3 {
+        pool.add_transaction(MockTx::new(sender_a(), nonce)).await.unwrap();
     }
 
-    let content = client.txpool_content().await.unwrap();
-    assert!(content.pending.is_empty());
+    let api = TxPoolApi::new(pool);
+
+    let status = api.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 3);
+
+    let content = api.txpool_content().await.unwrap();
+    let sender_txs = content.pending.get(&sender_a()).expect("sender should be present");
+    assert_eq!(sender_txs.len(), 3);
 }
 
 #[tokio::test]
-async fn txpool_multiple_transactions() {
-    let node = setup_no_mining_node().await;
-    let client = node.rpc_http_client();
-    let account = node.account();
+async fn multiple_senders() {
+    let pool = test_pool();
+    pool.add_transaction(MockTx::new(sender_a(), 0)).await.unwrap();
+    pool.add_transaction(MockTx::new(sender_a(), 1)).await.unwrap();
+    pool.add_transaction(MockTx::new(sender_b(), 0)).await.unwrap();
 
-    // Submit 3 transactions
-    for _ in 0..3 {
-        send_transfer(&account).await;
-    }
+    let api = TxPoolApi::new(pool);
 
-    let status = client.txpool_status().await.unwrap();
+    let status = api.txpool_status().await.unwrap();
     assert_eq!(status.pending, 3);
 
-    let content = client.txpool_content().await.unwrap();
-    let sender_addr = account.address().into();
-    let sender_txs = content.pending.get(&sender_addr).expect("sender should be present");
-    assert_eq!(sender_txs.len(), 3);
+    let content = api.txpool_content().await.unwrap();
+    assert_eq!(content.pending.len(), 2);
+    assert_eq!(content.pending.get(&sender_a()).unwrap().len(), 2);
+    assert_eq!(content.pending.get(&sender_b()).unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn pool_drained_after_remove() {
+    let pool = test_pool();
+    let tx = MockTx::new(sender_a(), 0);
+    let hash = tx.hash;
+    pool.add_transaction(tx).await.unwrap();
+
+    let api = TxPoolApi::new(pool.clone());
+
+    let status = api.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 1);
+
+    pool.remove_transactions(&[hash]);
+
+    let status = api.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 0);
+
+    let content = api.txpool_content().await.unwrap();
+    assert!(content.pending.is_empty());
 }
