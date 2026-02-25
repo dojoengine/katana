@@ -371,7 +371,9 @@ mod tests {
     use katana_primitives::chain::ChainId;
     use katana_primitives::contract::{ContractAddress, Nonce};
     use katana_primitives::env::BlockEnv;
-    use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV1};
+    use katana_primitives::transaction::{
+        ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV1,
+    };
     use katana_primitives::Felt;
     use katana_provider::api::block::BlockWriter;
     use katana_provider::api::state::{StateFactoryProvider, StateProvider};
@@ -389,9 +391,7 @@ mod tests {
             status: FinalityStatus::AcceptedOnL2,
             block: Block::default().seal_with_hash(Felt::ZERO),
         };
-        provider_mut
-            .insert_block_with_states_and_receipts(block, states, vec![], vec![])
-            .unwrap();
+        provider_mut.insert_block_with_states_and_receipts(block, states, vec![], vec![]).unwrap();
         provider_mut.commit().unwrap();
         provider_factory.provider().latest().unwrap()
     }
@@ -442,8 +442,7 @@ mod tests {
         let sender = *chain_spec.genesis().accounts().next().unwrap().0;
 
         let state = create_test_state(&chain_spec);
-        let execution_flags =
-            ExecutionFlags::new().with_account_validation(false).with_fee(false);
+        let execution_flags = ExecutionFlags::new().with_account_validation(false).with_fee(false);
         let block_env = BlockEnv::default();
         let permit = Arc::new(Mutex::new(()));
 
@@ -487,8 +486,155 @@ mod tests {
 
         assert!(
             matches!(result, Ok(ValidationOutcome::Dependent { .. })),
-            "After update(), tx with nonce 3 should be Dependent (state nonce is 0), \
-             but stale pool_nonces caused it to be accepted as Valid. Got: {result:?}"
+            "After update(), tx with nonce 3 should be Dependent (state nonce is 0), but stale \
+             pool_nonces caused it to be accepted as Valid. Got: {result:?}"
         );
+    }
+
+    /// End-to-end test reproducing the production error through the full
+    /// pool → executor pipeline, mirroring the actual node setup.
+    ///
+    /// When pool_nonces drifts ahead of the actual state nonce (the bug this
+    /// fix addresses), a transaction whose nonce matches the drifted value
+    /// passes the pool validator's checks and enters the pool. The block
+    /// producer then picks it up from the pool and feeds it to the executor.
+    /// The executor uses strict nonce checking and rejects it with:
+    ///
+    ///   "Invalid transaction nonce of contract at address 0x...
+    ///    Account nonce: 0x0; got: 0x3."
+    ///
+    /// This is the same error observed in production:
+    ///   "Invalid transaction nonce of contract at address 0x4250...bccf.
+    ///    Account nonce: 0x27ed; got: 0x2bbf."
+    ///
+    /// The test exercises the full flow:
+    ///   1. Tx submitted to pool via `add_transaction` (goes through TxValidator)
+    ///   2. Tx picked up from pool via `pending_transactions` (like block producer)
+    ///   3. Tx executed by blockifier executor
+    ///   4. Executor rejects with InvalidNonce
+    #[tokio::test]
+    async fn pool_to_executor_nonce_drift_produces_invalid_nonce_error() {
+        use futures::StreamExt;
+        use katana_executor::blockifier::BlockifierFactory;
+        use katana_executor::{ExecutionResult, ExecutorFactory};
+        use katana_pool_api::TransactionPool;
+        use katana_primitives::env::VersionedConstantsOverrides;
+
+        use crate::ordering::FiFo;
+        use crate::pool::Pool;
+
+        let _ = ClassCacheBuilder::new().build_global();
+
+        let chain_spec = Arc::new(ChainSpec::dev());
+        let chain_id = chain_spec.id();
+        let sender = *chain_spec.genesis().accounts().next().unwrap().0;
+
+        // -- Set up pool with TxValidator (same as real node) --
+        let state = create_test_state(&chain_spec);
+        let execution_flags = ExecutionFlags::new().with_account_validation(false).with_fee(false);
+        let block_env = BlockEnv::default();
+        let permit = Arc::new(Mutex::new(()));
+
+        let validator = TxValidator::new(
+            state,
+            execution_flags.clone(),
+            None,
+            block_env.clone(),
+            permit,
+            chain_spec.clone(),
+        );
+
+        let pool = Pool::new(validator.clone(), FiFo::new());
+
+        // -- Set up executor factory (same config as block producer) --
+        let executor_factory = BlockifierFactory::new(
+            Some(VersionedConstantsOverrides {
+                validate_max_n_steps: Some(u32::MAX),
+                invoke_tx_max_n_steps: Some(u32::MAX),
+                max_recursion_depth: Some(usize::MAX),
+            }),
+            // Executor uses default flags: strict nonce check enabled
+            execution_flags,
+            katana_executor::BlockLimits::default(),
+            katana_executor::blockifier::cache::ClassCache::global(),
+            chain_spec.clone(),
+        );
+
+        // -- Simulate pool_nonces drift (pre-fix bug) --
+        //
+        // In production, pool_nonces drifts because update() didn't clear it.
+        // After many blocks, pool_nonces[sender] could be far ahead of state.
+        // We simulate this by directly setting pool_nonces to a drifted value.
+        let drifted_nonce = Felt::THREE;
+        {
+            let mut inner = validator.inner.lock();
+            inner.pool_nonces.insert(sender, drifted_nonce);
+        }
+
+        // -- Step 1: Submit tx to pool via add_transaction --
+        //
+        // The validator sees pool_nonces[sender] = 3, tx_nonce = 3.
+        // Since tx_nonce == current_nonce, it falls through to blockifier.
+        // Blockifier (non-strict in validator): state_nonce(0) <= tx_nonce(3) → passes.
+        // Tx enters the pool as Valid.
+        let tx = create_invoke_tx(sender, chain_id, drifted_nonce);
+        let tx_hash = tx.hash;
+        pool.add_transaction(tx).await.expect("tx should pass validation and enter pool");
+
+        assert!(pool.contains(tx_hash), "tx should be in the pool");
+
+        // -- Step 2: Pull tx from pool (like block producer does) --
+        let mut pending = pool.pending_transactions();
+        let pending_tx = pending.next().await.expect("should have a pending tx");
+        let picked_tx = pending_tx.tx.as_ref().clone();
+        assert_eq!(picked_tx.hash, tx_hash);
+
+        // -- Step 3: Execute with executor (like block producer does) --
+        //
+        // Executor is created with fresh state (nonce = 0) and strict nonce check.
+        // This is what happens in the real node: the executor's state reflects
+        // committed blocks, not the pool's speculative nonce tracking.
+        let executor_state = create_test_state(&chain_spec);
+        let mut executor = executor_factory.executor(executor_state, block_env);
+
+        let (executed, _) = executor.execute_transactions(vec![picked_tx]).unwrap();
+        assert_eq!(executed, 1, "executor should process the tx (even if it fails)");
+
+        // -- Step 4: Verify the exact production error --
+        let (_, result) = &executor.transactions()[0];
+        match result {
+            ExecutionResult::Failed { error } => {
+                let error_msg = error.to_string();
+                // This is the exact error format from production logs:
+                //   "Invalid transaction nonce of contract at address {addr}.
+                //    Account nonce: {current_nonce:#x}; got: {tx_nonce:#x}."
+                assert!(
+                    error_msg.contains("Invalid transaction nonce"),
+                    "Expected InvalidNonce error, got: {error_msg}"
+                );
+                assert!(
+                    error_msg.contains(&format!("{sender}")),
+                    "Error should reference the sender address, got: {error_msg}"
+                );
+                assert!(
+                    error_msg.contains("Account nonce: 0x0"),
+                    "Error should show state nonce 0x0, got: {error_msg}"
+                );
+                assert!(
+                    error_msg.contains("got: 0x3"),
+                    "Error should show tx nonce 0x3, got: {error_msg}"
+                );
+            }
+            ExecutionResult::Success { .. } => {
+                panic!(
+                    "Executor should reject tx with nonce 3 when state nonce is 0, but it \
+                     succeeded"
+                );
+            }
+        }
+
+        // -- Cleanup: remove from pool (like block producer does post-execution) --
+        pool.remove_transactions(&[tx_hash]);
+        assert!(!pool.contains(tx_hash));
     }
 }
