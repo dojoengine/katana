@@ -24,6 +24,9 @@ use katana_rpc_types::{
 use katana_tasks::TaskSpawner;
 use parking_lot::{Mutex, RwLock};
 
+use crate::pool::ShardPool;
+use crate::scheduler::Scheduler;
+
 type StarknetApiResult<T> = Result<T, katana_rpc_api::error::starknet::StarknetApiError>;
 
 /// A shard identifier, corresponding to a contract address.
@@ -113,10 +116,10 @@ pub struct Shard {
     pub id: ShardId,
     pub db: katana_db::Db,
     pub provider: DbProviderFactory,
-    pub pool: TxPool,
+    pub pool: ShardPool,
     pub backend: Arc<Backend<DbProviderFactory>>,
     pub block_env: Arc<RwLock<BlockEnv>>,
-    pub starknet_api: StarknetApi<TxPool, NoPendingBlockProvider, DbProviderFactory>,
+    pub starknet_api: StarknetApi<ShardPool, NoPendingBlockProvider, DbProviderFactory>,
     state: AtomicU8,
 }
 
@@ -130,6 +133,7 @@ impl Shard {
         starknet_api_config: StarknetApiConfig,
         task_spawner: TaskSpawner,
         initial_block_env: BlockEnv,
+        scheduler: Scheduler,
     ) -> Result<Self> {
         // Per-shard in-memory database
         let db = katana_db::Db::in_memory()?;
@@ -166,7 +170,8 @@ impl Shard {
             chain_spec.clone(),
         );
 
-        let pool = TxPool::new(validator, FiFo::new());
+        let tx_pool = TxPool::new(validator, FiFo::new());
+        let pool = ShardPool::new(tx_pool, scheduler, id);
 
         // Initialize per-shard block env from the latest base-chain context.
         let block_env = Arc::new(RwLock::new(initial_block_env));

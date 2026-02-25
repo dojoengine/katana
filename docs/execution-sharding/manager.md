@@ -30,6 +30,8 @@ is registered.
 
 This "get or create" behavior is idempotent: concurrent requests for the same shard ID all receive the same shard instance thanks to double-checked locking.
 
+During shard creation, the manager passes the runtime scheduler into the shard constructor and inserts the new shard into a shared shard registry (`Arc<RwLock<HashMap<ShardId, Arc<Shard>>>>`) that is used by both the manager and scheduler. The shard pool stores only the shard ID (contract address) and schedules by ID after successful transaction insertion.
+
 #### Creation Guarantees
 
 - A shard ID maps to at most one shard instance for the lifetime of the node.

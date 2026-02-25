@@ -89,7 +89,7 @@ Once created, a shard persists for the lifetime of the node regardless of the ma
 
 1. A client submits a transaction via `shard_addInvokeTransaction(shard_id, tx)`.
 2. The RPC layer looks up (or creates) the shard for `shard_id` and adds `tx` to the shard's pool.
-3. The RPC layer schedules the shard -- if it is `Idle`, it transitions to `Pending` and is enqueued.
+3. When the pool accepts the transaction, it schedules by `shard_id`; the scheduler resolves the shard from its registry and enqueues that ID. If the shard is `Idle`, it transitions to `Pending`.
 4. A worker thread dequeues the shard, transitions it to `Running`, and begins executing pending transactions.
 5. After execution, results are committed to the shard's storage as a new block.
 6. The worker checks whether the shard still has pending transactions:

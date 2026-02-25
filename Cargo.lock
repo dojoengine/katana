@@ -6831,12 +6831,14 @@ name = "katana-sharding"
 version = "1.7.0"
 dependencies = [
  "anyhow",
+ "futures",
  "katana-chain-spec",
  "katana-core",
  "katana-db",
  "katana-executor",
  "katana-gas-price-oracle",
  "katana-pool",
+ "katana-pool-api",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-api",

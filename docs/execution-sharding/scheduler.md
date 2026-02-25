@@ -1,6 +1,6 @@
 # Scheduler and Workers
 
-The scheduler is a shared work queue that distributes shards to a pool of worker threads for execution. The RPC layer enqueues shards, and dedicated OS threads dequeue and process them.
+The scheduler is a shared work queue that distributes shards to a pool of worker threads for execution. Shards are enqueued by pool-level scheduling when transactions are accepted, and dedicated OS threads dequeue and process them.
 
 > **Note:** The scheduler and worker threads are owned and managed by the [`ShardRuntime`](runtime.md). The runtime provides lifecycle control (start, shutdown with timeout, background shutdown) while the scheduler handles the scheduling logic itself.
 
@@ -8,11 +8,12 @@ The scheduler is a shared work queue that distributes shards to a pool of worker
 
 When a shard is scheduled:
 
-1. The scheduler atomically attempts to transition the shard from `Idle` to `Pending`.
-2. If the transition succeeds, the shard is appended to the back of the queue and one waiting worker is woken.
+1. The scheduler resolves the shard from the shared shard registry (owned jointly with the shard manager) using the shard ID (contract address).
+2. The scheduler atomically attempts to transition the shard from `Idle` to `Pending`.
+3. If the transition succeeds, the shard ID is appended to the back of the queue and one waiting worker is woken.
 3. If the transition fails (the shard is already `Pending` or `Running`), the call is a no-op.
 
-This atomic state check prevents a shard from being enqueued multiple times. A shard can only enter the queue from the `Idle` state. The queue is strictly FIFO: shards are processed in the order they were scheduled.
+This atomic state check prevents a shard from being enqueued multiple times. A shard can only enter the queue from the `Idle` state. The queue is strictly FIFO by shard ID.
 
 ## Workers
 
@@ -64,7 +65,9 @@ The default time quantum is 100 milliseconds.
 ## Concurrency
 
 - Workers are independent of each other and never share a shard simultaneously. A shard's scheduling state (`Idle`/`Pending`/`Running`) guarantees mutual exclusion: only one worker processes a given shard at a time.
-- The scheduler is cloneable; all clones share the same underlying queue. It is safe to call `schedule()` from any thread (e.g., from RPC handlers) while workers block on their own threads.
+- The scheduler is cloneable; all clones share the same underlying queue and shard registry.
+- The shard manager and scheduler use the same shard registry instance, so there is a single source of truth for shard lookup.
+- It is safe to call `schedule(shard_id)` from any thread while workers block on their own threads.
 
 ## Shutdown
 

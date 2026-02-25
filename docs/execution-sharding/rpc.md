@@ -11,7 +11,7 @@ All methods are prefixed with `shard_`. For example: `shard_getBlockWithTxHashes
 Every method (except `shard_chainId` and `shard_listShards`) takes a `shard_id` parameter as its first argument. This is a contract address that identifies the target shard.
 
 - **Read operations** look up the shard in the registry. If the shard does not exist, an `INVALID_PARAMS` error is returned.
-- **Write operations** look up or create the shard in the registry. If the shard does not exist, it is created lazily before the transaction is added. After the transaction is added to the shard's pool, the shard is scheduled for execution.
+- **Write operations** look up or create the shard in the registry. If the shard does not exist, it is created lazily before the transaction is added. After a transaction is accepted by the shard pool, scheduling is triggered by shard ID (`shard_id`) automatically.
 
 ## Methods
 
@@ -44,7 +44,7 @@ These methods query a specific shard's storage. They require the shard to alread
 
 ### Write
 
-These methods submit transactions to a shard. They create the shard if it does not yet exist and schedule it for execution after the transaction is accepted.
+These methods submit transactions to a shard. They create the shard if it does not yet exist. Scheduling is triggered by the shard pool after successful transaction insertion (not by the RPC handler itself).
 
 | Method | Key Parameters | Description |
 |---|---|---|

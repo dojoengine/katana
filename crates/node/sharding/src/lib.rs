@@ -11,7 +11,6 @@ use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::GasPriceOracle;
-use katana_pool::TxPool;
 use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::DbProviderFactory;
@@ -20,6 +19,7 @@ use katana_rpc_server::shard::{ShardProvider, ShardRpc};
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_sharding::manager::{LazyShardManager, ShardManager};
+use katana_sharding::pool::ShardPool;
 use katana_sharding::runtime::{Runtime, RuntimeHandle};
 use katana_sharding::shard::NoPendingBlockProvider;
 use katana_tasks::TaskManager;
@@ -103,13 +103,13 @@ impl Node {
             gas_oracle,
             starknet_api_config,
             task_spawner.clone(),
+            handle.scheduler().clone(),
             config.base_chain_url.clone(),
         ));
 
         // --- Build RPC server with shard API
         let provider = NodeShardProvider {
             manager: manager.clone(),
-            handle: handle.clone(),
             chain_spec: config.chain.clone(),
         };
 
@@ -184,12 +184,11 @@ impl LaunchedShardNode {
 /// manager and scheduler to the generic `ShardRpc` RPC handler.
 struct NodeShardProvider {
     manager: Arc<dyn ShardManager>,
-    handle: RuntimeHandle,
     chain_spec: Arc<ChainSpec>,
 }
 
 impl ShardProvider for NodeShardProvider {
-    type Api = StarknetApi<TxPool, NoPendingBlockProvider, DbProviderFactory>;
+    type Api = StarknetApi<ShardPool, NoPendingBlockProvider, DbProviderFactory>;
 
     fn starknet_api(&self, shard_id: ContractAddress) -> Result<Self::Api, ErrorObjectOwned> {
         let shard = self.manager.get(shard_id).map_err(|e| {
@@ -200,12 +199,6 @@ impl ShardProvider for NodeShardProvider {
             )
         })?;
         Ok(shard.starknet_api.clone())
-    }
-
-    fn schedule(&self, shard_id: ContractAddress) {
-        if let Ok(shard) = self.manager.get(shard_id) {
-            self.handle.schedule(shard);
-        }
     }
 
     fn shard_ids(&self) -> Vec<ContractAddress> {

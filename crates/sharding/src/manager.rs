@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -12,9 +11,9 @@ use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_server::starknet::StarknetApiConfig;
 use katana_rpc_types::block::GetBlockWithTxHashesResponse;
 use katana_tasks::TaskSpawner;
-use parking_lot::RwLock;
 use url::Url;
 
+use crate::scheduler::{Scheduler, ShardRegistry};
 use crate::shard::{Shard, ShardId};
 
 type InitialBlockEnvFetcher = dyn Fn() -> Result<BlockEnv> + Send + Sync + 'static;
@@ -119,7 +118,8 @@ pub struct LazyShardManager {
 }
 
 struct LazyShardManagerInner {
-    shards: RwLock<HashMap<ShardId, Arc<Shard>>>,
+    shards: ShardRegistry,
+    scheduler: Scheduler,
     // Shared resources for lazy shard creation
     chain_spec: Arc<ChainSpec>,
     executor_factory: Arc<dyn ExecutorFactory>,
@@ -136,6 +136,7 @@ impl LazyShardManager {
         gas_oracle: GasPriceOracle,
         starknet_api_config: StarknetApiConfig,
         task_spawner: TaskSpawner,
+        scheduler: Scheduler,
         base_chain_url: Url,
     ) -> Self {
         let initial_block_env_fetcher = new_base_chain_block_env_fetcher(base_chain_url);
@@ -146,6 +147,7 @@ impl LazyShardManager {
             gas_oracle,
             starknet_api_config,
             task_spawner,
+            scheduler,
             initial_block_env_fetcher,
         )
     }
@@ -156,11 +158,13 @@ impl LazyShardManager {
         gas_oracle: GasPriceOracle,
         starknet_api_config: StarknetApiConfig,
         task_spawner: TaskSpawner,
+        scheduler: Scheduler,
         initial_block_env_fetcher: Arc<InitialBlockEnvFetcher>,
     ) -> Self {
         Self {
             inner: Arc::new(LazyShardManagerInner {
-                shards: RwLock::new(HashMap::new()),
+                shards: scheduler.shard_registry(),
+                scheduler,
                 chain_spec,
                 executor_factory,
                 gas_oracle,
@@ -212,9 +216,11 @@ impl ShardManager for LazyShardManager {
             self.inner.starknet_api_config.clone(),
             self.inner.task_spawner.clone(),
             initial_block_env,
+            self.inner.scheduler.clone(),
         )?);
 
         shards.insert(id, Arc::clone(&shard));
+
         Ok(shard)
     }
 

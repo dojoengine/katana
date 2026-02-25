@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -68,30 +67,11 @@ impl Worker {
             // We need to set it back to Idle first so `schedule` can transition it.
             if shard.pool.size() > 0 {
                 shard.set_state(ShardState::Idle);
-                self.scheduler.schedule(Arc::clone(&shard));
+                self.scheduler.schedule(shard.id);
             } else {
                 shard.set_state(ShardState::Idle);
             }
         }
-
-        Ok(())
-    }
-
-    /// Execute transactions against the shard's state and commit results to storage.
-    fn execute(
-        &self,
-        shard: &Shard,
-        txs: Vec<ExecutableTxWithHash>,
-        block_env: &BlockEnv,
-    ) -> anyhow::Result<()> {
-        let state = shard.provider.provider().latest()?;
-
-        let mut executor = shard.backend.executor_factory.executor(state, block_env.clone());
-
-        executor.execute_transactions(txs)?;
-        let output = executor.take_execution_output()?;
-
-        shard.backend.do_mine_block(block_env, output)?;
 
         Ok(())
     }

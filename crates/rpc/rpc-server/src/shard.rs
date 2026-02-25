@@ -35,9 +35,6 @@ pub trait ShardProvider: Send + Sync + 'static {
     /// Resolve a shard's API by ID (for read operations).
     fn starknet_api(&self, shard_id: ContractAddress) -> Result<Self::Api, ErrorObjectOwned>;
 
-    /// Schedule a shard for execution after a write operation.
-    fn schedule(&self, shard_id: ContractAddress);
-
     /// List all registered shard IDs.
     fn shard_ids(&self) -> Vec<ContractAddress>;
 
@@ -211,10 +208,7 @@ impl<P: ShardProvider> ShardApiServer for ShardRpc<P> {
         invoke_transaction: BroadcastedInvokeTx,
     ) -> RpcResult<AddInvokeTransactionResponse> {
         let api = self.provider.starknet_api(shard_id)?;
-        let result =
-            StarknetWriteApiServer::add_invoke_transaction(&api, invoke_transaction).await?;
-        self.provider.schedule(shard_id);
-        Ok(result)
+        StarknetWriteApiServer::add_invoke_transaction(&api, invoke_transaction).await
     }
 
     async fn add_declare_transaction(
@@ -223,10 +217,7 @@ impl<P: ShardProvider> ShardApiServer for ShardRpc<P> {
         declare_transaction: BroadcastedDeclareTx,
     ) -> RpcResult<AddDeclareTransactionResponse> {
         let api = self.provider.starknet_api(shard_id)?;
-        let result =
-            StarknetWriteApiServer::add_declare_transaction(&api, declare_transaction).await?;
-        self.provider.schedule(shard_id);
-        Ok(result)
+        StarknetWriteApiServer::add_declare_transaction(&api, declare_transaction).await
     }
 
     async fn add_deploy_account_transaction(
@@ -235,13 +226,8 @@ impl<P: ShardProvider> ShardApiServer for ShardRpc<P> {
         deploy_account_transaction: BroadcastedDeployAccountTx,
     ) -> RpcResult<AddDeployAccountTransactionResponse> {
         let api = self.provider.starknet_api(shard_id)?;
-        let result = StarknetWriteApiServer::add_deploy_account_transaction(
-            &api,
-            deploy_account_transaction,
-        )
-        .await?;
-        self.provider.schedule(shard_id);
-        Ok(result)
+        StarknetWriteApiServer::add_deploy_account_transaction(&api, deploy_account_transaction)
+            .await
     }
 
     async fn trace_transaction(

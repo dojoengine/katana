@@ -1,11 +1,10 @@
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
 use crate::scheduler::Scheduler;
-use crate::shard::Shard;
+use crate::shard::ShardId;
 use crate::worker::Worker;
 
 /// Owns the execution resources (scheduler + worker threads) for the shard node.
@@ -41,8 +40,8 @@ pub struct RuntimeHandle {
 
 impl RuntimeHandle {
     /// Schedule a shard for execution.
-    pub fn schedule(&self, shard: Arc<Shard>) {
-        self.scheduler.schedule(shard);
+    pub fn schedule(&self, id: ShardId) {
+        self.scheduler.schedule(id);
     }
 
     /// Returns a reference to the underlying scheduler.

@@ -12,7 +12,7 @@ When a shard is created, it performs the following setup:
 
 1. **Allocate isolated storage** -- a fresh in-memory database that is independent of all other shards.
 2. **Initialize genesis** -- the chain's genesis state (accounts, classes, allocations) is written to the shard's storage. Every shard starts with an identical copy of the genesis state.
-3. **Create a transaction pool** -- a FIFO-ordered pool with a transaction validator built from the shard's latest state.
+3. **Create a transaction pool** -- a FIFO-ordered pool with a transaction validator built from the shard's latest state, wrapped with scheduling logic that triggers `schedule(shard_id)` after successful transaction insertion.
 4. **Create a query interface** -- enables the RPC layer to serve read requests from this shard's storage.
 
 ## State Machine
