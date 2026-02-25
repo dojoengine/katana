@@ -783,18 +783,12 @@ async fn setup_test(
 
     let cartridge_api = ::cartridge::CartridgeApiClient::new(mock_url);
 
-    // Create a dummy paymaster HTTP client — pointed at a non-routable address.
-    // The tested code paths do not use the paymaster client.
-    let paymaster_client =
-        jsonrpsee::http_client::HttpClientBuilder::default().build("http://127.0.0.1:1").unwrap();
-
     let deployer_address = Felt::from(1u64).into();
     let deployer_private_key = SigningKey::from_secret_scalar(Felt::from(1u64));
 
     let layer = ControllerDeploymentLayer::new(
         starknet_api,
         cartridge_api,
-        paymaster_client,
         deployer_address,
         deployer_private_key,
     );

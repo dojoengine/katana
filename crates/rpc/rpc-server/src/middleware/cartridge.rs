@@ -1,15 +1,13 @@
 use std::borrow::Cow;
 use std::future::Future;
 
-use cartridge::vrf::VrfClientError;
 use cartridge::CartridgeApiClient;
 use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
 use jsonrpsee::core::traits::ToRpcParams;
-use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::types::{ErrorObjectOwned, Request, Response, ResponsePayload};
 use jsonrpsee::{rpc_params, MethodResponse};
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
-use katana_pool::api::{PoolError, TransactionPool};
+use katana_pool::api::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
@@ -45,7 +43,6 @@ where
 {
     starknet: StarknetApi<Pool, PP, PF>,
     cartridge_api: CartridgeApiClient,
-    paymaster_client: HttpClient,
     deployer_address: ContractAddress,
     deployer_private_key: SigningKey,
 }
@@ -69,14 +66,12 @@ where
     pub fn new(
         starknet: StarknetApi<Pool, PP, PF>,
         cartridge_api: CartridgeApiClient,
-        paymaster_client: HttpClient,
         deployer_address: ContractAddress,
         deployer_private_key: SigningKey,
     ) -> Self {
         let context = ControllerDeploymentContext {
             starknet,
             cartridge_api,
-            paymaster_client,
             deployer_address,
             deployer_private_key,
         };
@@ -408,26 +403,8 @@ pub enum Error {
     #[error("cartridge api error: {0}")]
     Client(#[from] cartridge::api::Error),
 
-    #[error("provider error: {0}")]
-    Provider(#[from] katana_provider::api::ProviderError),
-
-    #[error("paymaster not found")]
-    PaymasterNotFound(ContractAddress),
-
-    #[error("VRF error: {0}")]
-    Vrf(String),
-
-    #[error("failed to sign with paymaster: {0}")]
+    #[error("failed to sign deploy transaction: {0}")]
     SigningError(SignError),
-
-    #[error("failed to add deploy controller transaction to the pool: {0}")]
-    FailedToAddTransaction(#[from] PoolError),
-}
-
-impl From<VrfClientError> for Error {
-    fn from(e: VrfClientError) -> Self {
-        Error::Vrf(e.to_string())
-    }
 }
 
 #[allow(dead_code)]

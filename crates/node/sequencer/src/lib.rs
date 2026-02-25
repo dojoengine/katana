@@ -308,7 +308,6 @@ where
         let controller_deployment_layer = if let Some(cfg) = &config.paymaster {
             if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
                 use anyhow::ensure;
-                use katana_rpc_client::HttpClient;
                 use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
 
                 ensure!(
@@ -356,7 +355,6 @@ where
                 Some(ControllerDeploymentLayer::new(
                     starknet_api.clone(),
                     cartridge_api_client,
-                    HttpClient::builder().build(cfg.url.clone())?,
                     cartridge_api_cfg.controller_deployer_address,
                     SigningKey::from_secret_scalar(
                         cartridge_api_cfg.controller_deployer_private_key,
