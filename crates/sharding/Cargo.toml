@@ -27,3 +27,6 @@ parking_lot.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+jsonrpsee.workspace = true

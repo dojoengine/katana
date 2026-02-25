@@ -2,14 +2,10 @@ use std::time::Instant;
 
 use anyhow::Result;
 use katana_pool::TransactionPool;
-use katana_primitives::env::BlockEnv;
-use katana_primitives::transaction::ExecutableTxWithHash;
-use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::ProviderFactory;
 use tracing::{error, trace};
 
 use crate::scheduler::Scheduler;
-use crate::shard::{Shard, ShardState};
+use crate::shard::ShardState;
 
 /// A worker that picks shards from the scheduler and executes their pending transactions.
 ///

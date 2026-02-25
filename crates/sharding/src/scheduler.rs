@@ -101,6 +101,11 @@ impl Scheduler {
         self.inner.time_quantum
     }
 
+    /// Returns the current number of scheduled shard tasks in the queue.
+    pub fn queue_len(&self) -> usize {
+        self.inner.queue.lock().len()
+    }
+
     /// Signal shutdown and wake all waiting workers.
     pub fn shutdown(&self) {
         self.inner.shutdown.store(true, Ordering::SeqCst);
