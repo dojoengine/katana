@@ -3,7 +3,7 @@ use katana_db::version::CURRENT_DB_VERSION;
 use katana_node_bindings::Katana;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::{address, felt};
-use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_rpc_client::starknet::{Client as StarknetClient, Error as RpcError, StarknetApiError};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -60,7 +60,30 @@ async fn test_rpc_queries(client: &StarknetClient) {
     let _ = client.get_transaction_by_block_id_and_index(BlockIdOrTag::Number(1), 0).await.unwrap();
 
     let tx_hash = felt!("0x722b80b0fd8e4cd177bb565ee73843ce5ffb8cc07114207cd4399cb4e00c9ac");
-    let _ = client.trace_transaction(tx_hash).await.unwrap();
+    // The v1.6.0 database contains TransactionExecutionInfo serialized with an older blockifier
+    // format. Since #392 (https://github.com/dojoengine/katana/pull/392), the new blockifier
+    // format is incompatible so deserialization fails and the provider returns None, which
+    // surfaces as TxnHashNotFound.
+    //
+    // See the backward-compat handling in DbProvider::transaction_execution():
+    //
+    // ```
+    // match self.0.get::<tables::TxTraces>(num) {
+    //     Ok(Some(execution)) => Ok(Some(execution)),
+    //     Ok(None) => Ok(None),
+    //     // Treat decompress errors as non-existent for backward compatibility
+    //     Err(DatabaseError::Codec(CodecError::Decompress(err))) => {
+    //         warn!(tx_num = %num, %err, "Failed to deserialize transaction trace");
+    //         Ok(None)
+    //     }
+    //     Err(e) => Err(e.into()),
+    // }
+    // ```
+    match client.trace_transaction(tx_hash).await {
+        Ok(_) => {}
+        Err(RpcError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
+        Err(e) => panic!("unexpected error from trace_transaction: {e}"),
+    }
     let _ = client.trace_block_transactions(ConfirmedBlockIdOrTag::Number(1)).await.unwrap();
 
     let class_hash = felt!("0x685ed02eefa98fe7e208aa295042e9bbad8029b0d3d6f0ba2b32546efe0a1f9");
