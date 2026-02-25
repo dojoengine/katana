@@ -10,7 +10,7 @@ use katana_provider::ProviderFactory;
 use tracing::{error, trace};
 
 use crate::scheduler::Scheduler;
-use crate::types::{Shard, ShardState};
+use crate::shard::{Shard, ShardState};
 
 /// A worker that picks shards from the scheduler and executes their pending transactions.
 ///

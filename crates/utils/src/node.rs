@@ -12,11 +12,11 @@ use katana_provider::{
     DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
 };
 use katana_rpc_server::HttpClient;
-use katana_sequencer_node::config::dev::DevConfig;
 use katana_sequencer_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
 use katana_sequencer_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_sequencer_node::config::sequencing::SequencingConfig;
 use katana_sequencer_node::config::Config;
+use katana_sequencer_node::config::DevConfig;
 use katana_sequencer_node::{LaunchedNode, Node};
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::BlockTag;

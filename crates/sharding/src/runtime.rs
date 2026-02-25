@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use crate::scheduler::Scheduler;
-use crate::types::Shard;
+use crate::shard::Shard;
 use crate::worker::Worker;
 
 /// Owns the execution resources (scheduler + worker threads) for the shard node.

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use parking_lot::{Condvar, Mutex};
 
-use crate::types::{Shard, ShardState};
+use crate::shard::{Shard, ShardState};
 
 /// Shared task queue for scheduling shards that have pending transactions.
 ///

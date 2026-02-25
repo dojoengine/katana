@@ -1,5 +1,5 @@
 pub mod manager;
 pub mod runtime;
 pub mod scheduler;
-pub mod types;
+pub mod shard;
 pub mod worker;

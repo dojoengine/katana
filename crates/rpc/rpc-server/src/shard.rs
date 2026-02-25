@@ -35,12 +35,6 @@ pub trait ShardProvider: Send + Sync + 'static {
     /// Resolve a shard's API by ID (for read operations).
     fn starknet_api(&self, shard_id: ContractAddress) -> Result<Self::Api, ErrorObjectOwned>;
 
-    /// Resolve a shard's API by ID (for write operations — may create the shard).
-    fn starknet_api_for_write(
-        &self,
-        shard_id: ContractAddress,
-    ) -> Result<Self::Api, ErrorObjectOwned>;
-
     /// Schedule a shard for execution after a write operation.
     fn schedule(&self, shard_id: ContractAddress);
 
@@ -216,7 +210,7 @@ impl<P: ShardProvider> ShardApiServer for ShardRpc<P> {
         shard_id: ContractAddress,
         invoke_transaction: BroadcastedInvokeTx,
     ) -> RpcResult<AddInvokeTransactionResponse> {
-        let api = self.provider.starknet_api_for_write(shard_id)?;
+        let api = self.provider.starknet_api(shard_id)?;
         let result =
             StarknetWriteApiServer::add_invoke_transaction(&api, invoke_transaction).await?;
         self.provider.schedule(shard_id);
@@ -228,7 +222,7 @@ impl<P: ShardProvider> ShardApiServer for ShardRpc<P> {
         shard_id: ContractAddress,
         declare_transaction: BroadcastedDeclareTx,
     ) -> RpcResult<AddDeclareTransactionResponse> {
-        let api = self.provider.starknet_api_for_write(shard_id)?;
+        let api = self.provider.starknet_api(shard_id)?;
         let result =
             StarknetWriteApiServer::add_declare_transaction(&api, declare_transaction).await?;
         self.provider.schedule(shard_id);
@@ -240,7 +234,7 @@ impl<P: ShardProvider> ShardApiServer for ShardRpc<P> {
         shard_id: ContractAddress,
         deploy_account_transaction: BroadcastedDeployAccountTx,
     ) -> RpcResult<AddDeployAccountTransactionResponse> {
-        let api = self.provider.starknet_api_for_write(shard_id)?;
+        let api = self.provider.starknet_api(shard_id)?;
         let result = StarknetWriteApiServer::add_deploy_account_transaction(
             &api,
             deploy_account_transaction,

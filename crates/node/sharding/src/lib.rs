@@ -21,7 +21,7 @@ use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_sharding::manager::{LazyShardManager, ShardManager};
 use katana_sharding::runtime::{Runtime, RuntimeHandle};
-use katana_sharding::types::NoPendingBlockProvider;
+use katana_sharding::shard::NoPendingBlockProvider;
 use katana_tasks::TaskManager;
 use parking_lot::Mutex;
 use tracing::info;
@@ -89,6 +89,7 @@ impl Node {
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: executor_factory.execution_flags().clone(),
             versioned_constant_overrides,
+            paymaster: None,
         };
 
         // --- Build runtime (scheduler + workers)
@@ -195,20 +196,6 @@ impl ShardProvider for NodeShardProvider {
             ErrorObjectOwned::owned(
                 jsonrpsee::types::error::INVALID_PARAMS_CODE,
                 format!("Shard not found: {e}"),
-                None::<()>,
-            )
-        })?;
-        Ok(shard.starknet_api.clone())
-    }
-
-    fn starknet_api_for_write(
-        &self,
-        shard_id: ContractAddress,
-    ) -> Result<Self::Api, ErrorObjectOwned> {
-        let shard = self.manager.get(shard_id).map_err(|e| {
-            ErrorObjectOwned::owned(
-                jsonrpsee::types::error::INTERNAL_ERROR_CODE,
-                format!("Failed to get shard: {e}"),
                 None::<()>,
             )
         })?;

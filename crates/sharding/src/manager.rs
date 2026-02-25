@@ -15,7 +15,7 @@ use katana_tasks::TaskSpawner;
 use parking_lot::RwLock;
 use url::Url;
 
-use crate::types::{Shard, ShardId};
+use crate::shard::{Shard, ShardId};
 
 type InitialBlockEnvFetcher = dyn Fn() -> Result<BlockEnv> + Send + Sync + 'static;
 
