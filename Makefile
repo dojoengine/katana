@@ -23,6 +23,7 @@ SIMPLE_DB := $(DB_FIXTURES_DIR)/simple
 CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
+AMDSEV_DIR := misc/AMDSEV
 
 VRF_DIR := $(CONTRACTS_DIR)/vrf
 AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
@@ -41,7 +42,7 @@ SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(VRF_S
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts tee-sev-snp clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
 
 usage help:
 	@echo "Usage:"
@@ -49,6 +50,7 @@ usage help:
 	@echo "    snos-deps:                 Install SNOS test dependencies (pyenv, Python 3.9.15)."
 	@echo "    build-explorer:            Build the explorer."
 	@echo "    contracts:                 Build the contracts."
+	@echo "    tee-sev-snp:               Build AMD SEV-SNP TEE VM components (prompts y/N to build katana unless KATANA_BINARY is set)."
 	@echo "    fixtures:            	  Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
@@ -93,6 +95,19 @@ build-explorer:
 	@$(MAKE) $(EXPLORER_UI_DIST)
 
 contracts: install-scarb $(CONTRACTS_BUILD_DIR)
+
+tee-sev-snp:
+	@echo "Building AMD SEV-SNP TEE VM components..."
+	@if [ -n "$(KATANA_BINARY)" ]; then \
+		echo "Using katana binary: $(KATANA_BINARY)"; \
+		$(AMDSEV_DIR)/build.sh --katana "$(KATANA_BINARY)"; \
+	elif [ ! -t 0 ]; then \
+		echo "Error: non-interactive run requires KATANA_BINARY."; \
+		echo "Example: make tee-sev-snp KATANA_BINARY=/path/to/katana"; \
+		exit 1; \
+	else \
+		$(AMDSEV_DIR)/build.sh; \
+	fi
 
 # Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
 $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
