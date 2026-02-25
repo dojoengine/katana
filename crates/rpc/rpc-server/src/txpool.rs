@@ -6,6 +6,11 @@ use katana_primitives::ContractAddress;
 use katana_rpc_api::txpool::TxPoolApiServer;
 use katana_rpc_types::txpool::{TxPoolContent, TxPoolInspect, TxPoolStatus, TxPoolTransaction};
 
+/// Handler for the `txpool_*` RPC namespace.
+///
+/// Operates on the node's local transaction pool (not a network-wide mempool).
+/// Generic over any [`TransactionPool`] implementation, so it works with both
+/// the sequencer pool ([`TxPool`]) and the full-node pool ([`FullNodePool`]).
 #[allow(missing_debug_implementations)]
 pub struct TxPoolApi<P> {
     pool: P,
