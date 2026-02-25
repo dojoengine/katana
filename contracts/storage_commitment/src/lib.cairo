@@ -1,12 +1,13 @@
 /// Interface for the Storage Commitment contract.
 ///
 /// Security model:
-/// - Commitments are pre-computed hashes: hash(storage_commitment, contract_address, nonce, global_state_root)
+/// - Commitments are pre-computed hashes: hash(storage_commitment, contract_address, nonce, global_state_root, end_block_number)
 /// - Registration just stores the hash (from SP1 journal)
 /// - Verification recomputes the hash using stored nonce and checks if it was registered
 /// - After successful verification, commitment is deleted and nonce is incremented
 /// - The nonce increment means the same proof can never produce a matching hash again
 /// - Latest global_state_root is tracked to prevent using the same state twice
+/// - end_block_number is cryptographically bound: if event proof was skipped, it's 0 in the commitment
 ///
 /// NOTE: global_state_root is the Starknet state root from TEE attestation, NOT the contract's storage root.
 /// The SP1 proof verifies the full chain: global_state_root -> contracts_tree -> contract_leaf -> storage_trie
@@ -32,7 +33,7 @@ pub trait IStorageCommitment<TContractState> {
     ///
     /// Flow:
     /// 1. Reads nonce from storage for contract_address
-    /// 2. Computes: expected_hash = hash(storage_commitment, contract_address, nonce, global_state_root)
+    /// 2. Computes: expected_hash = hash(storage_commitment, contract_address, nonce, global_state_root, end_block_number)
     /// 3. Checks if expected_hash is registered
     /// 4. Checks if global_state_root changed from last verification
     /// 5. If all checks pass: deletes commitment, increments nonce, updates latest_global_state_root
@@ -43,6 +44,7 @@ pub trait IStorageCommitment<TContractState> {
         storage_commitment: felt252,
         contract_address: ContractAddress,
         global_state_root: felt252,
+        end_block_number: u64,
     ) -> bool;
 
     fn is_registered(self: @TContractState, commitment: felt252) -> bool;
@@ -107,11 +109,12 @@ pub mod StorageCommitment {
             storage_commitment: felt252,
             contract_address: ContractAddress,
             global_state_root: felt252,
+            end_block_number: u64,
         ) -> bool {
             let info = self.contract_infos.read(contract_address);
 
             let expected_commitment = InternalImpl::compute_commitment(
-                storage_commitment, contract_address, info.nonce, global_state_root,
+                storage_commitment, contract_address, info.nonce, global_state_root, end_block_number,
             );
 
             // if !self.commitments.read(expected_commitment) {
@@ -166,19 +169,17 @@ pub mod StorageCommitment {
             contract_address: ContractAddress,
             nonce: u64,
             global_state_root: felt252,
+            end_block_number: u64,
         ) -> felt252 {
             let mut data: Array<felt252> = ArrayTrait::new();
 
             data.append(storage_commitment);
-
             data.append(contract_address.into());
             data.append(nonce.into());
-
             data.append(global_state_root);
+            data.append(end_block_number.into());
 
-            let hash: felt252 = poseidon_hash_span(data.span());
-
-            hash
+            poseidon_hash_span(data.span())
         }
     }
 }

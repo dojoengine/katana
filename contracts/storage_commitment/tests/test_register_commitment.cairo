@@ -22,6 +22,7 @@ fn compute_commitment(
     contract_address: ContractAddress,
     nonce: u64,
     storage_state_root: felt252,
+    end_block_number: u64,
 ) -> felt252 {
     let mut data: Array<felt252> = ArrayTrait::new();
 
@@ -29,9 +30,9 @@ fn compute_commitment(
     data.append(contract_address.into());
     data.append(nonce.into());
     data.append(storage_state_root);
+    data.append(end_block_number.into());
 
-    let hash: felt252 = poseidon_hash_span(data.span());
-    hash
+    poseidon_hash_span(data.span())
 }
 
 #[test]
@@ -39,7 +40,7 @@ fn test_register_commitment() {
     let contract_address = deploy_storage_commitment();
     let dispatcher = IStorageCommitmentDispatcher { contract_address };
 
-    let commitment: u256 = u256 { high: 0x111, low: 0x222 };
+    let commitment: felt252 = 0x111222;
 
     // Before registration
     assert(!dispatcher.is_registered(commitment), 'Should not be registered');
@@ -56,7 +57,7 @@ fn test_register_idempotent() {
     let contract_address = deploy_storage_commitment();
     let dispatcher = IStorageCommitmentDispatcher { contract_address };
 
-    let commitment: u256 = u256 { high: 0x111, low: 0x222 };
+    let commitment: felt252 = 0x111222;
 
     // Register twice - should not fail
     dispatcher.register_verified_commitment(commitment);
@@ -71,8 +72,8 @@ fn test_verify_flow() {
     let dispatcher = IStorageCommitmentDispatcher { contract_address };
 
     let storage_contract = test_contract_address();
-    let storage_commitment: u256 = u256 { high: 0xaaa, low: 0xbbb };
-    let storage_state_root: u256 = u256 { high: 0x100, low: 0x200 };
+    let storage_commitment: felt252 = 0xaaabbb;
+    let storage_state_root: felt252 = 0x100200;
 
     // Initial nonce should be 0
     assert(dispatcher.get_nonce(storage_contract) == 0, 'Initial nonce should be 0');
@@ -80,7 +81,7 @@ fn test_verify_flow() {
     // Compute the commitment hash (simulating SP1 verifier output)
     let commitment_hash = compute_commitment(
         storage_commitment, storage_contract, 0, // nonce = 0
-         storage_state_root,
+         storage_state_root, 0,
     );
 
     // Register the commitment (simulating what KatanaTee does)
@@ -88,7 +89,7 @@ fn test_verify_flow() {
     assert(dispatcher.is_registered(commitment_hash), 'Should be registered');
 
     // Verify (simulating what sharding contract does)
-    let verified = dispatcher.verify(storage_commitment, storage_contract, storage_state_root);
+    let verified = dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
     assert(verified, 'Should verify successfully');
 
     // After verification:
@@ -96,7 +97,7 @@ fn test_verify_flow() {
     assert(dispatcher.get_nonce(storage_contract) == 1, 'Nonce should be 1');
     // - Latest state root should be updated
     assert(
-        dispatcher.get_latest_state_root(storage_contract) == storage_state_root,
+        dispatcher.get_latest_global_state_root(storage_contract) == storage_state_root,
         'State root should be updated',
     );
     // - Commitment should be deleted (not registered anymore)
@@ -104,73 +105,73 @@ fn test_verify_flow() {
 }
 
 #[test]
+#[should_panic(expected: 'Commitment not registered')]
 fn test_verify_fails_if_not_registered() {
     let contract_address = deploy_storage_commitment();
     let dispatcher = IStorageCommitmentDispatcher { contract_address };
 
     let storage_contract = test_contract_address();
-    let storage_commitment: u256 = u256 { high: 0xaaa, low: 0xbbb };
-    let storage_state_root: u256 = u256 { high: 0x100, low: 0x200 };
+    let storage_commitment: felt252 = 0xaaabbb;
+    let storage_state_root: felt252 = 0x100200;
 
-    // Try to verify without registering first
-    let verified = dispatcher.verify(storage_commitment, storage_contract, storage_state_root);
-    assert(!verified, 'Should fail - not registered');
+    // Try to verify without registering first - should panic
+    dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
 }
 
 #[test]
+#[should_panic(expected: 'Commitment not registered')]
 fn test_replay_protection_nonce() {
     let contract_address = deploy_storage_commitment();
     let dispatcher = IStorageCommitmentDispatcher { contract_address };
 
     let storage_contract = test_contract_address();
-    let storage_commitment: u256 = u256 { high: 0xaaa, low: 0xbbb };
-    let storage_state_root: u256 = u256 { high: 0x100, low: 0x200 };
+    let storage_commitment: felt252 = 0xaaabbb;
+    let storage_state_root: felt252 = 0x100200;
 
     // First commitment with nonce=0
     let commitment_hash_0 = compute_commitment(
-        storage_commitment, storage_contract, 0, storage_state_root,
+        storage_commitment, storage_contract, 0, storage_state_root, 0,
     );
     dispatcher.register_verified_commitment(commitment_hash_0);
 
     // Verify first time - should succeed
-    let verified1 = dispatcher.verify(storage_commitment, storage_contract, storage_state_root);
+    let verified1 = dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
     assert(verified1, 'First verify should succeed');
     assert(dispatcher.get_nonce(storage_contract) == 1, 'Nonce should be 1');
 
-    // Try to verify again with same inputs - should fail because:
+    // Try to verify again with same inputs - should panic because:
     // 1. The contract now computes hash with nonce=1 (different hash)
     // 2. That hash is not registered
-    let verified2 = dispatcher.verify(storage_commitment, storage_contract, storage_state_root);
-    assert(!verified2, 'Replay should fail');
+    dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
 }
 
 #[test]
+#[should_panic(expected: 'State root unchanged')]
 fn test_state_root_must_change() {
     let contract_address = deploy_storage_commitment();
     let dispatcher = IStorageCommitmentDispatcher { contract_address };
 
     let storage_contract = test_contract_address();
-    let storage_commitment1: u256 = u256 { high: 0xaaa, low: 0xbbb };
-    let storage_commitment2: u256 = u256 { high: 0xccc, low: 0xddd };
-    let storage_state_root: u256 = u256 { high: 0x100, low: 0x200 };
+    let storage_commitment1: felt252 = 0xaaabbb;
+    let storage_commitment2: felt252 = 0xcccddd;
+    let storage_state_root: felt252 = 0x100200;
 
     // First commitment with nonce=0
     let commitment_hash_0 = compute_commitment(
-        storage_commitment1, storage_contract, 0, storage_state_root,
+        storage_commitment1, storage_contract, 0, storage_state_root, 0,
     );
     dispatcher.register_verified_commitment(commitment_hash_0);
-    let verified1 = dispatcher.verify(storage_commitment1, storage_contract, storage_state_root);
+    let verified1 = dispatcher.verify(storage_commitment1, storage_contract, storage_state_root, 0);
     assert(verified1, 'First verify should succeed');
 
     // Second commitment with nonce=1 but SAME state_root
     let commitment_hash_1 = compute_commitment(
-        storage_commitment2, storage_contract, 1, storage_state_root, // same state_root!
+        storage_commitment2, storage_contract, 1, storage_state_root, 0, // same state_root!
     );
     dispatcher.register_verified_commitment(commitment_hash_1);
 
-    // Should fail because state_root unchanged
-    let verified2 = dispatcher.verify(storage_commitment2, storage_contract, storage_state_root);
-    assert(!verified2, 'Should fail - same state_root');
+    // Should panic because state_root unchanged
+    dispatcher.verify(storage_commitment2, storage_contract, storage_state_root, 0);
 }
 
 #[test]
@@ -180,18 +181,18 @@ fn test_multiple_contracts_independent() {
 
     let contract_a = contract_address_const::<0xA>();
     let contract_b = contract_address_const::<0xB>();
-    let storage_commitment: u256 = u256 { high: 0xaaa, low: 0xbbb };
-    let state_root_a: u256 = u256 { high: 0x100, low: 0x100 };
-    let state_root_b: u256 = u256 { high: 0x200, low: 0x200 };
+    let storage_commitment: felt252 = 0xaaabbb;
+    let state_root_a: felt252 = 0x100100;
+    let state_root_b: felt252 = 0x200200;
 
     // Both start with nonce 0
     assert(dispatcher.get_nonce(contract_a) == 0, 'A nonce should be 0');
     assert(dispatcher.get_nonce(contract_b) == 0, 'B nonce should be 0');
 
     // Register and verify for contract A
-    let commitment_a = compute_commitment(storage_commitment, contract_a, 0, state_root_a);
+    let commitment_a = compute_commitment(storage_commitment, contract_a, 0, state_root_a, 0);
     dispatcher.register_verified_commitment(commitment_a);
-    let verified_a = dispatcher.verify(storage_commitment, contract_a, state_root_a);
+    let verified_a = dispatcher.verify(storage_commitment, contract_a, state_root_a, 0);
     assert(verified_a, 'A should verify');
 
     // A's nonce should be 1, B's still 0
@@ -199,9 +200,9 @@ fn test_multiple_contracts_independent() {
     assert(dispatcher.get_nonce(contract_b) == 0, 'B nonce should still be 0');
 
     // Register and verify for contract B (uses nonce 0)
-    let commitment_b = compute_commitment(storage_commitment, contract_b, 0, state_root_b);
+    let commitment_b = compute_commitment(storage_commitment, contract_b, 0, state_root_b, 0);
     dispatcher.register_verified_commitment(commitment_b);
-    let verified_b = dispatcher.verify(storage_commitment, contract_b, state_root_b);
+    let verified_b = dispatcher.verify(storage_commitment, contract_b, state_root_b, 0);
     assert(verified_b, 'B should verify');
 
     // Both should have their own nonces
@@ -210,20 +211,21 @@ fn test_multiple_contracts_independent() {
 }
 
 #[test]
+#[should_panic(expected: 'Commitment not registered')]
 fn test_cannot_reuse_deleted_commitment() {
     let contract_address = deploy_storage_commitment();
     let dispatcher = IStorageCommitmentDispatcher { contract_address };
 
     let storage_contract = test_contract_address();
-    let storage_commitment: u256 = u256 { high: 0xaaa, low: 0xbbb };
-    let storage_state_root: u256 = u256 { high: 0x100, low: 0x200 };
+    let storage_commitment: felt252 = 0xaaabbb;
+    let storage_state_root: felt252 = 0x100200;
 
     // Register and verify
     let commitment_hash = compute_commitment(
-        storage_commitment, storage_contract, 0, storage_state_root,
+        storage_commitment, storage_contract, 0, storage_state_root, 0,
     );
     dispatcher.register_verified_commitment(commitment_hash);
-    dispatcher.verify(storage_commitment, storage_contract, storage_state_root);
+    dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
 
     // Commitment should be deleted
     assert(!dispatcher.is_registered(commitment_hash), 'Should be deleted');
@@ -234,8 +236,7 @@ fn test_cannot_reuse_deleted_commitment() {
     // Commitment is registered again
     assert(dispatcher.is_registered(commitment_hash), 'Should be re-registered');
 
-    // BUT verify will fail because nonce is now 1
+    // BUT verify will panic because nonce is now 1
     // Contract computes hash with nonce=1, which is different from commitment_hash
-    let verified2 = dispatcher.verify(storage_commitment, storage_contract, storage_state_root);
-    assert(!verified2, 'Should fail - wrong nonce');
+    dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
 }
