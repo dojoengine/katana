@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::future::Future;
 
 use cartridge::CartridgeApiClient;
@@ -19,6 +20,7 @@ use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::{BroadcastedTx, BroadcastedTxWithChainId};
 use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate, FeeSource, OutsideExecution};
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use starknet::core::types::SimulationFlagForEstimateFee;
 use starknet::macros::selector;
@@ -116,11 +118,41 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
-    // if `handle_estimate_fees` has added some new transactions at the
-    // beginning of updated_txs, we have to remove
-    // extras results from estimate_fees to be
-    // sure to return the same number of result than the number
-    // of transactions in the request.
+    fn controller_deployment_error(reason: impl Into<String>) -> CartridgeApiError {
+        CartridgeApiError::ControllerDeployment { reason: reason.into() }
+    }
+
+    fn estimate_fee_candidate_addresses(transactions: &[BroadcastedTx]) -> Vec<ContractAddress> {
+        transactions
+            .iter()
+            .filter_map(|tx| match tx {
+                BroadcastedTx::Invoke(tx) => Some(tx.sender_address),
+                BroadcastedTx::Declare(tx) => Some(tx.sender_address),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn build_estimate_fee_request<'a>(
+        request: &Request<'a>,
+        transactions: Vec<BroadcastedTx>,
+        simulation_flags: Vec<SimulationFlagForEstimateFee>,
+        block_id: BlockIdOrTag,
+    ) -> Result<Request<'a>, CartridgeApiError> {
+        let params = rpc_params!(transactions, simulation_flags, block_id);
+        let params = params.to_rpc_params().map_err(|err| {
+            Self::controller_deployment_error(format!(
+                "failed to serialize augmented estimateFee params: {err}"
+            ))
+        })?;
+
+        let mut new_request = request.clone();
+        new_request.params = params.map(Cow::Owned);
+
+        Ok(new_request)
+    }
+
+    // If deployment txs are added, return the no-fee estimates for the original requests only.
     async fn starknet_estimate_fee<'a>(
         &self,
         params: EstimateFeeParams,
@@ -151,24 +183,20 @@ where
         request: Request<'a>,
     ) -> Result<S::MethodResponse, CartridgeApiError> {
         let EstimateFeeParams { block_id, simulation_flags, transactions } = params;
+        let candidate_addresses = Self::estimate_fee_candidate_addresses(&transactions);
 
-        let mut undeployed_addresses: Vec<ContractAddress> = Vec::new();
-
-        // iterate thru all txs and deploy any undeployed contract (if they are a Controller)
-        for tx in &transactions {
-            let address = match tx {
-                BroadcastedTx::Invoke(tx) => tx.sender_address,
-                BroadcastedTx::Declare(tx) => tx.sender_address,
-                _ => continue,
-            };
-
-            undeployed_addresses.push(address);
-        }
-
-        let deployer_nonce =
-            self.context.starknet.nonce_at(block_id, self.context.deployer_address).await.unwrap();
-        let deploy_controller_txs =
-            self.get_controller_deployment_txs(undeployed_addresses, deployer_nonce).await.unwrap();
+        let deployer_nonce = self
+            .context
+            .starknet
+            .nonce_at(block_id, self.context.deployer_address)
+            .await
+            .map_err(|err| {
+                Self::controller_deployment_error(format!("failed to get deployer nonce: {err}"))
+            })?;
+        let deploy_controller_txs = self
+            .get_controller_deployment_txs(candidate_addresses, deployer_nonce)
+            .await
+            .map_err(|err| Self::controller_deployment_error(err.to_string()))?;
 
         // no Controller to deploy, simply forward the request
         if deploy_controller_txs.is_empty() {
@@ -176,31 +204,30 @@ where
         }
 
         let original_txs_count = transactions.len();
-        let deploy_controller_txs_count = deploy_controller_txs.len();
-
         let new_txs = [deploy_controller_txs, transactions].concat();
         let new_txs_count = new_txs.len();
-
-        // craft a new estimate fee request with the deploy Controller txs included
-        let new_request = {
-            let params = rpc_params!(new_txs, simulation_flags, block_id);
-            let params = params.to_rpc_params().unwrap();
-
-            let mut new_request = request.clone();
-            new_request.params = params.map(Cow::Owned);
-
-            new_request
-        };
+        let new_request =
+            Self::build_estimate_fee_request(&request, new_txs, simulation_flags, block_id)?;
 
         let response = self.service.call(new_request).await;
-
-        let res = response.as_json().get();
-        let res = serde_json::from_str::<Response<'_, Vec<FeeEstimate>>>(res).unwrap();
+        let response_body = response.as_json().get();
+        let res = serde_json::from_str::<Response<'_, Vec<FeeEstimate>>>(response_body).map_err(
+            |err| {
+                Self::controller_deployment_error(format!(
+                    "failed to parse estimateFee response: {err}"
+                ))
+            },
+        )?;
 
         match res.payload {
-            ResponsePayload::Success(mut estimates) => {
-                assert_eq!(estimates.len(), new_txs_count);
-                estimates.to_mut().drain(0..deploy_controller_txs_count);
+            ResponsePayload::Success(estimates) => {
+                if estimates.len() != new_txs_count {
+                    return Err(Self::controller_deployment_error(format!(
+                        "unexpected estimateFee response length: expected {new_txs_count}, got {}",
+                        estimates.len()
+                    )));
+                }
+
                 Ok(build_no_fee_response(&request, original_txs_count))
             }
 
@@ -216,7 +243,8 @@ where
         let block_id = BlockIdOrTag::PreConfirmed;
 
         // check if the address has already been deployed.
-        let is_deployed = match self.context.starknet.class_hash_at_address(block_id, address).await {
+        let is_deployed = match self.context.starknet.class_hash_at_address(block_id, address).await
+        {
             Ok(..) => true,
             Err(StarknetApiError::ContractNotFound) => false,
 
@@ -231,23 +259,18 @@ where
             return Ok(());
         }
 
-        let result = self.context.starknet.nonce_at(block_id, self.context.deployer_address).await;
-        let nonce = match result {
-            Ok(nonce) => nonce,
-            Err(e) => {
-                return Err(CartridgeApiError::ControllerDeployment {
-                    reason: format!("failed to get deployer nonce: {e}"),
-                });
-            }
-        };
-
-        let result = self.get_controller_deployment_tx(address, nonce).await;
-        let deploy_tx = match result {
-            Ok(tx) => tx,
-            Err(e) => {
-                return Err(CartridgeApiError::ControllerDeployment { reason: e.to_string() });
-            }
-        };
+        let nonce = self
+            .context
+            .starknet
+            .nonce_at(block_id, self.context.deployer_address)
+            .await
+            .map_err(|err| {
+            Self::controller_deployment_error(format!("failed to get deployer nonce: {err}"))
+        })?;
+        let deploy_tx = self
+            .get_controller_deployment_tx(address, nonce)
+            .await
+            .map_err(|err| Self::controller_deployment_error(err.to_string()))?;
 
         // None means the address is not of a Controller
         if let Some(tx) = deploy_tx {
@@ -263,15 +286,15 @@ where
 
     async fn get_controller_deployment_txs(
         &self,
-        controller_addreses: Vec<ContractAddress>,
+        controller_addresses: Vec<ContractAddress>,
         initial_nonce: Nonce,
     ) -> Result<Vec<BroadcastedTx>, Error> {
         let mut deploy_transactions: Vec<BroadcastedTx> = Vec::new();
-        let mut processed_addresses: Vec<ContractAddress> = Vec::new();
+        let mut processed_addresses: HashSet<ContractAddress> = HashSet::new();
 
         let mut deployer_nonce = initial_nonce;
 
-        for address in controller_addreses {
+        for address in controller_addresses {
             // If the address has already been processed in this txs batch, just skip.
             if processed_addresses.contains(&address) {
                 continue;
@@ -282,7 +305,7 @@ where
             // None means the address is not a Controller
             if let Some(tx) = deploy_tx {
                 deployer_nonce += Nonce::ONE;
-                processed_addresses.push(address);
+                processed_addresses.insert(address);
                 deploy_transactions.push(BroadcastedTx::Invoke(tx));
             }
         }
@@ -426,73 +449,81 @@ struct EstimateFeeParams {
     block_id: BlockIdOrTag,
 }
 
-fn parse_execute_outside_params(request: &Request<'_>) -> Option<AddExecuteOutsideParams> {
-    let params = request.params();
+#[derive(Deserialize)]
+struct AddExecuteOutsidePositionalParams(
+    ContractAddress,
+    OutsideExecution,
+    Vec<Felt>,
+    #[serde(default)] Option<FeeSource>,
+);
 
-    if params.is_object() {
-        match params.parse() {
-            Ok(p) => Some(p),
-            Err(..) => {
-                debug!(target: "cartridge", "Failed to parse execute outside params.");
-                None
-            }
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum AddExecuteOutsideRequestParams {
+    Named(AddExecuteOutsideParams),
+    Positional(AddExecuteOutsidePositionalParams),
+}
+
+impl From<AddExecuteOutsideRequestParams> for AddExecuteOutsideParams {
+    fn from(value: AddExecuteOutsideRequestParams) -> Self {
+        match value {
+            AddExecuteOutsideRequestParams::Named(params) => params,
+            AddExecuteOutsideRequestParams::Positional(params) => Self {
+                address: params.0,
+                outside_execution: params.1,
+                signature: params.2,
+                fee_source: params.3,
+            },
         }
-    } else {
-        let mut seq = params.sequence();
+    }
+}
 
-        let address: Result<ContractAddress, _> = seq.next();
-        let outside_execution: Result<OutsideExecution, _> = seq.next();
-        let signature: Result<Vec<Felt>, _> = seq.next();
-        let fee_source: Result<Option<FeeSource>, _> = seq.next();
+#[derive(Deserialize)]
+struct EstimateFeePositionalParams(
+    Vec<BroadcastedTx>,
+    Vec<SimulationFlagForEstimateFee>,
+    BlockIdOrTag,
+);
 
-        match (address, outside_execution, signature) {
-            (Ok(address), Ok(outside_execution), Ok(signature)) => Some(AddExecuteOutsideParams {
-                address,
-                outside_execution,
-                signature,
-                fee_source: fee_source.ok().flatten(),
-            }),
-            _ => {
-                debug!(target: "cartridge", "Failed to parse execute outside params.");
-                None
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum EstimateFeeRequestParams {
+    Named(EstimateFeeParams),
+    Positional(EstimateFeePositionalParams),
+}
+
+impl From<EstimateFeeRequestParams> for EstimateFeeParams {
+    fn from(value: EstimateFeeRequestParams) -> Self {
+        match value {
+            EstimateFeeRequestParams::Named(params) => params,
+            EstimateFeeRequestParams::Positional(params) => {
+                Self { transactions: params.0, simulation_flags: params.1, block_id: params.2 }
             }
         }
     }
+}
+
+fn parse_params<T: DeserializeOwned>(request: &Request<'_>, method: &str) -> Option<T> {
+    match request.params().parse() {
+        Ok(params) => Some(params),
+        Err(..) => {
+            debug!(target: "cartridge", "Failed to parse {method} params.");
+            None
+        }
+    }
+}
+
+fn parse_execute_outside_params(request: &Request<'_>) -> Option<AddExecuteOutsideParams> {
+    parse_params::<AddExecuteOutsideRequestParams>(request, "execute outside").map(Into::into)
 }
 
 /// Extract estimate_fee parameters from the request.
 fn parse_estimate_fee_params(request: &Request<'_>) -> Option<EstimateFeeParams> {
-    let params = request.params();
-
-    if params.is_object() {
-        match params.parse() {
-            Ok(p) => Some(p),
-            Err(..) => {
-                debug!(target: "cartridge", "Failed to parse estimate fee params.");
-                None
-            }
-        }
-    } else {
-        let mut seq = params.sequence();
-
-        let txs_result: Result<Vec<BroadcastedTx>, _> = seq.next();
-        let simulation_flags_result: Result<Vec<SimulationFlagForEstimateFee>, _> = seq.next();
-        let block_id_result: Result<BlockIdOrTag, _> = seq.next();
-
-        match (txs_result, simulation_flags_result, block_id_result) {
-            (Ok(txs), Ok(simulation_flags), Ok(block_id)) => {
-                Some(EstimateFeeParams { transactions: txs, simulation_flags, block_id })
-            }
-            _ => {
-                debug!(target: "cartridge", "Failed to parse estimate fee params.");
-                None
-            }
-        }
-    }
+    parse_params::<EstimateFeeRequestParams>(request, "estimate fee").map(Into::into)
 }
 
-// <--- TODO: this function should be removed once estimateFee will return 0 fees
-// when --dev.no-fee is used.
+// Temporary shim for --dev.no-fee when deployment txs are prepended for controllers.
+// Remove once starknet_estimateFee natively returns zeroed fees in this scenario.
 fn build_no_fee_response(request: &Request<'_>, count: usize) -> MethodResponse {
     let estimate_fees = vec![
         FeeEstimate {
