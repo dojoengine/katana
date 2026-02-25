@@ -26,7 +26,7 @@ Output is written to `misc/AMDSEV/output/qemu/`.
 
 ### Katana Binary
 
-If `--katana` is not provided, `build.sh` automatically builds a statically linked katana binary using musl libc via `scripts/build-musl.sh`.
+If `--katana` is not provided, `build.sh` prompts for confirmation (`y/N`) before building a statically linked katana binary using musl libc via `scripts/build-musl.sh`.
 
 **Important:** The initrd is minimal and contains no libc or shared libraries. Only statically linked binaries will work. If providing a custom binary with `--katana`, ensure it is statically linked (e.g., built with musl).
 
