@@ -33,6 +33,7 @@ pub enum RpcModuleKind {
     Starknet,
     Dev,
     Katana,
+    TxPool,
     #[cfg(feature = "cartridge")]
     Cartridge,
     #[cfg(feature = "tee")]
@@ -106,6 +107,7 @@ impl RpcModulesList {
             RpcModuleKind::Starknet,
             RpcModuleKind::Katana,
             RpcModuleKind::Dev,
+            RpcModuleKind::TxPool,
             #[cfg(feature = "cartridge")]
             RpcModuleKind::Cartridge,
             #[cfg(feature = "tee")]
