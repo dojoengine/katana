@@ -30,8 +30,14 @@ AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
 # The scarb version required by the AVNU contracts (no .tool-versions in that directory)
 AVNU_SCARB_VERSION := 2.11.4
 
-# The `scarb` version that is required to compile the feature contracts in katana-contracts
-SCARB_VERSION := 2.8.4
+# The scarb version required by the main contracts.
+SCARB_VERSION := $(shell awk '$$1 == "scarb" { print $$2 }' $(CONTRACTS_DIR)/.tool-versions 2>/dev/null)
+
+# The scarb version required by VRF contracts, if specified in its .tool-versions.
+VRF_SCARB_VERSION := $(shell if [ -f $(VRF_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_DIR)/.tool-versions; fi)
+
+# All scarb versions needed for `make contracts`.
+SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(VRF_SCARB_VERSION))
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
@@ -58,13 +64,20 @@ deps: install-scarb native-deps snos-deps
 	@echo "All dependencies installed successfully."
 
 install-scarb:
-	@if scarb --version 2>/dev/null | grep -q "^scarb $(SCARB_VERSION)"; then \
-		echo "scarb $(SCARB_VERSION) is already installed."; \
-	else \
-		echo "Installing scarb $(SCARB_VERSION)..."; \
-		curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v $(SCARB_VERSION) || { echo "Failed to install scarb!"; exit 1; }; \
-		echo "scarb $(SCARB_VERSION) installed successfully."; \
-	fi
+	@command -v asdf >/dev/null 2>&1 || { echo "Error: asdf is required but not installed."; exit 1; }
+	@asdf plugin list 2>/dev/null | grep -qx scarb || { \
+		echo "Adding asdf scarb plugin..."; \
+		asdf plugin add scarb || { echo "Failed to add asdf scarb plugin!"; exit 1; }; \
+	}
+	@for version in $(SCARB_REQUIRED_VERSIONS); do \
+		if asdf where scarb "$$version" >/dev/null 2>&1; then \
+			echo "scarb $$version is already installed."; \
+		else \
+			echo "Installing scarb $$version..."; \
+			asdf install scarb "$$version" || { echo "Failed to install scarb $$version!"; exit 1; }; \
+			echo "scarb $$version installed successfully."; \
+		fi; \
+	done
 
 snos-artifacts: $(SNOS_OUTPUT)
 	@echo "SNOS test artifacts prepared successfully."
@@ -79,7 +92,7 @@ build-explorer:
 	@which bun >/dev/null 2>&1 || { echo "Error: bun is required but not installed. Please install bun first."; exit 1; }
 	@$(MAKE) $(EXPLORER_UI_DIST)
 
-contracts: $(CONTRACTS_BUILD_DIR)
+contracts: install-scarb $(CONTRACTS_BUILD_DIR)
 
 # Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
 $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)

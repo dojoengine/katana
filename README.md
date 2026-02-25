@@ -16,15 +16,15 @@ Follow the installation steps here: https://www.rust-lang.org/tools/install
 
 ### Scarb
 
-Scarb is the Cairo package manager required for building the feature contracts in [`katana-contracts`](https://github.com/dojoengine/katana/tree/main/crates/contracts). The project requires a specific version of Scarb (2.8.4) to ensure compatibility.
+Scarb is the Cairo package manager required for building the feature contracts in [`katana-contracts`](https://github.com/dojoengine/katana/tree/main/crates/contracts). The project requires multiple specific Scarb versions (for main, VRF, and AVNU contracts) to ensure compatibility.
 
-To install the required version of `scarb`:
+To install the required versions of `scarb`:
 
 ```bash
 make install-scarb
 ```
 
-This command will check if the correct version is already installed and only install it if necessary. For further information on `scarb`, check its [documentations page](https://docs.swmansion.com/scarb/docs.html).
+This command will check each required version and only install missing ones. `make contracts` also runs this check automatically before building contracts. For further information on `scarb`, check its [documentations page](https://docs.swmansion.com/scarb/docs.html).
 
 ### LLVM Dependencies
 
