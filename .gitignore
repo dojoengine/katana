@@ -40,3 +40,11 @@ crates/contracts/build/
 !crates/contracts/build/legacy/
 
 **/.claude/settings.local.json
+
+vendor
+katana-tee
+
+# AMDSEV build artifacts
+misc/AMDSEV/ovmf/
+misc/AMDSEV/output/
+misc/AMDSEV/source-commit.ovmf

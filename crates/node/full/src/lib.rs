@@ -201,6 +201,12 @@ impl Node {
             rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
         }
 
+        if config.rpc.apis.contains(&RpcModuleKind::TxPool) {
+            use katana_rpc_api::txpool::TxPoolApiServer;
+            let api = katana_rpc_server::txpool::TxPoolApi::new(pool.clone());
+            rpc_modules.merge(TxPoolApiServer::into_rpc(api))?;
+        }
+
         #[allow(unused_mut)]
         let mut rpc_server =
             RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;

@@ -21,6 +21,7 @@ pub mod state_update;
 pub mod trace;
 pub mod transaction;
 pub mod trie;
+pub mod txpool;
 
 pub use block::*;
 pub use broadcasted::*;

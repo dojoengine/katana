@@ -297,6 +297,11 @@ where
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
         }
 
+        if config.rpc.apis.contains(&RpcModuleKind::TxPool) {
+            let api = katana_rpc_server::txpool::TxPoolApi::new(pool.clone());
+            rpc_modules.merge(katana_rpc_api::txpool::TxPoolApiServer::into_rpc(api))?;
+        }
+
         // --- build cartridge api (plus middleware)
 
         #[cfg(feature = "cartridge")]
