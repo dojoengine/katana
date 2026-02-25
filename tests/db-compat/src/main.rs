@@ -64,6 +64,21 @@ async fn test_rpc_queries(client: &StarknetClient) {
     // format. Since #392 (https://github.com/dojoengine/katana/pull/392), the new blockifier
     // format is incompatible so deserialization fails and the provider returns None, which
     // surfaces as TxnHashNotFound.
+    //
+    // See the backward-compat handling in DbProvider::transaction_execution():
+    //
+    // ```
+    // match self.0.get::<tables::TxTraces>(num) {
+    //     Ok(Some(execution)) => Ok(Some(execution)),
+    //     Ok(None) => Ok(None),
+    //     // Treat decompress errors as non-existent for backward compatibility
+    //     Err(DatabaseError::Codec(CodecError::Decompress(err))) => {
+    //         warn!(tx_num = %num, %err, "Failed to deserialize transaction trace");
+    //         Ok(None)
+    //     }
+    //     Err(e) => Err(e.into()),
+    // }
+    // ```
     match client.trace_transaction(tx_hash).await {
         Ok(_) => {}
         Err(RpcError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
