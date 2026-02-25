@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use katana_primitives::contract::Nonce;
 use katana_primitives::transaction::TxHash;
@@ -37,9 +37,9 @@ pub struct TxPoolTransaction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TxPoolContent {
     /// Transactions ready for execution, keyed by sender then nonce.
-    pub pending: HashMap<ContractAddress, HashMap<Nonce, TxPoolTransaction>>,
+    pub pending: BTreeMap<ContractAddress, BTreeMap<Nonce, TxPoolTransaction>>,
     /// Transactions waiting on a nonce gap. Always empty for now.
-    pub queued: HashMap<ContractAddress, HashMap<Nonce, TxPoolTransaction>>,
+    pub queued: BTreeMap<ContractAddress, BTreeMap<Nonce, TxPoolTransaction>>,
 }
 
 /// Response for `txpool_inspect`.
@@ -50,7 +50,7 @@ pub struct TxPoolContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TxPoolInspect {
     /// Textual summaries of pending transactions, keyed by sender then nonce.
-    pub pending: HashMap<ContractAddress, HashMap<Nonce, String>>,
+    pub pending: BTreeMap<ContractAddress, BTreeMap<Nonce, String>>,
     /// Textual summaries of queued transactions. Always empty for now.
-    pub queued: HashMap<ContractAddress, HashMap<Nonce, String>>,
+    pub queued: BTreeMap<ContractAddress, BTreeMap<Nonce, String>>,
 }

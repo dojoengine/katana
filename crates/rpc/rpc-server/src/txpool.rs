@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_pool::{PoolTransaction, TransactionPool};
@@ -25,7 +25,7 @@ impl<P> TxPoolApi<P> {
 impl<P: TransactionPool> TxPoolApi<P> {
     fn build_content(&self, filter: Option<ContractAddress>) -> TxPoolContent {
         let txs = self.pool.take_transactions_snapshot();
-        let mut pending: HashMap<ContractAddress, HashMap<_, _>> = HashMap::new();
+        let mut pending: BTreeMap<ContractAddress, BTreeMap<_, _>> = BTreeMap::new();
 
         for tx in txs {
             let sender = tx.sender();
@@ -47,7 +47,7 @@ impl<P: TransactionPool> TxPoolApi<P> {
             pending.entry(sender).or_default().insert(tx.nonce(), entry);
         }
 
-        TxPoolContent { pending, queued: HashMap::new() }
+        TxPoolContent { pending, queued: BTreeMap::new() }
     }
 }
 
@@ -68,7 +68,7 @@ impl<P: TransactionPool + 'static> TxPoolApiServer for TxPoolApi<P> {
 
     async fn txpool_inspect(&self) -> RpcResult<TxPoolInspect> {
         let txs = self.pool.take_transactions_snapshot();
-        let mut pending: HashMap<ContractAddress, HashMap<_, _>> = HashMap::new();
+        let mut pending: BTreeMap<ContractAddress, BTreeMap<_, _>> = BTreeMap::new();
 
         for tx in txs {
             let summary = format!(
@@ -82,6 +82,6 @@ impl<P: TransactionPool + 'static> TxPoolApiServer for TxPoolApi<P> {
             pending.entry(tx.sender()).or_default().insert(tx.nonce(), summary);
         }
 
-        Ok(TxPoolInspect { pending, queued: HashMap::new() })
+        Ok(TxPoolInspect { pending, queued: BTreeMap::new() })
     }
 }
