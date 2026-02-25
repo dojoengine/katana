@@ -36,8 +36,8 @@ const STARKNET_ESTIMATE_FEE: &str = "starknet_estimateFee";
 const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE: &str = "cartridge_addExecuteFromOutside";
 const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX: &str = "cartridge_addExecuteOutsideTransaction";
 
-#[derive(Debug)]
-pub struct ControllerDeploymentLayer<Pool, PP, PF>
+#[derive(Debug, Clone)]
+struct ControllerDeploymentContext<Pool, PP, PF>
 where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
@@ -48,6 +48,16 @@ where
     paymaster_client: HttpClient,
     deployer_address: ContractAddress,
     deployer_private_key: SigningKey,
+}
+
+#[derive(Debug, Clone)]
+pub struct ControllerDeploymentLayer<Pool, PP, PF>
+where
+    Pool: TransactionPool + 'static,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    context: ControllerDeploymentContext<Pool, PP, PF>,
 }
 
 impl<Pool, PP, PF> ControllerDeploymentLayer<Pool, PP, PF>
@@ -63,7 +73,15 @@ where
         deployer_address: ContractAddress,
         deployer_private_key: SigningKey,
     ) -> Self {
-        Self { starknet, cartridge_api, paymaster_client, deployer_address, deployer_private_key }
+        let context = ControllerDeploymentContext {
+            starknet,
+            cartridge_api,
+            paymaster_client,
+            deployer_address,
+            deployer_private_key,
+        };
+
+        Self { context }
     }
 }
 
@@ -78,29 +96,18 @@ where
     type Service = ControllerDeploymentService<S, Pool, PP, PF>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        ControllerDeploymentService {
-            service: inner,
-            starknet: self.starknet.clone(),
-            cartridge_api: self.cartridge_api.clone(),
-            paymaster_client: self.paymaster_client.clone(),
-            deployer_address: self.deployer_address,
-            deployer_private_key: self.deployer_private_key.clone(),
-        }
+        ControllerDeploymentService { context: self.context.clone(), service: inner }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ControllerDeploymentService<S, Pool, PP, PF>
 where
     Pool: TransactionPool,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
 {
-    starknet: StarknetApi<Pool, PP, PF>,
-    cartridge_api: CartridgeApiClient,
-    paymaster_client: HttpClient,
-    deployer_address: ContractAddress,
-    deployer_private_key: SigningKey,
+    context: ControllerDeploymentContext<Pool, PP, PF>,
     service: S,
 }
 
@@ -163,7 +170,8 @@ where
             undeployed_addresses.push(address);
         }
 
-        let deployer_nonce = self.starknet.nonce_at(block_id, self.deployer_address).await.unwrap();
+        let deployer_nonce =
+            self.context.starknet.nonce_at(block_id, self.context.deployer_address).await.unwrap();
         let deploy_controller_txs =
             self.get_controller_deployment_txs(undeployed_addresses, deployer_nonce).await.unwrap();
 
@@ -213,7 +221,7 @@ where
         let block_id = BlockIdOrTag::PreConfirmed;
 
         // check if the address has already been deployed.
-        let is_deployed = match self.starknet.class_hash_at_address(block_id, address).await {
+        let is_deployed = match self.context.starknet.class_hash_at_address(block_id, address).await {
             Ok(..) => true,
             Err(StarknetApiError::ContractNotFound) => false,
 
@@ -228,7 +236,7 @@ where
             return Ok(());
         }
 
-        let result = self.starknet.nonce_at(block_id, self.deployer_address).await;
+        let result = self.context.starknet.nonce_at(block_id, self.context.deployer_address).await;
         let nonce = match result {
             Ok(nonce) => nonce,
             Err(e) => {
@@ -248,7 +256,7 @@ where
 
         // None means the address is not of a Controller
         if let Some(tx) = deploy_tx {
-            if let Err(e) = self.starknet.add_invoke_tx(tx).await {
+            if let Err(e) = self.context.starknet.add_invoke_tx(tx).await {
                 return Err(CartridgeApiError::ControllerDeployment {
                     reason: format!("failed to submit deployment tx: {e}"),
                 });
@@ -292,7 +300,8 @@ where
         address: ContractAddress,
         paymaster_nonce: Nonce,
     ) -> Result<Option<BroadcastedInvokeTx>, Error> {
-        let Some(ctor_calldata) = self.cartridge_api.get_account_calldata(address).await? else {
+        let Some(ctor_calldata) = self.context.cartridge_api.get_account_calldata(address).await?
+        else {
             // this means no controller with the given address
             return Ok(None);
         };
@@ -304,7 +313,7 @@ where
         };
 
         let mut tx = BroadcastedInvokeTx {
-            sender_address: self.deployer_address,
+            sender_address: self.context.deployer_address,
             calldata: encode_calls(vec![call]),
             signature: Vec::new(),
             nonce: paymaster_nonce,
@@ -318,11 +327,11 @@ where
         };
 
         let signature = {
-            let chain = self.starknet.chain_id();
+            let chain = self.context.starknet.chain_id();
             let tx = BroadcastedTx::Invoke(tx.clone());
             let tx = BroadcastedTxWithChainId { tx, chain: chain.into() };
 
-            let signer = LocalWallet::from(self.deployer_private_key.clone());
+            let signer = LocalWallet::from(self.context.deployer_private_key.clone());
 
             let tx_hash = tx.calculate_hash();
             signer.sign_hash(&tx_hash).await.map_err(Error::SigningError)?
@@ -391,42 +400,6 @@ where
         n: Notification<'a>,
     ) -> impl Future<Output = Self::NotificationResponse> + Send + 'a {
         self.service.notification(n)
-    }
-}
-
-impl<Pool, PP, PF> Clone for ControllerDeploymentLayer<Pool, PP, PF>
-where
-    Pool: TransactionPool,
-    PP: PendingBlockProvider,
-    PF: ProviderFactory,
-{
-    fn clone(&self) -> Self {
-        Self {
-            starknet: self.starknet.clone(),
-            cartridge_api: self.cartridge_api.clone(),
-            paymaster_client: self.paymaster_client.clone(),
-            deployer_address: self.deployer_address,
-            deployer_private_key: self.deployer_private_key.clone(),
-        }
-    }
-}
-
-impl<S, Pool, PP, PF> Clone for ControllerDeploymentService<S, Pool, PP, PF>
-where
-    S: Clone,
-    Pool: TransactionPool,
-    PP: PendingBlockProvider,
-    PF: ProviderFactory,
-{
-    fn clone(&self) -> Self {
-        Self {
-            service: self.service.clone(),
-            starknet: self.starknet.clone(),
-            cartridge_api: self.cartridge_api.clone(),
-            paymaster_client: self.paymaster_client.clone(),
-            deployer_address: self.deployer_address,
-            deployer_private_key: self.deployer_private_key.clone(),
-        }
     }
 }
 
