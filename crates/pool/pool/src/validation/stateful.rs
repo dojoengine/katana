@@ -72,6 +72,7 @@ impl TxValidator {
         let mut this = self.inner.lock();
         this.block_env = block_env;
         this.state = Arc::new(new_state);
+        this.pool_nonces.clear();
     }
 }
 
@@ -116,6 +117,7 @@ impl Validator for TxValidator {
         let permit = self.permit.clone();
         let tx_hash = tx.hash();
 
+        let span = tracing::trace_span!(target: "pool", "pool_validate", tx_hash = format!("{:#x}", tx_hash));
         async move {
             let _permit = permit.lock();
             let mut this = inner.lock();
@@ -149,6 +151,22 @@ impl Validator for TxValidator {
             if tx_nonce > current_nonce {
                 return Ok(ValidationOutcome::Dependent { current_nonce, tx_nonce, tx });
             }
+            // this nonce validation is also handled in this function:
+            // blockifier::transaction::account_transaction::AccountTransaction::perform_pre_validation_stage
+            //   |
+            //   -- blockifier::transaction::account_transaction::AccountTransaction::handle_nonce
+            //
+            // but we're handle this here to fail early
+            if tx_nonce < current_nonce {
+                return Ok(ValidationOutcome::Invalid {
+                    tx,
+                    error: InvalidTransactionError::InvalidNonce {
+                        address,
+                        current_nonce,
+                        tx_nonce,
+                    },
+                });
+            }
 
             // Check if validation of an invoke transaction should be skipped due to deploy_account
             // not being proccessed yet. This feature is used to improve UX for users
@@ -179,9 +197,7 @@ impl Validator for TxValidator {
                 _ => result,
             }
         }
-        .instrument(
-            tracing::trace_span!(target: "pool", "pool_validate", tx_hash = format!("{:#x}", tx_hash))
-        )
+        .instrument(span)
     }
 }
 
@@ -340,5 +356,139 @@ fn map_pre_validation_err(
             let tx_nonce = incoming_tx_nonce.0;
             Ok(InvalidTransactionError::InvalidNonce { address, current_nonce, tx_nonce })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use katana_chain_spec::ChainSpec;
+    use katana_executor::blockifier::cache::ClassCacheBuilder;
+    use katana_executor::ExecutionFlags;
+    use katana_pool_api::validation::{ValidationOutcome, Validator};
+    use katana_primitives::block::{Block, FinalityStatus, SealedBlockWithStatus};
+    use katana_primitives::chain::ChainId;
+    use katana_primitives::contract::{ContractAddress, Nonce};
+    use katana_primitives::env::BlockEnv;
+    use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV1};
+    use katana_primitives::Felt;
+    use katana_provider::api::block::BlockWriter;
+    use katana_provider::api::state::{StateFactoryProvider, StateProvider};
+    use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
+    use parking_lot::Mutex;
+
+    use super::TxValidator;
+
+    fn create_test_state(chain_spec: &ChainSpec) -> Box<dyn StateProvider> {
+        let ChainSpec::Dev(chain) = chain_spec else { panic!("should be dev chain spec") };
+        let states = chain.state_updates();
+        let provider_factory = DbProviderFactory::new_in_memory();
+        let provider_mut = provider_factory.provider_mut();
+        let block = SealedBlockWithStatus {
+            status: FinalityStatus::AcceptedOnL2,
+            block: Block::default().seal_with_hash(Felt::ZERO),
+        };
+        provider_mut
+            .insert_block_with_states_and_receipts(block, states, vec![], vec![])
+            .unwrap();
+        provider_mut.commit().unwrap();
+        provider_factory.provider().latest().unwrap()
+    }
+
+    fn create_invoke_tx(
+        sender: ContractAddress,
+        chain_id: ChainId,
+        nonce: Nonce,
+    ) -> ExecutableTxWithHash {
+        ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V1(InvokeTxV1 {
+            chain_id,
+            sender_address: sender,
+            nonce,
+            calldata: vec![],
+            signature: vec![],
+            max_fee: 1_000_000_000_000_000,
+        })))
+    }
+
+    /// Reproduces the pool_nonces drift bug after `validator.update()`.
+    ///
+    /// `pool_nonces` tracks the expected next nonce per account based on validated
+    /// transactions. When `update()` is called after a block is mined, it replaces
+    /// the state and block env but does NOT clear `pool_nonces`. If none of the
+    /// validated transactions were actually committed (e.g. they were dropped or
+    /// the block was empty), pool_nonces retains stale values that are far ahead
+    /// of the actual state nonce.
+    ///
+    /// This causes the validator to skip the `tx_nonce > current_nonce` check
+    /// (which would correctly flag the tx as Dependent) and fall through to the
+    /// blockifier, which — with `strict_nonce_check = false` — allows any
+    /// `account_nonce <= tx_nonce`. Since the real state nonce is 0, a tx with
+    /// nonce 3 passes validation despite the massive nonce gap.
+    ///
+    /// In production, this manifests as:
+    ///   "Invalid transaction nonce of contract at address ... Account nonce: 0xN; got: 0xM."
+    /// where M >> N, because the executor sees the real state nonce.
+    ///
+    /// This test FAILS with the current buggy code and PASSES once the fix
+    /// (clearing pool_nonces in update()) is applied.
+    #[tokio::test]
+    async fn pool_nonces_must_be_cleared_after_validator_update() {
+        // Initialize the global class cache (required by the blockifier)
+        let _ = ClassCacheBuilder::new().build_global();
+
+        let chain_spec = Arc::new(ChainSpec::dev());
+        let chain_id = chain_spec.id();
+        let sender = *chain_spec.genesis().accounts().next().unwrap().0;
+
+        let state = create_test_state(&chain_spec);
+        let execution_flags =
+            ExecutionFlags::new().with_account_validation(false).with_fee(false);
+        let block_env = BlockEnv::default();
+        let permit = Arc::new(Mutex::new(()));
+
+        let validator = TxValidator::new(
+            state,
+            execution_flags,
+            None,
+            block_env.clone(),
+            permit,
+            chain_spec.clone(),
+        );
+
+        // Validate 3 txs with nonces 0, 1, 2 — all should pass as Valid.
+        // This advances pool_nonces[sender] to 3.
+        for nonce in 0..3u64 {
+            let tx = create_invoke_tx(sender, chain_id, Felt::from(nonce));
+            let result = validator.validate(tx).await;
+            assert!(
+                matches!(result, Ok(ValidationOutcome::Valid(_))),
+                "tx with nonce {nonce} should be Valid"
+            );
+        }
+
+        // Simulate block production where NONE of the txs were committed
+        // (e.g. they were dropped, reverted, or the block was empty).
+        // update() replaces state (nonce = 0) but pool_nonces stays at 3.
+        let fresh_state = create_test_state(&chain_spec);
+        validator.update(fresh_state, block_env);
+
+        // Now validate a tx with nonce 3. With the bug:
+        //   - current_nonce = pool_nonces[sender] = 3 (stale, not cleared)
+        //   - tx_nonce(3) == current_nonce(3) → falls through to blockifier
+        //   - blockifier (non-strict): state_nonce(0) <= tx_nonce(3) → passes
+        //   - Result: Valid ← WRONG! nonce gap of 3 from actual state
+        //
+        // After fix (pool_nonces cleared in update()):
+        //   - current_nonce = state.nonce(sender) = 0
+        //   - tx_nonce(3) > current_nonce(0) → Dependent ← CORRECT
+        let tx = create_invoke_tx(sender, chain_id, Felt::THREE);
+        let result = validator.validate(tx).await;
+
+        assert!(
+            matches!(result, Ok(ValidationOutcome::Dependent { .. })),
+            "After update(), tx with nonce 3 should be Dependent (state nonce is 0), \
+             but stale pool_nonces caused it to be accepted as Valid. Got: {result:?}"
+        );
     }
 }
