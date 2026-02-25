@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-pub use clap::Parser;
+pub use clap::{Args, Parser};
 use katana_node::config::dev::DevConfig;
 use katana_node::config::execution::ExecutionConfig;
 use katana_node::config::metrics::MetricsConfig;
@@ -10,7 +10,7 @@ use katana_node::config::rpc::RpcConfig;
 use katana_node::shard::config::{
     ShardNodeConfig, DEFAULT_BLOCK_POLL_INTERVAL, DEFAULT_TIME_QUANTUM,
 };
-use katana_node::shard::ShardNode;
+use katana_node::shard::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use url::Url;
@@ -34,21 +34,6 @@ pub struct ShardNodeArgs {
     #[arg(long = "base-chain-url", value_name = "URL")]
     pub base_chain_url: Url,
 
-    /// Number of shard worker threads.
-    ///
-    /// Each worker runs on a dedicated OS thread and processes shards from the scheduler queue.
-    /// Defaults to the number of available CPU cores.
-    #[arg(long = "workers", value_name = "COUNT")]
-    pub workers: Option<usize>,
-
-    /// Time quantum in milliseconds for worker preemption.
-    ///
-    /// Controls how long a worker processes a single shard before yielding to allow other
-    /// shards to be serviced.
-    #[arg(long = "time-quantum", value_name = "MILLISECONDS")]
-    #[arg(default_value_t = DEFAULT_TIME_QUANTUM.as_millis() as u64)]
-    pub time_quantum_ms: u64,
-
     /// Base chain block poll interval in seconds.
     ///
     /// How frequently the shard node polls the base chain for new block context.
@@ -56,24 +41,17 @@ pub struct ShardNodeArgs {
     #[arg(default_value_t = DEFAULT_BLOCK_POLL_INTERVAL.as_secs())]
     pub block_poll_interval_secs: u64,
 
-    /// Disable charging fee when executing transactions.
-    #[arg(long = "no-fee")]
-    pub no_fee: bool,
-
-    /// Disable account validation when executing transactions.
-    ///
-    /// Skipping the transaction sender's account validation function.
-    #[arg(long = "no-account-validation")]
-    pub no_account_validation: bool,
+    #[command(flatten)]
+    pub scheduler: SchedulerOptions,
 
     #[command(flatten)]
     pub logging: LoggingOptions,
 
     #[command(flatten)]
-    pub tracer: TracerOptions,
+    pub dev: DevOptions,
 
     #[command(flatten)]
-    pub starknet: EnvironmentOptions,
+    pub tracer: TracerOptions,
 
     #[cfg(feature = "server")]
     #[command(flatten)]
@@ -102,7 +80,7 @@ impl ShardNodeArgs {
 
     async fn start_node(&self) -> Result<()> {
         let config = self.config()?;
-        let node = ShardNode::build(config).context("failed to build shard node")?;
+        let node = Node::build(config).context("failed to build shard node")?;
 
         if !self.silent {
             info!(target: LOG_TARGET, "Starting shard node");
@@ -132,7 +110,7 @@ impl ShardNodeArgs {
         let metrics = self.metrics_config();
 
         let worker_count =
-            self.workers.unwrap_or_else(katana_node::shard::config::default_worker_count);
+            self.scheduler.workers.unwrap_or_else(katana_node::shard::config::default_worker_count);
 
         Ok(ShardNodeConfig {
             chain,
@@ -140,7 +118,7 @@ impl ShardNodeArgs {
             execution,
             dev,
             worker_count,
-            time_quantum: Duration::from_millis(self.time_quantum_ms),
+            time_quantum: Duration::from_millis(self.scheduler.time_quantum_ms),
             base_chain_url: self.base_chain_url.clone(),
             block_poll_interval: Duration::from_secs(self.block_poll_interval_secs),
             metrics,
@@ -148,13 +126,7 @@ impl ShardNodeArgs {
     }
 
     fn chain_spec(&self) -> Arc<katana_chain_spec::ChainSpec> {
-        let mut chain_spec = katana_chain_spec::dev::DEV_UNALLOCATED.clone();
-
-        if let Some(id) = self.starknet.chain_id {
-            chain_spec.id = id;
-        }
-
-        Arc::new(katana_chain_spec::ChainSpec::Dev(chain_spec))
+        Arc::new(katana_chain_spec::ChainSpec::Dev(katana_chain_spec::dev::DEV_UNALLOCATED.clone()))
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {
@@ -187,19 +159,13 @@ impl ShardNodeArgs {
     }
 
     fn execution_config(&self) -> ExecutionConfig {
-        ExecutionConfig {
-            invocation_max_steps: self.starknet.invoke_max_steps,
-            validation_max_steps: self.starknet.validate_max_steps,
-            #[cfg(feature = "native")]
-            compile_native: self.starknet.compile_native,
-            ..Default::default()
-        }
+        ExecutionConfig::default()
     }
 
     fn dev_config(&self) -> DevConfig {
         DevConfig {
-            fee: !self.no_fee,
-            account_validation: !self.no_account_validation,
+            fee: !self.dev.no_fee,
+            account_validation: !self.dev.no_account_validation,
             fixed_gas_prices: None,
         }
     }
@@ -219,4 +185,23 @@ impl ShardNodeArgs {
     fn tracer_config(&self) -> Option<katana_tracing::TracerConfig> {
         self.tracer.config()
     }
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Scheduler options")]
+pub struct SchedulerOptions {
+    /// Number of shard worker threads.
+    ///
+    /// Each worker runs on a dedicated OS thread and processes shards from the scheduler queue.
+    /// Defaults to the number of available CPU cores.
+    #[arg(long = "scheduler.workers", value_name = "COUNT")]
+    pub workers: Option<usize>,
+
+    /// Time quantum in milliseconds for worker preemption.
+    ///
+    /// Controls how long a worker processes a single shard before yielding to allow other
+    /// shards to be serviced.
+    #[arg(long = "scheduler.time-quantum", value_name = "MILLISECONDS")]
+    #[arg(default_value_t = DEFAULT_TIME_QUANTUM.as_millis() as u64)]
+    pub time_quantum_ms: u64,
 }

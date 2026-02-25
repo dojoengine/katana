@@ -10,6 +10,7 @@ use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::ordering::FiFo;
 use katana_pool::validation::stateful::TxValidator;
 use katana_pool::TxPool;
+use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::ContractAddress;
 use katana_provider::api::env::BlockEnvProvider;
@@ -21,7 +22,7 @@ use katana_rpc_types::{
     PreConfirmedStateUpdate, RpcTxWithHash, TxReceiptWithBlockInfo, TxTrace,
 };
 use katana_tasks::TaskSpawner;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
 type StarknetApiResult<T> = Result<T, katana_rpc_api::error::starknet::StarknetApiError>;
 
@@ -114,12 +115,13 @@ pub struct Shard {
     pub provider: DbProviderFactory,
     pub pool: TxPool,
     pub backend: Arc<Backend<DbProviderFactory>>,
+    pub block_env: Arc<RwLock<BlockEnv>>,
     pub starknet_api: StarknetApi<TxPool, NoPendingBlockProvider, DbProviderFactory>,
     state: AtomicU8,
 }
 
 impl Shard {
-    /// Create a new shard with isolated in-memory storage, initialized with genesis state.
+    /// Create a new shard with isolated in-memory storage and an initial execution block context.
     pub fn new(
         id: ShardId,
         chain_spec: Arc<ChainSpec>,
@@ -127,6 +129,7 @@ impl Shard {
         gas_oracle: GasPriceOracle,
         starknet_api_config: StarknetApiConfig,
         task_spawner: TaskSpawner,
+        initial_block_env: BlockEnv,
     ) -> Result<Self> {
         // Per-shard in-memory database
         let db = katana_db::Db::in_memory()?;
@@ -165,6 +168,9 @@ impl Shard {
 
         let pool = TxPool::new(validator, FiFo::new());
 
+        // Initialize per-shard block env from the latest base-chain context.
+        let block_env = Arc::new(RwLock::new(initial_block_env));
+
         // Build per-shard StarknetApi
         let starknet_api = StarknetApi::new(
             chain_spec,
@@ -182,6 +188,7 @@ impl Shard {
             provider,
             pool,
             backend,
+            block_env,
             starknet_api,
             state: AtomicU8::new(ShardState::Idle as u8),
         })

@@ -70,17 +70,19 @@ Once created, a shard persists for the lifetime of the node regardless of the ma
               |                    |                    |
               +--------------------+--------------------+
                                    |
-                          +--------v---------+
-                          |    Scheduler     |
-                          |  (FIFO queue)    |
-                          +--------+---------+
-                                   |
-              +--------------------+--------------------+
-              |                    |                    |
-         +----v----+         +----v----+         +----v----+
-         | Worker  |         | Worker  |         | Worker  |
-         | Thread 0|         | Thread 1|         | Thread N|
-         +---------+         +---------+         +---------+
+                      +------------v------------+
+                      |     ShardRuntime        |
+                      |  +------------------+   |
+                      |  |    Scheduler     |   |
+                      |  |  (FIFO queue)    |   |
+                      |  +--------+---------+   |
+                      |           |              |
+                      |  +--------+--------+    |
+                      |  |        |        |    |
+                      | +--+    +--+    +--+   |
+                      | |W0|    |W1|    |WN|   |
+                      | +--+    +--+    +--+   |
+                      +-------------------------+
 ```
 
 ### Transaction Flow
@@ -145,6 +147,7 @@ Each component is documented in its own file:
 
 - [Shard](shard.md) -- per-contract isolated execution unit, block environment
 - [Shard Manager](manager.md) -- shard lookup and pluggable creation policy
+- [Runtime](runtime.md) -- `ShardRuntime` encapsulating the scheduler and worker pool
 - [Scheduler and Workers](scheduler.md) -- work queue, OS thread pool, execution loop
 - [RPC API](rpc.md) -- the `shard` JSON-RPC namespace
 - [Shutdown](shutdown.md) -- graceful shutdown behavior

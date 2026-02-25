@@ -1,4 +1,3 @@
-pub mod block_context;
 pub mod config;
 pub mod exit;
 
@@ -13,11 +12,10 @@ use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TxPool;
-use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
+use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::DbProviderFactory;
 use katana_rpc_api::shard::ShardApiServer;
-use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_server::shard::{ShardProvider, ShardRpc};
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
@@ -25,10 +23,9 @@ use katana_sharding::manager::{LazyShardManager, ShardManager};
 use katana_sharding::runtime::{RuntimeHandle, ShardRuntime};
 use katana_sharding::types::NoPendingBlockProvider;
 use katana_tasks::TaskManager;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use tracing::info;
 
-use self::block_context::BlockContextListener;
 use self::config::ShardNodeConfig;
 use self::exit::ShardNodeStoppedFuture;
 
@@ -41,7 +38,6 @@ pub struct Node {
     pub handle: RuntimeHandle,
     pub task_manager: TaskManager,
     pub rpc_server: RpcServer,
-    pub block_context_listener: BlockContextListener,
     pub runtime: Mutex<Option<ShardRuntime>>,
 }
 
@@ -97,31 +93,9 @@ impl Node {
             paymaster: None,
         };
 
-        // --- Build initial BlockEnv from genesis
-        let genesis = config.chain.genesis();
-        let block_env = Arc::new(RwLock::new(BlockEnv {
-            number: genesis.number,
-            timestamp: genesis.timestamp,
-            sequencer_address: genesis.sequencer_address,
-            l1_gas_prices: genesis.gas_prices.clone(),
-            l2_gas_prices: genesis.gas_prices.clone(),
-            l1_data_gas_prices: genesis.gas_prices.clone(),
-            starknet_version: katana_primitives::version::CURRENT_STARKNET_VERSION,
-        }));
-
         // --- Build runtime (scheduler + workers)
-        let runtime =
-            ShardRuntime::new(config.worker_count, config.time_quantum, block_env.clone());
+        let runtime = ShardRuntime::new(config.worker_count, config.time_quantum);
         let handle = runtime.handle();
-
-        // --- Build base chain client and block context listener
-        let starknet_client = StarknetClient::new(config.base_chain_url.clone());
-        let block_context_listener = BlockContextListener::new(
-            starknet_client,
-            block_env,
-            config.chain.clone(),
-            config.block_poll_interval,
-        );
 
         // --- Build shard manager
         let manager: Arc<dyn ShardManager> = Arc::new(LazyShardManager::new(
@@ -130,6 +104,7 @@ impl Node {
             gas_oracle,
             starknet_api_config,
             task_spawner.clone(),
+            config.base_chain_url.clone(),
         ));
 
         // --- Build RPC server with shard API
@@ -152,20 +127,11 @@ impl Node {
             handle,
             task_manager,
             rpc_server,
-            block_context_listener,
             runtime: Mutex::new(Some(runtime)),
         })
     }
 
     pub async fn launch(self) -> Result<LaunchedShardNode> {
-        let listener = self.block_context_listener.clone();
-        self.task_manager
-            .task_spawner()
-            .build_task()
-            .graceful_shutdown()
-            .name("Block context listener")
-            .spawn(listener.run());
-
         self.runtime.lock().as_mut().expect("runtime already taken").start();
 
         let rpc = self.rpc_server.start(self.config.rpc.socket_addr()).await?;

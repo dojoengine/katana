@@ -6841,11 +6841,14 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc-api",
+ "katana-rpc-client",
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-tasks",
  "parking_lot",
+ "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]

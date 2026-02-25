@@ -7,7 +7,6 @@ use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::ProviderFactory;
-use parking_lot::RwLock;
 use tracing::{error, info, trace};
 
 use crate::scheduler::ShardScheduler;
@@ -20,12 +19,11 @@ use crate::types::{Shard, ShardState};
 pub struct ShardWorker {
     id: usize,
     scheduler: ShardScheduler,
-    block_env: Arc<RwLock<BlockEnv>>,
 }
 
 impl ShardWorker {
-    pub fn new(id: usize, scheduler: ShardScheduler, block_env: Arc<RwLock<BlockEnv>>) -> Self {
-        Self { id, scheduler, block_env }
+    pub fn new(id: usize, scheduler: ShardScheduler) -> Self {
+        Self { id, scheduler }
     }
 
     /// Run the worker loop. This method blocks the calling thread until shutdown.
@@ -61,8 +59,8 @@ impl ShardWorker {
                 let tx_hashes: Vec<_> = txs.iter().map(|tx| tx.hash).collect();
                 let tx_count = txs.len();
 
-                // Get current state and shared block env
-                let block_env = self.block_env.read().clone();
+                // Read block env from the shard's own context
+                let block_env = shard.block_env.read().clone();
 
                 match self.execute(&shard, txs, &block_env) {
                     Ok(()) => {
@@ -133,11 +131,10 @@ impl ShardWorker {
 pub fn spawn_workers(
     count: usize,
     scheduler: ShardScheduler,
-    block_env: Arc<RwLock<BlockEnv>>,
 ) -> Vec<thread::JoinHandle<()>> {
     (0..count)
         .map(|id| {
-            let worker = ShardWorker::new(id, scheduler.clone(), block_env.clone());
+            let worker = ShardWorker::new(id, scheduler.clone());
             thread::Builder::new()
                 .name(format!("shard-worker-{id}"))
                 .spawn(move || worker.run())

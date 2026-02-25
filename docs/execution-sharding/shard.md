@@ -59,7 +59,8 @@ A background task polls the base chain and keeps the shared block environment cu
 3. **Extract** the block environment fields (block number, timestamp, gas prices, sequencer address, protocol version).
 4. **Update** the shared block environment that all workers read from.
 
-Before the listener fetches its first block, the block environment is initialized from the chain's genesis configuration.
+When a new shard is created, its initial block environment is fetched from the latest block on
+the base chain. If that fetch fails, shard creation fails and the shard is not registered.
 
 The update is an atomic write: workers always see a consistent block environment, never a partially updated one. Workers snapshot the block environment at the start of each execution cycle, so an update mid-cycle does not affect the current batch.
 

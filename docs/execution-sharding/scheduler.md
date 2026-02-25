@@ -2,6 +2,8 @@
 
 The scheduler is a shared work queue that distributes shards to a pool of worker threads for execution. The RPC layer enqueues shards, and dedicated OS threads dequeue and process them.
 
+> **Note:** The scheduler and worker threads are owned and managed by the [`ShardRuntime`](runtime.md). The runtime provides lifecycle control (start, shutdown with timeout, background shutdown) while the scheduler handles the scheduling logic itself.
+
 ## Scheduling
 
 When a shard is scheduled:

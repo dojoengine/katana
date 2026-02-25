@@ -20,7 +20,13 @@ The RPC layer accesses shards exclusively through `dyn ShardManager`, making the
 
 ### `LazyShardManager` (dev mode)
 
-The default implementation used during local development. When `get()` is called for an unknown shard ID, it creates the shard on the fly using shared resources (chain spec, executor factory, gas oracle, task spawner) provided at construction time.
+The default implementation used during local development. When `get()` is called for an unknown
+shard ID, it creates the shard on the fly using shared resources (chain spec, executor factory,
+gas oracle, task spawner, base chain RPC endpoint) provided at construction time.
+
+Before creating the shard, the manager fetches the latest block from the base chain and derives
+the shard's initial `BlockEnv` from it. If the fetch fails, `get()` returns an error and no shard
+is registered.
 
 This "get or create" behavior is idempotent: concurrent requests for the same shard ID all receive the same shard instance thanks to double-checked locking.
 

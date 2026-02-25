@@ -41,10 +41,8 @@ crates/contracts/build/
 
 **/.claude/settings.local.json
 
-vendor
-katana-tee
-
 # AMDSEV build artifacts
 misc/AMDSEV/ovmf/
 misc/AMDSEV/output/
 misc/AMDSEV/source-commit.ovmf
+.cargo/config.toml

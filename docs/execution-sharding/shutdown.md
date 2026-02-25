@@ -1,6 +1,14 @@
 # Shutdown
 
-The shard node supports graceful shutdown that ensures all in-flight work is completed and resources are cleaned up.
+The shard node supports graceful shutdown that ensures all in-flight work is completed and resources are cleaned up. The `ShardRuntime` centralizes worker lifecycle management and provides two shutdown strategies.
+
+## ShardRuntime Shutdown API
+
+The `ShardRuntime` owns the scheduler and worker threads and exposes three ways to shut down:
+
+- **`shutdown_timeout(duration)`** — signals the scheduler's shutdown flag, then joins each worker thread in sequence. If the deadline is exceeded, remaining worker handles are dropped and those threads detach.
+- **`shutdown_background()`** — signals the scheduler and immediately drops all worker handles. Workers will observe the shutdown flag and exit on their own; no joining occurs.
+- **`Drop`** — if the runtime has not been consumed by one of the above methods, the `Drop` impl signals the scheduler and blocks until all workers exit (similar to `tokio::runtime::Runtime`'s drop behavior).
 
 ## Shutdown Sequence
 
@@ -10,19 +18,17 @@ There are two ways to initiate shutdown:
 
 When `stop()` is called on the launched node handle:
 
-1. **Signal the scheduler** -- the scheduler's shutdown flag is set and all blocked workers are woken.
-2. **Stop the RPC server** -- the RPC server stops accepting new requests.
-3. **Join worker threads** -- all worker OS threads are joined. Workers finish processing their current shard (if any), then exit when they observe the shutdown signal.
-4. **Shut down the task manager** -- all async tasks (including the block context listener) are cancelled and awaited.
+1. **Stop the RPC server** -- the RPC server stops accepting new requests.
+2. **Shut down the runtime** -- the runtime is taken from the node and `shutdown_timeout(30s)` is called on a blocking thread (via the task manager's blocking executor) to avoid blocking the async runtime.
+3. **Shut down the task manager** -- all async tasks (including the block context listener) are cancelled and awaited.
 
 ### Passive Shutdown (`stopped()`)
 
 The `stopped()` method returns a future that resolves when the node's task manager signals shutdown (e.g., due to a Ctrl+C handler). When triggered:
 
 1. **Wait for the task manager's shutdown signal**.
-2. **Signal the scheduler** -- same as above.
-3. **Join worker threads** -- same as above.
-4. **Stop the RPC server**.
+2. **Shut down the runtime** -- the runtime is taken and `shutdown_timeout(30s)` is called on a blocking thread.
+3. **Stop the RPC server**.
 
 ## Worker Thread Joining
 

@@ -2,9 +2,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use katana_primitives::env::BlockEnv;
-use parking_lot::RwLock;
-
 use crate::scheduler::ShardScheduler;
 use crate::types::Shard;
 use crate::worker;
@@ -34,7 +31,6 @@ pub struct ShardRuntime {
 #[derive(Clone, Debug)]
 pub struct RuntimeHandle {
     scheduler: ShardScheduler,
-    block_env: Arc<RwLock<BlockEnv>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -45,11 +41,6 @@ impl RuntimeHandle {
     /// Schedule a shard for execution.
     pub fn schedule(&self, shard: Arc<Shard>) {
         self.scheduler.schedule(shard);
-    }
-
-    /// Returns a reference to the shared block environment.
-    pub fn block_env(&self) -> &Arc<RwLock<BlockEnv>> {
-        &self.block_env
     }
 
     /// Returns a reference to the underlying scheduler.
@@ -70,7 +61,7 @@ impl ShardRuntime {
         block_env: Arc<RwLock<BlockEnv>>,
     ) -> Self {
         let scheduler = ShardScheduler::new(time_quantum);
-        let handle = RuntimeHandle { scheduler, block_env };
+        let handle = RuntimeHandle { scheduler };
         Self { handle, worker_count, worker_handles: Vec::new() }
     }
 
@@ -82,11 +73,8 @@ impl ShardRuntime {
     /// Spawns the worker threads. Must be called exactly once.
     pub fn start(&mut self) {
         assert!(self.worker_handles.is_empty(), "ShardRuntime::start called more than once");
-        self.worker_handles = worker::spawn_workers(
-            self.worker_count,
-            self.handle.scheduler.clone(),
-            self.handle.block_env.clone(),
-        );
+        self.worker_handles =
+            worker::spawn_workers(self.worker_count, self.handle.scheduler.clone());
     }
 
     /// Signals the scheduler to shut down, then joins worker threads up to `duration`.
