@@ -28,16 +28,22 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 90
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
 
         steps:
             - uses: actions/checkout@v4
               with:
                   submodules: recursive
 
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
+
             - name: Install dependencies
               run: |
-                  sudo apt-get update
-                  sudo apt-get install -y \
+                  export DEBIAN_FRONTEND=noninteractive
+                  apt-get update
+                  apt-get install -y \
                       qemu-system-x86 \
                       cpio \
                       zstd \
@@ -50,6 +56,9 @@ jobs:
               with:
                   key: ci-${{ github.job }}
                   shared-key: katana-ci-cache-musl
+
+            - name: Build contract artifacts
+              run: make contracts
 
             - name: Build required VM components
               run: |
