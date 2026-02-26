@@ -1,0 +1,79 @@
+name: amdsev-initrd-test
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "misc/AMDSEV/**"
+            - "scripts/build-musl.sh"
+            - ".github/workflows/amdsev-initrd-test.yml"
+
+    pull_request:
+        types: [opened, synchronize, ready_for_review]
+        paths:
+            - "misc/AMDSEV/**"
+            - "scripts/build-musl.sh"
+            - ".github/workflows/amdsev-initrd-test.yml"
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    amdsev-initrd-test:
+        runs-on: ubuntu-latest
+        timeout-minutes: 90
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+
+            - name: Install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                      qemu-system-x86 \
+                      cpio \
+                      zstd \
+                      e2fsprogs \
+                      curl \
+                      musl-tools \
+                      clang
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache-musl
+
+            - name: Build required VM components
+              run: |
+                  set -euo pipefail
+                  source misc/AMDSEV/build-config
+                  export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+
+                  ./scripts/build-musl.sh
+                  KATANA_BINARY="./target/x86_64-unknown-linux-musl/performance/katana"
+
+                  ./misc/AMDSEV/build-kernel.sh ./misc/AMDSEV/output/qemu
+                  ./misc/AMDSEV/build-initrd.sh "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/initrd.img "$KERNEL_VERSION"
+
+                  cp "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/katana
+
+            - name: Run isolated initrd tests
+              run: |
+                  ./misc/AMDSEV/test-initrd.sh --output-dir ./misc/AMDSEV/output/qemu --timeout 300
+
+            - name: Upload AMDSEV build output on failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: amdsev-initrd-output-${{ github.run_id }}
+                  if-no-files-found: ignore
+                  path: |
+                      misc/AMDSEV/output/qemu
