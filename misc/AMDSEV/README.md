@@ -69,6 +69,9 @@ cargo build -p snp-tools
 
 ## Running
 
+The QEMU command below boots the VM but does not automatically start Katana.  
+Katana must be started asynchronously via the control channel.
+
 ```sh
 qemu-system-x86_64 \
     # Use KVM hardware virtualization (required for SEV-SNP)
