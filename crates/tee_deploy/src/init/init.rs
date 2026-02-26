@@ -26,8 +26,8 @@ use tracing::{info, warn};
 
 const GARAGA_CLASS_HASH: &str = "0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22";
 /// Fallback SP1 program ID (low/high) when snp-attest-cli is not runnable.
-const SP1_LOW_FALLBACK: &str = "0xac855e58a251a65e5b78d64866896bd0";
-const SP1_HIGH_FALLBACK: &str = "0x00b7734894ae5b8056221d5d53c67f4b";
+const SP1_LOW_FALLBACK: &str = "0x1b7c8b4845b3d9ade0f084ea994f8323";
+const SP1_HIGH_FALLBACK: &str = "0x00e7f4210229b46f94bd8bced85e5a1b";
 const MAX_TIME_DIFF: u64 = 86400;
 const MILAN_LOW: &str = "326103188097639633505521426987620764621";
 const MILAN_HIGH: &str = "140650959549381881311165088169387222174";
@@ -283,14 +283,28 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
 /// Returns (low, high) as u256 for constructor calldata (low = last 16 bytes, high = first 16 bytes).
 fn resolve_sp1_program_id(args: &InitArgs) -> Result<(Felt, Felt)> {
     if let Some(ref hex_id) = args.sp1_program_id {
+        info!("Using SP1 program ID from --sp1-program-id argument");
         return parse_program_id_hex(hex_id).context("invalid --sp1-program-id hex");
     }
     if !args.no_fetch_sp1_program_id {
-        if let Ok((low, high)) = fetch_sp1_program_id_from_cli(args.sdk_path.as_deref()) {
-            return Ok((low, high));
+        match fetch_sp1_program_id_from_cli(args.sdk_path.as_deref()) {
+            Ok((low, high)) => {
+                info!("Using SP1 program ID fetched from snp-attest-cli");
+                return Ok((low, high));
+            }
+            Err(e) => {
+                warn!("Failed to fetch SP1 program ID from snp-attest-cli: {:#}", e);
+            }
         }
-        warn!("Could not run snp-attest-cli to get SP1 program ID, using fallback. Pass --no-fetch-sp1-program-id to silence.");
     }
+    warn!(
+        "WARNING: Using HARDCODED FALLBACK SP1 program ID! This may not match the current SP1 circuit. \
+         Use --sp1-program-id to specify the correct value, or run from repo root so snp-attest-cli can be found."
+    );
+    warn!(
+        "Fallback SP1 program ID: high={} low={}",
+        SP1_HIGH_FALLBACK, SP1_LOW_FALLBACK
+    );
     Ok((
         Felt::from_hex(SP1_LOW_FALLBACK).context("fallback SP1 low")?,
         Felt::from_hex(SP1_HIGH_FALLBACK).context("fallback SP1 high")?,
