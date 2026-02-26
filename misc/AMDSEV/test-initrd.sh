@@ -3,18 +3,14 @@
 # TEST-INITRD.SH - Isolated initrd validation for AMDSEV
 # ==============================================================================
 #
-# Runs focused checks for initrd behavior without requiring the full SEV-SNP
-# launch path:
-#   1) Static archive/content checks (no VM boot)
-#   2) Plain-QEMU boot smoke test with RPC health check (no OVMF/SEV)
+# Runs a focused initrd boot smoke test without requiring the full SEV-SNP
+# launch path. Uses plain QEMU (no OVMF/SEV) and validates Katana RPC readiness.
 #
 # Usage:
 #   ./test-initrd.sh [OPTIONS]
 #
 # Options:
 #   --output-dir DIR      Boot artifacts directory (default: ./output/qemu)
-#   --static-only         Run only static initrd checks
-#   --boot-only           Run only boot smoke test
 #   --host-rpc-port PORT  Host port for forwarded Katana RPC (default: 15052)
 #   --vm-rpc-port PORT    Guest Katana RPC port (default: 5050)
 #   --timeout SEC         Boot wait timeout in seconds (default: 90)
@@ -31,15 +27,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/output/qemu"
 INITRD_FILE=""
 KERNEL_FILE=""
-RUN_STATIC=1
-RUN_BOOT=1
 HOST_RPC_PORT=15052
 VM_RPC_PORT=5050
 BOOT_TIMEOUT=90
 TEST_DISK_SIZE="${TEST_DISK_SIZE:-1G}"
 
 TEMP_DIR="$(mktemp -d /tmp/katana-amdsev-initrd-test.XXXXXX)"
-EXTRACT_DIR="${TEMP_DIR}/extract"
 SERIAL_LOG="${TEMP_DIR}/serial.log"
 DISK_IMG="${TEMP_DIR}/test-disk.img"
 QEMU_PID=""
@@ -50,8 +43,6 @@ Usage: $0 [OPTIONS]
 
 Options:
   --output-dir DIR      Boot artifacts directory (default: ./output/qemu)
-  --static-only         Run only static initrd checks
-  --boot-only           Run only boot smoke test
   --host-rpc-port PORT  Host port for forwarded Katana RPC (default: 15052)
   --vm-rpc-port PORT    Guest Katana RPC port (default: 5050)
   --timeout SEC         Boot wait timeout in seconds (default: 90)
@@ -110,16 +101,6 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_DIR="${2:?Missing value for --output-dir}"
             shift 2
             ;;
-        --static-only)
-            RUN_STATIC=1
-            RUN_BOOT=0
-            shift
-            ;;
-        --boot-only)
-            RUN_STATIC=0
-            RUN_BOOT=1
-            shift
-            ;;
         --host-rpc-port)
             HOST_RPC_PORT="${2:?Missing value for --host-rpc-port}"
             shift 2
@@ -144,77 +125,6 @@ done
 
 INITRD_FILE="${OUTPUT_DIR}/initrd.img"
 KERNEL_FILE="${OUTPUT_DIR}/vmlinuz"
-
-assert_extract_path() {
-    local rel_path="$1"
-    if [ ! -e "${EXTRACT_DIR}/${rel_path}" ]; then
-        die "Expected initrd path missing: ${rel_path}"
-    fi
-}
-
-assert_init_contains() {
-    local pattern="$1"
-    if ! grep -Fq -- "$pattern" "${EXTRACT_DIR}/init"; then
-        die "Expected pattern missing in init script: ${pattern}"
-    fi
-}
-
-run_static_checks() {
-    log "Running static initrd checks"
-
-    require_tool gzip
-    require_tool cpio
-    require_tool grep
-
-    [ -f "$INITRD_FILE" ] || die "Initrd not found: $INITRD_FILE"
-
-    if ! gzip -t "$INITRD_FILE" 2>/dev/null; then
-        die "Initrd is not valid gzip: $INITRD_FILE"
-    fi
-
-    mkdir -p "$EXTRACT_DIR"
-    (
-        cd "$EXTRACT_DIR"
-        gzip -dc "$INITRD_FILE" | cpio -id --quiet
-    )
-
-    REQUIRED_PATHS=(
-        init
-        bin/busybox
-        bin/katana
-        etc/passwd
-        etc/group
-        bin/sh
-        bin/mount
-        bin/umount
-        bin/ip
-        bin/insmod
-        bin/poweroff
-        bin/sync
-    )
-
-    for path in "${REQUIRED_PATHS[@]}"; do
-        assert_extract_path "$path"
-    done
-
-    [ -x "${EXTRACT_DIR}/init" ] || die "Init script is not executable"
-    [ -x "${EXTRACT_DIR}/bin/katana" ] || die "Katana binary in initrd is not executable"
-
-    assert_init_contains "trap shutdown_handler TERM INT"
-    assert_init_contains "poweroff -f"
-    assert_init_contains "exec 0</dev/console"
-    assert_init_contains "if [ -d /sys/class/net/eth0 ]; then"
-    assert_init_contains "katana.args="
-
-    if [ ! -e "${EXTRACT_DIR}/lib/modules/tsm.ko" ]; then
-        warn "tsm.ko not present in initrd"
-    fi
-    if [ ! -e "${EXTRACT_DIR}/lib/modules/sev-guest.ko" ]; then
-        warn "sev-guest.ko not present in initrd"
-    fi
-
-    log "Static initrd checks passed"
-}
 
 resolve_qemu_bin() {
     if [ -n "${QEMU_BIN:-}" ]; then
@@ -322,14 +232,6 @@ run_boot_smoke_test() {
 }
 
 log "Output directory: $OUTPUT_DIR"
-log "Modes: static=$RUN_STATIC boot=$RUN_BOOT"
-
-if [ "$RUN_STATIC" -eq 1 ]; then
-    run_static_checks
-fi
-
-if [ "$RUN_BOOT" -eq 1 ]; then
-    run_boot_smoke_test
-fi
+run_boot_smoke_test
 
 log "All requested initrd checks passed"

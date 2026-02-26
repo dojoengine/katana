@@ -39,7 +39,7 @@ If `--katana` is not provided, `build.sh` prompts for confirmation (`y/N`) befor
 | `build-ovmf.sh` | Builds OVMF firmware from AMD's fork with SEV-SNP support |
 | `build-kernel.sh` | Downloads and extracts Ubuntu kernel (`vmlinuz`) |
 | `build-initrd.sh` | Creates minimal initrd with busybox, SEV-SNP modules, and katana |
-| `test-initrd.sh` | Runs isolated initrd validation (archive checks + plain QEMU boot smoke) |
+| `test-initrd.sh` | Runs isolated initrd boot smoke test in plain QEMU |
 | `build-config` | Pinned versions and checksums for reproducible builds |
 | `start-vm.sh` | Starts a TEE VM with SEV-SNP and launches Katana asynchronously |
 
@@ -158,17 +158,14 @@ The script:
 
 ## Isolated Initrd Testing
 
-Use `test-initrd.sh` for focused initrd validation without the full SEV-SNP launch path:
+Use `test-initrd.sh` for focused initrd boot validation without the full SEV-SNP launch path:
 
 ```sh
-# Run static archive/content checks and plain-QEMU boot smoke test
+# Run plain-QEMU boot smoke test
 ./misc/AMDSEV/test-initrd.sh
 
-# Only check initrd archive contents
-./misc/AMDSEV/test-initrd.sh --static-only
-
-# Only run plain-QEMU boot smoke test
-./misc/AMDSEV/test-initrd.sh --boot-only
+# Custom timeout/output directory
+./misc/AMDSEV/test-initrd.sh --output-dir ./misc/AMDSEV/output/qemu --timeout 300
 ```
 
 ### Launch Measurement Verification
