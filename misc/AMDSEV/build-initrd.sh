@@ -15,7 +15,7 @@
 #
 # Environment:
 #   SOURCE_DATE_EPOCH                REQUIRED. Unix timestamp for reproducible builds.
-#   BUSYBOX_PKG_VERSION              REQUIRED. Exact apt package version.
+#   BUSYBOX_PKG_VERSION              REQUIRED. Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1).
 #   BUSYBOX_PKG_SHA256               REQUIRED. SHA256 checksum of the busybox .deb package.
 #   KERNEL_MODULES_EXTRA_PKG_VERSION REQUIRED. Exact apt package version.
 #   KERNEL_MODULES_EXTRA_PKG_SHA256  REQUIRED. SHA256 checksum of the modules .deb package.
