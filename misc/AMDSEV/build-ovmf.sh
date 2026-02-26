@@ -11,6 +11,8 @@
 # Environment (required):
 #   OVMF_GIT_URL   Git URL for OVMF repository
 #   OVMF_BRANCH    Git branch to build
+#   OVMF_COMMIT    Exact commit to build
+#   SOURCE_DATE_EPOCH Unix timestamp used for reproducibility
 #
 # ==============================================================================
 
@@ -20,6 +22,7 @@ set -euo pipefail
 export TZ=UTC
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
+umask 022
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -34,6 +37,8 @@ function usage() {
     echo "ENVIRONMENT VARIABLES (or source build-config):"
     echo "  OVMF_GIT_URL  Git URL for OVMF repository"
     echo "  OVMF_BRANCH   Git branch to build"
+    echo "  OVMF_COMMIT   Exact commit to build (required for reproducibility)"
+    echo "  SOURCE_DATE_EPOCH Unix timestamp for reproducible builds"
     echo ""
     echo "EXAMPLES:"
     echo "  source build-config && $0 ./output"
@@ -57,6 +62,12 @@ DEST="$1"
 # Validate required environment variables
 : "${OVMF_GIT_URL:?OVMF_GIT_URL not set - source build-config first}"
 : "${OVMF_BRANCH:?OVMF_BRANCH not set - source build-config first}"
+: "${OVMF_COMMIT:?OVMF_COMMIT not set - required for reproducible builds}"
+: "${SOURCE_DATE_EPOCH:?SOURCE_DATE_EPOCH not set - required for reproducible builds}"
+if ! [[ "$SOURCE_DATE_EPOCH" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: SOURCE_DATE_EPOCH must be a unix timestamp integer"
+    exit 1
+fi
 
 echo "=========================================="
 echo "Building OVMF"
@@ -65,7 +76,8 @@ echo "Configuration:"
 echo "  Output dir:    $DEST"
 echo "  Git URL:       $OVMF_GIT_URL"
 echo "  Branch:        $OVMF_BRANCH"
-echo "  Commit:        ${OVMF_COMMIT:-<not pinned>}"
+echo "  Commit:        ${OVMF_COMMIT}"
+echo "  SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
 echo "=========================================="
 echo ""
 
@@ -101,24 +113,24 @@ fi
 # Build OVMF
 pushd "$OVMF_DIR" >/dev/null
     run_cmd git fetch current
-    if [[ -n "${OVMF_COMMIT:-}" ]]; then
-        # Checkout exact commit for reproducibility
-        run_cmd git checkout "${OVMF_COMMIT}"
-        echo "Checked out pinned commit: $OVMF_COMMIT"
-    else
-        echo "WARNING: OVMF_COMMIT not set - build may not be reproducible"
-        run_cmd git checkout current/${OVMF_BRANCH}
-    fi
+    # Checkout exact commit for reproducibility.
+    run_cmd git checkout "${OVMF_COMMIT}"
+    echo "Checked out pinned commit: $OVMF_COMMIT"
 
     # Verify commit after checkout
     ACTUAL_COMMIT=$(git rev-parse HEAD)
-    if [[ -n "${OVMF_COMMIT:-}" ]] && [[ "$ACTUAL_COMMIT" != "$OVMF_COMMIT" ]]; then
+    if [[ "$ACTUAL_COMMIT" != "$OVMF_COMMIT" ]]; then
         echo "ERROR: Commit mismatch after checkout"
         echo "  Expected: $OVMF_COMMIT"
         echo "  Actual:   $ACTUAL_COMMIT"
         exit 1
     fi
     run_cmd git submodule update --init --recursive
+    if git submodule status --recursive | grep -Eq '^[+-]'; then
+        echo "ERROR: OVMF submodule state is not pinned/clean"
+        git submodule status --recursive
+        exit 1
+    fi
     run_cmd touch OvmfPkg/AmdSev/Grub/grub.efi # https://github.com/AMDESE/ovmf/issues/6#issuecomment-2843109558
     run_cmd make -C BaseTools clean
     run_cmd make -C BaseTools -j $(getconf _NPROCESSORS_ONLN)
@@ -130,8 +142,9 @@ pushd "$OVMF_DIR" >/dev/null
 
     mkdir -p "$DEST"
     run_cmd cp -f Build/AmdSev/DEBUG_$GCCVERS/FV/OVMF.fd $DEST
+    run_cmd touch -d "@${SOURCE_DATE_EPOCH}" "$DEST/OVMF.fd"
 
-    COMMIT=$(git log --format="%h" -1 HEAD)
+    COMMIT=$(git rev-parse HEAD)
     echo "$COMMIT" > "${SCRIPT_DIR}/source-commit.ovmf"
 popd >/dev/null
 
