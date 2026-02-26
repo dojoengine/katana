@@ -36,7 +36,7 @@ const STARKNET_ESTIMATE_FEE: &str = "starknet_estimateFee";
 const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE: &str = "cartridge_addExecuteFromOutside";
 const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX: &str = "cartridge_addExecuteOutsideTransaction";
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct ControllerDeploymentContext<Pool, PP, PF>
 where
     Pool: TransactionPool + 'static,
@@ -49,7 +49,23 @@ where
     deployer_private_key: SigningKey,
 }
 
-#[derive(Debug, Clone)]
+impl<Pool, PP, PF> Clone for ControllerDeploymentContext<Pool, PP, PF>
+where
+    Pool: TransactionPool + 'static,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    fn clone(&self) -> Self {
+        Self {
+            starknet: self.starknet.clone(),
+            cartridge_api: self.cartridge_api.clone(),
+            deployer_address: self.deployer_address,
+            deployer_private_key: self.deployer_private_key.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ControllerDeploymentLayer<Pool, PP, PF>
 where
     Pool: TransactionPool + 'static,
@@ -97,10 +113,10 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ControllerDeploymentService<S, Pool, PP, PF>
 where
-    Pool: TransactionPool,
+    Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
 {
@@ -379,7 +395,7 @@ where
         &self,
         request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
-        let this = self.clone();
+        let this = (*self).clone();
 
         async move {
             let method = request.method_name();
@@ -418,6 +434,29 @@ where
         n: Notification<'a>,
     ) -> impl Future<Output = Self::NotificationResponse> + Send + 'a {
         self.service.notification(n)
+    }
+}
+
+impl<Pool, PP, PF> Clone for ControllerDeploymentLayer<Pool, PP, PF>
+where
+    Pool: TransactionPool + 'static,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    fn clone(&self) -> Self {
+        Self { context: self.context.clone() }
+    }
+}
+
+impl<S, Pool, PP, PF> Clone for ControllerDeploymentService<S, Pool, PP, PF>
+where
+    S: Clone,
+    Pool: TransactionPool + 'static,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+{
+    fn clone(&self) -> Self {
+        Self { context: self.context.clone(), service: self.service.clone() }
     }
 }
 
