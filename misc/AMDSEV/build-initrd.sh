@@ -14,20 +14,20 @@
 #   ./build-initrd.sh KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]
 #
 # Environment:
-#   SOURCE_DATE_EPOCH               REQUIRED. Unix timestamp for reproducible builds.
-#   BUSYBOX_PKG_VERSION             REQUIRED. Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1)
-#   BUSYBOX_PKG_SHA256              REQUIRED. SHA256 checksum of the .deb package
-#   KERNEL_MODULES_EXTRA_PKG_VERSION REQUIRED. Exact apt package version
-#   KERNEL_MODULES_EXTRA_PKG_SHA256  REQUIRED. SHA256 checksum of the .deb package
+#   SOURCE_DATE_EPOCH                REQUIRED. Unix timestamp for reproducible builds.
+#   BUSYBOX_PKG_VERSION              REQUIRED. Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1).
+#   BUSYBOX_PKG_SHA256               REQUIRED. SHA256 checksum of the busybox .deb package.
+#   KERNEL_MODULES_EXTRA_PKG_VERSION REQUIRED. Exact apt package version.
+#   KERNEL_MODULES_EXTRA_PKG_SHA256  REQUIRED. SHA256 checksum of the modules .deb package.
 #
 # ==============================================================================
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync)
+SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync)
 
-function usage()
-{
+usage() {
     echo "Usage: $0 KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]"
     echo ""
     echo "Self-contained initrd builder for Katana TEE VM with AMD SEV-SNP support."
@@ -55,6 +55,30 @@ function usage()
     exit 1
 }
 
+log_section() {
+    echo ""
+    echo "=========================================="
+    echo "$*"
+    echo "=========================================="
+}
+
+log_info() {
+    echo "  [INFO] $*"
+}
+
+log_ok() {
+    echo "  [OK] $*"
+}
+
+log_warn() {
+    echo "  [WARN] $*"
+}
+
+die() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
 # Show help if requested or insufficient arguments
 if [[ $# -lt 2 ]] || [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
     usage
@@ -62,12 +86,10 @@ fi
 
 KATANA_BINARY="$1"
 OUTPUT_INITRD="$2"
-# Use argument, or KERNEL_VERSION env var if set
 KERNEL_VERSION="${3:-${KERNEL_VERSION:?KERNEL_VERSION must be set or passed as third argument}}"
+OUTPUT_DIR="$(dirname "$OUTPUT_INITRD")"
 
-echo "=========================================="
-echo "Building Initrd"
-echo "=========================================="
+log_section "Building Initrd"
 echo "Configuration:"
 echo "  Katana binary:         $KATANA_BINARY"
 echo "  Output initrd:         $OUTPUT_INITRD"
@@ -77,94 +99,82 @@ echo ""
 echo "Package versions:"
 echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
 echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
-echo "=========================================="
-echo ""
 
-# Validate SOURCE_DATE_EPOCH
 if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
-    echo "ERROR: SOURCE_DATE_EPOCH must be set for reproducible builds"
-    echo ""
-    echo "Set SOURCE_DATE_EPOCH to a fixed timestamp, e.g.:"
-    echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
-    echo "  export SOURCE_DATE_EPOCH=\$(git log -1 --format=%ct)"
-    exit 1
+    die "SOURCE_DATE_EPOCH must be set for reproducible builds"
 fi
 
-# Validate Katana binary
 if [[ ! -f "$KATANA_BINARY" ]]; then
-    echo "ERROR: Katana binary not found: $KATANA_BINARY"
-    exit 1
+    die "Katana binary not found: $KATANA_BINARY"
+fi
+if [[ ! -x "$KATANA_BINARY" ]]; then
+    die "Katana binary is not executable: $KATANA_BINARY"
 fi
 
-# Create working directory
-WORK_DIR=$(mktemp -d)
+if [[ ! -d "$OUTPUT_DIR" ]]; then
+    mkdir -p "$OUTPUT_DIR" || die "Cannot create output directory: $OUTPUT_DIR"
+fi
+if [[ ! -w "$OUTPUT_DIR" ]]; then
+    die "Output directory is not writable: $OUTPUT_DIR"
+fi
 
+REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr)
+for tool in "${REQUIRED_TOOLS[@]}"; do
+    command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
+done
+log_ok "Preflight validation complete"
+
+WORK_DIR="$(mktemp -d)"
 cleanup() {
     local exit_code=$?
     if [[ -d "$WORK_DIR" ]]; then
         rm -rf "$WORK_DIR"
     fi
-    exit $exit_code
+    exit "$exit_code"
 }
-
-# Ensure cleanup on exit, interrupt, or termination
 trap cleanup EXIT INT TERM
 
-echo "Working directory: $WORK_DIR"
-echo ""
+log_info "Working directory: $WORK_DIR"
 
 # ==============================================================================
 # SECTION 1: Download Required Packages
 # ==============================================================================
 
-echo "Downloading required packages..."
+log_section "Download Required Packages"
 PACKAGES_DIR="$WORK_DIR/packages"
 mkdir -p "$PACKAGES_DIR"
 
 pushd "$PACKAGES_DIR" >/dev/null
 
-# Require version pinning for reproducibility
 : "${BUSYBOX_PKG_VERSION:?BUSYBOX_PKG_VERSION not set - required for reproducible builds}"
 : "${KERNEL_MODULES_EXTRA_PKG_VERSION:?KERNEL_MODULES_EXTRA_PKG_VERSION not set - required for reproducible builds}"
 
-# Download busybox-static (pinned version)
-echo "  Downloading busybox-static=${BUSYBOX_PKG_VERSION}..."
-apt-get download "busybox-static=${BUSYBOX_PKG_VERSION}" 2>&1 | grep -v "^W:"
+log_info "Downloading busybox-static=${BUSYBOX_PKG_VERSION}"
+apt-get download "busybox-static=${BUSYBOX_PKG_VERSION}"
 
-# Download kernel modules package (pinned version)
-echo "  Downloading linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}..."
-apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}" 2>&1 | grep -v "^W:"
+log_info "Downloading linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
+apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 
 echo ""
 echo "Downloaded packages:"
 ls -lh *.deb
 
-# Require checksum verification for reproducibility
 : "${BUSYBOX_PKG_SHA256:?BUSYBOX_PKG_SHA256 not set - required for reproducible builds}"
-
-echo ""
-echo "Verifying busybox-static checksum..."
-ACTUAL_SHA256=$(sha256sum busybox-static_*.deb | awk '{print $1}')
-if [[ "$ACTUAL_SHA256" != "$BUSYBOX_PKG_SHA256" ]]; then
-    echo "ERROR: busybox-static checksum mismatch!"
-    echo "  Expected: $BUSYBOX_PKG_SHA256"
-    echo "  Actual:   $ACTUAL_SHA256"
-    exit 1
-fi
-echo "[OK] busybox-static checksum verified"
-
 : "${KERNEL_MODULES_EXTRA_PKG_SHA256:?KERNEL_MODULES_EXTRA_PKG_SHA256 not set - required for reproducible builds}"
 
-echo "Verifying linux-modules-extra checksum..."
-ACTUAL_SHA256=$(sha256sum linux-modules-extra-*.deb | awk '{print $1}')
-if [[ "$ACTUAL_SHA256" != "$KERNEL_MODULES_EXTRA_PKG_SHA256" ]]; then
-    echo "ERROR: linux-modules-extra checksum mismatch!"
-    echo "  Expected: $KERNEL_MODULES_EXTRA_PKG_SHA256"
-    echo "  Actual:   $ACTUAL_SHA256"
-    exit 1
+log_info "Verifying busybox-static checksum"
+ACTUAL_SHA256="$(sha256sum busybox-static_*.deb | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$BUSYBOX_PKG_SHA256" ]]; then
+    die "busybox-static checksum mismatch (expected $BUSYBOX_PKG_SHA256, got $ACTUAL_SHA256)"
 fi
-echo "[OK] linux-modules-extra checksum verified"
-echo ""
+log_ok "busybox-static checksum verified"
+
+log_info "Verifying linux-modules-extra checksum"
+ACTUAL_SHA256="$(sha256sum linux-modules-extra-*.deb | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$KERNEL_MODULES_EXTRA_PKG_SHA256" ]]; then
+    die "linux-modules-extra checksum mismatch (expected $KERNEL_MODULES_EXTRA_PKG_SHA256, got $ACTUAL_SHA256)"
+fi
+log_ok "linux-modules-extra checksum verified"
 
 popd >/dev/null
 
@@ -172,97 +182,250 @@ popd >/dev/null
 # SECTION 2: Extract Packages
 # ==============================================================================
 
-echo "Extracting packages..."
+log_section "Extract Packages"
 EXTRACTED_DIR="$WORK_DIR/extracted"
 mkdir -p "$EXTRACTED_DIR"
 
-# Extract busybox
-echo "  Extracting busybox-static..."
+log_info "Extracting busybox-static"
 dpkg-deb -x "$PACKAGES_DIR"/busybox-static_*.deb "$EXTRACTED_DIR"
 
-# Extract kernel modules
-echo "  Extracting linux-modules-extra..."
+log_info "Extracting linux-modules-extra"
 dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
-
-echo "[OK] Packages extracted"
-echo ""
+log_ok "Packages extracted"
 
 # ==============================================================================
 # SECTION 3: Build Initrd Structure
 # ==============================================================================
 
-echo "Creating initrd directory structure..."
+log_section "Build Initrd Structure"
 INITRD_DIR="$WORK_DIR/initrd"
-mkdir -p "$INITRD_DIR"/{bin,dev,proc,sys,tmp,etc,lib/modules}
+mkdir -p "$INITRD_DIR"/{bin,dev,proc,sys,tmp,etc,lib/modules,mnt}
 
 cd "$INITRD_DIR"
 
 # ------------------------------------------------------------------------------
 # Install Busybox
 # ------------------------------------------------------------------------------
-echo "Installing busybox..."
-cp "$EXTRACTED_DIR/usr/bin/busybox" bin/busybox
+log_info "Installing busybox"
+BUSYBOX_BIN="$EXTRACTED_DIR/usr/bin/busybox"
+[[ -f "$BUSYBOX_BIN" ]] || die "busybox binary not found in extracted package: $BUSYBOX_BIN"
+
+cp "$BUSYBOX_BIN" bin/busybox
 chmod +x bin/busybox
 
-# Create symlinks for required applets
-for cmd in sh mount umount mkdir mknod switch_root ip insmod; do
-    ln -s busybox "bin/$cmd"
+if ! bin/busybox --help >/dev/null 2>&1; then
+    die "Copied busybox binary is not functional"
+fi
+
+AVAILABLE_APPLETS="$(bin/busybox --list 2>/dev/null || true)"
+[[ -n "$AVAILABLE_APPLETS" ]] || die "Could not read busybox applet list"
+
+MISSING_APPLETS=()
+for applet in "${REQUIRED_APPLETS[@]}"; do
+    if ! echo "$AVAILABLE_APPLETS" | grep -Fqx "$applet"; then
+        MISSING_APPLETS+=("$applet")
+    fi
 done
-echo "[OK] Busybox installed with symlinks"
+
+if [[ ${#MISSING_APPLETS[@]} -gt 0 ]]; then
+    die "busybox is missing required applets: ${MISSING_APPLETS[*]}"
+fi
+
+for cmd in "${SYMLINK_APPLETS[@]}"; do
+    if echo "$AVAILABLE_APPLETS" | grep -Fqx "$cmd"; then
+        ln -sf busybox "bin/$cmd"
+    fi
+done
+log_ok "Busybox installed and applets validated"
 
 # ------------------------------------------------------------------------------
 # Install SEV-SNP Kernel Modules
 # ------------------------------------------------------------------------------
-echo "Installing SEV-SNP kernel modules..."
+log_info "Installing SEV-SNP kernel modules"
 MODULES_DIR="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic/kernel/drivers/virt/coco"
 
 if [[ -d "$MODULES_DIR" ]]; then
-    # Copy and decompress tsm.ko
     if [[ -f "$MODULES_DIR/tsm.ko.zst" ]]; then
         zstd -dq "$MODULES_DIR/tsm.ko.zst" -o lib/modules/tsm.ko
-        echo "  [OK] tsm.ko (decompressed)"
+        log_ok "tsm.ko installed (decompressed)"
     elif [[ -f "$MODULES_DIR/tsm.ko" ]]; then
         cp "$MODULES_DIR/tsm.ko" lib/modules/tsm.ko
-        echo "  [OK] tsm.ko"
+        log_ok "tsm.ko installed"
     else
-        echo "  [WARN] tsm.ko not found"
+        log_warn "tsm.ko not found"
     fi
 
-    # Copy and decompress sev-guest.ko
     if [[ -f "$MODULES_DIR/sev-guest/sev-guest.ko.zst" ]]; then
         zstd -dq "$MODULES_DIR/sev-guest/sev-guest.ko.zst" -o lib/modules/sev-guest.ko
-        echo "  [OK] sev-guest.ko (decompressed)"
+        log_ok "sev-guest.ko installed (decompressed)"
     elif [[ -f "$MODULES_DIR/sev-guest/sev-guest.ko" ]]; then
         cp "$MODULES_DIR/sev-guest/sev-guest.ko" lib/modules/sev-guest.ko
-        echo "  [OK] sev-guest.ko"
+        log_ok "sev-guest.ko installed"
     else
-        echo "  [WARN] sev-guest.ko not found"
+        log_warn "sev-guest.ko not found"
     fi
 else
-    echo "  [WARN] Modules directory not found: $MODULES_DIR"
-    echo "  SEV-SNP attestation may not be available"
+    log_warn "Modules directory not found: $MODULES_DIR"
+    log_warn "SEV-SNP attestation may not be available"
 fi
 
 # ------------------------------------------------------------------------------
 # Install Katana Binary
 # ------------------------------------------------------------------------------
-echo "Installing Katana binary..."
+log_info "Installing Katana binary"
 cp "$KATANA_BINARY" bin/katana
 chmod +x bin/katana
-echo "[OK] Katana installed"
+log_ok "Katana installed"
 
 # ------------------------------------------------------------------------------
 # Create Init Script
 # ------------------------------------------------------------------------------
-echo "Creating init script..."
+log_info "Creating init script"
 cat > init <<'INIT_EOF'
-#!/bin/busybox sh
+#!/bin/sh
 # Katana TEE VM Init Script
 
 set -eu
 export PATH=/bin
 
 log() { echo "[init] $*"; }
+
+KATANA_PID=""
+KATANA_DB_DIR="/mnt/data/katana-db"
+SHUTTING_DOWN=0
+KATANA_EXIT_CODE="never"
+CONTROL_PORT_NAME="org.katana.control.0"
+CONTROL_PORT_LINK="/dev/virtio-ports/org.katana.control.0"
+
+fatal_boot() {
+    log "ERROR: $*"
+    sync || true
+    poweroff -f
+    while true; do
+        sleep 1
+    done
+}
+
+refresh_katana_state() {
+    if [ -n "$KATANA_PID" ] && ! kill -0 "$KATANA_PID" 2>/dev/null; then
+        if wait "$KATANA_PID"; then
+            KATANA_EXIT_CODE=0
+        else
+            KATANA_EXIT_CODE=$?
+        fi
+        log "Katana exited with code $KATANA_EXIT_CODE"
+        KATANA_PID=""
+    fi
+}
+
+respond_control() {
+    printf '%s\n' "$1" >&3 2>/dev/null || true
+}
+
+resolve_control_port() {
+    mkdir -p /dev/virtio-ports
+    for name_file in /sys/class/virtio-ports/*/name; do
+        [ -f "$name_file" ] || continue
+
+        PORT_NAME_VALUE="$(cat "$name_file" 2>/dev/null || true)"
+        if [ "$PORT_NAME_VALUE" != "$CONTROL_PORT_NAME" ]; then
+            continue
+        fi
+
+        PORT_DIR="${name_file%/name}"
+        PORT_DEV="/dev/${PORT_DIR##*/}"
+        if [ -e "$PORT_DEV" ]; then
+            ln -sf "$PORT_DEV" "$CONTROL_PORT_LINK"
+            echo "$CONTROL_PORT_LINK"
+            return 0
+        fi
+    done
+    return 1
+}
+
+handle_control_command() {
+    RAW_CMD="$1"
+    CMD="${RAW_CMD%% *}"
+    CMD_PAYLOAD=""
+    if [ "$CMD" != "$RAW_CMD" ]; then
+        CMD_PAYLOAD="${RAW_CMD#* }"
+    fi
+
+    case "$CMD" in
+        start)
+            refresh_katana_state
+            if [ -n "$KATANA_PID" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
+                respond_control "err already-running pid=$KATANA_PID"
+                return 0
+            fi
+
+            KATANA_ARGS=""
+            if [ -n "$CMD_PAYLOAD" ]; then
+                KATANA_ARGS="$(echo "$CMD_PAYLOAD" | tr ',' ' ')"
+            fi
+
+            log "Starting katana asynchronously..."
+            # shellcheck disable=SC2086
+            /bin/katana --db-dir="$KATANA_DB_DIR" $KATANA_ARGS &
+            KATANA_PID=$!
+            KATANA_EXIT_CODE="running"
+            respond_control "ok started pid=$KATANA_PID"
+            ;;
+
+        status)
+            refresh_katana_state
+            if [ -n "$KATANA_PID" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
+                respond_control "running pid=$KATANA_PID"
+            else
+                respond_control "stopped exit=$KATANA_EXIT_CODE"
+            fi
+            ;;
+
+        "")
+            ;;
+
+        *)
+            respond_control "err unknown-command"
+            ;;
+    esac
+}
+
+shutdown_handler() {
+    if [ "$SHUTTING_DOWN" -eq 1 ]; then
+        return 0
+    fi
+    SHUTTING_DOWN=1
+
+    log "Received shutdown signal, stopping katana..."
+    if [ -n "$KATANA_PID" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
+        kill -TERM "$KATANA_PID" 2>/dev/null || true
+
+        TIMEOUT=30
+        while [ "$TIMEOUT" -gt 0 ] && kill -0 "$KATANA_PID" 2>/dev/null; do
+            sleep 1
+            TIMEOUT=$((TIMEOUT - 1))
+        done
+
+        if kill -0 "$KATANA_PID" 2>/dev/null; then
+            log "Katana did not stop gracefully, forcing..."
+            kill -KILL "$KATANA_PID" 2>/dev/null || true
+        fi
+    fi
+
+    log "Syncing and unmounting filesystems..."
+    sync || true
+    umount /mnt/data 2>/dev/null || true
+    umount /tmp 2>/dev/null || true
+    umount /dev 2>/dev/null || true
+    umount /sys/kernel/config 2>/dev/null || true
+    umount /sys 2>/dev/null || true
+    umount /proc 2>/dev/null || true
+
+    log "Powering off VM..."
+    poweroff -f
+}
+
+trap shutdown_handler TERM INT
 
 # Mount essential filesystems
 /bin/mount -t proc proc /proc || log "WARNING: failed to mount /proc"
@@ -275,10 +438,15 @@ fi
 /bin/mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 
 # Create essential device nodes
-[ -c /dev/null ]    || /bin/mknod /dev/null c 1 3 || true
+[ -c /dev/null ] || /bin/mknod /dev/null c 1 3 || true
 [ -c /dev/console ] || /bin/mknod /dev/console c 5 1 || true
-[ -c /dev/tty ]     || /bin/mknod /dev/tty c 5 0 || true
+[ -c /dev/tty ] || /bin/mknod /dev/tty c 5 0 || true
 [ -c /dev/urandom ] || /bin/mknod /dev/urandom c 1 9 || true
+
+# Route all logs to the serial console
+exec 0</dev/console
+exec 1>/dev/console
+exec 2>/dev/console
 
 # Load SEV-SNP kernel modules
 log "Loading SEV-SNP kernel modules..."
@@ -289,21 +457,19 @@ sleep 1
 # Check for TEE attestation interfaces
 TEE_DEVICE_FOUND=0
 
-# Check ConfigFS TSM interface
+mkdir -p /sys/kernel/config
 if /bin/mount -t configfs configfs /sys/kernel/config 2>/dev/null; then
     [ -d /sys/kernel/config/tsm/report ] && TEE_DEVICE_FOUND=1 && log "ConfigFS TSM interface available"
 fi
 
-# Check SEV-SNP legacy device
 if [ -c /dev/sev-guest ]; then
     TEE_DEVICE_FOUND=1
     log "SEV-SNP device available at /dev/sev-guest"
 elif [ -f /sys/devices/virtual/misc/sev-guest/dev ]; then
-    SEV_DEV=$(cat /sys/devices/virtual/misc/sev-guest/dev)
+    SEV_DEV="$(cat /sys/devices/virtual/misc/sev-guest/dev)"
     /bin/mknod /dev/sev-guest c "${SEV_DEV%%:*}" "${SEV_DEV##*:}" && TEE_DEVICE_FOUND=1 && log "Created /dev/sev-guest"
 fi
 
-# Check TPM devices
 for tpm in /dev/tpm0 /dev/tpmrm0; do
     [ -c "$tpm" ] && TEE_DEVICE_FOUND=1 && log "TPM device available at $tpm"
 done
@@ -314,69 +480,105 @@ fi
 
 # Configure networking (QEMU user-mode defaults)
 log "Configuring network..."
-ip link set lo up 2>/dev/null || true
-ip link set eth0 up 2>/dev/null || true
-ip addr add 10.0.2.15/24 dev eth0 2>/dev/null || true
-ip route add default via 10.0.2.2 2>/dev/null || true
-
-# Parse katana args from cmdline
-CMDLINE="$(cat /proc/cmdline 2>/dev/null || true)"
-KATANA_ARGS=""
-for tok in $CMDLINE; do
-    case "$tok" in
-        katana.args=*) KATANA_ARGS="$(echo "${tok#katana.args=}" | tr ',' ' ')" ;;
-    esac
-done
-
-# Mount persistent storage
-if [ -b /dev/sda ]; then
-    log "Found storage device /dev/sda"
-    mkdir -p /mnt/data
-    if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
-        log "Formatting /dev/sda..."
-        /sbin/mkfs.ext4 -F /dev/sda && /bin/mount -t ext4 /dev/sda /mnt/data
-    fi
-    mkdir -p /mnt/data/katana-db
-    log "Storage mounted at /mnt/data"
-    # shellcheck disable=SC2086
-    exec /bin/katana --db-dir="/mnt/data/katana-db" $KATANA_ARGS 2>&1
+/bin/ip link set lo up 2>/dev/null || true
+if [ -d /sys/class/net/eth0 ]; then
+    /bin/ip link set eth0 up 2>/dev/null || true
+    /bin/ip addr add 10.0.2.15/24 dev eth0 2>/dev/null || true
+    /bin/ip route add default via 10.0.2.2 2>/dev/null || true
+    echo "nameserver 10.0.2.3" > /etc/resolv.conf
+    log "Network configured: eth0 = 10.0.2.15"
 else
-    log "No storage device found, running without persistence"
-    # shellcheck disable=SC2086
-    exec /bin/katana $KATANA_ARGS 2>&1
+    log "WARNING: eth0 interface not found; skipping static network setup"
 fi
+
+# Require persistent storage at /dev/sda
+if [ ! -b /dev/sda ]; then
+    fatal_boot "required storage device /dev/sda not found"
+fi
+
+log "Found storage device /dev/sda"
+mkdir -p /mnt/data
+if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
+    fatal_boot "failed to mount required storage device /dev/sda"
+fi
+mkdir -p "$KATANA_DB_DIR"
+log "Storage mounted at /mnt/data"
+
+# Start async control loop for Katana startup/status commands.
+log "Waiting for control channel ($CONTROL_PORT_NAME)..."
+CONTROL_PORT=""
+while [ -z "$CONTROL_PORT" ]; do
+    CONTROL_PORT="$(resolve_control_port || true)"
+    [ -n "$CONTROL_PORT" ] || sleep 1
+done
+log "Control channel ready: $CONTROL_PORT"
+
+while true; do
+    refresh_katana_state
+
+    if ! exec 3<>"$CONTROL_PORT"; then
+        log "WARNING: failed to open control channel, retrying..."
+        sleep 1
+        continue
+    fi
+
+    while IFS= read -r CONTROL_CMD <&3; do
+        handle_control_command "$CONTROL_CMD"
+    done
+
+    exec 3>&- 3<&-
+    sleep 1
+done
 INIT_EOF
 
 chmod +x init
-echo "[OK] Init script created"
+log_ok "Init script created"
 
 # ------------------------------------------------------------------------------
 # Create Minimal /etc Files
 # ------------------------------------------------------------------------------
-echo "Creating /etc files..."
-echo "root:x:0:0:root:/root:/bin/sh" > etc/passwd
+log_info "Creating /etc files"
+echo "root:x:0:0:root:/:/bin/sh" > etc/passwd
 echo "root:x:0:" > etc/group
-echo "[OK] /etc files created"
+log_ok "/etc files created"
 
 # ==============================================================================
 # SECTION 4: Create CPIO Archive
 # ==============================================================================
 
-echo ""
+log_section "Create CPIO Archive"
 echo "Initrd contents:"
-find . -type f -o -type l | sort
+find . \( -type f -o -type l \) | sort
 echo ""
 echo "Total size before compression:"
 du -sh .
 echo ""
 
-# Normalize timestamps for reproducibility
-echo "Setting timestamps to SOURCE_DATE_EPOCH ($SOURCE_DATE_EPOCH)..."
+log_info "Setting timestamps to SOURCE_DATE_EPOCH (${SOURCE_DATE_EPOCH})"
 find . -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
 
-# Create compressed cpio archive
-echo "Creating cpio archive..."
-find . -print0 | LC_ALL=C sort -z | cpio --create --format=newc --null --owner=0:0 --quiet | gzip -n > "$OUTPUT_INITRD"
+CPIO_FLAGS=(--create --format=newc --null --owner=0:0 --quiet)
+if cpio --help 2>&1 | grep -q -- "--reproducible"; then
+    CPIO_FLAGS+=(--reproducible)
+else
+    log_warn "cpio does not support --reproducible; continuing without it"
+fi
+
+log_info "Creating cpio archive"
+find . -print0 | LC_ALL=C sort -z | cpio "${CPIO_FLAGS[@]}" | gzip -n > "$OUTPUT_INITRD"
+touch -d "@${SOURCE_DATE_EPOCH}" "$OUTPUT_INITRD"
+
+# ==============================================================================
+# SECTION 5: Final Validation
+# ==============================================================================
+
+log_section "Final Validation"
+[[ -f "$OUTPUT_INITRD" ]] || die "Output file was not created: $OUTPUT_INITRD"
+[[ -s "$OUTPUT_INITRD" ]] || die "Output file is empty: $OUTPUT_INITRD"
+if ! gzip -t "$OUTPUT_INITRD" 2>/dev/null; then
+    die "Output file is not valid gzip: $OUTPUT_INITRD"
+fi
+log_ok "Output artifact validated"
 
 echo ""
 echo "=========================================="

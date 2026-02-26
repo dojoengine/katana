@@ -122,6 +122,14 @@ impl TestNode {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/db/simple");
         Self::new_from_db(&db_path).await
     }
+
+    /// Stops the node and releases all resources including the database.
+    ///
+    /// This ensures the MDBX environment is properly closed and all pending writes are
+    /// flushed. Must be called before archiving or copying database files.
+    pub async fn stop(self) -> anyhow::Result<()> {
+        self.node.stop().await
+    }
 }
 
 impl ForkTestNode {
@@ -366,4 +374,52 @@ pub fn test_config() -> Config {
     });
 
     Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), grpc, ..Default::default() }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::copy_db_dir;
+
+    /// Verifies that the spawn_and_move database fixture can be opened without corruption.
+    ///
+    /// This test catches the bug where `generate_migration_db` produced corrupted snapshots
+    /// by archiving the MDBX database files while the environment was still open under
+    /// `SyncMode::UtterlyNoSync`.
+    #[test]
+    fn open_spawn_and_move_db_fixture() {
+        let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/db/spawn_and_move");
+
+        if !fixture_path.exists() {
+            // Skip if fixtures haven't been extracted (e.g. local dev without `make fixtures`)
+            eprintln!("Skipping: fixture not found at {}", fixture_path.display());
+            return;
+        }
+
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        copy_db_dir(&fixture_path, temp_dir.path()).expect("failed to copy db files");
+
+        // This is the exact call that fails with MDBX_CORRUPTED when the fixture is bad.
+        let db = katana_db::Db::open_no_sync(temp_dir.path());
+        assert!(db.is_ok(), "fixture database is corrupted: {}", db.unwrap_err());
+    }
+
+    #[test]
+    fn open_simple_db_fixture() {
+        let fixture_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/db/simple");
+
+        if !fixture_path.exists() {
+            eprintln!("Skipping: fixture not found at {}", fixture_path.display());
+            return;
+        }
+
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        copy_db_dir(&fixture_path, temp_dir.path()).expect("failed to copy db files");
+
+        let db = katana_db::Db::open_no_sync(temp_dir.path());
+        assert!(db.is_ok(), "fixture database is corrupted: {}", db.unwrap_err());
+    }
 }
