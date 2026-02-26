@@ -137,10 +137,11 @@ impl GrpcServer {
 
         // Start the server with the already-bound listener
         tokio::spawn(async move {
-            if let Err(error) =
-                server.serve_with_incoming_shutdown(incoming, async move {
+            if let Err(error) = server
+                .serve_with_incoming_shutdown(incoming, async move {
                     let _ = shutdown_rx.changed().await;
-                }).await
+                })
+                .await
             {
                 error!(target: "grpc", %error, "gRPC server error");
             }
