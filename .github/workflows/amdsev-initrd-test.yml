@@ -54,6 +54,15 @@ jobs:
                       clang \
                       file
 
+            - name: Add Ubuntu package repo for AMDSEV artifacts
+              run: |
+                  cat >/etc/apt/sources.list.d/ubuntu-noble.list <<'EOF'
+                  deb [trusted=yes] http://archive.ubuntu.com/ubuntu noble main universe
+                  deb [trusted=yes] http://archive.ubuntu.com/ubuntu noble-updates main universe
+                  deb [trusted=yes] http://security.ubuntu.com/ubuntu noble-security main universe
+                  EOF
+                  apt-get update
+
             - uses: Swatinem/rust-cache@v2
               with:
                   key: ci-${{ github.job }}
