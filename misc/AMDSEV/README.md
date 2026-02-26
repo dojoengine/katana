@@ -39,6 +39,7 @@ If `--katana` is not provided, `build.sh` prompts for confirmation (`y/N`) befor
 | `build-ovmf.sh` | Builds OVMF firmware from AMD's fork with SEV-SNP support |
 | `build-kernel.sh` | Downloads and extracts Ubuntu kernel (`vmlinuz`) |
 | `build-initrd.sh` | Creates minimal initrd with busybox, SEV-SNP modules, and katana |
+| `test-initrd.sh` | Runs isolated initrd validation (archive checks + plain QEMU boot smoke) |
 | `build-config` | Pinned versions and checksums for reproducible builds |
 | `start-vm.sh` | Starts a TEE VM with SEV-SNP and launches Katana asynchronously |
 
@@ -154,6 +155,21 @@ The script:
 - Starts Katana asynchronously via virtio-serial control channel
 - Forwards RPC port 5050 to host port 15051
 - Outputs serial log to a temp file and follows it
+
+## Isolated Initrd Testing
+
+Use `test-initrd.sh` for focused initrd validation without the full SEV-SNP launch path:
+
+```sh
+# Run static archive/content checks and plain-QEMU boot smoke test
+./misc/AMDSEV/test-initrd.sh
+
+# Only check initrd archive contents
+./misc/AMDSEV/test-initrd.sh --static-only
+
+# Only run plain-QEMU boot smoke test
+./misc/AMDSEV/test-initrd.sh --boot-only
+```
 
 ### Launch Measurement Verification
 
