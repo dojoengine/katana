@@ -20,3 +20,13 @@ BUSYBOX_PKG_SHA256="944b2728f53ceb3916cec2c962873c9951e612408099601751db2a0a5d81
 # Kernel modules extra (Ubuntu package, for initrd SEV-SNP support)
 KERNEL_MODULES_EXTRA_PKG_VERSION="6.8.0-90.91"
 KERNEL_MODULES_EXTRA_PKG_SHA256="c17bd76779ce68a076dc1ef9b1669947f35f1868f6736dbd0a8a7ccacf7571f3"
+
+# Optional apt snapshot source for stronger reproducibility guarantees.
+# When set, build scripts use this source instead of host /etc/apt/sources.list.
+# Example:
+#   APT_SNAPSHOT_URL="http://snapshot.ubuntu.com/ubuntu/20250115T000000Z/"
+#   APT_SNAPSHOT_SUITE="noble"
+#   APT_SNAPSHOT_COMPONENTS="main"
+APT_SNAPSHOT_URL=""
+APT_SNAPSHOT_SUITE="noble"
+APT_SNAPSHOT_COMPONENTS="main"

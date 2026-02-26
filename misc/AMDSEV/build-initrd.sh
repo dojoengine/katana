@@ -20,12 +20,26 @@
 #   KERNEL_MODULES_EXTRA_PKG_VERSION REQUIRED. Exact apt package version.
 #   KERNEL_MODULES_EXTRA_PKG_SHA256  REQUIRED. SHA256 checksum of the modules .deb package.
 #
+# Optional environment (stronger package source determinism):
+#   APT_SNAPSHOT_URL
+#   APT_SNAPSHOT_SUITE
+#   APT_SNAPSHOT_COMPONENTS
+#
 # ==============================================================================
 
 set -euo pipefail
 
+# Environment normalization for reproducibility.
+export TZ=UTC
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+umask 022
+
 REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync)
 SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync)
+APT_SNAPSHOT_DIR=""
+APT_SOURCE_MODE="host"
+declare -a APT_OPTS=()
 
 usage() {
     echo "Usage: $0 KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]"
@@ -44,6 +58,9 @@ usage() {
     echo "  BUSYBOX_PKG_SHA256               SHA256 checksum of the busybox .deb package"
     echo "  KERNEL_MODULES_EXTRA_PKG_VERSION Exact apt package version for linux-modules-extra"
     echo "  KERNEL_MODULES_EXTRA_PKG_SHA256  SHA256 checksum of the linux-modules-extra .deb"
+    echo "  APT_SNAPSHOT_URL                 Optional apt snapshot URL for deterministic package resolution"
+    echo "  APT_SNAPSHOT_SUITE               Snapshot suite when APT_SNAPSHOT_URL is set"
+    echo "  APT_SNAPSHOT_COMPONENTS          Snapshot components when APT_SNAPSHOT_URL is set"
     echo ""
     echo "EXAMPLES:"
     echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
@@ -79,6 +96,47 @@ die() {
     exit 1
 }
 
+run_cmd() {
+    echo "$*"
+    "$@" || die "$*"
+}
+
+setup_apt_snapshot() {
+    : "${APT_SNAPSHOT_URL:?APT_SNAPSHOT_URL is required when snapshot mode is enabled}"
+    : "${APT_SNAPSHOT_SUITE:?APT_SNAPSHOT_SUITE is required when snapshot mode is enabled}"
+
+    local components="${APT_SNAPSHOT_COMPONENTS:-main}"
+    local sources_list
+
+    APT_SNAPSHOT_DIR="$(mktemp -d)"
+    mkdir -p "$APT_SNAPSHOT_DIR/lists/partial" "$APT_SNAPSHOT_DIR/cache/partial"
+
+    sources_list="$APT_SNAPSHOT_DIR/sources.list"
+    printf "deb [check-valid-until=no] %s %s %s\n" \
+        "$APT_SNAPSHOT_URL" "$APT_SNAPSHOT_SUITE" "$components" > "$sources_list"
+
+    APT_OPTS=(
+        -o "Dir::Etc::sourcelist=$sources_list"
+        -o "Dir::Etc::sourceparts=-"
+        -o "Dir::State::Lists=$APT_SNAPSHOT_DIR/lists"
+        -o "Dir::Cache::archives=$APT_SNAPSHOT_DIR/cache"
+        -o "Dir::State::status=/var/lib/dpkg/status"
+        -o "APT::Get::List-Cleanup=0"
+    )
+
+    log_info "Using apt snapshot source"
+    log_info "  URL: $APT_SNAPSHOT_URL"
+    log_info "  Suite: $APT_SNAPSHOT_SUITE"
+    log_info "  Components: $components"
+    run_cmd apt-get "${APT_OPTS[@]}" update
+    APT_SOURCE_MODE="snapshot"
+}
+
+apt_download() {
+    local package="$1"
+    run_cmd apt-get "${APT_OPTS[@]}" download "$package"
+}
+
 # Show help if requested or insufficient arguments
 if [[ $# -lt 2 ]] || [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
     usage
@@ -89,20 +147,17 @@ OUTPUT_INITRD="$2"
 KERNEL_VERSION="${3:-${KERNEL_VERSION:?KERNEL_VERSION must be set or passed as third argument}}"
 OUTPUT_DIR="$(dirname "$OUTPUT_INITRD")"
 
-log_section "Building Initrd"
-echo "Configuration:"
-echo "  Katana binary:         $KATANA_BINARY"
-echo "  Output initrd:         $OUTPUT_INITRD"
-echo "  Kernel version:        $KERNEL_VERSION"
-echo "  SOURCE_DATE_EPOCH:     ${SOURCE_DATE_EPOCH:-<not set>}"
-echo ""
-echo "Package versions:"
-echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
-echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
-
 if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
     die "SOURCE_DATE_EPOCH must be set for reproducible builds"
 fi
+if ! [[ "$SOURCE_DATE_EPOCH" =~ ^[0-9]+$ ]]; then
+    die "SOURCE_DATE_EPOCH must be an integer unix timestamp"
+fi
+
+: "${BUSYBOX_PKG_VERSION:?BUSYBOX_PKG_VERSION not set - required for reproducible builds}"
+: "${BUSYBOX_PKG_SHA256:?BUSYBOX_PKG_SHA256 not set - required for reproducible builds}"
+: "${KERNEL_MODULES_EXTRA_PKG_VERSION:?KERNEL_MODULES_EXTRA_PKG_VERSION not set - required for reproducible builds}"
+: "${KERNEL_MODULES_EXTRA_PKG_SHA256:?KERNEL_MODULES_EXTRA_PKG_SHA256 not set - required for reproducible builds}"
 
 if [[ ! -f "$KATANA_BINARY" ]]; then
     die "Katana binary not found: $KATANA_BINARY"
@@ -124,11 +179,32 @@ for tool in "${REQUIRED_TOOLS[@]}"; do
 done
 log_ok "Preflight validation complete"
 
+if [[ -n "${APT_SNAPSHOT_URL:-}" ]]; then
+    setup_apt_snapshot
+else
+    log_warn "APT_SNAPSHOT_URL not set, using host apt sources (weaker reproducibility)"
+fi
+
+log_section "Building Initrd"
+echo "Configuration:"
+echo "  Katana binary:         $KATANA_BINARY"
+echo "  Output initrd:         $OUTPUT_INITRD"
+echo "  Kernel version:        $KERNEL_VERSION"
+echo "  SOURCE_DATE_EPOCH:     ${SOURCE_DATE_EPOCH}"
+echo "  APT source mode:       ${APT_SOURCE_MODE}"
+echo ""
+echo "Package versions:"
+echo "  busybox-static:        ${BUSYBOX_PKG_VERSION}"
+echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION}"
+
 WORK_DIR="$(mktemp -d)"
 cleanup() {
     local exit_code=$?
-    if [[ -d "$WORK_DIR" ]]; then
+    if [[ -n "${WORK_DIR:-}" ]] && [[ -d "$WORK_DIR" ]]; then
         rm -rf "$WORK_DIR"
+    fi
+    if [[ -n "${APT_SNAPSHOT_DIR:-}" ]] && [[ -d "$APT_SNAPSHOT_DIR" ]]; then
+        rm -rf "$APT_SNAPSHOT_DIR"
     fi
     exit "$exit_code"
 }
@@ -146,21 +222,15 @@ mkdir -p "$PACKAGES_DIR"
 
 pushd "$PACKAGES_DIR" >/dev/null
 
-: "${BUSYBOX_PKG_VERSION:?BUSYBOX_PKG_VERSION not set - required for reproducible builds}"
-: "${KERNEL_MODULES_EXTRA_PKG_VERSION:?KERNEL_MODULES_EXTRA_PKG_VERSION not set - required for reproducible builds}"
-
 log_info "Downloading busybox-static=${BUSYBOX_PKG_VERSION}"
-apt-get download "busybox-static=${BUSYBOX_PKG_VERSION}"
+apt_download "busybox-static=${BUSYBOX_PKG_VERSION}"
 
 log_info "Downloading linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
-apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
+apt_download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 
 echo ""
 echo "Downloaded packages:"
 ls -lh *.deb
-
-: "${BUSYBOX_PKG_SHA256:?BUSYBOX_PKG_SHA256 not set - required for reproducible builds}"
-: "${KERNEL_MODULES_EXTRA_PKG_SHA256:?KERNEL_MODULES_EXTRA_PKG_SHA256 not set - required for reproducible builds}"
 
 log_info "Verifying busybox-static checksum"
 ACTUAL_SHA256="$(sha256sum busybox-static_*.deb | awk '{print $1}')"
@@ -187,10 +257,10 @@ EXTRACTED_DIR="$WORK_DIR/extracted"
 mkdir -p "$EXTRACTED_DIR"
 
 log_info "Extracting busybox-static"
-dpkg-deb -x "$PACKAGES_DIR"/busybox-static_*.deb "$EXTRACTED_DIR"
+run_cmd dpkg-deb -x "$PACKAGES_DIR"/busybox-static_*.deb "$EXTRACTED_DIR"
 
 log_info "Extracting linux-modules-extra"
-dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
+run_cmd dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
 log_ok "Packages extracted"
 
 # ==============================================================================
@@ -585,6 +655,7 @@ echo "=========================================="
 echo "[OK] Initrd created successfully!"
 echo "=========================================="
 echo "Output file: $OUTPUT_INITRD"
+echo "APT mode:    $APT_SOURCE_MODE"
 echo "Size:        $(du -h "$OUTPUT_INITRD" | cut -f1)"
 echo "SHA256:      $(sha256sum "$OUTPUT_INITRD" | cut -d' ' -f1)"
 echo "=========================================="

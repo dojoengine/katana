@@ -233,11 +233,45 @@ Use `ovmf-metadata` to inspect the OVMF firmware's SEV metadata sections:
 
 ## Reproducible Builds
 
-Set `SOURCE_DATE_EPOCH` for deterministic output:
+`SOURCE_DATE_EPOCH` is required for deterministic builds:
 
 ```sh
-SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) ./misc/AMDSEV/build.sh
+export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+./misc/AMDSEV/build.sh
 ```
+
+For stronger package source determinism, pin apt to a snapshot:
+
+```sh
+export APT_SNAPSHOT_URL="http://snapshot.ubuntu.com/ubuntu/20250115T000000Z/"
+export APT_SNAPSHOT_SUITE="noble"
+export APT_SNAPSHOT_COMPONENTS="main"
+```
+
+If building in a containerized pipeline, set the image digest for provenance tracking:
+
+```sh
+export BUILD_CONTAINER_IMAGE_DIGEST="sha256:<digest>"
+```
+
+Run a built-in reproducibility check (double build + hash compare):
+
+```sh
+export KATANA_STRICT_REPRO=1   # optional: requires vendored cargo deps for strict katana reproducibility
+./misc/AMDSEV/build.sh --katana /path/to/katana --repro-check
+```
+
+You can also compare two build output directories directly:
+
+```sh
+./misc/AMDSEV/verify-build.sh --compare /path/to/build-a /path/to/build-b
+```
+
+Each build writes deterministic provenance metadata to:
+- `build-info.txt`
+- `materials.lock`
+
+See [`REPRODUCIBILITY.md`](./REPRODUCIBILITY.md) for the full policy.
 
 ## Troubleshooting
 
