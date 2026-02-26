@@ -293,6 +293,9 @@ log() { echo "[init] $*"; }
 KATANA_PID=""
 KATANA_DB_DIR="/mnt/data/katana-db"
 SHUTTING_DOWN=0
+KATANA_EXIT_CODE="never"
+CONTROL_PORT_NAME="org.katana.control.0"
+CONTROL_PORT_LINK="/dev/virtio-ports/org.katana.control.0"
 
 fatal_boot() {
     log "ERROR: $*"
@@ -301,6 +304,90 @@ fatal_boot() {
     while true; do
         sleep 1
     done
+}
+
+refresh_katana_state() {
+    if [ -n "$KATANA_PID" ] && ! kill -0 "$KATANA_PID" 2>/dev/null; then
+        if wait "$KATANA_PID"; then
+            KATANA_EXIT_CODE=0
+        else
+            KATANA_EXIT_CODE=$?
+        fi
+        log "Katana exited with code $KATANA_EXIT_CODE"
+        KATANA_PID=""
+    fi
+}
+
+respond_control() {
+    printf '%s\n' "$1" >&3 2>/dev/null || true
+}
+
+resolve_control_port() {
+    mkdir -p /dev/virtio-ports
+    for name_file in /sys/class/virtio-ports/*/name; do
+        [ -f "$name_file" ] || continue
+
+        PORT_NAME_VALUE="$(cat "$name_file" 2>/dev/null || true)"
+        if [ "$PORT_NAME_VALUE" != "$CONTROL_PORT_NAME" ]; then
+            continue
+        fi
+
+        PORT_DIR="${name_file%/name}"
+        PORT_DEV="/dev/${PORT_DIR##*/}"
+        if [ -e "$PORT_DEV" ]; then
+            ln -sf "$PORT_DEV" "$CONTROL_PORT_LINK"
+            echo "$CONTROL_PORT_LINK"
+            return 0
+        fi
+    done
+    return 1
+}
+
+handle_control_command() {
+    RAW_CMD="$1"
+    CMD="${RAW_CMD%% *}"
+    CMD_PAYLOAD=""
+    if [ "$CMD" != "$RAW_CMD" ]; then
+        CMD_PAYLOAD="${RAW_CMD#* }"
+    fi
+
+    case "$CMD" in
+        start)
+            refresh_katana_state
+            if [ -n "$KATANA_PID" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
+                respond_control "err already-running pid=$KATANA_PID"
+                return 0
+            fi
+
+            KATANA_ARGS=""
+            if [ -n "$CMD_PAYLOAD" ]; then
+                KATANA_ARGS="$(echo "$CMD_PAYLOAD" | tr ',' ' ')"
+            fi
+
+            log "Starting katana asynchronously..."
+            # shellcheck disable=SC2086
+            /bin/katana --db-dir="$KATANA_DB_DIR" $KATANA_ARGS &
+            KATANA_PID=$!
+            KATANA_EXIT_CODE="running"
+            respond_control "ok started pid=$KATANA_PID"
+            ;;
+
+        status)
+            refresh_katana_state
+            if [ -n "$KATANA_PID" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
+                respond_control "running pid=$KATANA_PID"
+            else
+                respond_control "stopped exit=$KATANA_EXIT_CODE"
+            fi
+            ;;
+
+        "")
+            ;;
+
+        *)
+            respond_control "err unknown-command"
+            ;;
+    esac
 }
 
 shutdown_handler() {
@@ -404,15 +491,6 @@ else
     log "WARNING: eth0 interface not found; skipping static network setup"
 fi
 
-# Parse katana args from cmdline
-CMDLINE="$(cat /proc/cmdline 2>/dev/null || true)"
-KATANA_ARGS=""
-for tok in $CMDLINE; do
-    case "$tok" in
-        katana.args=*) KATANA_ARGS="$(echo "${tok#katana.args=}" | tr ',' ' ')" ;;
-    esac
-done
-
 # Require persistent storage at /dev/sda
 if [ ! -b /dev/sda ]; then
     fatal_boot "required storage device /dev/sda not found"
@@ -426,22 +504,30 @@ fi
 mkdir -p "$KATANA_DB_DIR"
 log "Storage mounted at /mnt/data"
 
-log "Starting katana..."
-# shellcheck disable=SC2086
-/bin/katana --db-dir="$KATANA_DB_DIR" $KATANA_ARGS &
-KATANA_PID=$!
-log "Katana started with PID $KATANA_PID"
+# Start async control loop for Katana startup/status commands.
+log "Waiting for control channel ($CONTROL_PORT_NAME)..."
+CONTROL_PORT=""
+while [ -z "$CONTROL_PORT" ]; do
+    CONTROL_PORT="$(resolve_control_port || true)"
+    [ -n "$CONTROL_PORT" ] || sleep 1
+done
+log "Control channel ready: $CONTROL_PORT"
 
-if wait "$KATANA_PID"; then
-    EXIT_CODE=0
-else
-    EXIT_CODE=$?
-fi
-log "Katana exited with code $EXIT_CODE"
-
-# PID 1 must stay alive unless explicitly powered off.
 while true; do
-    sleep 60
+    refresh_katana_state
+
+    if ! exec 3<>"$CONTROL_PORT"; then
+        log "WARNING: failed to open control channel, retrying..."
+        sleep 1
+        continue
+    fi
+
+    while IFS= read -r CONTROL_CMD <&3; do
+        handle_control_command "$CONTROL_CMD"
+    done
+
+    exec 3>&- 3<&-
+    sleep 1
 done
 INIT_EOF
 
