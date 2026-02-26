@@ -59,9 +59,77 @@ jobs:
           path: ./crates/contracts/build
           retention-days: 1
 
+  reproducibility-check:
+    name: reproducibility-check (linux-amd64)
+    needs: [prepare, build-contracts]
+    runs-on: ubuntu-latest-8-cores
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set SOURCE_DATE_EPOCH
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> $GITHUB_ENV
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-artifacts
+          path: ./crates/contracts/build
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        name: Rust Toolchain Setup
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          target: ${{ env.TARGET }}
+          cache-on-failure: true
+          cache-key: reproducibility-${{ env.TARGET }}
+
+      - name: Verify vendored dependency archive
+        shell: bash
+        run: |
+          ./scripts/release/verify-vendor-archive.sh --extract-check
+
+      - name: Build (pass 1)
+        shell: bash
+        run: |
+          ./scripts/release/build-katana-vendored.sh --target "$TARGET"
+          SHA_ONE=$(sha256sum "./target/$TARGET/performance/katana" | awk '{ print $1 }')
+          echo "sha_one=$SHA_ONE" >> $GITHUB_ENV
+
+      - name: Build (pass 2)
+        shell: bash
+        run: |
+          rm -rf ./target
+          ./scripts/release/build-katana-vendored.sh --target "$TARGET"
+          SHA_TWO=$(sha256sum "./target/$TARGET/performance/katana" | awk '{ print $1 }')
+          echo "sha_two=$SHA_TWO" >> $GITHUB_ENV
+
+      - name: Compare hashes
+        shell: bash
+        run: |
+          echo "Build #1 SHA256: $sha_one"
+          echo "Build #2 SHA256: $sha_two"
+          if [[ "$sha_one" != "$sha_two" ]]; then
+            echo "Reproducibility check failed: hashes differ."
+            exit 1
+          fi
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## Reproducibility Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- target: \`$TARGET\`" >> $GITHUB_STEP_SUMMARY
+          echo "- SOURCE_DATE_EPOCH: \`$SOURCE_DATE_EPOCH\`" >> $GITHUB_STEP_SUMMARY
+          echo "- sha256(build #1): \`$sha_one\`" >> $GITHUB_STEP_SUMMARY
+          echo "- sha256(build #2): \`$sha_two\`" >> $GITHUB_STEP_SUMMARY
+
   release:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }}${{ matrix.job.native_build == true && ', native' || '' }})
-    needs: [prepare, build-contracts]
+    needs: [prepare, build-contracts, reproducibility-check]
     runs-on: ${{ matrix.job.os }}
     env:
       PLATFORM_NAME: ${{ matrix.job.platform }}
@@ -117,6 +185,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set SOURCE_DATE_EPOCH
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> $GITHUB_ENV
 
       - name: Download contract artifacts
         uses: actions/download-artifact@v4
@@ -204,17 +277,22 @@ jobs:
           # See: https://github.com/jemalloc/jemalloc/issues/467
           echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
 
+      - name: Verify vendored dependency archive
+        shell: bash
+        run: |
+          ./scripts/release/verify-vendor-archive.sh --extract-check
+
       - name: Build binary
         if: ${{ matrix.job.native_build == false }}
         shell: bash
         run: |
-          cargo build -p katana --bin katana --profile performance --target ${{ matrix.job.target }}
+          ./scripts/release/build-katana-vendored.sh --target "${{ matrix.job.target }}"
 
       - name: Build binary ( w/ cairo-native )
         if: ${{ matrix.job.native_build == true }}
         shell: bash
         run: |
-          cargo build -p katana --bin katana --profile performance --features native --target ${{ matrix.job.target }}
+          ./scripts/release/build-katana-vendored.sh --target "${{ matrix.job.target }}" --native
 
       - name: Archive binaries
         id: artifacts
