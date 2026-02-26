@@ -155,30 +155,6 @@ The script:
 - Forwards RPC port 5050 to host port 15051
 - Outputs serial log to a temp file and follows it
 
-### Start Katana via Control Channel
-
-To start Katana manually over the control channel:
-
-```sh
-# 1) Boot VM without auto-starting Katana
-sudo ./misc/AMDSEV/start-vm.sh --no-start
-
-# 2) Use the control socket printed by start-vm.sh (example path below)
-CONTROL_SOCKET=/tmp/katana-tee-vm-control.12345.sock
-
-# 3) Start Katana with comma-separated CLI args
-printf 'start --http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp\n' \
-  | socat - UNIX-CONNECT:"$CONTROL_SOCKET"
-
-# 4) Check launcher status
-printf 'status\n' | socat - UNIX-CONNECT:"$CONTROL_SOCKET"
-```
-
-Control responses:
-- `ok started pid=...` means Katana was launched.
-- `running pid=...` means Katana is still running.
-- `stopped exit=...` means Katana is not running.
-
 ### Launch Measurement Verification
 
 To verify a TEE VM's integrity, compute the expected launch measurement using `snp-digest`:
