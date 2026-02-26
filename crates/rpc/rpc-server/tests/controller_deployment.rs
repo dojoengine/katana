@@ -21,7 +21,7 @@ use katana_pool::ordering::FiFo;
 use katana_pool::pool::Pool;
 use katana_pool::validation::NoopValidator;
 use katana_primitives::transaction::ExecutableTxWithHash;
-use katana_primitives::{felt, Felt};
+use katana_primitives::Felt;
 use katana_provider::test_utils::test_provider;
 use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi, StarknetApiConfig};
