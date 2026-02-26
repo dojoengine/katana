@@ -84,8 +84,17 @@ if [[ $# -lt 2 ]] || [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
     usage
 fi
 
-KATANA_BINARY="$1"
-OUTPUT_INITRD="$2"
+to_abs_path() {
+    local path="$1"
+    if [[ "$path" = /* ]]; then
+        printf '%s\n' "$path"
+    else
+        printf '%s/%s\n' "$(pwd -P)" "$path"
+    fi
+}
+
+KATANA_BINARY="$(to_abs_path "$1")"
+OUTPUT_INITRD="$(to_abs_path "$2")"
 KERNEL_VERSION="${3:-${KERNEL_VERSION:?KERNEL_VERSION must be set or passed as third argument}}"
 OUTPUT_DIR="$(dirname "$OUTPUT_INITRD")"
 
