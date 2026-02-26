@@ -291,8 +291,17 @@ export PATH=/bin
 log() { echo "[init] $*"; }
 
 KATANA_PID=""
-KATANA_DB_DIR="/tmp/katana-data"
+KATANA_DB_DIR="/mnt/data/katana-db"
 SHUTTING_DOWN=0
+
+fatal_boot() {
+    log "ERROR: $*"
+    sync || true
+    poweroff -f
+    while true; do
+        sleep 1
+    done
+}
 
 shutdown_handler() {
     if [ "$SHUTTING_DOWN" -eq 1 ]; then
@@ -404,21 +413,18 @@ for tok in $CMDLINE; do
     esac
 done
 
-# Mount persistent storage with fallback
-mkdir -p "$KATANA_DB_DIR"
-if [ -b /dev/sda ]; then
-    log "Found storage device /dev/sda"
-    mkdir -p /mnt/data
-    if /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
-        mkdir -p /mnt/data/katana-db
-        KATANA_DB_DIR="/mnt/data/katana-db"
-        log "Storage mounted at /mnt/data"
-    else
-        log "WARNING: failed to mount /dev/sda, using tmpfs fallback"
-    fi
-else
-    log "No storage device found, using tmpfs fallback"
+# Require persistent storage at /dev/sda
+if [ ! -b /dev/sda ]; then
+    fatal_boot "required storage device /dev/sda not found"
 fi
+
+log "Found storage device /dev/sda"
+mkdir -p /mnt/data
+if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
+    fatal_boot "failed to mount required storage device /dev/sda"
+fi
+mkdir -p "$KATANA_DB_DIR"
+log "Storage mounted at /mnt/data"
 
 log "Starting katana..."
 # shellcheck disable=SC2086
