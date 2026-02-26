@@ -4,7 +4,8 @@
 # ==============================================================================
 #
 # Runs a focused initrd boot smoke test without requiring the full SEV-SNP
-# launch path. Uses plain QEMU (no OVMF/SEV) and validates Katana RPC readiness.
+# launch path. Uses plain QEMU (no OVMF/SEV), starts Katana through the
+# async control channel, and validates RPC readiness.
 #
 # Usage:
 #   ./test-initrd.sh [OPTIONS]
@@ -35,6 +36,7 @@ TEST_DISK_SIZE="${TEST_DISK_SIZE:-1G}"
 TEMP_DIR="$(mktemp -d /tmp/katana-amdsev-initrd-test.XXXXXX)"
 SERIAL_LOG="${TEMP_DIR}/serial.log"
 DISK_IMG="${TEMP_DIR}/test-disk.img"
+CONTROL_SOCKET="${TEMP_DIR}/katana-control.sock"
 QEMU_PID=""
 
 usage() {
@@ -66,6 +68,80 @@ die() {
 require_tool() {
     local tool="$1"
     command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
+}
+
+print_serial_output() {
+    if [ -f "$SERIAL_LOG" ]; then
+        echo "=== Serial output ===" >&2
+        tail -n 200 "$SERIAL_LOG" >&2 || true
+    fi
+}
+
+assert_qemu_running() {
+    local message="$1"
+    if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+        warn "QEMU exited unexpectedly"
+        print_serial_output
+        die "$message"
+    fi
+}
+
+send_control_command() {
+    local cmd="$1"
+    printf '%s\n' "$cmd" | socat -T 5 - UNIX-CONNECT:"$CONTROL_SOCKET" 2>/dev/null | head -n 1 | tr -d '\r'
+}
+
+wait_for_control_channel() {
+    local response=""
+
+    for ((elapsed = 1; elapsed <= BOOT_TIMEOUT; elapsed++)); do
+        assert_qemu_running "Boot smoke test failed"
+
+        if [ -S "$CONTROL_SOCKET" ]; then
+            response="$(send_control_command status || true)"
+            case "$response" in
+                running\ *|stopped\ *)
+                    log "Control channel ready: $response"
+                    return 0
+                    ;;
+            esac
+        fi
+
+        if (( elapsed % 5 == 0 )); then
+            log "Waiting for control channel... (${elapsed}s/${BOOT_TIMEOUT}s)"
+        fi
+        sleep 1
+    done
+
+    warn "Timed out waiting for control channel"
+    print_serial_output
+    die "Boot smoke test timed out"
+}
+
+start_katana_via_control_channel() {
+    local start_cmd="start --http.addr,0.0.0.0,--http.port,${VM_RPC_PORT},--tee.provider,sev-snp"
+    local response=""
+
+    for ((elapsed = 1; elapsed <= BOOT_TIMEOUT; elapsed++)); do
+        assert_qemu_running "Boot smoke test failed"
+
+        response="$(send_control_command "$start_cmd" || true)"
+        case "$response" in
+            ok\ started\ *|err\ already-running\ *)
+                log "Katana start acknowledged: $response"
+                return 0
+                ;;
+        esac
+
+        if (( elapsed % 5 == 0 )); then
+            log "Waiting for Katana start acknowledgement... (${elapsed}s/${BOOT_TIMEOUT}s)"
+        fi
+        sleep 1
+    done
+
+    warn "Timed out waiting for Katana start acknowledgement"
+    print_serial_output
+    die "Boot smoke test timed out"
 }
 
 cleanup() {
@@ -160,6 +236,7 @@ run_boot_smoke_test() {
     require_tool curl
     require_tool mkfs.ext4
     require_tool truncate
+    require_tool socat
 
     truncate -s "$TEST_DISK_SIZE" "$DISK_IMG"
     mkfs.ext4 -q -F "$DISK_IMG"
@@ -181,7 +258,10 @@ run_boot_smoke_test() {
         -serial "file:$SERIAL_LOG" \
         -kernel "$KERNEL_FILE" \
         -initrd "$INITRD_FILE" \
-        -append "console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,${VM_RPC_PORT},--tee.provider,sev-snp" \
+        -append "console=ttyS0" \
+        -device virtio-serial-pci,id=virtio-serial0 \
+        -chardev "socket,id=katanactl,path=${CONTROL_SOCKET},server=on,wait=off" \
+        -device virtserialport,chardev=katanactl,name=org.katana.control.0 \
         -device virtio-scsi-pci,id=scsi0 \
         -drive "file=${DISK_IMG},format=raw,if=none,id=disk0,cache=none" \
         -device scsi-hd,drive=disk0,bus=scsi0.0 \
@@ -192,15 +272,11 @@ run_boot_smoke_test() {
     QEMU_PID=$!
     log "QEMU started with PID $QEMU_PID"
 
+    wait_for_control_channel
+    start_katana_via_control_channel
+
     for ((elapsed = 1; elapsed <= BOOT_TIMEOUT; elapsed++)); do
-        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-            warn "QEMU exited before RPC became ready"
-            if [ -f "$SERIAL_LOG" ]; then
-                echo "=== Serial output ===" >&2
-                tail -n 200 "$SERIAL_LOG" >&2 || true
-            fi
-            die "Boot smoke test failed"
-        fi
+        assert_qemu_running "Boot smoke test failed"
 
         response="$(curl -s --max-time 2 -X POST \
             -H "Content-Type: application/json" \
@@ -220,10 +296,7 @@ run_boot_smoke_test() {
 
     if [ "$ready" -ne 1 ]; then
         warn "Timed out waiting for Katana RPC"
-        if [ -f "$SERIAL_LOG" ]; then
-            echo "=== Serial output ===" >&2
-            tail -n 200 "$SERIAL_LOG" >&2 || true
-        fi
+        print_serial_output
         die "Boot smoke test timed out"
     fi
 

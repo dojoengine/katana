@@ -49,6 +49,7 @@ jobs:
                       zstd \
                       e2fsprogs \
                       curl \
+                      socat \
                       musl-tools \
                       clang
 
