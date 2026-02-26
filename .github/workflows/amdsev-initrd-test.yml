@@ -61,6 +61,7 @@ jobs:
               run: make contracts
 
             - name: Build required VM components
+              shell: bash
               run: |
                   set -euo pipefail
                   source misc/AMDSEV/build-config
