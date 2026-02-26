@@ -6,6 +6,7 @@
 - [Cairo Native](#cairo-native)
 - [Explorer](#explorer)
 - [Testing](#testing)
+- [Release Reproducibility](#release-reproducibility)
 
 ## Development Setup
 
@@ -101,4 +102,26 @@ Once setup is complete, you can run the tests using:
 
 ```bash
 cargo nextest run
+```
+
+## Release Reproducibility
+
+Katana release binaries are built from a vendored Cargo dependency archive committed in this repository:
+
+- `third_party/cargo/vendor.tar.gz.part-*`
+- `third_party/cargo/vendor.tar.gz.sha256`
+- `third_party/cargo/VENDOR_MANIFEST.lock`
+
+The archive is committed as split parts to stay under GitHub's per-file size limit.
+
+When dependencies change, refresh these artifacts in the same PR:
+
+```bash
+make vendor-refresh
+```
+
+You can verify integrity and lockfile consistency locally with:
+
+```bash
+make vendor-verify
 ```
