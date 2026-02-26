@@ -40,7 +40,7 @@ If `--katana` is not provided, `build.sh` prompts for confirmation (`y/N`) befor
 | `build-kernel.sh` | Downloads and extracts Ubuntu kernel (`vmlinuz`) |
 | `build-initrd.sh` | Creates minimal initrd with busybox, SEV-SNP modules, and katana |
 | `build-config` | Pinned versions and checksums for reproducible builds |
-| `start-vm.sh` | Starts a TEE VM with SEV-SNP enabled using QEMU |
+| `start-vm.sh` | Starts a TEE VM with SEV-SNP and launches Katana asynchronously |
 
 ## SNP Tools
 
@@ -69,6 +69,9 @@ cargo build -p snp-tools
 
 ## Running
 
+The QEMU command below boots the VM but does not automatically start Katana.  
+Katana must be started asynchronously via the control channel.
+
 ```sh
 qemu-system-x86_64 \
     # Use KVM hardware virtualization (required for SEV-SNP)
@@ -93,9 +96,40 @@ qemu-system-x86_64 \
     # Initial ramdisk containing katana (measured when kernel-hashes=on)
     -initrd output/qemu/initrd.img \
     # Kernel command line (measured when kernel-hashes=on)
-    # katana.args passes arguments to katana via init script
-    -append "console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp" \
+    -append "console=ttyS0" \
+    # Katana control channel (used to start Katana asynchronously after boot)
+    -device virtio-serial-pci,id=virtio-serial0 \
+    -chardev socket,id=katanactl,path=/tmp/katana-control.sock,server=on,wait=off \
+    -device virtserialport,chardev=katanactl,name=org.katana.control.0 \
     ..
+```
+
+### Start Katana via Control Channel
+
+In the QEMU example above, this line defines the host-side control channel endpoint:
+
+```sh
+-chardev socket,id=katanactl,path=/tmp/katana-control.sock,server=on,wait=off
+```
+
+The `path=/tmp/katana-control.sock` value is the Unix socket file on the host.  
+That socket is connected to the guest virtio-serial port:
+
+```sh
+-device virtserialport,chardev=katanactl,name=org.katana.control.0
+```
+
+So writes to that Unix socket become control commands inside the VM (`start`, `status`).
+
+Example:
+
+```sh
+# Start Katana with comma-separated CLI args
+printf 'start --http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp\n' \
+  | socat - UNIX-CONNECT:/tmp/katana-control.sock
+
+# Check launcher status
+printf 'status\n' | socat - UNIX-CONNECT:/tmp/katana-control.sock
 ```
 
 ## Running the VM
@@ -108,11 +142,16 @@ sudo ./misc/AMDSEV/start-vm.sh
 
 # Or specify a custom boot components directory
 sudo ./misc/AMDSEV/start-vm.sh /path/to/boot-components
+
+# Or customize Katana runtime flags (comma-separated)
+sudo ./misc/AMDSEV/start-vm.sh --katana-args "--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp,--dev"
 ```
 
 The script:
 - Starts QEMU with SEV-SNP confidential computing enabled
 - Uses direct kernel boot with kernel-hashes=on for attestation
+- Keeps kernel cmdline stable (`console=ttyS0`) for deterministic measurement
+- Starts Katana asynchronously via virtio-serial control channel
 - Forwards RPC port 5050 to host port 15051
 - Outputs serial log to a temp file and follows it
 
@@ -129,7 +168,7 @@ cargo build -p snp-tools
     --ovmf output/qemu/OVMF.fd \
     --kernel output/qemu/vmlinuz \
     --initrd output/qemu/initrd.img \
-    --append "console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp" \
+    --append "console=ttyS0" \
     --vcpus 1 \
     --cpu epyc-v4 \
     --vmm qemu \
