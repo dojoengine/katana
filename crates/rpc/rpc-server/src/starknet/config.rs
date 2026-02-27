@@ -40,22 +40,4 @@ pub struct StarknetApiConfig {
     /// [`VersionedConstants`](katana_executor::implementation::blockifier::blockifier::VersionedConstants)
     /// used for execution (i.e., estimates, simulation, and call)
     pub versioned_constant_overrides: Option<VersionedConstantsOverrides>,
-
-    #[cfg(feature = "cartridge")]
-    pub paymaster: Option<CartridgePaymasterConfig>,
-}
-
-/// Configuration for controller deployment during fee estimation.
-///
-/// This is used to deploy Cartridge controller accounts during fee estimation
-/// so that the fee estimation can be performed correctly.
-#[cfg(feature = "cartridge")]
-#[derive(Debug, Clone)]
-pub struct CartridgePaymasterConfig {
-    /// The root URL for the Cartridge API.
-    pub cartridge_api_url: url::Url,
-    /// The paymaster account address used for controller deployment.
-    pub paymaster_address: katana_primitives::ContractAddress,
-    /// The paymaster account private key.
-    pub paymaster_private_key: katana_primitives::Felt,
 }

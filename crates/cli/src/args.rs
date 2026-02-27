@@ -1034,7 +1034,7 @@ explorer = true
     #[test]
     #[cfg(feature = "server")]
     fn parse_cors_origins() {
-        use katana_rpc_server::cors::HeaderValue;
+        use katana_rpc_server::middleware::cors::HeaderValue;
 
         let result = SequencerNodeArgs::parse_from([
             "katana",

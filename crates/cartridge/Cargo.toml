@@ -10,10 +10,11 @@ build = "build.rs"
 katana-contracts.workspace = true
 katana-genesis.workspace = true
 katana-primitives.workspace = true
-katana-rpc-types = { path = "../rpc/rpc-types" }
+katana-rpc-types = { workspace = true  }
 
 anyhow.workspace = true
 ark-ff = "0.4.2"
+cainome-cairo-serde.workspace = true
 lazy_static.workspace = true
 reqwest.workspace = true
 serde.workspace = true

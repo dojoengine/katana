@@ -36,24 +36,23 @@ use http::{HeaderMap, HeaderName, HeaderValue};
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
-use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
+use katana_core::service::block_producer::BlockProducer;
 use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
-use katana_pool::{TransactionPool, TxPool};
+use katana_pool::TxPool;
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
+use katana_primitives::execution::Call;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::api::state::{StateFactoryProvider, StateProvider};
+use katana_provider::api::state::StateProvider;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::cartridge::CartridgeApiServer;
-use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_api::paymaster::PaymasterApiClient;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::cartridge::FeeSource;
-use katana_rpc_types::outside_execution::{
-    OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
-};
+use katana_rpc_types::outside_execution::OutsideExecution;
 use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use paymaster_rpc::{
@@ -62,20 +61,18 @@ use paymaster_rpc::{
 };
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
-use starknet_paymaster::core::types::Call as PaymasterCall;
+use starknet_paymaster::core::types::Call as StarknetRsCall;
 use tracing::{debug, info};
 use url::Url;
 #[cfg(feature = "vrf")]
-pub use vrf::VrfServiceConfig;
-use vrf::{outside_execution_calls_len, request_random_call, VrfService};
+use vrf::get_request_random_call;
+pub use vrf::{VrfService, VrfServiceConfig};
 
 #[derive(Debug, Clone)]
 pub struct CartridgeConfig {
     pub api_url: Url,
     pub paymaster_url: Url,
     pub paymaster_api_key: Option<String>,
-    pub controller_deployer_address: ContractAddress,
-    pub controller_deployer_private_key: Felt,
     #[cfg(feature = "vrf")]
     pub vrf: Option<vrf::VrfServiceConfig>,
 }
@@ -86,12 +83,8 @@ pub struct CartridgeApi<PF: ProviderFactory> {
     backend: Arc<Backend<PF>>,
     block_producer: BlockProducer<PF>,
     pool: TxPool,
-    api_client: cartridge::Client,
+    api_client: cartridge::CartridgeApiClient,
     paymaster_client: HttpClient,
-    /// The paymaster account address used for controller deployment.
-    controller_deployer_address: ContractAddress,
-    /// The paymaster account private key.
-    controller_deployer_private_key: Felt,
     #[cfg(feature = "vrf")]
     vrf_service: Option<VrfService>,
 }
@@ -108,8 +101,6 @@ where
             pool: self.pool.clone(),
             api_client: self.api_client.clone(),
             paymaster_client: self.paymaster_client.clone(),
-            controller_deployer_address: self.controller_deployer_address,
-            controller_deployer_private_key: self.controller_deployer_private_key,
             #[cfg(feature = "vrf")]
             vrf_service: self.vrf_service.clone(),
         }
@@ -129,7 +120,7 @@ where
         task_spawner: TaskSpawner,
         config: CartridgeConfig,
     ) -> anyhow::Result<Self> {
-        let api_client = cartridge::Client::new(config.api_url);
+        let api_client = cartridge::CartridgeApiClient::new(config.api_url);
         #[cfg(feature = "vrf")]
         let vrf_service = config.vrf.map(VrfService::new);
 
@@ -154,91 +145,54 @@ where
             pool,
             api_client,
             paymaster_client,
-            controller_deployer_address: config.controller_deployer_address,
-            controller_deployer_private_key: config.controller_deployer_private_key,
             #[cfg(feature = "vrf")]
             vrf_service,
         })
     }
 
-    fn nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
-        match self.pool.get_nonce(address) {
-            pending_nonce @ Some(..) => Ok(pending_nonce),
-            None => Ok(self.state()?.nonce(address)?),
-        }
-    }
-
-    fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {
-        match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => Ok(self.backend.storage.provider().latest()?),
-            BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
-        }
-    }
-
     pub async fn execute_outside(
         &self,
-        address: ContractAddress,
+        contract_address: ContractAddress,
         outside_execution: OutsideExecution,
         signature: Vec<Felt>,
         fee_source: Option<FeeSource>,
-    ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
-        debug!(%address, ?outside_execution, "Adding execute outside transaction.");
+    ) -> Result<AddInvokeTransactionResponse, CartridgeApiError> {
+        debug!(%contract_address, ?outside_execution, "Adding execute outside transaction.");
         self.on_cpu_blocking_task(move |this| async move {
-            let pm_address = this.controller_deployer_address;
-            let pm_private_key = this.controller_deployer_private_key;
+            let entry_point_selector = outside_execution.selector();
+            let mut calldata = outside_execution.as_felts();
+            calldata.extend(signature.clone());
 
-            // ====================== CONTROLLER DEPLOYMENT ======================
-            let state = this.state().map(Arc::new)?;
-            let is_controller_deployed = state.class_hash_of_contract(address)?.is_some();
-
-            if !is_controller_deployed {
-                debug!(target: "rpc::cartridge", controller = %address, "Controller not yet deployed");
-                if let Some(tx) = craft_deploy_cartridge_controller_tx(
-                    &this.api_client,
-                    address,
-                    pm_address,
-                    pm_private_key,
-                    this.backend.chain_spec.id(),
-                    this.nonce(pm_address)?.unwrap_or_default(),
-                ).await? {
-                    debug!(target: "rpc::cartridge", controller = %address, tx = format!("{:#x}", tx.hash), "Inserting Controller deployment transaction");
-                    this.pool.add_transaction(tx).await?;
-                    this.block_producer.force_mine();
-                }
-            }
-            // ===================================================================
-
-            let mut execute_from_outside_call =
-                build_execute_from_outside_call(address, &outside_execution, &signature);
-            let mut user_address: Felt = address.into();
+            let mut call: Call = Call { contract_address, entry_point_selector, calldata };
+            let mut user_address: Felt = contract_address.into();
 
             #[cfg(feature = "vrf")]
             if let Some(vrf_service) = &this.vrf_service {
                 // check first if the outside execution calls include a request_random call
                 if let Some((request_random_call, position)) =
-                    request_random_call(&outside_execution)
+                    get_request_random_call(&outside_execution)
                 {
-                    let calls_len = outside_execution_calls_len(&outside_execution);
-                    if position + 1 >= calls_len {
-                        return Err(StarknetApiError::unexpected(
-                            "request_random call must be followed by another call",
-                        ));
+                    if position + 1 >= outside_execution.len() {
+                        return Err(CartridgeApiError::VrfMissingFollowUpCall);
                     }
-                    if request_random_call.to != vrf_service.account_address() {
-                        return Err(StarknetApiError::unexpected(
-                            "request_random call must target the vrf account",
-                        ));
+
+                    if request_random_call.contract_address != vrf_service.account_address() {
+                        return Err(CartridgeApiError::VrfInvalidTarget);
                     }
 
                     // Delegate VRF computation to the VRF server
                     let chain_id = this.backend.chain_spec.id();
                     let result = vrf_service
-                        .outside_execution(address, &outside_execution, &signature, chain_id)
+                        .outside_execution(
+                            contract_address,
+                            &outside_execution,
+                            &signature,
+                            chain_id,
+                        )
                         .await?;
 
-                    user_address = result.address;
-                    execute_from_outside_call =
-                        build_execute_from_outside_call_from_vrf_result(&result);
+                    user_address = result.address.into();
+                    call = result.into();
                 }
             }
 
@@ -247,24 +201,30 @@ where
                     gas_token: DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(),
                     tip: Default::default(),
                 },
-                _ => FeeMode::Sponsored {
-                    tip: Default::default(),
+                _ => FeeMode::Sponsored { tip: Default::default() },
+            };
+
+            let invoke = RawInvokeParameters {
+                user_address,
+                gas_token: None,
+                max_gas_token_amount: None,
+                execute_from_outside_call: StarknetRsCall {
+                    calldata: call.calldata,
+                    to: call.contract_address.into(),
+                    selector: call.entry_point_selector,
                 },
             };
 
             let request = ExecuteRawRequest {
-                transaction: ExecuteRawTransactionParameters::RawInvoke {
-                    invoke: RawInvokeParameters {
-                        user_address,
-                        execute_from_outside_call,
-                        gas_token: None,
-                        max_gas_token_amount: None,
-                    },
-                },
+                transaction: ExecuteRawTransactionParameters::RawInvoke { invoke },
                 parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
             };
 
-            let response = this.paymaster_client.execute_raw_transaction(request).await.map_err(StarknetApiError::unexpected)?;
+            let response =
+                this.paymaster_client.execute_raw_transaction(request).await.map_err(|e| {
+                    CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() }
+                })?;
+
             Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })
         })
         .await?
@@ -272,7 +232,7 @@ where
 
     /// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking
     /// pool.
-    async fn on_cpu_blocking_task<T, F>(&self, func: T) -> Result<F::Output, StarknetApiError>
+    async fn on_cpu_blocking_task<T, F>(&self, func: T) -> Result<F::Output, CartridgeApiError>
     where
         T: FnOnce(Self) -> F,
         F: Future + Send + 'static,
@@ -295,9 +255,9 @@ where
 
         match self.task_spawner.cpu_bound().spawn(task).await {
             TaskResult::Ok(result) => Ok(result),
-            TaskResult::Err(err) => {
-                Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
-            }
+            TaskResult::Err(err) => Err(CartridgeApiError::InternalError {
+                reason: format!("task execution failed: {err}"),
+            }),
         }
     }
 }
@@ -335,13 +295,8 @@ where
 pub fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
     let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
     for call in calls {
-        execute_calldata.push(call.contract_address.into());
-        execute_calldata.push(call.entry_point_selector);
-
-        execute_calldata.push(call.calldata.len().into());
-        execute_calldata.extend_from_slice(&call.calldata);
+        execute_calldata.extend(Call::cairo_serialize(&call));
     }
-
     execute_calldata
 }
 
@@ -358,7 +313,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
     tx: &ExecutableTxWithHash,
     chain_id: ChainId,
     state: Arc<Box<dyn StateProvider>>,
-    cartridge_api_client: &cartridge::Client,
+    cartridge_api_client: &cartridge::CartridgeApiClient,
 ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
     // The whole Cartridge paymaster flow would only be accessible mainly from the Controller
     // wallet. The Controller wallet only supports V3 transactions (considering < V3
@@ -396,7 +351,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
 ///
 /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
 pub async fn craft_deploy_cartridge_controller_tx(
-    cartridge_api_client: &cartridge::Client,
+    cartridge_api_client: &cartridge::CartridgeApiClient,
     controller_address: ContractAddress,
     paymaster_address: ContractAddress,
     paymaster_private_key: Felt,
@@ -443,52 +398,4 @@ pub async fn craft_deploy_cartridge_controller_tx(
     } else {
         Ok(None)
     }
-}
-
-fn build_execute_from_outside_call_data(
-    address: ContractAddress,
-    outside_execution: &OutsideExecution,
-    signature: &Vec<Felt>,
-) -> katana_rpc_types::outside_execution::Call {
-    let entrypoint = match outside_execution {
-        OutsideExecution::V2(_) => selector!("execute_from_outside_v2"),
-        OutsideExecution::V3(_) => selector!("execute_from_outside_v3"),
-    };
-
-    let mut calldata = match outside_execution {
-        OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(v2),
-        OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(v3),
-    };
-
-    calldata.extend(Vec::<Felt>::cairo_serialize(signature));
-
-    katana_rpc_types::outside_execution::Call { to: address, selector: entrypoint, calldata }
-}
-
-fn build_execute_from_outside_call(
-    address: ContractAddress,
-    outside_execution: &OutsideExecution,
-    signature: &Vec<Felt>,
-) -> PaymasterCall {
-    let call = build_execute_from_outside_call_data(address, outside_execution, signature);
-    PaymasterCall { to: call.to.into(), selector: call.selector, calldata: call.calldata }
-}
-
-fn build_execute_from_outside_call_from_vrf_result(
-    result: &cartridge::vrf::SignedOutsideExecution,
-) -> PaymasterCall {
-    let (selector, calldata) = match &result.outside_execution {
-        cartridge::vrf::VrfOutsideExecution::V2(v2) => {
-            let mut calldata = OutsideExecutionV2::cairo_serialize(v2);
-            calldata.extend(Vec::<Felt>::cairo_serialize(&result.signature));
-            (selector!("execute_from_outside_v2"), calldata)
-        }
-        cartridge::vrf::VrfOutsideExecution::V3(v3) => {
-            let mut calldata = OutsideExecutionV3::cairo_serialize(v3);
-            calldata.extend(Vec::<Felt>::cairo_serialize(&result.signature));
-            (selector!("execute_from_outside_v3"), calldata)
-        }
-    };
-
-    PaymasterCall { to: result.address, selector, calldata }
 }

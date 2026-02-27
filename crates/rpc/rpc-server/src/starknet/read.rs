@@ -1,16 +1,11 @@
-#[cfg(feature = "cartridge")]
-use std::sync::Arc;
-
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
-#[cfg(feature = "cartridge")]
-use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
@@ -31,8 +26,6 @@ use katana_rpc_types::{
 };
 
 use super::StarknetApi;
-#[cfg(feature = "cartridge")]
-use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
@@ -186,70 +179,6 @@ where
         let flags = katana_executor::ExecutionFlags::new()
             .with_account_validation(should_validate)
             .with_nonce_check(false);
-
-        // Hook the estimate fee to pre-deploy the controller contract
-        // and enhance UX on the client side.
-        // Refer to the `handle_cartridge_controller_deploy` function in `cartridge.rs`
-        // for more details.
-        #[cfg(feature = "cartridge")]
-        let transactions = if let Some(paymaster) = &self.inner.config.paymaster {
-            let paymaster_address = paymaster.paymaster_address;
-            let paymaster_private_key = paymaster.paymaster_private_key;
-
-            let state =
-                self.storage().provider().latest().map(Arc::new).map_err(StarknetApiError::from)?;
-
-            let mut ctrl_deploy_txs = Vec::new();
-
-            // Check if any of the transactions are sent from an address associated with a Cartridge
-            // Controller account. If yes, we craft a Controller deployment transaction
-            // for each of the unique sender and push it at the beginning of the
-            // transaction list so that all the requested transactions are executed against a state
-            // with the Controller accounts deployed.
-
-            let paymaster_nonce = match self.nonce_at(block_id, paymaster_address).await {
-                Ok(nonce) => nonce,
-                Err(err) => match err {
-                    StarknetApiError::ContractNotFound => {
-                        return Err(StarknetApiError::unexpected(
-                            "Cartridge paymaster account doesn't exist",
-                        )
-                        .into());
-                    }
-                    _ => return Err(ErrorObjectOwned::from(err)),
-                },
-            };
-
-            for tx in &transactions {
-                let api = ::cartridge::Client::new(paymaster.cartridge_api_url.clone());
-
-                let deploy_controller_tx =
-                    cartridge::get_controller_deploy_tx_if_controller_address(
-                        paymaster_address,
-                        paymaster_private_key,
-                        paymaster_nonce,
-                        tx,
-                        self.inner.chain_spec.id(),
-                        state.clone(),
-                        &api,
-                    )
-                    .await
-                    .map_err(StarknetApiError::from)?;
-
-                if let Some(tx) = deploy_controller_tx {
-                    ctrl_deploy_txs.push(tx);
-                }
-            }
-
-            if !ctrl_deploy_txs.is_empty() {
-                ctrl_deploy_txs.extend(transactions);
-                ctrl_deploy_txs
-            } else {
-                transactions
-            }
-        } else {
-            transactions
-        };
 
         let permit =
             self.inner.estimate_fee_permit.acquire().await.map_err(|e| {

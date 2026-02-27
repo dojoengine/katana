@@ -11,6 +11,8 @@ use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
+#[cfg(feature = "cartridge")]
+use jsonrpsee::core::middleware::layer::Either;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
@@ -48,23 +50,44 @@ use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
-use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
+#[cfg(feature = "cartridge")]
+use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
+use katana_rpc_server::middleware::cors::Cors;
+use katana_rpc_server::middleware::logger::RpcLoggerLayer;
+use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
 #[cfg(feature = "paymaster")]
 use katana_rpc_server::paymaster::PaymasterProxy;
-#[cfg(feature = "cartridge")]
-use katana_rpc_server::starknet::CartridgePaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
-use katana_rpc_server::{RpcServer, RpcServerHandle};
+use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
+#[cfg(feature = "cartridge")]
+use starknet::signers::SigningKey;
+use tower::layer::util::{Identity, Stack};
 use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
+
+/// The concrete type of the RPC middleware stack used by the node.
+#[cfg(feature = "cartridge")]
+type NodeRpcMiddleware<PF> = Stack<
+    Either<ControllerDeploymentLayer<TxPool, BlockProducer<PF>, PF>, Identity>,
+    Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
+>;
+
+#[cfg(not(feature = "cartridge"))]
+type NodeRpcMiddleware = Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>;
+
+#[cfg(feature = "cartridge")]
+pub type NodeRpcServer<PF> = RpcServer<NodeRpcMiddleware<PF>>;
+
+#[cfg(not(feature = "cartridge"))]
+pub type NodeRpcServer = RpcServer<NodeRpcMiddleware>;
 
 /// A node instance.
 ///
@@ -73,7 +96,7 @@ use crate::exit::NodeStoppedFuture;
 #[derive(Debug)]
 pub struct Node<P>
 where
-    P: ProviderFactory,
+    P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
@@ -81,7 +104,10 @@ where
     provider: P,
     config: Arc<Config>,
     pool: TxPool,
-    rpc_server: RpcServer,
+    #[cfg(feature = "cartridge")]
+    rpc_server: NodeRpcServer<P>,
+    #[cfg(not(feature = "cartridge"))]
+    rpc_server: NodeRpcServer,
     #[cfg(feature = "grpc")]
     grpc_server: Option<GrpcServer>,
     task_manager: TaskManager,
@@ -212,73 +238,20 @@ where
 
         let mut rpc_modules = RpcModule::new(());
 
-        let cors = Cors::new()
-        .allow_origins(config.rpc.cors_origins.clone())
         // Allow `POST` when accessing the resource
-        .allow_methods([Method::POST, Method::GET])
-        .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
+        let cors = Cors::new()
+            .allow_origins(config.rpc.cors_origins.clone())
+            .allow_methods([Method::POST, Method::GET])
+            .allow_headers([
+                CONTENT_TYPE,
+                "argent-client".parse().unwrap(),
+                "argent-version".parse().unwrap(),
+            ]);
 
         #[cfg(feature = "paymaster")]
         if let Some(cfg) = &config.paymaster {
             let proxy = PaymasterProxy::new(cfg.url.clone(), cfg.api_key.clone())?;
             rpc_modules.merge(proxy.into_rpc())?;
-        };
-
-        #[cfg(feature = "cartridge")]
-        let cartridge_paymaster = if let Some(cfg) = &config.paymaster {
-            if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
-                anyhow::ensure!(
-                    config.rpc.apis.contains(&RpcModuleKind::Cartridge),
-                    "Cartridge API should be enabled when paymaster is set"
-                );
-
-                #[cfg(feature = "vrf")]
-                let vrf = if let Some(vrf) = &cartridge_api_cfg.vrf {
-                    use url::Url;
-
-                    let rpc_url = Url::parse(&format!("http://{}", config.rpc.socket_addr()))
-                        .expect("valid rpc url");
-
-                    Some(katana_rpc_server::cartridge::VrfServiceConfig {
-                        rpc_url,
-                        service_url: vrf.url.clone(),
-                        vrf_contract: vrf.vrf_account,
-                    })
-                } else {
-                    None
-                };
-
-                let cartridge_api_config = CartridgeConfig {
-                    paymaster_url: cfg.url.clone(),
-                    paymaster_api_key: cfg.api_key.clone(),
-                    api_url: cartridge_api_cfg.cartridge_api_url.clone(),
-                    controller_deployer_address: cartridge_api_cfg.controller_deployer_address,
-                    controller_deployer_private_key: cartridge_api_cfg
-                        .controller_deployer_private_key,
-                    #[cfg(feature = "vrf")]
-                    vrf,
-                };
-
-                let cartrige_api = CartridgeApi::new(
-                    backend.clone(),
-                    block_producer.clone(),
-                    pool.clone(),
-                    task_spawner.clone(),
-                    cartridge_api_config,
-                )?;
-
-                rpc_modules.merge(CartridgeApiServer::into_rpc(cartrige_api))?;
-
-                Some(CartridgePaymasterConfig {
-                    cartridge_api_url: cartridge_api_cfg.cartridge_api_url.clone(),
-                    paymaster_address: cartridge_api_cfg.controller_deployer_address,
-                    paymaster_private_key: cartridge_api_cfg.controller_deployer_private_key,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
         };
 
         // --- build starknet api
@@ -290,8 +263,6 @@ where
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: execution_flags,
             versioned_constant_overrides,
-            #[cfg(feature = "cartridge")]
-            paymaster: cartridge_paymaster,
         };
 
         let chain_spec = backend.chain_spec.clone();
@@ -331,6 +302,71 @@ where
             rpc_modules.merge(katana_rpc_api::txpool::TxPoolApiServer::into_rpc(api))?;
         }
 
+        // --- build cartridge api (plus middleware)
+
+        #[cfg(feature = "cartridge")]
+        let controller_deployment_layer = if let Some(cfg) = &config.paymaster {
+            if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
+                use anyhow::ensure;
+                use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
+
+                ensure!(
+                    config.rpc.apis.contains(&RpcModuleKind::Cartridge),
+                    "Cartridge API should be enabled when paymaster is set"
+                );
+
+                #[cfg(feature = "vrf")]
+                let vrf = if let Some(vrf) = &cartridge_api_cfg.vrf {
+                    use url::Url;
+
+                    let rpc_url = Url::parse(&format!("http://{}", config.rpc.socket_addr()))
+                        .expect("valid rpc url");
+
+                    Some(katana_rpc_server::cartridge::VrfServiceConfig {
+                        rpc_url,
+                        service_url: vrf.url.clone(),
+                        vrf_contract: vrf.vrf_account,
+                    })
+                } else {
+                    None
+                };
+
+                let cartridge_api_client =
+                    cartridge::CartridgeApiClient::new(cartridge_api_cfg.cartridge_api_url.clone());
+
+                let cartridge_api_config = CartridgeConfig {
+                    paymaster_url: cfg.url.clone(),
+                    paymaster_api_key: cfg.api_key.clone(),
+                    api_url: cartridge_api_cfg.cartridge_api_url.clone(),
+                    #[cfg(feature = "vrf")]
+                    vrf: vrf.clone(),
+                };
+
+                let cartrige_api = CartridgeApi::new(
+                    backend.clone(),
+                    block_producer.clone(),
+                    pool.clone(),
+                    task_spawner.clone(),
+                    cartridge_api_config,
+                )?;
+
+                rpc_modules.merge(CartridgeApiServer::into_rpc(cartrige_api))?;
+
+                Some(ControllerDeploymentLayer::new(
+                    starknet_api.clone(),
+                    cartridge_api_client,
+                    cartridge_api_cfg.controller_deployer_address,
+                    SigningKey::from_secret_scalar(
+                        cartridge_api_cfg.controller_deployer_private_key,
+                    ),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // --- build tee api (if configured)
         #[cfg(feature = "tee")]
         if config.rpc.apis.contains(&RpcModuleKind::Tee) {
@@ -362,9 +398,22 @@ where
             }
         }
 
+        // --- build rpc middleware
+
+        let rpc_middleware = RpcServiceBuilder::new()
+            .layer(RpcServerMetricsLayer::new(&rpc_modules))
+            .layer(RpcLoggerLayer::new());
+
+        #[cfg(feature = "cartridge")]
+        let rpc_middleware = rpc_middleware.option_layer(controller_deployment_layer);
+
         #[allow(unused_mut)]
-        let mut rpc_server =
-            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+        let mut rpc_server = RpcServer::new()
+            .rpc_middleware(rpc_middleware)
+            .metrics(true)
+            .health_check(true)
+            .cors(cors)
+            .module(rpc_modules)?;
 
         #[cfg(feature = "explorer")]
         {
@@ -574,7 +623,7 @@ impl Node<ForkProviderFactory> {
 
 impl<P> Node<P>
 where
-    P: ProviderFactory,
+    P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
@@ -685,7 +734,14 @@ where
     }
 
     /// Returns a reference to the node's JSON-RPC server.
-    pub fn rpc(&self) -> &RpcServer {
+    #[cfg(feature = "cartridge")]
+    pub fn rpc(&self) -> &NodeRpcServer<P> {
+        &self.rpc_server
+    }
+
+    /// Returns a reference to the node's JSON-RPC server.
+    #[cfg(not(feature = "cartridge"))]
+    pub fn rpc(&self) -> &NodeRpcServer {
         &self.rpc_server
     }
 
@@ -709,7 +765,7 @@ where
 #[derive(Debug)]
 pub struct LaunchedNode<P>
 where
-    P: ProviderFactory,
+    P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
@@ -727,7 +783,7 @@ where
 
 impl<P> LaunchedNode<P>
 where
-    P: ProviderFactory,
+    P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
