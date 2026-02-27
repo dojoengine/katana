@@ -1,7 +1,6 @@
-use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
-use starknet::ContractAddress;
-use starknet::contract_address_const;
 use core::poseidon::poseidon_hash_span;
+use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
+use starknet::{ContractAddress, contract_address_const};
 use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatcherTrait};
 
 fn deploy_storage_commitment() -> ContractAddress {
@@ -81,7 +80,7 @@ fn test_verify_flow() {
     // Compute the commitment hash (simulating SP1 verifier output)
     let commitment_hash = compute_commitment(
         storage_commitment, storage_contract, 0, // nonce = 0
-         storage_state_root, 0,
+        storage_state_root, 0,
     );
 
     // Register the commitment (simulating what KatanaTee does)
@@ -166,7 +165,7 @@ fn test_state_root_must_change() {
 
     // Second commitment with nonce=1 but SAME state_root
     let commitment_hash_1 = compute_commitment(
-        storage_commitment2, storage_contract, 1, storage_state_root, 0, // same state_root!
+        storage_commitment2, storage_contract, 1, storage_state_root, 0 // same state_root!
     );
     dispatcher.register_verified_commitment(commitment_hash_1);
 

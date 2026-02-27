@@ -10,12 +10,12 @@ use amd_tee_registry::cert_cache::CertCacheComponent::{
 };
 use amd_tee_registry::tee_registry::AMDTEERegistry;
 use katana_tee::{IKatanaTeeDispatcher, IKatanaTeeDispatcherTrait};
-use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatcherTrait};
 use snforge_std::fs::{FileParser, FileTrait, read_txt};
 use snforge_std::{
     ContractClassTrait, DeclareResultTrait, EventSpyTrait, EventsFilterTrait, declare, spy_events,
 };
 use starknet::ContractAddress;
+use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatcherTrait};
 
 /// Garaga SP1 Groth16 Verifier class hash (deployed on mainnet and sepolia)
 const GARAGA_CLASS_HASH: felt252 =
@@ -24,7 +24,7 @@ const GARAGA_CLASS_HASH: felt252 =
 /// SP1 program ID for the AMD attestation verifier
 const SP1_PROGRAM_ID_LOW: felt252 = 0x8323ce49dba9b22fc128157fb9cb4ff0;
 const SP1_PROGRAM_ID_HIGH: felt252 = 0x008d500940a54e9411d515f14090769b;
- 
+
 /// Max time difference for attestation validation (1 year for testing with old fixtures)
 const MAX_TIME_DIFF: u64 = 31536000;
 
@@ -70,20 +70,15 @@ fn deploy_storage_commitment_registry() -> ContractAddress {
     contract_address
 }
 
-/// Deploy the KatanaTee contract for testing
+/// Deploy the KatanaTee contract for testing, with StorageCommitment authorized.
 fn deploy_katana_tee(registry_address: ContractAddress) -> ContractAddress {
-    let contract = declare("KatanaTee").unwrap().contract_class();
-    let storage_commitment_registry = deploy_storage_commitment_registry();
-
-    let mut calldata: Array<felt252> = array![];
-    calldata.append(registry_address.into());
-    calldata.append(storage_commitment_registry.into());
-
-    let (contract_address, _) = contract.deploy(@calldata).unwrap();
-    contract_address
+    let (katana_address, _) = deploy_katana_tee_and_storage_commitment_registry(registry_address);
+    katana_address
 }
 
-fn deploy_katana_tee_and_storage_commitment_registry(registry_address: ContractAddress) -> (ContractAddress, ContractAddress) {
+fn deploy_katana_tee_and_storage_commitment_registry(
+    registry_address: ContractAddress,
+) -> (ContractAddress, ContractAddress) {
     let contract = declare("KatanaTee").unwrap().contract_class();
     let storage_commitment_registry = deploy_storage_commitment_registry();
 
@@ -92,6 +87,14 @@ fn deploy_katana_tee_and_storage_commitment_registry(registry_address: ContractA
     calldata.append(storage_commitment_registry.into());
 
     let (katana_contract_address, _) = contract.deploy(@calldata).unwrap();
+
+    // Authorize KatanaTee to register commitments on StorageCommitment.
+    // The deployer (test contract) calls set_authorized_caller.
+    let sc_dispatcher = IStorageCommitmentDispatcher {
+        contract_address: storage_commitment_registry,
+    };
+    sc_dispatcher.set_authorized_caller(katana_contract_address);
+
     (katana_contract_address, storage_commitment_registry)
 }
 
@@ -173,9 +176,14 @@ fn test_verify_blocks_with_cache_progression() {
 fn test_verify_and_update_state() {
     // Use a dummy address for the registry
     let registry_address = deploy_amd_registry_live_mode();
-    let (katana_address, storage_commitment_registry_address) = deploy_katana_tee_and_storage_commitment_registry(registry_address);
+    let (katana_address, storage_commitment_registry_address) =
+        deploy_katana_tee_and_storage_commitment_registry(
+        registry_address,
+    );
     let katana_dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
-    let storage_commitment_dispatcher = IStorageCommitmentDispatcher { contract_address: storage_commitment_registry_address };
+    let storage_commitment_dispatcher = IStorageCommitmentDispatcher {
+        contract_address: storage_commitment_registry_address,
+    };
 
     let sp1_proof = load_calldata_from_fixture("../../tests/fixtures/sp1_proof_as_calldata.txt");
     let state_root: felt252 = 0x4ff77ff86b29cd49b7c37d57fa7f1ea06d6c09145c4e18e82fb9667359f2c26;
@@ -187,9 +195,9 @@ fn test_verify_and_update_state() {
 
     // events_commitment=0 for legacy fixtures (will fail with 4-field Poseidon mismatch
     // but test is #[ignore] and needs new fixtures anyway)
-    let (result, end_block_number) = katana_dispatcher.verify_and_update_state(
-        sp1_proof, state_root, block_hash, block_number, 0, 0,
-    ).unwrap();
+    let (result, end_block_number) = katana_dispatcher
+        .verify_and_update_state(sp1_proof, state_root, block_hash, block_number, 0, 0)
+        .unwrap();
 
     // Get events AFTER the action
     let events = spy.get_events().emitted_by(katana_address);
@@ -221,9 +229,11 @@ fn test_verify_and_update_state() {
     let storage_commitment_felt: felt252 = storage_commitment.try_into().unwrap();
 
     println!("Checking storage commitment: {:x}", storage_commitment);
-    assert(storage_commitment_dispatcher.is_registered(storage_commitment_felt), 'Commitment not registered');
+    assert(
+        storage_commitment_dispatcher.is_registered(storage_commitment_felt),
+        'Commitment not registered',
+    );
 }
-
 use core::poseidon::poseidon_hash_span;
 
 /// Helper function to compute commitment the same way as sharding contract

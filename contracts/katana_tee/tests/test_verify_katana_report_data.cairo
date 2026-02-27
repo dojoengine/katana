@@ -5,8 +5,7 @@ use core::poseidon::poseidon_hash_span;
 use katana_tee::katana_report_utils::verify_katana_report_data;
 
 fn build_report_data(
-    state_root: felt252, block_hash: felt252, fork_block_number: u64,
-    events_commitment: felt252,
+    state_root: felt252, block_hash: felt252, fork_block_number: u64, events_commitment: felt252,
 ) -> u512 {
     let commitment = poseidon_hash_span(
         array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),

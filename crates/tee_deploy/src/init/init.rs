@@ -16,9 +16,10 @@ use crate::state::DeploymentState;
 use anyhow::{Context, Result};
 use clap::Args;
 use rand::random;
-use starknet_core::types::Felt;
+use starknet_core::types::{Call, Felt};
+use starknet_core::utils::get_selector_from_name;
 use starknet_rust::{
-    accounts::SingleOwnerAccount,
+    accounts::{Account, SingleOwnerAccount},
     providers::{jsonrpc::HttpTransport, JsonRpcClient, Provider, Url},
     signers::{LocalWallet, SigningKey},
 };
@@ -255,6 +256,32 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         info!("KatanaTee was already deployed, deployment block unknown");
         None
     };
+
+    // Authorize KatanaTee as the only caller allowed to register commitments
+    // on StorageCommitment. This must happen after both contracts are deployed.
+    info!(
+        "Setting KatanaTee ({:#064x}) as authorized caller on StorageCommitment ({:#064x})...",
+        katana_address, storage_commitment_address
+    );
+    let set_authorized_tx = account
+        .execute_v3(vec![Call {
+            to: storage_commitment_address,
+            selector: get_selector_from_name("set_authorized_caller")
+                .expect("valid ASCII selector"),
+            calldata: vec![katana_address],
+        }])
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("set_authorized_caller on StorageCommitment: {}", e))?;
+
+    info!("Waiting for set_authorized_caller tx to be confirmed...");
+    let _ = watch_tx(
+        &provider,
+        set_authorized_tx.transaction_hash,
+        POLLING_INTERVAL,
+    )
+    .await;
+    info!("StorageCommitment authorized caller set to KatanaTee");
 
     let state = DeploymentState {
         deployment_block,
