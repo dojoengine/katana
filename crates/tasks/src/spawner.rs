@@ -4,9 +4,10 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
-use crate::{CpuBlockingJoinHandle, Inner, JoinError, JoinHandle};
+use crate::manager::Inner;
+use crate::{CpuBlockingJoinHandle, JoinError, JoinHandle, TaskId};
 
 /// A spawner for spawning tasks on the [`TaskManager`] that it was derived from.
 ///
@@ -56,6 +57,18 @@ impl TaskSpawner {
     pub(crate) fn cancellation_token(&self) -> &CancellationToken {
         &self.inner.on_cancel
     }
+
+    pub(crate) fn next_task_id(&self) -> TaskId {
+        let id = self.inner.next_task_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        TaskId::new(id)
+    }
+
+    pub(crate) fn set_shutdown_initiator(&self, task_id: TaskId) {
+        let mut initiator = self.inner.shutdown_initiator.lock().unwrap();
+        if initiator.is_none() {
+            *initiator = Some(task_id);
+        }
+    }
 }
 
 /// A task spawner dedicated for spawning CPU-bound blocking tasks.
@@ -85,6 +98,8 @@ impl CPUBoundTaskSpawner {
 pub struct TaskBuilder<'a> {
     /// The task manager that the task will be spawned on.
     spawner: &'a TaskSpawner,
+    /// The unique ID of the task.
+    id: TaskId,
     /// The name of the task.
     name: Option<String>,
     /// Notifies the task manager to perform a graceful shutdown when the task is finished due to
@@ -95,7 +110,13 @@ pub struct TaskBuilder<'a> {
 impl<'a> TaskBuilder<'a> {
     /// Creates a new task builder associated with the given task manager.
     pub(crate) fn new(spawner: &'a TaskSpawner) -> Self {
-        Self { spawner, name: None, graceful_shutdown: false }
+        let id = spawner.next_task_id();
+        Self { spawner, id, name: None, graceful_shutdown: false }
+    }
+
+    /// Returns the unique ID of the task.
+    pub fn id(&self) -> TaskId {
+        self.id
     }
 
     /// Sets the name of the task.
@@ -138,9 +159,10 @@ impl<'a> TaskBuilder<'a> {
     where
         F: Future + Send + 'static,
     {
+        let task_id = self.id;
         let task_name = self.name.clone();
         let graceful_shutdown = self.graceful_shutdown;
-        let cancellation_token = self.spawner.cancellation_token().clone();
+        let spawner = self.spawner.clone();
 
         // Tokio already catches panics in the spawned task, but we are unable to handle it directly
         // inside the task without awaiting on it. So we catch it ourselves and resume it
@@ -148,18 +170,22 @@ impl<'a> TaskBuilder<'a> {
         AssertUnwindSafe(fut).catch_unwind().map(move |result| match result {
             Ok(value) => {
 	            if graceful_shutdown {
-	                debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
-	                cancellation_token.cancel();
+	                info!(target: "tasks", id = %task_id, task = ?task_name, "Task with graceful shutdown completed.");
+	                spawner.set_shutdown_initiator(task_id);
+	                spawner.cancellation_token().cancel();
+	            } else {
+	                debug!(target: "tasks", id = %task_id, task = ?task_name, "Task completed.");
 	            }
 	           value
             },
             Err(error) => {
 	            // get the panic reason message
                 let reason = error.downcast_ref::<String>();
-                error!(target = "tasks", task = ?task_name, ?reason, "Task panicked.");
+                error!(target = "tasks", id = %task_id, task = ?task_name, ?reason, "Task panicked.");
 
                 if graceful_shutdown {
-                    cancellation_token.cancel();
+                    spawner.set_shutdown_initiator(task_id);
+                    spawner.cancellation_token().cancel();
                 }
 
                 std::panic::resume_unwind(error);
@@ -172,26 +198,31 @@ impl<'a> TaskBuilder<'a> {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
+        let task_id = self.id;
         let task_name = self.name.clone();
         let graceful_shutdown = self.graceful_shutdown;
-        let cancellation_token = self.spawner.cancellation_token().clone();
+        let spawner = self.spawner.clone();
 
         move || {
             match panic::catch_unwind(AssertUnwindSafe(func)) {
                 Ok(value) => {
                     if graceful_shutdown {
-                        debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
-                        cancellation_token.cancel();
+                        info!(target: "tasks", id = %task_id, task = ?task_name, "Task with graceful shutdown completed.");
+                        spawner.set_shutdown_initiator(task_id);
+                        spawner.cancellation_token().cancel();
+                    } else {
+                        debug!(target: "tasks", id = %task_id, task = ?task_name, "Task completed.");
                     }
                     value
                 }
                 Err(error) => {
                     // get the panic reason message
                     let reason = error.downcast_ref::<String>();
-                    error!(target = "tasks", task = ?task_name, ?reason, "Task panicked.");
+                    error!(target = "tasks", id = %task_id, task = ?task_name, ?reason, "Task panicked.");
 
                     if graceful_shutdown {
-                        cancellation_token.cancel();
+                        spawner.set_shutdown_initiator(task_id);
+                        spawner.cancellation_token().cancel();
                     }
 
                     std::panic::resume_unwind(error);
