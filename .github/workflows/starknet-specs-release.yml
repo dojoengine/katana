@@ -78,7 +78,8 @@ jobs:
           TAG="${{ steps.latest-release.outputs.tag }}"
           EXISTING=$(gh issue list \
             --repo ${{ github.repository }} \
-            --label "starknet-specs-release" \
+            --label "rpc" \
+            --label "automated" \
             --search "starknet-specs release ${TAG}" \
             --state all \
             --json number \
@@ -164,5 +165,6 @@ jobs:
           gh issue create \
             --repo ${{ github.repository }} \
             --title "starknet-specs release ${TAG}" \
-            --label "starknet-specs-release" \
+            --label "rpc" \
+            --label "automated" \
             --body-file /tmp/issue-body.md
