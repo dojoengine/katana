@@ -36,22 +36,22 @@ def compare_params(old_params, new_params):
 
     for name in sorted(set(new_by_name) - set(old_by_name)):
         req = new_by_name[name].get("required", True)
-        changes.append(f"  - Parameter `{name}` added (required: `{req}`)")
+        changes.append(f"Parameter `{name}` added (required: `{req}`)")
 
     for name in sorted(set(old_by_name) - set(new_by_name)):
-        changes.append(f"  - Parameter `{name}` removed")
+        changes.append(f"Parameter `{name}` removed")
 
     for name in sorted(set(old_by_name) & set(new_by_name)):
         old_p, new_p = old_by_name[name], new_by_name[name]
         if old_p.get("required", True) != new_p.get("required", True):
             changes.append(
-                f"  - Parameter `{name}`: required changed "
+                f"Parameter `{name}`: required "
                 f"`{old_p.get('required', True)}` → `{new_p.get('required', True)}`"
             )
         if schema_fingerprint(old_p.get("schema")) != schema_fingerprint(
             new_p.get("schema")
         ):
-            changes.append(f"  - Parameter `{name}`: schema changed")
+            changes.append(f"Parameter `{name}`: schema changed")
 
     return changes
 
@@ -61,7 +61,7 @@ def compare_result(old_result, new_result):
     old_schema = schema_fingerprint(old_result.get("schema") if old_result else None)
     new_schema = schema_fingerprint(new_result.get("schema") if new_result else None)
     if old_schema != new_schema:
-        return ["  - Return type changed"]
+        return ["Return type changed"]
     return []
 
 
@@ -71,9 +71,9 @@ def compare_errors(old_errors, new_errors):
     new_set = {schema_fingerprint(e) for e in new_errors}
     changes = []
     for e in sorted(new_set - old_set):
-        changes.append(f"  - Error added: `{extract_ref_name(json.loads(e))}`")
+        changes.append(f"Error added: `{extract_ref_name(json.loads(e))}`")
     for e in sorted(old_set - new_set):
-        changes.append(f"  - Error removed: `{extract_ref_name(json.loads(e))}`")
+        changes.append(f"Error removed: `{extract_ref_name(json.loads(e))}`")
     return changes
 
 
@@ -128,7 +128,7 @@ def diff_api(old_spec, new_spec):
 
 
 def format_section(title, filename, added, removed, changed, new_map):
-    """Format a single API section as markdown."""
+    """Format a single API section as a markdown table."""
     lines = [f"### {title} (`{filename}`)", ""]
 
     if not added and not removed and not changed:
@@ -136,27 +136,20 @@ def format_section(title, filename, added, removed, changed, new_map):
         lines.append("")
         return lines, 0, 0, 0
 
-    if added:
-        lines.append("#### New Methods")
-        for name in added:
-            params_str = format_method_params(new_map.get(name, {}))
-            lines.append(f"- `{name}` — {params_str}")
-        lines.append("")
+    lines.append("| Method | Status | Details |")
+    lines.append("|--------|--------|---------|")
 
-    if removed:
-        lines.append("#### Removed Methods")
-        for name in removed:
-            lines.append(f"- `{name}`")
-        lines.append("")
+    for name in added:
+        params_str = format_method_params(new_map.get(name, {}))
+        lines.append(f"| `{name}` | Added | {params_str} |")
 
-    if changed:
-        lines.append("#### Changed Methods")
-        for name, changes in changed.items():
-            lines.append(f"- **`{name}`**")
-            for c in changes:
-                lines.append(c)
-        lines.append("")
+    for name in removed:
+        lines.append(f"| `{name}` | Removed | |")
 
+    for name, details in changed.items():
+        lines.append(f"| `{name}` | Changed | {'; '.join(details)} |")
+
+    lines.append("")
     return lines, len(added), len(removed), len(changed)
 
 

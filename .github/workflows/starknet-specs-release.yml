@@ -1,9 +1,17 @@
+# Tracks new releases of starkware-libs/starknet-specs.
+#
+# Compares the latest stable release against RPC_SPEC_VERSION in
+# crates/rpc/rpc-api/src/starknet.rs. If a newer version exists,
+# diffs the OpenRPC spec files (read, write, trace) and opens a
+# tracking issue with the changes.
+#
+# Deduplication: skips if version matches or a matching issue already exists.
 name: Starknet Specs Release Tracker
 
 on:
   schedule:
-    - cron: "0 9 * * 1" # Check every Monday at 9:00 AM UTC
-  workflow_dispatch: # Allow manual triggering
+    - cron: "0 9 * * 1" # Every Monday at 9:00 AM UTC
+  workflow_dispatch:
 
 jobs:
   check-release:
