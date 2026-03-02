@@ -4,9 +4,9 @@ Katana release binaries use a vendored Cargo dependency archive to reduce non-de
 
 ## Vendored Artifacts
 
-- `third_party/cargo/vendor.tar.gz.part-*`
-- `third_party/cargo/vendor.tar.gz.sha256`
-- `third_party/cargo/VENDOR_MANIFEST.lock`
+- `vendor/cargo/vendor.tar.gz.part-*`
+- `vendor/cargo/vendor.tar.gz.sha256`
+- `vendor/cargo/VENDOR_MANIFEST.lock`
 
 The archive is stored as split parts to remain below GitHub's per-file blob limit.
 
@@ -27,9 +27,9 @@ make vendor-refresh
 Commit all of the following in the same PR:
 
 - `Cargo.lock`
-- `third_party/cargo/vendor.tar.gz.part-*`
-- `third_party/cargo/vendor.tar.gz.sha256`
-- `third_party/cargo/VENDOR_MANIFEST.lock`
+- `vendor/cargo/vendor.tar.gz.part-*`
+- `vendor/cargo/vendor.tar.gz.sha256`
+- `vendor/cargo/VENDOR_MANIFEST.lock`
 
 ## Validation
 

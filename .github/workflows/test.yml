@@ -13,7 +13,7 @@ on:
             - "crates/**/*.rs"
             - "crates/**/Cargo.toml"
             - "scripts/release/*.sh"
-            - "third_party/cargo/**"
+            - "vendor/cargo/**"
             - ".github/workflows/test.yml"
 
     pull_request:
@@ -26,7 +26,7 @@ on:
             - "crates/**/*.rs"
             - "crates/**/Cargo.toml"
             - "scripts/release/*.sh"
-            - "third_party/cargo/**"
+            - "vendor/cargo/**"
             - ".github/workflows/test.yml"
 
 # Cancel in progress workflow when a new one is triggered by running in a concurrency group
@@ -71,7 +71,7 @@ jobs:
                   CHANGED_FILES="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
 
                   if echo "$CHANGED_FILES" | grep -q "^Cargo.lock$"; then
-                      if ! echo "$CHANGED_FILES" | grep -Eq "^third_party/cargo/(vendor\.tar\.gz\.part-[0-9]+|vendor\.tar\.gz\.sha256|VENDOR_MANIFEST\.lock)$"; then
+                      if ! echo "$CHANGED_FILES" | grep -Eq "^vendor/cargo/(vendor\.tar\.gz\.part-[0-9]+|vendor\.tar\.gz\.sha256|VENDOR_MANIFEST\.lock)$"; then
                           echo "Cargo.lock changed but vendored dependency artifacts were not refreshed."
                           echo "Run: make vendor-refresh"
                           exit 1

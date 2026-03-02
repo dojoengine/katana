@@ -41,7 +41,9 @@ crates/contracts/build/
 
 **/.claude/settings.local.json
 
-vendor
+vendor/*
+!vendor/cargo/
+!vendor/cargo/**
 katana-tee
 
 # AMDSEV build artifacts

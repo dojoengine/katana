@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-VENDOR_DIR="$PROJECT_ROOT/third_party/cargo"
+VENDOR_DIR="$PROJECT_ROOT/vendor/cargo"
 VENDOR_ARCHIVE_NAME="${VENDOR_ARCHIVE_NAME:-vendor.tar.gz}"
 VENDOR_PART_PREFIX="${VENDOR_PART_PREFIX:-$VENDOR_DIR/${VENDOR_ARCHIVE_NAME}.part-}"
 VENDOR_PART_SIZE="${VENDOR_PART_SIZE:-95m}"
@@ -153,16 +153,16 @@ cat > "$VENDOR_MANIFEST_FILE" <<EOF
 manifest_version=1
 cargo_lock_path=Cargo.lock
 cargo_lock_sha256=$CARGO_LOCK_SHA256
-vendor_archive_path=third_party/cargo/$VENDOR_ARCHIVE_NAME
+vendor_archive_path=vendor/cargo/$VENDOR_ARCHIVE_NAME
 vendor_archive_sha256=$VENDOR_ARCHIVE_SHA256
-vendor_archive_sha256_file=third_party/cargo/$(basename "$VENDOR_ARCHIVE_SHA256_FILE")
-vendor_archive_part_prefix=third_party/cargo/${VENDOR_ARCHIVE_NAME}.part-
+vendor_archive_sha256_file=vendor/cargo/$(basename "$VENDOR_ARCHIVE_SHA256_FILE")
+vendor_archive_part_prefix=vendor/cargo/${VENDOR_ARCHIVE_NAME}.part-
 source_date_epoch=$SOURCE_DATE_EPOCH
 generated_by=scripts/release/update-vendor-archive.sh
 EOF
 
 echo "Vendor archive updated."
 echo "Files to commit:"
-echo "  - third_party/cargo/${VENDOR_ARCHIVE_NAME}.part-* ($PART_COUNT files)"
-echo "  - third_party/cargo/$(basename "$VENDOR_ARCHIVE_SHA256_FILE")"
-echo "  - third_party/cargo/$(basename "$VENDOR_MANIFEST_FILE")"
+echo "  - vendor/cargo/${VENDOR_ARCHIVE_NAME}.part-* ($PART_COUNT files)"
+echo "  - vendor/cargo/$(basename "$VENDOR_ARCHIVE_SHA256_FILE")"
+echo "  - vendor/cargo/$(basename "$VENDOR_MANIFEST_FILE")"

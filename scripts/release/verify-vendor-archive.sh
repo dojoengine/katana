@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-VENDOR_DIR="$PROJECT_ROOT/third_party/cargo"
+VENDOR_DIR="$PROJECT_ROOT/vendor/cargo"
 VENDOR_ARCHIVE_NAME="${VENDOR_ARCHIVE_NAME:-vendor.tar.gz}"
 VENDOR_PART_GLOB="${VENDOR_PART_GLOB:-$VENDOR_DIR/${VENDOR_ARCHIVE_NAME}.part-*}"
 VENDOR_ARCHIVE_SHA256_FILE="${VENDOR_ARCHIVE_SHA256_FILE:-$VENDOR_DIR/vendor.tar.gz.sha256}"

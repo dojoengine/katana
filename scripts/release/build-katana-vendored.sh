@@ -9,7 +9,7 @@ TARGET=""
 PROFILE="${PROFILE:-performance}"
 NATIVE_BUILD=0
 
-VENDOR_DIR="${VENDOR_DIR:-$PROJECT_ROOT/third_party/cargo}"
+VENDOR_DIR="${VENDOR_DIR:-$PROJECT_ROOT/vendor/cargo}"
 VENDOR_ARCHIVE_NAME="${VENDOR_ARCHIVE_NAME:-vendor.tar.gz}"
 VERIFY_SCRIPT="$SCRIPT_DIR/verify-vendor-archive.sh"
 

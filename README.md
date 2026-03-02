@@ -108,9 +108,9 @@ cargo nextest run
 
 Katana release binaries are built from a vendored Cargo dependency archive committed in this repository:
 
-- `third_party/cargo/vendor.tar.gz.part-*`
-- `third_party/cargo/vendor.tar.gz.sha256`
-- `third_party/cargo/VENDOR_MANIFEST.lock`
+- `vendor/cargo/vendor.tar.gz.part-*`
+- `vendor/cargo/vendor.tar.gz.sha256`
+- `vendor/cargo/VENDOR_MANIFEST.lock`
 
 The archive is committed as split parts to stay under GitHub's per-file size limit.
 
