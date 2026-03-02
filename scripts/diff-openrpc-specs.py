@@ -132,9 +132,7 @@ def format_section(title, filename, added, removed, changed, new_map):
     lines = [f"### {title} (`{filename}`)", ""]
 
     if not added and not removed and not changed:
-        lines.append("No changes.")
-        lines.append("")
-        return lines, 0, 0, 0
+        return [], 0, 0, 0
 
     lines.append("| Method | Status | Details |")
     lines.append("|--------|--------|---------|")
