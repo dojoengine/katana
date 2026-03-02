@@ -48,6 +48,7 @@ jobs:
             - uses: actions/checkout@v3
             - run: scripts/rust_fmt.sh --check
 
+    # Enforces that /vendor/cargo/* must be refreshed if the workspace Cargo.lock is updated. 
     vendor-consistency:
         runs-on: ubuntu-latest
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
