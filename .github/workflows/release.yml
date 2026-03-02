@@ -48,6 +48,8 @@ jobs:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build contracts
         run: make contracts
@@ -386,12 +388,9 @@ jobs:
           pattern: artifacts-*
           path: artifacts
           merge-multiple: true
-      - id: version_info
-        run: |
-          echo "version=v$(cargo get workspace.package.version)" >> $GITHUB_OUTPUT
       - name: Display structure of downloaded files
         run: ls -R artifacts
-      - run: gh release create ${{ steps.version_info.outputs.version }} ./artifacts/* --generate-notes --draft
+      - run: gh release create ${{ needs.prepare.outputs.tag_name }} ./artifacts/* --generate-notes --draft
 
   docker-build-and-push:
     runs-on: ubuntu-latest-8-cores
