@@ -3632,8 +3632,8 @@ dependencies = [
  "katana-node-bindings",
  "katana-primitives",
  "katana-provider",
- "katana-rpc-client",
  "katana-rpc-types",
+ "katana-starknet",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
 ]
@@ -5957,8 +5957,8 @@ dependencies = [
  "katana-genesis",
  "katana-primitives",
  "katana-provider",
- "katana-rpc-client",
  "katana-rpc-types",
+ "katana-starknet",
  "katana-utils",
  "piltover",
  "proptest",
@@ -6214,8 +6214,8 @@ dependencies = [
  "katana-metrics",
  "katana-primitives",
  "katana-provider-api",
- "katana-rpc-client",
  "katana-rpc-types",
+ "katana-starknet",
  "katana-tasks",
  "parking_lot",
  "serde_json",
@@ -6606,9 +6606,9 @@ dependencies = [
  "katana-genesis",
  "katana-primitives",
  "katana-provider-api",
- "katana-rpc-client",
  "katana-rpc-types",
  "katana-runner",
+ "katana-starknet",
  "katana-trie",
  "lazy_static",
  "parking_lot",
@@ -6657,19 +6657,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-rpc-client"
-version = "1.7.0"
-dependencies = [
- "jsonrpsee 0.26.0",
- "katana-primitives",
- "katana-rpc-api",
- "katana-rpc-types",
- "thiserror 1.0.69",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "katana-rpc-server"
 version = "1.7.0"
 dependencies = [
@@ -6701,10 +6688,10 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc-api",
- "katana-rpc-client",
  "katana-rpc-types",
  "katana-rpc-types-builder",
  "katana-sequencer-node",
+ "katana-starknet",
  "katana-tasks",
  "katana-tee",
  "katana-tracing",
@@ -6811,10 +6798,10 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc-api",
- "katana-rpc-client",
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-stage",
+ "katana-starknet",
  "katana-tasks",
  "katana-tee",
  "num-traits",
@@ -6874,7 +6861,13 @@ dependencies = [
  "alloy-rpc-types-eth",
  "alloy-sol-types",
  "anyhow",
+ "jsonrpsee 0.26.0",
+ "katana-primitives",
+ "katana-rpc-api",
+ "katana-rpc-types",
  "reqwest",
+ "thiserror 1.0.69",
+ "url",
 ]
 
 [[package]]
@@ -6964,10 +6957,10 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc-api",
- "katana-rpc-client",
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-sequencer-node",
+ "katana-starknet",
  "katana-utils-macro",
  "rand 0.8.5",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",

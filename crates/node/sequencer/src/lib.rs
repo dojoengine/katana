@@ -45,7 +45,7 @@ use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, Starkn
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(feature = "tee")]
 use katana_rpc_api::tee::TeeApiServer;
-use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_starknet::rpc::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::cors::Cors;

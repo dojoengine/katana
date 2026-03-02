@@ -9,7 +9,7 @@ use katana_primitives::class::{
     ContractClassFromStrError,
 };
 use katana_primitives::{felt, ContractAddress, Felt};
-use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_starknet::rpc::Client as StarknetClient;
 use katana_rpc_types::class::Class;
 use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};

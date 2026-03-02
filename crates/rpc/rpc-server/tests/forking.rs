@@ -8,7 +8,7 @@ use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{felt, Felt};
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_starknet::rpc::Client as StarknetClient;
 use katana_rpc_types::{
     BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
     MaybePreConfirmedBlock,

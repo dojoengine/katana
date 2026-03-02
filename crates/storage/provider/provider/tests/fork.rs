@@ -12,7 +12,7 @@ use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
 use katana_provider::{ForkProviderFactory, MutableProvider, ProviderError, ProviderFactory};
-use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_starknet::rpc::Client as StarknetClient;
 use katana_rpc_types::MerkleNode;
 
 const SEPOLIA_RPC_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";

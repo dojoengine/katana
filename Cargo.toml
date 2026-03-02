@@ -30,7 +30,6 @@ members = [
 	"crates/primitives/macro",
 	"crates/rpc/rpc-server",
 	"crates/rpc/rpc-api",
-	"crates/rpc/rpc-client",
 	"crates/rpc/rpc-types",
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
@@ -108,7 +107,6 @@ katana-provider = { path = "crates/storage/provider/provider" }
 katana-provider-api = { path = "crates/storage/provider/provider-api" }
 katana-rpc-server = { path = "crates/rpc/rpc-server" }
 katana-rpc-api = { path = "crates/rpc/rpc-api" }
-katana-rpc-client = { path = "crates/rpc/rpc-client" }
 katana-rpc-types = { path = "crates/rpc/rpc-types" }
 katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }

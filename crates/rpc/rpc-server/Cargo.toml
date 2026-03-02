@@ -52,7 +52,7 @@ katana-contracts.workspace = true
 katana-messaging.workspace = true
 katana-sequencer-node = { workspace = true, features = [ "cartridge" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }
-katana-rpc-client.workspace = true
+katana-starknet.workspace = true
 katana-trie.workspace = true
 katana-genesis.workspace = true
 katana-utils = { workspace = true, features = ["node"] }

@@ -258,7 +258,7 @@ async fn classes_proofs() {
 }
 
 async fn declare(
-    client: &katana_rpc_client::starknet::Client,
+    client: &katana_starknet::rpc::Client,
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
     path: impl Into<PathBuf>,
 ) -> (ClassHash, CompiledClassHash) {
