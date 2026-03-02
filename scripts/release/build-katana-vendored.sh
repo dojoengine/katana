@@ -79,16 +79,21 @@ fi
 "$VERIFY_SCRIPT"
 
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+EXTRACT_ROOT="$PROJECT_ROOT/target/.vendored-cargo-home"
+trap 'rm -rf "$TMP_DIR" "$EXTRACT_ROOT"' EXIT
 
-EXTRACT_DIR="$TMP_DIR/extracted"
-mkdir -p "$EXTRACT_DIR"
+rm -rf "$EXTRACT_ROOT"
+mkdir -p "$EXTRACT_ROOT"
 TMP_ARCHIVE="$TMP_DIR/$VENDOR_ARCHIVE_NAME"
 cat "${VENDOR_PARTS[@]}" > "$TMP_ARCHIVE"
 
-tar -xzf "$TMP_ARCHIVE" -C "$EXTRACT_DIR"
-[[ -d "$EXTRACT_DIR/cargo-home" ]] || error "Vendor archive missing top-level cargo-home/ directory"
-CARGO_HOME_DIR="$EXTRACT_DIR/cargo-home"
+tar -xzf "$TMP_ARCHIVE" -C "$EXTRACT_ROOT"
+[[ -d "$EXTRACT_ROOT/cargo-home" ]] || error "Vendor archive missing top-level cargo-home/ directory"
+CARGO_HOME_DIR="$EXTRACT_ROOT/cargo-home"
+
+RUSTFLAGS_EFFECTIVE="${RUSTFLAGS:-}"
+RUSTFLAGS_EFFECTIVE="${RUSTFLAGS_EFFECTIVE:+$RUSTFLAGS_EFFECTIVE }--remap-path-prefix=$PROJECT_ROOT=/workspace"
+RUSTFLAGS_EFFECTIVE="$RUSTFLAGS_EFFECTIVE --remap-path-prefix=$CARGO_HOME_DIR=/vendor/cargo-home"
 
 FEATURE_ARGS=()
 if [[ $NATIVE_BUILD -eq 1 ]]; then
@@ -96,7 +101,7 @@ if [[ $NATIVE_BUILD -eq 1 ]]; then
 fi
 
 echo "Building katana (target=$TARGET, profile=$PROFILE, native=$NATIVE_BUILD)"
-CARGO_HOME="$CARGO_HOME_DIR" cargo build \
+CARGO_HOME="$CARGO_HOME_DIR" RUSTFLAGS="$RUSTFLAGS_EFFECTIVE" cargo build \
     --locked \
     --offline \
     --frozen \
