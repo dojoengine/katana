@@ -203,7 +203,7 @@ where
                 ).await? {
                     debug!(target: "rpc::cartridge", controller = %address, tx = format!("{:#x}", tx.hash), "Inserting Controller deployment transaction");
                     this.pool.add_transaction(tx).await?;
-                    this.block_producer.force_mine();
+                    this.block_producer.force_mine(&this.pool);
                 }
             }
             // ===================================================================

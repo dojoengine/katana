@@ -20,6 +20,7 @@ use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use katana_executor::{ExecutionResult, ExecutionStats, Executor};
 use katana_pool::validation::stateful::TxValidator;
+use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHash, BlockHashOrNumber};
 use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
@@ -159,12 +160,16 @@ where
     }
 
     // Handler for the `katana_generateBlock` RPC method.
-    pub fn force_mine(&self) {
+    pub fn force_mine(&self, pool: &impl TransactionPool) {
         trace!(target: LOG_TARGET, "Scheduling force block mining.");
         let mut mode = self.producer.write();
-        match &mut *mode {
+        let outcome = match &mut *mode {
             BlockProducerMode::Instant(producer) => producer.force_mine(),
             BlockProducerMode::Interval(producer) => producer.force_mine(),
+        };
+
+        if let Some(outcome) = outcome {
+            pool.remove_transactions(&outcome.txs);
         }
     }
 
@@ -330,7 +335,7 @@ where
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Force mine a new block. It will only able to mine if there is no ongoing mining process.
-    pub fn force_mine(&mut self) {
+    pub fn force_mine(&mut self) -> Option<MinedBlockOutcome> {
         match Self::do_mine(self.permit.clone(), self.executor.clone(), self.backend.clone()) {
             Ok(outcome) => {
                 info!(target: LOG_TARGET, block_number = %outcome.block_number, "Force mined block.");
@@ -349,9 +354,11 @@ where
                 // -------------------------------------------
 
                 unsafe { self.permit.raw().unlock() };
+                Some(outcome)
             }
             Err(e) => {
                 error!(target: LOG_TARGET, error = %e, "On force mine.");
+                None
             }
         }
     }
@@ -651,17 +658,24 @@ where
         }
     }
 
-    pub fn force_mine(&mut self) {
+    pub fn force_mine(&mut self) -> Option<MinedBlockOutcome> {
         if self.block_mining.is_none() {
             let txs = std::mem::take(&mut self.queued);
-            let _ = Self::do_mine(
+            match Self::do_mine(
                 self.validator.clone(),
                 self.permit.clone(),
                 self.backend.clone(),
                 txs,
-            );
+            ) {
+                Ok(outcome) => Some(outcome),
+                Err(e) => {
+                    error!(target: LOG_TARGET, error = %e, "On force mine.");
+                    None
+                }
+            }
         } else {
-            trace!(target: LOG_TARGET, "Unable to force mine while a mining process is running.")
+            trace!(target: LOG_TARGET, "Unable to force mine while a mining process is running.");
+            None
         }
     }
 

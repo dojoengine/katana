@@ -322,7 +322,7 @@ where
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
-            let api = DevApi::new(backend.clone(), block_producer.clone());
+            let api = DevApi::new(backend.clone(), block_producer.clone(), pool.clone());
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
         }
 
