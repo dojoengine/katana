@@ -299,26 +299,48 @@ jobs:
         env:
           VERSION_NAME: ${{ needs.prepare.outputs.tag_name }}
         run: |
+          checksum_file() {
+            local file="$1"
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$file" | awk '{ print $1 }'
+            elif command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "$file" | awk '{ print $1 }'
+            else
+              echo "No SHA-256 tool found (sha256sum/shasum)." >&2
+              exit 1
+            fi
+          }
+
           if [ "$NATIVE_BUILD" == "true" ]; then
             SUFFIX="_native"
           else
             SUFFIX=""
           fi
 
+          ARCHIVE_NAME=""
+
           if [ "$PLATFORM_NAME" == "linux" ]; then
-            tar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" -C ./target/${TARGET}/performance katana
-            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" >> $GITHUB_OUTPUT
+            ARCHIVE_NAME="katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz"
+            tar -czvf "$ARCHIVE_NAME" -C ./target/${TARGET}/performance katana
           elif [ "$PLATFORM_NAME" == "darwin" ]; then
             # We need to use gtar here otherwise the archive is corrupt.
             # See: https://github.com/actions/virtual-environments/issues/2619
-            gtar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" -C ./target/${TARGET}/performance katana
-            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" >> $GITHUB_OUTPUT
+            ARCHIVE_NAME="katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz"
+            gtar -czvf "$ARCHIVE_NAME" -C ./target/${TARGET}/performance katana
           elif [ "$PLATFORM_NAME" == "win32" ]; then
+            ARCHIVE_NAME="katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.zip"
             cd ./target/${TARGET}/performance
-            7z a -tzip "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.zip" katana.exe
-            mv "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.zip" ../../../
-            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.zip" >> $GITHUB_OUTPUT
+            7z a -tzip "$ARCHIVE_NAME" katana.exe
+            mv "$ARCHIVE_NAME" ../../../
+            cd ../../../
           fi
+
+          CHECKSUM_NAME="${ARCHIVE_NAME}.sha256"
+          CHECKSUM="$(checksum_file "$ARCHIVE_NAME")"
+          printf "%s  %s\n" "$CHECKSUM" "$ARCHIVE_NAME" > "$CHECKSUM_NAME"
+
+          echo "file_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+          echo "checksum_file=$CHECKSUM_NAME" >> $GITHUB_OUTPUT
         shell: bash
 
       # We move binaries so they match $TARGETPLATFORM in the Docker build
@@ -342,7 +364,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-${{ matrix.job.target }}${{ matrix.job.native_build == true && '-native' || '' }}
-          path: ${{ steps.artifacts.outputs.file_name }}
+          path: |
+            ${{ steps.artifacts.outputs.file_name }}
+            ${{ steps.artifacts.outputs.checksum_file }}
           retention-days: 1
 
   create-draft-release:
