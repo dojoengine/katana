@@ -1,0 +1,23 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "controller-test"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-utils = { workspace = true, features = ["cartridge"] }
+katana-sequencer-node = { workspace = true, features = ["cartridge"] }
+katana-chain-spec.workspace = true
+katana-primitives.workspace = true
+katana-genesis.workspace = true
+katana-paymaster.workspace = true
+katana-slot-controller.workspace = true
+katana-rpc-types.workspace = true
+
+anyhow.workspace = true
+starknet.workspace = true
+tokio = { workspace = true, features = ["full"] }
+url.workspace = true
+tempfile.workspace = true
+serde_json.workspace = true
