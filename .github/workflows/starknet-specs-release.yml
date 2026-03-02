@@ -16,24 +16,53 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASE=$(gh api repos/starkware-libs/starknet-specs/releases/latest --jq '{tag: .tag_name, name: .name, url: .html_url, body: .body, published_at: .published_at}')
+          RELEASE=$(gh api repos/starkware-libs/starknet-specs/releases/latest \
+            --jq '{tag: .tag_name, name: .name, url: .html_url, body: .body, published_at: .published_at}')
           TAG=$(echo "$RELEASE" | jq -r '.tag')
           NAME=$(echo "$RELEASE" | jq -r '.name')
           URL=$(echo "$RELEASE" | jq -r '.url')
           PUBLISHED=$(echo "$RELEASE" | jq -r '.published_at')
 
-          # Escape body for multiline output
           BODY=$(echo "$RELEASE" | jq -r '.body')
           echo "body<<EOF" >> $GITHUB_OUTPUT
           echo "$BODY" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+          # Strip 'v' prefix for version comparison
+          VERSION="${TAG#v}"
+
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "name=$NAME" >> $GITHUB_OUTPUT
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "published_at=$PUBLISHED" >> $GITHUB_OUTPUT
 
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read current spec version
+        id: current-version
+        run: |
+          CURRENT=$(sed -n 's/.*RPC_SPEC_VERSION.*"\([^"]*\)".*/\1/p' \
+            crates/rpc/rpc-api/src/starknet.rs)
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current RPC_SPEC_VERSION: $CURRENT"
+
+      - name: Check if update needed
+        id: version-check
+        run: |
+          CURRENT="${{ steps.current-version.outputs.version }}"
+          LATEST="${{ steps.latest-release.outputs.version }}"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "Already up to date (v$CURRENT)"
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version available: v$CURRENT -> v$LATEST"
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check if issue already exists
+        if: steps.version-check.outputs.needs_update == 'true'
         id: check-existing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,8 +77,44 @@ jobs:
             --jq 'length')
           echo "exists=$([[ "$EXISTING" -gt 0 ]] && echo true || echo false)" >> $GITHUB_OUTPUT
 
+      - name: Fetch spec files
+        if: steps.version-check.outputs.needs_update == 'true' && steps.check-existing.outputs.exists == 'false'
+        run: |
+          CURRENT_TAG="v${{ steps.current-version.outputs.version }}"
+          NEW_TAG="${{ steps.latest-release.outputs.tag }}"
+          BASE_URL="https://raw.githubusercontent.com/starkware-libs/starknet-specs"
+
+          mkdir -p /tmp/specs/old /tmp/specs/new
+
+          for FILE in starknet_api_openrpc.json starknet_write_api.json starknet_trace_api_openrpc.json; do
+            curl -sfL "$BASE_URL/$CURRENT_TAG/api/$FILE" -o "/tmp/specs/old/$FILE"
+            curl -sfL "$BASE_URL/$NEW_TAG/api/$FILE" -o "/tmp/specs/new/$FILE"
+          done
+
+      - name: Install uv
+        if: steps.version-check.outputs.needs_update == 'true' && steps.check-existing.outputs.exists == 'false'
+        uses: astral-sh/setup-uv@v5
+
+      - name: Generate spec diff
+        if: steps.version-check.outputs.needs_update == 'true' && steps.check-existing.outputs.exists == 'false'
+        id: diff
+        run: |
+          DIFF=$(uv run scripts/diff-openrpc-specs.py \
+            --old-read /tmp/specs/old/starknet_api_openrpc.json \
+            --new-read /tmp/specs/new/starknet_api_openrpc.json \
+            --old-write /tmp/specs/old/starknet_write_api.json \
+            --new-write /tmp/specs/new/starknet_write_api.json \
+            --old-trace /tmp/specs/old/starknet_trace_api_openrpc.json \
+            --new-trace /tmp/specs/new/starknet_trace_api_openrpc.json \
+            --old-version "${{ steps.current-version.outputs.version }}" \
+            --new-version "${{ steps.latest-release.outputs.version }}")
+
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create tracking issue
-        if: steps.check-existing.outputs.exists == 'false'
+        if: steps.version-check.outputs.needs_update == 'true' && steps.check-existing.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -57,25 +122,39 @@ jobs:
           NAME="${{ steps.latest-release.outputs.name }}"
           URL="${{ steps.latest-release.outputs.url }}"
           PUBLISHED="${{ steps.latest-release.outputs.published_at }}"
-          BODY="${{ steps.latest-release.outputs.body }}"
+          CURRENT="${{ steps.current-version.outputs.version }}"
 
-          gh issue create \
-            --repo ${{ github.repository }} \
-            --title "starknet-specs release ${TAG}" \
-            --label "starknet-specs-release" \
-            --body "$(cat <<EOF
+          cat > /tmp/issue-body.md <<ISSUE_EOF
           A new version of [starknet-specs](https://github.com/starkware-libs/starknet-specs) has been released.
 
           **Release:** [${NAME}](${URL})
           **Tag:** \`${TAG}\`
           **Published:** ${PUBLISHED}
+          **Current Katana spec version:** \`${CURRENT}\`
 
           ### Release Notes
 
-          ${BODY}
+          ${{ steps.latest-release.outputs.body }}
 
           ---
 
-          Review the changes and update Katana's RPC implementation as needed.
-          EOF
-          )"
+          ${{ steps.diff.outputs.diff }}
+
+          ---
+
+          ### Action Items
+
+          - [ ] Review the API changes above
+          - [ ] Update \`RPC_SPEC_VERSION\` in \`crates/rpc/rpc-api/src/starknet.rs\`
+          - [ ] Implement new methods (if any)
+          - [ ] Update changed method signatures (if any)
+          - [ ] Remove deprecated methods (if any)
+          - [ ] Update RPC type definitions in \`crates/rpc/rpc-types/\`
+          - [ ] Add/update tests for changed endpoints
+          ISSUE_EOF
+
+          gh issue create \
+            --repo ${{ github.repository }} \
+            --title "starknet-specs release ${TAG}" \
+            --label "starknet-specs-release" \
+            --body-file /tmp/issue-body.md
