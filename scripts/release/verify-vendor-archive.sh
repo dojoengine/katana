@@ -34,6 +34,17 @@ hash_file() {
     fi
 }
 
+hash_lf_normalized_file() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sed 's/\r$//' "$file" | sha256sum | awk '{ print $1 }'
+    elif command -v shasum >/dev/null 2>&1; then
+        sed 's/\r$//' "$file" | shasum -a 256 | awk '{ print $1 }'
+    else
+        error "Neither sha256sum nor shasum is available"
+    fi
+}
+
 parse_manifest_value() {
     local key="$1"
     awk -F'=' -v k="$key" '$1 == k { print substr($0, index($0, "=") + 1) }' "$VENDOR_MANIFEST_FILE" | tail -n 1
@@ -99,7 +110,7 @@ fi
 MANIFEST_LOCK_SHA="$(parse_manifest_value cargo_lock_sha256)"
 [[ -n "$MANIFEST_LOCK_SHA" ]] || error "Missing cargo_lock_sha256 in $VENDOR_MANIFEST_FILE"
 
-ACTUAL_LOCK_SHA="$(hash_file "$CARGO_LOCK_FILE")"
+ACTUAL_LOCK_SHA="$(hash_lf_normalized_file "$CARGO_LOCK_FILE")"
 if [[ "$MANIFEST_LOCK_SHA" != "$ACTUAL_LOCK_SHA" ]]; then
     error "Cargo.lock checksum mismatch. expected=$MANIFEST_LOCK_SHA actual=$ACTUAL_LOCK_SHA"
 fi

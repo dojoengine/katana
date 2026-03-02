@@ -43,6 +43,17 @@ hash_file() {
     fi
 }
 
+hash_lf_normalized_file() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sed 's/\r$//' "$file" | sha256sum | awk '{ print $1 }'
+    elif command -v shasum >/dev/null 2>&1; then
+        sed 's/\r$//' "$file" | shasum -a 256 | awk '{ print $1 }'
+    else
+        error "Neither sha256sum nor shasum is available"
+    fi
+}
+
 resolve_tar_impl() {
     if command -v gtar >/dev/null 2>&1; then
         echo "gnu:gtar"
@@ -149,12 +160,13 @@ rm -f "$VENDOR_DIR/$VENDOR_ARCHIVE_NAME"
 PART_COUNT="$(find "$VENDOR_DIR" -maxdepth 1 -type f -name "${VENDOR_ARCHIVE_NAME}.part-*" | wc -l | tr -d ' ')"
 [[ "$PART_COUNT" -gt 0 ]] || error "No archive parts were generated"
 
-CARGO_LOCK_SHA256="$(hash_file "$CARGO_LOCK_FILE")"
+CARGO_LOCK_SHA256="$(hash_lf_normalized_file "$CARGO_LOCK_FILE")"
 
 cat > "$VENDOR_MANIFEST_FILE" <<EOF
 manifest_version=1
 cargo_lock_path=Cargo.lock
 cargo_lock_sha256=$CARGO_LOCK_SHA256
+cargo_lock_hash_mode=lf-normalized
 vendor_archive_path=vendor/cargo/$VENDOR_ARCHIVE_NAME
 vendor_archive_sha256=$VENDOR_ARCHIVE_SHA256
 vendor_archive_sha256_file=vendor/cargo/$(basename "$VENDOR_ARCHIVE_SHA256_FILE")
