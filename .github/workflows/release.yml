@@ -89,6 +89,15 @@ jobs:
           cache-on-failure: true
           cache-key: reproducibility-${{ env.TARGET }}
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build Explorer UI
+        shell: bash
+        run: |
+          make build-explorer
+
       - name: Verify vendored dependency archive
         shell: bash
         run: |
@@ -210,6 +219,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Build Explorer UI
+        shell: bash
+        run: |
+          make build-explorer
 
       - name: Install LLVM ( Linux )
         if: ${{ matrix.job.platform == 'linux' && matrix.job.native_build == true }}
