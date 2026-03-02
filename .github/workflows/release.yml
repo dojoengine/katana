@@ -70,6 +70,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "31.x"
+
       - name: Set SOURCE_DATE_EPOCH
         shell: bash
         run: |
@@ -196,6 +201,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "31.x"
 
       - name: Set SOURCE_DATE_EPOCH
         shell: bash
