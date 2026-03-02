@@ -26,13 +26,13 @@ use katana_primitives::class::{
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
-use katana_starknet::rpc::{
-    Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
-};
 use katana_rpc_types::class::Class;
 use katana_rpc_types::{
     ContractStorageKeys, GetBlockWithReceiptsResponse, GetStorageProofResponse, StateUpdate,
     TxReceiptWithBlockInfo,
+};
+use katana_starknet::rpc::{
+    Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use parking_lot::Mutex;
 use tracing::{error, trace};

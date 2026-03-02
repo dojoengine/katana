@@ -8,12 +8,12 @@ use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{felt, Felt};
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_starknet::rpc::Client as StarknetClient;
 use katana_rpc_types::{
     BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
     MaybePreConfirmedBlock,
 };
 use katana_sequencer_node::config::fork::ForkingConfig;
+use katana_starknet::rpc::Client as StarknetClient;
 use katana_utils::node::ForkTestNode;
 use katana_utils::TestNode;
 use url::Url;
