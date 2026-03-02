@@ -80,9 +80,9 @@ create_archive() {
         return
     fi
 
-    local file_list="$TMP_DIR/vendor-files.txt"
-    (cd "$TMP_DIR" && find "$CARGO_HOME_LAYOUT_DIR" -print | LC_ALL=C sort > "$file_list")
-    (cd "$TMP_DIR" && "$tar_cmd" --uid 0 --gid 0 --numeric-owner --format pax -cf - -T "$file_list" | gzip -n > "$output_archive")
+    # bsdtar with -T creates self-referential hardlink entries for Cargo git
+    # caches. Archive the directory directly to preserve valid hardlinks.
+    (cd "$TMP_DIR" && COPYFILE_DISABLE=1 "$tar_cmd" --uid 0 --gid 0 --numeric-owner --format pax -czf "$output_archive" "$CARGO_HOME_LAYOUT_DIR")
 }
 
 epoch_to_touch_timestamp() {
@@ -128,7 +128,9 @@ done
 mkdir -p "$VENDOR_DIR"
 
 echo "Pruning non-essential caches..."
-rm -rf "$TMP_CARGO_HOME_DIR/registry/src" "$TMP_CARGO_HOME_DIR/git/checkouts"
+# Keep git/checkouts because some git dependencies require nested submodule content
+# to be present for --frozen builds.
+rm -rf "$TMP_CARGO_HOME_DIR/registry/src"
 
 echo "Normalizing cached dependency timestamps..."
 normalize_timestamps "$TMP_CARGO_HOME_DIR"

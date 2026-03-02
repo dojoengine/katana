@@ -111,9 +111,14 @@ if [[ $EXTRACT_CHECK -eq 1 ]]; then
     [[ -d "$EXTRACT_DIR/cargo-home" ]] || error "Vendor archive extract check failed: missing cargo-home directory"
     [[ -d "$EXTRACT_DIR/cargo-home/registry/cache" ]] || error "Vendor archive extract check failed: missing registry/cache"
     [[ -d "$EXTRACT_DIR/cargo-home/git/db" ]] || error "Vendor archive extract check failed: missing git/db"
+    [[ -d "$EXTRACT_DIR/cargo-home/git/checkouts" ]] || error "Vendor archive extract check failed: missing git/checkouts"
 
     if [[ -z "$(find "$EXTRACT_DIR/cargo-home/registry/cache" -type f -print -quit)" ]]; then
         error "Vendor archive extract check failed: no cached registry crates found"
+    fi
+
+    if [[ -z "$(find "$EXTRACT_DIR/cargo-home/git/checkouts" -mindepth 1 -print -quit)" ]]; then
+        error "Vendor archive extract check failed: no cached git checkouts found"
     fi
 fi
 
