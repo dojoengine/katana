@@ -203,8 +203,8 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
     }
 
-    // Deploy StorageCommitment (no constructor arguments)
-    let storage_commitment_calldata = vec![];
+    // Deploy StorageCommitment (constructor takes deployer address for access control)
+    let storage_commitment_calldata = vec![address];
 
     let (maybe_tx, storage_commitment_address) = deploy::deploy(
         &account,

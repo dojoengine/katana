@@ -94,8 +94,9 @@ pub mod StorageCommitment {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState) {
-        self.deployer.write(get_caller_address());
+    fn constructor(ref self: ContractState, deployer: ContractAddress) {
+        assert(deployer != contract_address_const::<0>(), 'Cannot set zero deployer');
+        self.deployer.write(deployer);
     }
 
     #[event]
