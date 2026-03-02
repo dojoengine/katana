@@ -27,6 +27,7 @@ katana-core = { workspace = true, optional = true }
 katana-db = { workspace = true, optional = true }
 katana-executor = { workspace = true, optional = true }
 katana-sequencer-node = { workspace = true, optional = true }
+katana-slot-controller = { workspace = true, optional = true }
 katana-provider = { workspace = true, optional = true }
 katana-rpc-server = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }
@@ -47,6 +48,7 @@ node = [
     "starknet",
     "tempfile",
 ]
+cartridge = [ "node", "katana-sequencer-node/cartridge", "katana-slot-controller" ]
 explorer = [ "node", "katana-sequencer-node/explorer" ]
 
 [[bin]]

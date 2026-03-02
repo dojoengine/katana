@@ -3260,6 +3260,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
+name = "controller-test"
+version = "1.7.0"
+dependencies = [
+ "anyhow",
+ "katana-chain-spec",
+ "katana-genesis",
+ "katana-paymaster",
+ "katana-primitives",
+ "katana-rpc-types",
+ "katana-sequencer-node",
+ "katana-slot-controller",
+ "katana-utils",
+ "serde_json",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6968,6 +6988,7 @@ dependencies = [
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-sequencer-node",
+ "katana-slot-controller",
  "katana-utils-macro",
  "rand 0.8.5",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",

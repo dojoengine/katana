@@ -52,6 +52,7 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
+	"tests/controller",
 	"crates/paymaster",
 	# "tests/snos",
 ]
