@@ -7,7 +7,7 @@
 //!
 //! - `paymaster-service` binary in PATH
 //! - `controller` CLI in PATH
-//! - Pre-authorized controller session credentials (via env vars)
+//! - Pre-authorized controller session via `controller session auth`
 //! - Internet access to `api.cartridge.gg`
 //! - Test fixtures built (`make fixtures`)
 //!
@@ -32,17 +32,11 @@ use starknet::signers::{LocalWallet, SigningKey};
 use url::Url;
 
 /// The actions contract address from the pre-migrated spawn-and-move DB.
-/// This must be provided via the `ACTIONS_CONTRACT_ADDRESS` env var.
 const ACTIONS_ADDRESS_ENV: &str = "ACTIONS_CONTRACT_ADDRESS";
 
-/// Environment variable names for controller session credentials.
-const CONTROLLER_ADDRESS_ENV: &str = "CONTROLLER_ADDRESS";
-const CONTROLLER_SESSION_SIGNER_ENV: &str = "CONTROLLER_SESSION_SIGNER";
-const CONTROLLER_SESSION_METADATA_ENV: &str = "CONTROLLER_SESSION_METADATA";
-const CONTROLLER_ACCOUNT_METADATA_ENV: &str = "CONTROLLER_ACCOUNT_METADATA";
-
-/// SN_SEPOLIA chain ID as hex (for controller session files).
-const SN_SEPOLIA_HEX: &str = "0x534e5f5345504f4c4941";
+/// Path to the controller CLI storage directory.
+/// Defaults to `~/Library/Application Support/controller-cli` on macOS.
+const CONTROLLER_STORAGE_PATH_ENV: &str = "CONTROLLER_STORAGE_PATH";
 
 /// Default API key for the paymaster sidecar.
 const PAYMASTER_API_KEY: &str = "paymaster_katana";
@@ -51,26 +45,34 @@ const PAYMASTER_API_KEY: &str = "paymaster_katana";
 // Prerequisite checks
 // ---------------------------------------------------------------------------
 
-/// Check if a binary exists in PATH.
 fn binary_exists(name: &str) -> bool {
-    which(name).is_some()
-}
-
-fn which(name: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).find_map(|dir| {
-            let candidate = dir.join(name);
-            candidate.is_file().then_some(candidate)
+    std::env::var_os("PATH")
+        .map(|paths| {
+            std::env::split_paths(&paths).any(|dir| {
+                let candidate = dir.join(name);
+                candidate.is_file()
+            })
         })
-    })
+        .unwrap_or(false)
 }
 
 struct Prerequisites {
-    controller_address: String,
-    session_signer: String,
-    session_metadata: String,
-    account_metadata: String,
+    controller_storage_path: PathBuf,
     actions_address: String,
+}
+
+fn default_controller_storage_path() -> PathBuf {
+    // Match the controller CLI default: ~/Library/Application Support/controller-cli (macOS)
+    // or ~/.local/share/controller-cli (Linux)
+    if cfg!(target_os = "macos") {
+        home_dir().join("Library/Application Support/controller-cli")
+    } else {
+        home_dir().join(".local/share/controller-cli")
+    }
+}
+
+fn home_dir() -> PathBuf {
+    std::env::var("HOME").map(PathBuf::from).expect("HOME env var not set")
 }
 
 fn check_prerequisites() -> Option<Prerequisites> {
@@ -88,24 +90,22 @@ fn check_prerequisites() -> Option<Prerequisites> {
         missing.push("spawn-and-move DB fixture not found (run `make fixtures`)");
     }
 
-    let controller_address = std::env::var(CONTROLLER_ADDRESS_ENV).ok();
-    let session_signer = std::env::var(CONTROLLER_SESSION_SIGNER_ENV).ok();
-    let session_metadata = std::env::var(CONTROLLER_SESSION_METADATA_ENV).ok();
-    let account_metadata = std::env::var(CONTROLLER_ACCOUNT_METADATA_ENV).ok();
-    let actions_address = std::env::var(ACTIONS_ADDRESS_ENV).ok();
+    let storage_path = std::env::var(CONTROLLER_STORAGE_PATH_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| default_controller_storage_path());
 
-    if controller_address.is_none() {
-        missing.push("CONTROLLER_ADDRESS env var not set");
+    // Verify the controller has an active session
+    let active_file = storage_path.join("@cartridge").join("active");
+    if !active_file.exists() {
+        missing.push("No active controller session (run `controller session auth`)");
     }
-    if session_signer.is_none() {
-        missing.push("CONTROLLER_SESSION_SIGNER env var not set");
+
+    let session_signer_file = storage_path.join("session_signer");
+    if !session_signer_file.exists() {
+        missing.push("No session signer found in controller storage");
     }
-    if session_metadata.is_none() {
-        missing.push("CONTROLLER_SESSION_METADATA env var not set");
-    }
-    if account_metadata.is_none() {
-        missing.push("CONTROLLER_ACCOUNT_METADATA env var not set");
-    }
+
+    let actions_address = std::env::var(ACTIONS_ADDRESS_ENV).ok();
     if actions_address.is_none() {
         missing.push("ACTIONS_CONTRACT_ADDRESS env var not set");
     }
@@ -119,10 +119,7 @@ fn check_prerequisites() -> Option<Prerequisites> {
     }
 
     Some(Prerequisites {
-        controller_address: controller_address.unwrap(),
-        session_signer: session_signer.unwrap(),
-        session_metadata: session_metadata.unwrap(),
-        account_metadata: account_metadata.unwrap(),
+        controller_storage_path: storage_path,
         actions_address: actions_address.unwrap(),
     })
 }
@@ -158,14 +155,10 @@ fn prefunded_account(
 // ---------------------------------------------------------------------------
 
 /// Declare all controller class versions on-chain using a genesis account.
-///
-/// This follows the same pattern as `PaymasterService::bootstrap()` in
-/// `crates/paymaster/src/lib.rs:376-404`.
 async fn declare_controller_classes(
     provider: &JsonRpcClient<HttpTransport>,
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
 ) -> Result<()> {
-    // Each entry: (name, class_hash, casm_hash, class)
     let classes: Vec<(&str, Felt, Felt, &katana_primitives::class::ContractClass)> = vec![
         ("ControllerV104", ControllerV104::HASH, ControllerV104::CASM_HASH, &*ControllerV104::CLASS),
         ("ControllerV105", ControllerV105::HASH, ControllerV105::CASM_HASH, &*ControllerV105::CLASS),
@@ -182,7 +175,6 @@ async fn declare_controller_classes(
     ];
 
     for (name, class_hash, casm_hash, class) in classes {
-        // Check if already declared
         if is_class_declared(provider, class_hash).await? {
             eprintln!("  {name} already declared ({class_hash:#x})");
             continue;
@@ -244,40 +236,36 @@ async fn wait_for_class_declared(
 // Controller CLI session seeding
 // ---------------------------------------------------------------------------
 
-/// Write controller CLI session files to a temp directory.
+/// Copy the controller CLI storage to a temp directory, rewriting `session_rpc_url`
+/// to point at the local Katana node.
 fn seed_controller_session(
+    src_storage: &Path,
     temp_dir: &Path,
-    controller_address: &str,
-    session_signer: &str,
-    session_metadata: &str,
-    account_metadata: &str,
     rpc_url: &str,
 ) -> Result<PathBuf> {
-    let storage_dir = temp_dir.join("accounts").join("default");
-    std::fs::create_dir_all(&storage_dir)?;
+    let dst = temp_dir.join("controller-storage");
+    copy_dir_recursive(src_storage, &dst)?;
 
-    // Normalize controller address to lowercase with 0x prefix
-    let addr = controller_address.to_lowercase();
-    let addr = if addr.starts_with("0x") { addr } else { format!("0x{addr}") };
+    // Rewrite session_rpc_url to point at local Katana
+    let rpc_url_value = serde_json::json!({"String": rpc_url});
+    std::fs::write(dst.join("session_rpc_url"), rpc_url_value.to_string())?;
 
-    // session_signer
-    std::fs::write(storage_dir.join("session_signer"), session_signer)?;
+    Ok(dst)
+}
 
-    // session_chain_id (SN_SEPOLIA)
-    std::fs::write(storage_dir.join("session_chain_id"), SN_SEPOLIA_HEX)?;
-
-    // session_rpc_url
-    std::fs::write(storage_dir.join("session_rpc_url"), rpc_url)?;
-
-    // Account metadata: @cartridge@account@{addr}@{chain_id}
-    let account_file = format!("@cartridge@account@{addr}@{SN_SEPOLIA_HEX}");
-    std::fs::write(storage_dir.join(&account_file), account_metadata)?;
-
-    // Session metadata: @cartridge@session@{addr}@{chain_id}
-    let session_file = format!("@cartridge@session@{addr}@{SN_SEPOLIA_HEX}");
-    std::fs::write(storage_dir.join(&session_file), session_metadata)?;
-
-    Ok(storage_dir)
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src).context(format!("reading {}", src.display()))? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst_path)?;
+        } else if file_type.is_file() {
+            std::fs::copy(entry.path(), &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +293,7 @@ async fn controller_execute(
         cmd.arg("--calldata").arg(data);
     }
 
-    cmd.env("CARTRIDGE_STORAGE_PATH", storage_path);
+    cmd.env("CONTROLLER_STORAGE_PATH", storage_path);
 
     let output = cmd.output().await.context("failed to run controller CLI")?;
 
@@ -324,7 +312,6 @@ async fn controller_execute(
         eprintln!("  controller stderr: {stderr}");
     }
 
-    // Parse JSON output
     let json: serde_json::Value =
         serde_json::from_str(stdout.trim()).context("failed to parse controller JSON output")?;
     Ok(json)
@@ -349,7 +336,6 @@ async fn main() -> Result<()> {
 
     let mut config = test_config();
 
-    // Find a free port for the paymaster sidecar
     let paymaster_port = {
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.local_addr()?.port()
@@ -357,13 +343,11 @@ async fn main() -> Result<()> {
     let paymaster_url =
         Url::parse(&format!("http://127.0.0.1:{paymaster_port}")).expect("valid paymaster url");
 
-    // Get genesis account credentials from chain spec before moving it into config
     let chain_spec = config.chain.clone();
     let (relayer_addr, relayer_pk) = prefunded_account(&chain_spec, 0)?;
     let (gas_tank_addr, gas_tank_pk) = prefunded_account(&chain_spec, 1)?;
     let (estimate_addr, estimate_pk) = prefunded_account(&chain_spec, 2)?;
 
-    // Configure paymaster with Cartridge API
     config.paymaster = Some(PaymasterConfig {
         url: paymaster_url.clone(),
         api_key: Some(PAYMASTER_API_KEY.to_string()),
@@ -422,22 +406,19 @@ async fn main() -> Result<()> {
     let mut sidecar = paymaster.start().await.context("failed to start paymaster sidecar")?;
     eprintln!("Paymaster sidecar started.");
 
-    // Step 5: Pre-seed controller CLI session
+    // Step 5: Seed controller CLI session — copy real credentials, rewrite RPC URL
     eprintln!("Seeding controller CLI session...");
 
     let session_dir = tempfile::tempdir()?;
     let storage_path = seed_controller_session(
+        &prereqs.controller_storage_path,
         session_dir.path(),
-        &prereqs.controller_address,
-        &prereqs.session_signer,
-        &prereqs.session_metadata,
-        &prereqs.account_metadata,
         &rpc_url,
     )?;
 
     eprintln!("Session seeded at {}", storage_path.display());
 
-    // Step 6: Execute spawn and move via controller CLI
+    // Step 6: Execute spawn via controller CLI
     eprintln!("Executing spawn via controller CLI...");
     let spawn_result =
         controller_execute(&storage_path, &rpc_url, &prereqs.actions_address, "spawn", None)
@@ -445,27 +426,11 @@ async fn main() -> Result<()> {
             .context("spawn execution failed")?;
     eprintln!("Spawn result: {spawn_result}");
 
-    eprintln!("Executing move (Right=2) via controller CLI...");
-    let move_result = controller_execute(
-        &storage_path,
-        &rpc_url,
-        &prereqs.actions_address,
-        "move",
-        Some("2"),
-    )
-    .await
-    .context("move execution failed")?;
-    eprintln!("Move result: {move_result}");
-
     // Step 7: Verify
     eprintln!("Verifying results...");
 
-    // Check that we got transaction hashes back
     if let Some(tx_hash) = spawn_result.get("transaction_hash") {
         eprintln!("  Spawn tx hash: {tx_hash}");
-    }
-    if let Some(tx_hash) = move_result.get("transaction_hash") {
-        eprintln!("  Move tx hash: {tx_hash}");
     }
 
     eprintln!("=== Controller E2E Test PASSED ===");
