@@ -6,7 +6,7 @@ use cartridge::CartridgeApiClient;
 use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::types::{ErrorObjectOwned, Request, Response, ResponsePayload};
-use jsonrpsee::{rpc_params, MethodResponse};
+use jsonrpsee::{rpc_params, MethodResponse, ResponsePayload};
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::api::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
@@ -244,7 +244,15 @@ where
                     )));
                 }
 
-                Ok(build_no_fee_response(&request, original_txs_count))
+                // extract only the fee estimates for the original transactions
+                let deploy_txs_count = new_txs_count - original_txs_count;
+                let original_estimates = estimates[deploy_txs_count..].to_vec();
+
+                Ok(MethodResponse::response(
+                    request.id().clone(),
+                    ResponsePayload::success(original_estimates),
+                    usize::MAX,
+                ))
             }
 
             ResponsePayload::Error(..) => Ok(response),
@@ -559,27 +567,4 @@ fn parse_execute_outside_params(request: &Request<'_>) -> Option<AddExecuteOutsi
 /// Extract estimate_fee parameters from the request.
 fn parse_estimate_fee_params(request: &Request<'_>) -> Option<EstimateFeeParams> {
     parse_params::<EstimateFeeRequestParams>(request, "estimate fee").map(Into::into)
-}
-
-// Temporary shim for --dev.no-fee when deployment txs are prepended for controllers.
-// Remove once starknet_estimateFee natively returns zeroed fees in this scenario.
-fn build_no_fee_response(request: &Request<'_>, count: usize) -> MethodResponse {
-    let estimate_fees = vec![
-        FeeEstimate {
-            l1_gas_consumed: 0,
-            l1_gas_price: 0,
-            l2_gas_consumed: 0,
-            l2_gas_price: 0,
-            l1_data_gas_consumed: 0,
-            l1_data_gas_price: 0,
-            overall_fee: 0
-        };
-        count
-    ];
-
-    MethodResponse::response(
-        request.id().clone(),
-        jsonrpsee::ResponsePayload::success(estimate_fees),
-        usize::MAX,
-    )
 }
