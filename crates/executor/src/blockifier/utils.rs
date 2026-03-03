@@ -11,7 +11,7 @@ use blockifier::execution::contract_class::{
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
 use blockifier::state::state_api::{StateReader, UpdatableState};
-use blockifier::state::stateful_compression::{allocate_aliases_in_storage, compress};
+use blockifier::state::stateful_compression::allocate_aliases_in_storage;
 use blockifier::transaction::account_transaction::{
     AccountTransaction, ExecutionFlags as BlockifierExecutionFlags,
 };
