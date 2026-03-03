@@ -160,12 +160,42 @@ async fn declare_controller_classes(
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
 ) -> Result<()> {
     let classes: Vec<(&str, Felt, Felt, &katana_primitives::class::ContractClass)> = vec![
-        ("ControllerV104", ControllerV104::HASH, ControllerV104::CASM_HASH, &*ControllerV104::CLASS),
-        ("ControllerV105", ControllerV105::HASH, ControllerV105::CASM_HASH, &*ControllerV105::CLASS),
-        ("ControllerV106", ControllerV106::HASH, ControllerV106::CASM_HASH, &*ControllerV106::CLASS),
-        ("ControllerV107", ControllerV107::HASH, ControllerV107::CASM_HASH, &*ControllerV107::CLASS),
-        ("ControllerV108", ControllerV108::HASH, ControllerV108::CASM_HASH, &*ControllerV108::CLASS),
-        ("ControllerV109", ControllerV109::HASH, ControllerV109::CASM_HASH, &*ControllerV109::CLASS),
+        (
+            "ControllerV104",
+            ControllerV104::HASH,
+            ControllerV104::CASM_HASH,
+            &*ControllerV104::CLASS,
+        ),
+        (
+            "ControllerV105",
+            ControllerV105::HASH,
+            ControllerV105::CASM_HASH,
+            &*ControllerV105::CLASS,
+        ),
+        (
+            "ControllerV106",
+            ControllerV106::HASH,
+            ControllerV106::CASM_HASH,
+            &*ControllerV106::CLASS,
+        ),
+        (
+            "ControllerV107",
+            ControllerV107::HASH,
+            ControllerV107::CASM_HASH,
+            &*ControllerV107::CLASS,
+        ),
+        (
+            "ControllerV108",
+            ControllerV108::HASH,
+            ControllerV108::CASM_HASH,
+            &*ControllerV108::CLASS,
+        ),
+        (
+            "ControllerV109",
+            ControllerV109::HASH,
+            ControllerV109::CASM_HASH,
+            &*ControllerV109::CLASS,
+        ),
         (
             "ControllerLatest",
             ControllerLatest::HASH,
@@ -238,11 +268,7 @@ async fn wait_for_class_declared(
 
 /// Copy the controller CLI storage to a temp directory, rewriting `session_rpc_url`
 /// to point at the local Katana node.
-fn seed_controller_session(
-    src_storage: &Path,
-    temp_dir: &Path,
-    rpc_url: &str,
-) -> Result<PathBuf> {
+fn seed_controller_session(src_storage: &Path, temp_dir: &Path, rpc_url: &str) -> Result<PathBuf> {
     let dst = temp_dir.join("controller-storage");
     copy_dir_recursive(src_storage, &dst)?;
 
@@ -410,11 +436,8 @@ async fn main() -> Result<()> {
     eprintln!("Seeding controller CLI session...");
 
     let session_dir = tempfile::tempdir()?;
-    let storage_path = seed_controller_session(
-        &prereqs.controller_storage_path,
-        session_dir.path(),
-        &rpc_url,
-    )?;
+    let storage_path =
+        seed_controller_session(&prereqs.controller_storage_path, session_dir.path(), &rpc_url)?;
 
     eprintln!("Session seeded at {}", storage_path.display());
 
