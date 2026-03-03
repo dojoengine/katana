@@ -19,7 +19,7 @@ use katana_primitives::chain::ChainId;
 #[cfg(feature = "vrf")]
 use katana_primitives::ContractAddress;
 #[cfg(feature = "server")]
-use katana_rpc_server::cors::HeaderValue;
+use katana_rpc_server::middleware::cors::HeaderValue;
 use katana_sequencer_node::config::execution::{
     DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
 };

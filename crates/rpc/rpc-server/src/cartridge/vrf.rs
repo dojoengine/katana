@@ -1,10 +1,10 @@
 //! VRF (Verifiable Random Function) service for Cartridge.
 
-use cartridge::vrf::{RequestContext, SignedOutsideExecution, VrfOutsideExecution};
-use cartridge::VrfClient;
+use cartridge::vrf::{RequestContext, SignedOutsideExecution, VrfClient, VrfOutsideExecution};
 use katana_primitives::chain::ChainId;
+use katana_primitives::execution::Call;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_types::outside_execution::OutsideExecution;
 use starknet::macros::selector;
 use url::Url;
@@ -16,7 +16,7 @@ pub struct VrfServiceConfig {
     pub vrf_contract: ContractAddress,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct VrfService {
     client: VrfClient,
     account_address: ContractAddress,
@@ -45,14 +45,14 @@ impl VrfService {
         outside_execution: &OutsideExecution,
         signature: &[Felt],
         chain_id: ChainId,
-    ) -> Result<SignedOutsideExecution, StarknetApiError> {
+    ) -> Result<SignedOutsideExecution, CartridgeApiError> {
         let vrf_outside_execution = match outside_execution {
             OutsideExecution::V2(v2) => VrfOutsideExecution::V2(v2.clone()),
             OutsideExecution::V3(v3) => VrfOutsideExecution::V3(v3.clone()),
         };
 
         let request = SignedOutsideExecution {
-            address: address.into(),
+            address,
             outside_execution: vrf_outside_execution,
             signature: signature.to_vec(),
         };
@@ -62,31 +62,21 @@ impl VrfService {
             rpc_url: Some(self.rpc_url.clone()),
         };
 
-        self.client.outside_execution(request, context).await.map_err(|err| {
-            StarknetApiError::unexpected(format!("vrf outside_execution failed: {err}"))
-        })
+        self.client
+            .outside_execution(request, context)
+            .await
+            .map_err(|err| CartridgeApiError::VrfExecutionFailed { reason: err.to_string() })
     }
 }
 
-pub(super) fn request_random_call(
+pub(super) fn get_request_random_call(
     outside_execution: &OutsideExecution,
-) -> Option<(katana_rpc_types::outside_execution::Call, usize)> {
-    let calls = match outside_execution {
-        OutsideExecution::V2(v2) => &v2.calls,
-        OutsideExecution::V3(v3) => &v3.calls,
-    };
-
+) -> Option<(Call, usize)> {
+    let calls = outside_execution.calls();
     calls
         .iter()
-        .position(|call| call.selector == selector!("request_random"))
+        .position(|call| call.entry_point_selector == selector!("request_random"))
         .map(|position| (calls[position].clone(), position))
-}
-
-pub(super) fn outside_execution_calls_len(outside_execution: &OutsideExecution) -> usize {
-    match outside_execution {
-        OutsideExecution::V2(v2) => v2.calls.len(),
-        OutsideExecution::V3(v3) => v3.calls.len(),
-    }
 }
 
 #[cfg(test)]
@@ -101,15 +91,17 @@ mod tests {
     #[test]
     fn request_random_call_finds_position() {
         let vrf_address = ContractAddress::from(felt!("0x123"));
-        let other_call = katana_rpc_types::outside_execution::Call {
-            to: vrf_address,
-            selector: selector!("transfer"),
+
+        let other_call = Call {
             calldata: vec![Felt::ONE],
+            contract_address: vrf_address,
+            entry_point_selector: selector!("transfer"),
         };
-        let vrf_call = katana_rpc_types::outside_execution::Call {
-            to: vrf_address,
-            selector: selector!("request_random"),
+
+        let vrf_call = Call {
             calldata: vec![Felt::TWO],
+            contract_address: vrf_address,
+            entry_point_selector: selector!("request_random"),
         };
 
         let outside_execution = OutsideExecution::V2(OutsideExecutionV2 {
@@ -121,9 +113,10 @@ mod tests {
         });
 
         let (call, position) =
-            request_random_call(&outside_execution).expect("request_random found");
+            get_request_random_call(&outside_execution).expect("request_random found");
+
         assert_eq!(position, 1);
-        assert_eq!(call.selector, vrf_call.selector);
+        assert_eq!(call.entry_point_selector, vrf_call.entry_point_selector);
         assert_eq!(call.calldata, vrf_call.calldata);
     }
 }

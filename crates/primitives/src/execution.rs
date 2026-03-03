@@ -12,6 +12,7 @@ pub use blockifier::fee::resources::{
     ComputationResources, StarknetResources, TransactionResources,
 };
 pub use blockifier::transaction::objects::{RevertError, TransactionExecutionInfo};
+use cainome::cairo_serde_derive;
 pub use cairo_vm::types::builtin_name::BuiltinName;
 pub use cairo_vm::vm::runners::cairo_runner::ExecutionResources as VmResources;
 pub use starknet_api::contract_class::EntryPointType;
@@ -25,13 +26,13 @@ use crate::{ContractAddress, Felt};
 /// The selector of a contract entry point (ie function selector).
 pub type EntryPointSelector = Felt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, cairo_serde_derive::CairoSerde)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct FunctionCall {
-    /// The contract function selector.
-    pub entry_point_selector: EntryPointSelector,
+pub struct Call {
     /// The address of the contract whose function you're calling.
     pub contract_address: ContractAddress,
+    /// The contract function selector.
+    pub entry_point_selector: EntryPointSelector,
     /// The input to the function.
     pub calldata: Vec<Felt>,
 }

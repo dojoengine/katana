@@ -17,7 +17,7 @@ use blockifier::state::cached_state::CachedState;
 use blockifier::state::state_api::StateReader;
 use blockifier::transaction::objects::{DeprecatedTransactionInfo, TransactionInfo};
 use cairo_vm::vm::runners::cairo_runner::RunResources;
-use katana_primitives::execution::{FunctionCall, TrackedResource};
+use katana_primitives::execution::{Call, TrackedResource};
 use katana_primitives::Felt;
 use starknet_api::core::EntryPointSelector;
 use starknet_api::execution_resources::GasAmount;
@@ -30,7 +30,7 @@ use crate::error::ExecutionError;
 ///
 /// The `max_gas` is the maximum amount of Sierra gas to allocate for the call.
 pub fn execute_call<S: StateReader>(
-    request: FunctionCall,
+    request: Call,
     state: &mut CachedState<S>,
     block_context: Arc<BlockContext>,
     max_gas: u64,
@@ -40,7 +40,7 @@ pub fn execute_call<S: StateReader>(
 }
 
 fn execute_call_inner<S: StateReader>(
-    request: FunctionCall,
+    request: Call,
     state: &mut CachedState<S>,
     block_context: Arc<BlockContext>,
     max_sierra_gas: u64,
@@ -153,7 +153,7 @@ mod tests {
     use blockifier::execution::errors::EntryPointExecutionError;
     use blockifier::state::cached_state::{self};
     use katana_primitives::class::ContractClass;
-    use katana_primitives::execution::FunctionCall;
+    use katana_primitives::execution::Call;
     use katana_primitives::{address, felt};
     use katana_provider::api::contract::ContractClassWriter;
     use katana_provider::api::state::{StateFactoryProvider, StateWriter};
@@ -193,7 +193,7 @@ mod tests {
         let mut state = cached_state::CachedState::new(state);
         let ctx = Arc::new(BlockContext::create_for_testing());
 
-        let mut req = FunctionCall {
+        let mut req = Call {
             calldata: Vec::new(),
             contract_address: address,
             entry_point_selector: selector!("bounded_call"),
@@ -279,7 +279,7 @@ mod tests {
         let mut state = cached_state::CachedState::new(state);
         let ctx = Arc::new(BlockContext::create_for_testing());
 
-        let req = FunctionCall {
+        let req = Call {
             calldata: Vec::new(),
             contract_address: address,
             entry_point_selector: selector!("call_with_panic"),

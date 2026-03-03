@@ -24,7 +24,7 @@ pub enum PoolError {
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(Box<InvalidTransactionError>),
     #[error("Internal error: {0}")]
-    Internal(Box<dyn core::error::Error>),
+    Internal(Box<dyn core::error::Error + Send + Sync + 'static>),
 }
 
 pub type PoolResult<T> = Result<T, PoolError>;
