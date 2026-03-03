@@ -43,7 +43,7 @@ pub type BlockIdOrTag = katana_primitives::block::BlockIdOrTag;
 pub type ConfirmedBlockIdOrTag = katana_primitives::block::ConfirmedBlockIdOrTag;
 
 /// Request type for `starknet_call` RPC method.
-pub type FunctionCall = katana_primitives::execution::Call;
+pub type FunctionCall = katana_primitives::execution::FunctionCall;
 
 /// Finality status of a block or transaction.
 pub type FinalityStatus = katana_primitives::block::FinalityStatus;

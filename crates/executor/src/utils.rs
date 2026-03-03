@@ -5,41 +5,7 @@ use katana_primitives::receipt::{
     self, DataAvailabilityResources, DeclareTxReceipt, DeployAccountTxReceipt, Event, GasUsed,
     InvokeTxReceipt, L1HandlerTxReceipt, MessageToL1, Receipt,
 };
-use katana_primitives::transaction::TxRef;
-use tracing::trace;
-
-pub(crate) const LOG_TARGET: &str = "executor";
-
-pub fn log_resources(resources: &TransactionResources) {
-    let mut mapped_strings = Vec::new();
-
-    for (builtin, count) in &resources.computation.tx_vm_resources.builtin_instance_counter {
-        mapped_strings.push(format!("{builtin}: {count}"));
-    }
-
-    // Sort the strings alphabetically
-    mapped_strings.sort();
-    mapped_strings.insert(0, format!("steps: {}", resources.computation.tx_vm_resources.n_steps));
-    mapped_strings.insert(
-        1,
-        format!("memory holes: {}", resources.computation.tx_vm_resources.n_memory_holes),
-    );
-
-    trace!(target: LOG_TARGET, usage = mapped_strings.join(" | "), "Transaction resource usage.");
-}
-
-pub fn log_messages(messages: &[MessageToL1]) {
-    let mut mapped_strings = Vec::new();
-
-    for message in messages {
-        mapped_strings.push(format!(
-            "from: {:?} to: {:?} payload: {:?}",
-            message.from_address, message.to_address, message.payload
-        ));
-    }
-
-    trace!(target: "messaging", messages = mapped_strings.join(" | "), "Transaction messages.");
-}
+use katana_primitives::transaction::ExecutableTx;
 
 pub(crate) fn build_receipt(
     tx: &ExecutableTx,
