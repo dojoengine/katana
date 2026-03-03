@@ -43,7 +43,7 @@ pub type BlockIdOrTag = katana_primitives::block::BlockIdOrTag;
 pub type ConfirmedBlockIdOrTag = katana_primitives::block::ConfirmedBlockIdOrTag;
 
 /// Request type for `starknet_call` RPC method.
-pub type FunctionCall = katana_primitives::execution::FunctionCall;
+pub type FunctionCall = katana_primitives::execution::Call;
 
 /// Finality status of a block or transaction.
 pub type FinalityStatus = katana_primitives::block::FinalityStatus;
@@ -144,23 +144,33 @@ impl Serialize for SyncingResponse {
 
 impl<'de> Deserialize<'de> for SyncingResponse {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::Deserialize;
-        use serde_json::Value;
+        use serde::de::{self, MapAccess, Visitor};
 
-        let content = <Value as Deserialize>::deserialize(deserializer)?;
+        struct SyncingResponseVisitor;
 
-        match content {
-            Value::Bool(bool) if !bool => {
-                return Ok(Self::NotSyncing);
+        impl<'de> Visitor<'de> for SyncingResponseVisitor {
+            type Value = SyncingResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(
+                    "either `false` or an object with fields: starting_block_hash, \
+                     starting_block_num, current_block_hash, current_block_num, \
+                     highest_block_hash, highest_block_num",
+                )
             }
 
-            Value::Object(object) => {
-                if let Ok(value) = <SyncStatus as Deserialize>::deserialize(object) {
-                    return Ok(Self::Syncing(value));
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                if !value {
+                    Ok(SyncingResponse::NotSyncing)
+                } else {
+                    Err(E::custom("expected `false` for not syncing state"))
                 }
             }
 
-            _ => {}
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+                let status = SyncStatus::deserialize(de::value::MapAccessDeserializer::new(map))?;
+                Ok(SyncingResponse::Syncing(status))
+            }
         }
 
         deserializer.deserialize_any(SyncingResponseVisitor)

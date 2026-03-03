@@ -8,7 +8,7 @@ use katana_chain_spec::ChainSpec;
 use katana_core::utils::get_current_timestamp;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_gas_price_oracle::GasPriceOracle;
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -69,8 +69,6 @@ mod read;
 mod trace;
 mod write;
 
-#[cfg(feature = "cartridge")]
-pub use config::CartridgePaymasterConfig;
 pub use config::StarknetApiConfig;
 pub use pending::PendingBlockProvider;
 
@@ -468,13 +466,12 @@ where
             let state = this.state(&block_id)?;
 
             // Check that contract exist by checking the class hash of the contract,
-            // unless its address 0x1 and 0x2 which are special system contracts and does not
+            // unless its address 0x1 or 0x2 which are special system contracts and does not
             // have a class.
             //
-            // 0x2 is a system contract used for stateful compression.
-            //
-            // See https://docs.starknet.io/learn/protocol/state#special-addresses.
-            if (contract_address.0 != Felt::ONE && contract_address.0 != Felt::TWO)
+            // See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
+            if contract_address != ContractAddress::ONE
+                && contract_address != ContractAddress::TWO
                 && state.class_hash_of_contract(contract_address)?.is_none()
             {
                 return Err(StarknetApiError::ContractNotFound);

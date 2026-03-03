@@ -3,7 +3,7 @@ use std::sync::Arc;
 // Re-export the blockifier crate.
 pub use blockifier;
 use blockifier::blockifier_versioned_constants::VersionedConstants;
-use blockifier::bouncer::{n_steps_to_gas, Bouncer, BouncerConfig, BouncerWeights, BuiltinWeights};
+use blockifier::bouncer::{n_steps_to_gas, Bouncer, BouncerConfig, BouncerWeights};
 
 pub mod cache;
 pub mod call;
@@ -133,11 +133,7 @@ impl StarknetVMProcessor {
         block_max_capacity.sierra_gas =
             n_steps_to_gas(limits.cairo_steps as usize, block_context.versioned_constants());
 
-        let bouncer = Bouncer::new(BouncerConfig {
-            block_max_capacity,
-            builtin_weights: BuiltinWeights::default(),
-            ..Default::default()
-        });
+        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity, ..Default::default() });
 
         Self {
             cfg_env,
@@ -258,8 +254,11 @@ impl Executor for StarknetVMProcessor {
                                 state.declared_classes.insert(class_hash, class.as_ref().clone());
                             }
 
-                            crate::utils::log_resources(&trace.receipt.resources);
-                            crate::utils::log_messages(&receipt.messages_sent());
+                            if let Some(reason) = receipt.revert_reason() {
+                                info!(target: LOG_TARGET, hash = format!("{hash:#x}"), type = ?receipt.r#type(), revert_reason = %reason, "Transaction executed (reverted).");
+                            } else {
+                                info!(target: LOG_TARGET, hash = format!("{hash:#x}"), type = ?receipt.r#type(), "Transaction executed.");
+                            }
                         }
 
                         ExecutionResult::Failed { error } => {
