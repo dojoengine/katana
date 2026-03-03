@@ -10,6 +10,7 @@ use katana_primitives::cairo::ShortString;
 use katana_primitives::{ContractAddress, Felt};
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag};
+use starknet::core::utils::parse_cairo_short_string;
 use starknet::providers::Provider;
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::runtime::Handle;

@@ -228,14 +228,11 @@ impl RollupArgs {
             prompt::prompt_rollup().await?
         };
 
-        let settlement = match &output {
-            AnyOutcome::Persistent(persistent) => SettlementLayer::Starknet {
-                rpc_url: persistent.rpc_url.clone(),
-                id: ChainId::parse(&persistent.settlement_id)?,
-                block: persistent.deployment_outcome.block_number,
-                core_contract: persistent.deployment_outcome.contract_address,
-            },
-            AnyOutcome::Sovereign(_) => SettlementLayer::Sovereign {},
+        let settlement = SettlementLayer::Starknet {
+            rpc_url: output.rpc_url.clone(),
+            id: ChainId::parse(&output.settlement_id)?,
+            block: output.deployment_outcome.block_number,
+            core_contract: output.deployment_outcome.contract_address,
         };
 
         let id = ChainId::parse(&output.id)?;

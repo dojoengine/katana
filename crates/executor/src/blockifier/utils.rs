@@ -485,7 +485,7 @@ pub fn block_context_from_envs(
     let chain_info = ChainInfo {
         fee_token_addresses,
         chain_id: to_blk_chain_id(chain_spec.id()),
-        is_l3: overrides.map_or(false, |overrides| overrides.is_l3),
+        is_l3: overrides.is_some_and(|overrides| overrides.is_l3),
     };
 
     // IMPORTANT:

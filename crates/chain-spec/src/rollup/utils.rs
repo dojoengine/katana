@@ -10,13 +10,12 @@ use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
-use katana_primitives::genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV0, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3,
     ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3,
 };
-use katana_primitives::utils::split_u256;
 use katana_primitives::utils::transaction::compute_deploy_account_v3_tx_hash;
+use katana_primitives::utils::{get_contract_address, split_u256};
 use katana_primitives::{felt, Felt};
 use num_traits::FromPrimitive;
 use starknet::core::utils::get_selector_from_name;

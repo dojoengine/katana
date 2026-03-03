@@ -18,6 +18,7 @@ use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAcc
 use starknet::contract::{ContractFactory, UdcSelector};
 use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
+use starknet::macros::short_string;
 use starknet::providers::{Provider, ProviderError};
 use starknet::signers::LocalWallet;
 use thiserror::Error;

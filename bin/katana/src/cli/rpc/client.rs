@@ -47,8 +47,8 @@ impl Client {
     /// ```
     pub async fn send_request<R, Params>(&self, method: &str, params: Params) -> Result<R>
     where
-        P: Serialize + Send + Sync,
-        R: DeserializeOwned + Send,
+        R: serde::de::DeserializeOwned,
+        Params: ToRpcParams + Send,
     {
         match self.client.request(method, params).await {
             Ok(res) => Ok(res),

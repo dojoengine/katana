@@ -117,6 +117,7 @@ where
 
         let is_l3 = match config.chain.as_ref() {
             ChainSpec::Dev(_) => false,
+            ChainSpec::FullNode(_) => false,
             ChainSpec::Rollup(cs) => matches!(cs.settlement, SettlementLayer::Starknet { .. }),
         };
 
