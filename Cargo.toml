@@ -51,6 +51,7 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
+	"crates/paymaster",
 	# "tests/snos",
 ]
 
@@ -239,15 +240,27 @@ opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 # starknet
 starknet = "0.17.0"
 starknet-crypto = "0.8.1"
-starknet-types-core = { version = "=0.2.2", features = [ "arbitrary", "hash" ] }
-
-blockifier = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.16.0-rc.0", default-features = false }
-cairo-native = "0.6.2"
-starknet_api = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.16.0-rc.0" }
+starknet-types-core = { version = "=0.2.3", features = [ "arbitrary", "hash" ] }
+stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
-cainome = { version = "0.10.1", features = [ "abigen-rs" ] }
-cainome-cairo-serde = { version = "0.4.0" }
-piltover = { git = "https://github.com/cartridge-gg/piltover", rev = "3d3426c" }
+# branch: blockifier/v0.16.0-rc.0
+blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb", default-features = false }
+starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb" }
+
+cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
+cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
+piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
+
+# paymaster
+paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", branch = "copenhagen-4cb4" }
+paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", branch = "copenhagen-4cb4" }
+
+[patch.crates-io]
+# NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
+#
+# This patch fixes an issue where we're unable to correctly evaluate the accurate size
+# for constructing `Felt` from unstructured data (Arbitrary).
+starknet-types-core = { git = "https://github.com/kariy/types-rs", rev = "0f6ae31" }
