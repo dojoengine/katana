@@ -251,6 +251,23 @@ jobs:
     #     - run: |
     #         cargo run -p snos-integration-test
 
+    explorer-reverse-proxy:
+        needs: [fmt, clippy, build-katana-binary]
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache
+
             - name: Download Katana binary
               uses: actions/download-artifact@v5
               with:
@@ -354,5 +371,5 @@ jobs:
             - name: Setup Katana binary
               run: chmod +x ./katana
 
-            - name: Run database compatibility chec
+            - name: Run database compatibility check
               run: KATANA_BIN=./katana cargo run -p db-compat-test
