@@ -404,18 +404,11 @@ fn compute_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
 }
 
 // https://github.com/starkware-libs/cairo-lang/blob/a86e92bfde9c171c0856d7b46580c66e004922f3/src/starkware/starknet/core/os/os_config/os_config.cairo#L1-L39
-fn compute_starknet_os_config_hash(
-    chain_id: Felt,
-    fee_token: Felt,
-) -> Felt {
+fn compute_starknet_os_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
     // A constant representing the StarkNet OS config version.
     const STARKNET_OS_CONFIG_VERSION: Felt = short_string!("StarknetOsConfig3");
 
-    compute_hash_on_elements(&[
-        STARKNET_OS_CONFIG_VERSION.into(),
-        chain_id,
-        fee_token,
-    ])
+    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION.into(), chain_id, fee_token])
 }
 
 #[cfg(test)]
@@ -436,7 +429,7 @@ mod tests {
     #[case::mainnet(felt!("0x70c7b342f93155315d1cb2da7a4e13a3c2430f51fb5696c1b224c3da5508dfb"), MAINNET)]
     #[case::testnet(felt!("0x1b9900f77ff5923183a7795fcfbb54ed76917bc1ddd4160cc77fa96e36cf8c5"), SEPOLIA)]
     fn calculate_config_hash(#[case] config_hash: Felt, #[case] chain: Felt) {
-        let computed = compute_starknet_os_config_hash(chain,STRK_FEE_TOKEN);
+        let computed = compute_starknet_os_config_hash(chain, STRK_FEE_TOKEN);
         assert_eq!(computed, config_hash);
     }
 }

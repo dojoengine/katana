@@ -32,7 +32,10 @@ pub fn log_messages(messages: &[MessageToL1]) {
     let mut mapped_strings = Vec::new();
 
     for message in messages {
-        mapped_strings.push(format!("from: {:?} to: {:?} payload: {:?}", message.from_address, message.to_address, message.payload));
+        mapped_strings.push(format!(
+            "from: {:?} to: {:?} payload: {:?}",
+            message.from_address, message.to_address, message.payload
+        ));
     }
 
     trace!(target: "messaging", messages = mapped_strings.join(" | "), "Transaction messages.");

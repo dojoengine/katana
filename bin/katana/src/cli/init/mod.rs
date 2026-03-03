@@ -133,7 +133,7 @@ pub struct RollupArgs {
     settlement_chain: Option<SettlementChain>,
     /// The address of the settlement account to be used to configure the core contract.
     #[arg(long = "settlement-account-address")]
-    #[arg(required_unless_present_any = ["sovereign", "settlement_contract"])]    
+    #[arg(required_unless_present_any = ["sovereign", "settlement_contract"])]
     #[arg(requires_all = ["id", "settlement_chain"])]
     settlement_account: Option<ContractAddress>,
 
@@ -335,10 +335,10 @@ impl RollupArgs {
                         .expect("must exist at this point"),
                 }
             }
-
             // If settlement contract is not provided, then we will deploy it.
             else {
-                let settlement_private_key = self.settlement_account_private_key.expect("must present");
+                let settlement_private_key =
+                    self.settlement_account_private_key.expect("must present");
                 let settlement_account_address = self.settlement_account.expect("must present");
 
                 let account = SingleOwnerAccount::new(
