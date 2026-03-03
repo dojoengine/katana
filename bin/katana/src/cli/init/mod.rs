@@ -359,7 +359,7 @@ impl RollupArgs {
                 id,
                 deployment_outcome,
                 rpc_url: settlement_provider.url().clone(),
-                settlement_id: parse_cairo_short_string(&l1_chain_id).unwrap(),
+                settlement_id: ShortString::try_from(l1_chain_id).unwrap(),
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
             }))
