@@ -6,7 +6,7 @@ use cartridge::CartridgeApiClient;
 use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::types::{ErrorObjectOwned, Request, Response, ResponsePayload};
-use jsonrpsee::{rpc_params, MethodResponse, ResponsePayload};
+use jsonrpsee::{rpc_params, MethodResponse};
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::api::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
@@ -247,12 +247,9 @@ where
                 // extract only the fee estimates for the original transactions
                 let deploy_txs_count = new_txs_count - original_txs_count;
                 let original_estimates = estimates[deploy_txs_count..].to_vec();
+                let payload = ResponsePayload::success(original_estimates);
 
-                Ok(MethodResponse::response(
-                    request.id().clone(),
-                    ResponsePayload::success(original_estimates),
-                    usize::MAX,
-                ))
+                Ok(MethodResponse::response(request.id().clone(), payload.into(), usize::MAX))
             }
 
             ResponsePayload::Error(..) => Ok(response),
