@@ -1,0 +1,9 @@
+manifest_version=1
+cargo_lock_path=Cargo.lock
+cargo_lock_sha256=d68486924d65e41aa0f4d342db8fd39ab4a5d3d519e0e79ae7939a15674b5bac
+vendor_archive_path=vendor/cargo/vendor.tar.gz
+vendor_archive_sha256=74984c4b873962627856df0c172e6e56540623c2cd81a8722d7423f6c735d2b5
+vendor_archive_sha256_file=vendor/cargo/vendor.tar.gz.sha256
+vendor_archive_part_prefix=vendor/cargo/vendor.tar.gz.part-
+source_date_epoch=0
+generated_by=scripts/release/update-vendor-archive.sh

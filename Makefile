@@ -42,7 +42,7 @@ SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(VRF_S
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts tee-sev-snp clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts tee-sev-snp clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv vendor-refresh vendor-verify
 
 usage help:
 	@echo "Usage:"
@@ -55,6 +55,8 @@ usage help:
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
 	@echo "    generate-db-fixtures:      Generate spawn-and-move and simple DB fixtures (requires scarb + sozo)."
+	@echo "    vendor-refresh:            Refresh the vendored Cargo dependency archive and manifest."
+	@echo "    vendor-verify:             Verify vendored Cargo archive and Cargo.lock consistency."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
@@ -95,6 +97,12 @@ build-explorer:
 	@$(MAKE) $(EXPLORER_UI_DIST)
 
 contracts: install-scarb $(CONTRACTS_BUILD_DIR)
+
+vendor-refresh:
+	@./scripts/release/update-vendor-archive.sh
+
+vendor-verify:
+	@./scripts/release/verify-vendor-archive.sh --extract-check
 
 tee-sev-snp:
 	@echo "Building AMD SEV-SNP TEE VM components..."

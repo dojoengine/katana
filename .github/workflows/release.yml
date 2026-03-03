@@ -13,7 +13,7 @@ on:
       - "release/**"
 
 env:
-  RUST_VERSION: 1.86.0
+  RUST_VERSION: 1.89.0
   CARGO_TERM_COLOR: always
   REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
 
@@ -48,6 +48,8 @@ jobs:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build contracts
         run: make contracts
@@ -59,9 +61,91 @@ jobs:
           path: ./crates/contracts/build
           retention-days: 1
 
+  reproducibility-check:
+    name: reproducibility-check (linux-amd64)
+    needs: [prepare, build-contracts]
+    runs-on: ubuntu-latest-8-cores
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "31.x"
+
+      - name: Set SOURCE_DATE_EPOCH
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> $GITHUB_ENV
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-artifacts
+          path: ./crates/contracts/build
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        name: Rust Toolchain Setup
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          target: ${{ env.TARGET }}
+          cache-on-failure: true
+          cache-key: reproducibility-${{ env.TARGET }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build Explorer UI
+        shell: bash
+        run: |
+          make build-explorer
+
+      - name: Verify vendored dependency archive
+        shell: bash
+        run: |
+          ./scripts/release/verify-vendor-archive.sh --extract-check
+
+      - name: Build (pass 1)
+        shell: bash
+        run: |
+          ./scripts/release/build-katana-vendored.sh --target "$TARGET"
+          SHA_ONE=$(sha256sum "./target/$TARGET/performance/katana" | awk '{ print $1 }')
+          echo "sha_one=$SHA_ONE" >> $GITHUB_ENV
+
+      - name: Build (pass 2)
+        shell: bash
+        run: |
+          rm -rf ./target
+          ./scripts/release/build-katana-vendored.sh --target "$TARGET"
+          SHA_TWO=$(sha256sum "./target/$TARGET/performance/katana" | awk '{ print $1 }')
+          echo "sha_two=$SHA_TWO" >> $GITHUB_ENV
+
+      - name: Compare hashes
+        shell: bash
+        run: |
+          echo "Build #1 SHA256: $sha_one"
+          echo "Build #2 SHA256: $sha_two"
+          if [[ "$sha_one" != "$sha_two" ]]; then
+            echo "Reproducibility check failed: hashes differ."
+            exit 1
+          fi
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## Reproducibility Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- target: \`$TARGET\`" >> $GITHUB_STEP_SUMMARY
+          echo "- SOURCE_DATE_EPOCH: \`$SOURCE_DATE_EPOCH\`" >> $GITHUB_STEP_SUMMARY
+          echo "- sha256(build #1): \`$sha_one\`" >> $GITHUB_STEP_SUMMARY
+          echo "- sha256(build #2): \`$sha_two\`" >> $GITHUB_STEP_SUMMARY
+
   release:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }}${{ matrix.job.native_build == true && ', native' || '' }})
-    needs: [prepare, build-contracts]
+    needs: [prepare, build-contracts, reproducibility-check]
     runs-on: ${{ matrix.job.os }}
     env:
       PLATFORM_NAME: ${{ matrix.job.platform }}
@@ -118,6 +202,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "31.x"
+
+      - name: Set SOURCE_DATE_EPOCH
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> $GITHUB_ENV
+
       - name: Download contract artifacts
         uses: actions/download-artifact@v4
         with:
@@ -135,6 +229,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Build Explorer UI
+        shell: bash
+        run: |
+          make build-explorer
 
       - name: Install LLVM ( Linux )
         if: ${{ matrix.job.platform == 'linux' && matrix.job.native_build == true }}
@@ -204,43 +303,70 @@ jobs:
           # See: https://github.com/jemalloc/jemalloc/issues/467
           echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
 
+      - name: Verify vendored dependency archive
+        shell: bash
+        run: |
+          ./scripts/release/verify-vendor-archive.sh --extract-check
+
       - name: Build binary
         if: ${{ matrix.job.native_build == false }}
         shell: bash
         run: |
-          cargo build -p katana --bin katana --profile performance --target ${{ matrix.job.target }}
+          ./scripts/release/build-katana-vendored.sh --target "${{ matrix.job.target }}"
 
       - name: Build binary ( w/ cairo-native )
         if: ${{ matrix.job.native_build == true }}
         shell: bash
         run: |
-          cargo build -p katana --bin katana --profile performance --features native --target ${{ matrix.job.target }}
+          ./scripts/release/build-katana-vendored.sh --target "${{ matrix.job.target }}" --native
 
       - name: Archive binaries
         id: artifacts
         env:
           VERSION_NAME: ${{ needs.prepare.outputs.tag_name }}
         run: |
+          checksum_file() {
+            local file="$1"
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$file" | awk '{ print $1 }'
+            elif command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "$file" | awk '{ print $1 }'
+            else
+              echo "No SHA-256 tool found (sha256sum/shasum)." >&2
+              exit 1
+            fi
+          }
+
           if [ "$NATIVE_BUILD" == "true" ]; then
             SUFFIX="_native"
           else
             SUFFIX=""
           fi
 
+          ARCHIVE_NAME=""
+
           if [ "$PLATFORM_NAME" == "linux" ]; then
-            tar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" -C ./target/${TARGET}/performance katana
-            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" >> $GITHUB_OUTPUT
+            ARCHIVE_NAME="katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz"
+            tar -czvf "$ARCHIVE_NAME" -C ./target/${TARGET}/performance katana
           elif [ "$PLATFORM_NAME" == "darwin" ]; then
             # We need to use gtar here otherwise the archive is corrupt.
             # See: https://github.com/actions/virtual-environments/issues/2619
-            gtar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" -C ./target/${TARGET}/performance katana
-            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" >> $GITHUB_OUTPUT
+            ARCHIVE_NAME="katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz"
+            gtar -czvf "$ARCHIVE_NAME" -C ./target/${TARGET}/performance katana
           elif [ "$PLATFORM_NAME" == "win32" ]; then
+            ARCHIVE_NAME="katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.zip"
             cd ./target/${TARGET}/performance
-            7z a -tzip "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.zip" katana.exe
-            mv "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.zip" ../../../
-            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.zip" >> $GITHUB_OUTPUT
+            7z a -tzip "$ARCHIVE_NAME" katana.exe
+            mv "$ARCHIVE_NAME" ../../../
+            cd ../../../
           fi
+
+          CHECKSUM_NAME="${ARCHIVE_NAME}.sha256"
+          CHECKSUM="$(checksum_file "$ARCHIVE_NAME")"
+          printf "%s  %s\n" "$CHECKSUM" "$ARCHIVE_NAME" > "$CHECKSUM_NAME"
+
+          echo "file_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+          echo "checksum_file=$CHECKSUM_NAME" >> $GITHUB_OUTPUT
         shell: bash
 
       # We move binaries so they match $TARGETPLATFORM in the Docker build
@@ -264,7 +390,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-${{ matrix.job.target }}${{ matrix.job.native_build == true && '-native' || '' }}
-          path: ${{ steps.artifacts.outputs.file_name }}
+          path: |
+            ${{ steps.artifacts.outputs.file_name }}
+            ${{ steps.artifacts.outputs.checksum_file }}
           retention-days: 1
 
   create-draft-release:
@@ -284,12 +412,9 @@ jobs:
           pattern: artifacts-*
           path: artifacts
           merge-multiple: true
-      - id: version_info
-        run: |
-          echo "version=v$(cargo get workspace.package.version)" >> $GITHUB_OUTPUT
       - name: Display structure of downloaded files
         run: ls -R artifacts
-      - run: gh release create ${{ steps.version_info.outputs.version }} ./artifacts/* --generate-notes --draft
+      - run: gh release create ${{ needs.prepare.outputs.tag_name }} ./artifacts/* --generate-notes --draft
 
   docker-build-and-push:
     runs-on: ubuntu-latest-8-cores
