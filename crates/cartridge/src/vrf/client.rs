@@ -1,6 +1,9 @@
-use katana_primitives::Felt;
+use cainome_cairo_serde::CairoSerde;
+use katana_primitives::execution::Call;
+use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::outside_execution::{OutsideExecutionV2, OutsideExecutionV3};
 use serde::{Deserialize, Serialize};
+use starknet::macros::selector;
 use url::Url;
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -25,9 +28,28 @@ pub enum VrfOutsideExecution {
 /// A signed outside execution request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedOutsideExecution {
-    pub address: Felt,
+    pub address: ContractAddress,
     pub outside_execution: VrfOutsideExecution,
     pub signature: Vec<Felt>,
+}
+
+impl From<SignedOutsideExecution> for Call {
+    fn from(value: SignedOutsideExecution) -> Self {
+        let (entry_point_selector, mut calldata) = match &value.outside_execution {
+            VrfOutsideExecution::V2(v) => {
+                let calldata = OutsideExecutionV2::cairo_serialize(v);
+                (selector!("execute_from_outside_v2"), calldata)
+            }
+            VrfOutsideExecution::V3(v) => {
+                let calldata = OutsideExecutionV3::cairo_serialize(v);
+                (selector!("execute_from_outside_v3"), calldata)
+            }
+        };
+
+        calldata.extend(value.signature);
+
+        Call { contract_address: value.address, entry_point_selector, calldata }
+    }
 }
 
 /// Response from GET /info endpoint.

@@ -17,12 +17,12 @@ pub enum Error {
 
 /// Client for interacting with the Cartridge service.
 #[derive(Debug, Clone)]
-pub struct Client {
+pub struct CartridgeApiClient {
     url: Url,
     client: reqwest::Client,
 }
 
-impl Client {
+impl CartridgeApiClient {
     /// Creates a new [`CartridgeApiClient`] with the given URL.
     pub fn new(url: Url) -> Self {
         Self { url, client: reqwest::Client::new() }

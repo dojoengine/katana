@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_pool::{PoolTransaction, TransactionPool};
+use katana_pool::api::{PoolTransaction, TransactionPool};
 use katana_primitives::ContractAddress;
 use katana_rpc_api::txpool::TxPoolApiServer;
 use katana_rpc_types::txpool::{TxPoolContent, TxPoolInspect, TxPoolStatus, TxPoolTransaction};
