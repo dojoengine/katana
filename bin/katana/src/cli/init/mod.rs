@@ -275,11 +275,7 @@ impl RollupArgs {
                 return None; // Fall back to prompting
             };
 
-            // These args are all required if at least one of them are specified (incl chain id) and
-            // `clap` has already handled that for us, so it's safe to unwrap here.
-            let settlement_chain = self.settlement_chain.clone().expect("must present");
-
-            let settlement_provider = match settlement_chain {
+            let settlement_provider = match &settlement_chain {
                 SettlementChain::Mainnet => {
                     let mut provider = SettlementChainProvider::sn_mainnet();
                     if let Some(fact_registry) = self.settlement_facts_registry_contract {
@@ -334,10 +330,6 @@ impl RollupArgs {
             }
             // If settlement contract is not provided, then we will deploy it.
             else {
-                let settlement_private_key =
-                    self.settlement_account_private_key.expect("must present");
-                let settlement_account_address = self.settlement_account.expect("must present");
-
                 let account = SingleOwnerAccount::new(
                     settlement_provider.clone(),
                     SigningKey::from_secret_scalar(settlement_private_key).into(),

@@ -162,7 +162,7 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         id: chain_id,
         deployment_outcome,
         rpc_url: settlement_provider.url().clone(),
-        settlement_id: parse_cairo_short_string(&l1_chain_id)?,
+        settlement_id: ShortString::try_from(l1_chain_id)?,
         #[cfg(feature = "init-slot")]
         slot_paymasters,
     })
