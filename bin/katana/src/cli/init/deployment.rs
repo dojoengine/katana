@@ -3,7 +3,6 @@ use std::str::FromStr;
 use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
 use katana_primitives::block::{BlockHash, BlockNumber};
-use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{
     CompiledClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
     ContractClassFromStrError,
@@ -409,7 +408,7 @@ fn compute_starknet_os_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
     // A constant representing the StarkNet OS config version.
     const STARKNET_OS_CONFIG_VERSION: Felt = short_string!("StarknetOsConfig3");
 
-    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION.into(), chain_id, fee_token])
+    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION, chain_id, fee_token])
 }
 
 #[cfg(test)]

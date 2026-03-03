@@ -387,28 +387,26 @@ mod tests {
 
     use alloy_primitives::U256;
     use katana_contracts::contracts;
-    use katana_executor::implementation::blockifier::cache::ClassCache;
-    use katana_executor::implementation::blockifier::BlockifierFactory;
+    use katana_executor::blockifier::cache::ClassCache;
+    use katana_executor::blockifier::BlockifierFactory;
     use katana_executor::{BlockLimits, ExecutorFactory};
+    use katana_genesis::allocation::{
+        DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
+    };
+    use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS};
+    use katana_genesis::Genesis;
     use katana_primitives::chain::ChainId;
     use katana_primitives::class::ClassHash;
     use katana_primitives::contract::Nonce;
-    use katana_primitives::env::CfgEnv;
-    use katana_primitives::genesis::allocation::{
-        DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
-    };
-    use katana_primitives::genesis::constant::{
-        DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
-    };
-    use katana_primitives::genesis::Genesis;
     use katana_primitives::transaction::TxType;
     use katana_primitives::Felt;
     use katana_provider::api::state::StateFactoryProvider;
     use katana_provider::providers::db::DbProvider;
+    use katana_provider::DbProviderFactory;
     use url::Url;
 
     use super::GenesisTransactionsBuilder;
-    use crate::rollup::{ChainSpec, FeeContract, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
+    use crate::rollup::{ChainSpec, FeeContracts, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
     use crate::SettlementLayer;
 
     fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
@@ -424,7 +422,7 @@ mod tests {
         genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
         let id = ChainId::parse("KATANA").unwrap();
-        let fee_contract = FeeContract::default();
+        let fee_contracts = FeeContracts::default();
 
         let settlement = SettlementLayer::Starknet {
             block: 0,
@@ -433,7 +431,7 @@ mod tests {
             rpc_url: Url::parse("http://localhost:5050").unwrap(),
         };
 
-        ChainSpec { id, genesis, settlement, fee_contract }
+        ChainSpec { id, genesis, settlement, fee_contracts }
     }
 
     fn executor(chain_spec: &ChainSpec) -> BlockifierFactory {
@@ -454,8 +452,9 @@ mod tests {
     #[test]
     fn valid_transactions() {
         let chain_spec = chain_spec(1, true);
+        let provider_factory = DbProviderFactory::new_in_memory();
 
-        let provider = DbProvider::new_in_memory();
+        let provider = provider_factory.provider();
         let ef = executor(&chain_spec);
 
         let mut executor = ef.with_state(provider.latest().unwrap());
@@ -471,8 +470,9 @@ mod tests {
     #[test]
     fn genesis_states() {
         let chain_spec = chain_spec(1, true);
+        let provider_factory = DbProviderFactory::new_in_memory();
 
-        let provider = DbProvider::new_in_memory();
+        let provider = provider_factory.provider();
         let ef = executor(&chain_spec);
 
         let mut executor = ef.with_state(provider.latest().unwrap());
