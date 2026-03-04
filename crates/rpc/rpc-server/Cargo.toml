@@ -51,6 +51,7 @@ starknet-types-core = { workspace = true, optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
+katana-rpc-types = { workspace = true, features = ["arbitrary"] }
 katana-contracts.workspace = true
 katana-db.workspace = true
 katana-genesis.workspace = true
