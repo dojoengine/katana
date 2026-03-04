@@ -6738,6 +6738,7 @@ dependencies = [
 name = "katana-rpc-types"
 version = "1.7.0"
 dependencies = [
+ "arbitrary",
  "assert_matches",
  "cainome",
  "cainome-cairo-serde",

@@ -56,6 +56,7 @@ pub struct CallResponse {
 
 /// Fee estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FeeEstimate {
     /// The Ethereum gas consumption of the transaction, charged for L1->L2 messages and, depending
     /// on the block's da_mode, state diffs
