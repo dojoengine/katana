@@ -4,6 +4,7 @@ use katana_gateway_types::{BlockStatus, StateUpdate as GatewayStateUpdate, State
 use katana_primitives::block::{
     FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
+use katana_primitives::chain::ChainId;
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
     DeclareTxReceipt, DeployAccountTxReceipt, DeployTxReceipt, InvokeTxReceipt, L1HandlerTxReceipt,
@@ -16,7 +17,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::{error, info_span, Instrument};
+use tracing::{error, info_span, warn, Instrument};
 
 use crate::{
     PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
@@ -24,6 +25,7 @@ use crate::{
 };
 
 mod downloader;
+pub mod hash;
 
 pub use downloader::{BatchBlockDownloader, BlockDownloader};
 
@@ -32,12 +34,13 @@ pub use downloader::{BatchBlockDownloader, BlockDownloader};
 pub struct Blocks<B> {
     provider: DbProviderFactory,
     downloader: B,
+    chain_id: ChainId,
 }
 
 impl<B> Blocks<B> {
     /// Create a new [`Blocks`] stage.
-    pub fn new(provider: DbProviderFactory, downloader: B) -> Self {
-        Self { provider, downloader }
+    pub fn new(provider: DbProviderFactory, downloader: B, chain_id: ChainId) -> Self {
+        Self { provider, downloader, chain_id }
     }
 
     /// Validates that the downloaded blocks form a valid chain.
@@ -121,6 +124,17 @@ where
                 let (block, receipts, state_updates) = extract_block_data(block)?;
                 let block_number = block.block.header.number;
 
+                // Verify the block hash matches what we compute locally.
+                let computed_hash = hash::compute_hash(&block.block.header, &self.chain_id);
+                if computed_hash != block.block.hash {
+                    warn!(
+                        block = %block_number,
+                        expected = %block.block.hash,
+                        computed = %computed_hash,
+                        "Block hash mismatch"
+                    );
+                }
+
                 provider_mut
                     .insert_block_with_states_and_receipts(
                         block,
@@ -160,6 +174,12 @@ pub enum Error {
          previous block hash {expected_hash:#x}"
     )]
     ChainInvariantViolation { block_num: u64, parent_hash: Felt, expected_hash: Felt },
+
+    #[error(
+        "block hash mismatch: block {block_num} gateway hash {expected:#x} does not match \
+         computed hash {computed:#x}"
+    )]
+    BlockHashMismatch { block_num: u64, expected: Felt, computed: Felt },
 }
 
 fn extract_block_data(

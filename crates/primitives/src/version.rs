@@ -12,11 +12,24 @@
 pub const CURRENT_STARKNET_VERSION: StarknetVersion = StarknetVersion::new([0, 13, 4, 0]);
 
 /// Starknet protocol version.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct StarknetVersion {
     /// Each segments represents a part of the version number.
     segments: [u8; 4],
+}
+
+impl StarknetVersion {
+    /// Represents blocks that predate Starknet protocol versioning.
+    ///
+    /// Early Starknet mainnet blocks were produced before the protocol included a version
+    /// field. This constant represents that absence as a first-class value rather than
+    /// using `Option` or a sentinel error. No official Starknet release uses version `0.0.0`,
+    /// so this is unambiguous.
+    pub const UNVERSIONED: Self = Self::new([0, 0, 0, 0]);
+
+    pub const V0_7_0: Self = Self::new([0, 7, 0, 0]);
+    pub const V0_13_2: Self = Self::new([0, 13, 2, 0]);
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -36,7 +49,7 @@ impl StarknetVersion {
     /// The string can have fewer than 4 segments; missing segments are filled with zeros.
     pub fn parse(version: &str) -> Result<Self, ParseVersionError> {
         if version.is_empty() {
-            return Err(ParseVersionError::InvalidFormat);
+            return Ok(Self::UNVERSIONED);
         }
 
         let segments = version.split('.').collect::<Vec<&str>>();
@@ -69,6 +82,12 @@ impl core::default::Default for StarknetVersion {
 // - Version::new([0, 2, 3, 0]) will be displayed as "0.2.3"
 impl core::fmt::Display for StarknetVersion {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Unversioned blocks display as empty string, matching the empty protocol
+        // version field used in early Starknet block hash computation.
+        if *self == Self::UNVERSIONED {
+            return Ok(());
+        }
+
         for (idx, segment) in self.segments.iter().enumerate() {
             // If it's the last segment, don't print it if it's zero.
             if idx == self.segments.len() - 1 {
@@ -126,6 +145,8 @@ impl TryFrom<StarknetVersion> for starknet_api::block::StarknetVersion {
 
     fn try_from(version: StarknetVersion) -> Result<Self, Self::Error> {
         match version.segments {
+            // Unversioned blocks predate all known releases; map to the earliest.
+            [0, 0, 0, 0] => Ok(Self::V0_9_1),
             [0, 9, 1, 0] => Ok(Self::V0_9_1),
             [0, 10, 0, 0] => Ok(Self::V0_10_0),
             [0, 10, 1, 0] => Ok(Self::V0_10_1),
@@ -197,10 +218,34 @@ mod tests {
 
     #[test]
     fn parse_invalid_formats() {
-        let version = "";
-        assert!(StarknetVersion::parse(version).is_err());
         let version = "1.2.3.4.5";
         assert!(StarknetVersion::parse(version).is_err());
+    }
+
+    #[test]
+    fn parse_empty_string_returns_unversioned() {
+        let parsed = StarknetVersion::parse("").unwrap();
+        assert_eq!(parsed, StarknetVersion::UNVERSIONED);
+        assert_eq!(parsed.segments, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn unversioned_displays_as_empty_string() {
+        assert_eq!(StarknetVersion::UNVERSIONED.to_string(), "");
+    }
+
+    #[test]
+    fn unversioned_roundtrips_through_string() {
+        let display = StarknetVersion::UNVERSIONED.to_string();
+        let parsed = StarknetVersion::parse(&display).unwrap();
+        assert_eq!(parsed, StarknetVersion::UNVERSIONED);
+    }
+
+    #[test]
+    fn version_ordering() {
+        assert!(StarknetVersion::UNVERSIONED < StarknetVersion::V0_7_0);
+        assert!(StarknetVersion::V0_7_0 < StarknetVersion::V0_13_2);
+        assert!(StarknetVersion::V0_13_2 < CURRENT_STARKNET_VERSION);
     }
 
     #[cfg(feature = "serde")]
@@ -218,6 +263,23 @@ mod tests {
         #[test]
         fn rt_non_human_readable() {
             let version = StarknetVersion::new([1, 2, 3, 4]);
+            let serialized = postcard::to_stdvec(&version).unwrap();
+            let deserialized: StarknetVersion = postcard::from_bytes(&serialized).unwrap();
+            assert_eq!(version, deserialized);
+        }
+
+        #[test]
+        fn rt_unversioned_human_readable() {
+            let version = StarknetVersion::UNVERSIONED;
+            let serialized = serde_json::to_string(&version).unwrap();
+            assert_eq!(serialized, "\"\"");
+            let deserialized: StarknetVersion = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(version, deserialized);
+        }
+
+        #[test]
+        fn rt_unversioned_non_human_readable() {
+            let version = StarknetVersion::UNVERSIONED;
             let serialized = postcard::to_stdvec(&version).unwrap();
             let deserialized: StarknetVersion = postcard::from_bytes(&serialized).unwrap();
             assert_eq!(version, deserialized);

@@ -136,8 +136,13 @@ impl Node {
         // Configure pruning
         pipeline.set_pruning_config(config.pruning.clone());
 
+        let chain_id = match config.network {
+            Network::Mainnet => katana_primitives::chain::ChainId::MAINNET,
+            Network::Sepolia => katana_primitives::chain::ChainId::SEPOLIA,
+        };
+
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
-        pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader));
+        pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
         pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
         pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
 

@@ -10,6 +10,7 @@ use katana_gateway_types::{
 use katana_primitives::block::{
     BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
 };
+use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
@@ -223,7 +224,7 @@ async fn download_and_store_blocks(
         downloader = downloader.with_block(block_num, create_downloaded_block(block_num));
     }
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
     let input = StageExecutionInput::new(from_block, to_block);
 
     let result = stage.execute(&input).await;
@@ -246,7 +247,7 @@ async fn download_failure_returns_error() {
     // Create provider with initial block at block_number - 1
     let provider = create_provider_with_block(create_stored_block(block_number - 1));
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
     let input = StageExecutionInput::new(block_number, block_number);
 
     let result = stage.execute(&input).await;
@@ -281,7 +282,7 @@ async fn partial_download_failure_stops_execution() {
     downloader = downloader.with_error(103, "Block not found".to_string());
 
     let provider = create_provider_with_block(create_stored_block(from_block - 1));
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
 
     let input = StageExecutionInput::new(from_block, to_block);
     let result = stage.execute(&input).await;
@@ -306,7 +307,7 @@ async fn fetch_blocks_from_gateway() {
     let feeder_gateway = SequencerGateway::sepolia();
     let downloader = BatchBlockDownloader::new_gateway(feeder_gateway, 10);
 
-    let mut stage = Blocks::new(provider.clone(), downloader);
+    let mut stage = Blocks::new(provider.clone(), downloader, ChainId::SEPOLIA);
 
     let input = StageExecutionInput::new(from_block, to_block);
     stage.execute(&input).await.expect("failed to execute stage");
@@ -325,7 +326,7 @@ async fn downloaded_blocks_do_not_form_valid_chain_with_stored_blocks() {
     let downloader = MockBlockDownloader::new()
         .with_block(100, create_downloaded_block_with_parent(100, felt!("0x1337")));
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
     let input = StageExecutionInput::new(100, 100);
 
     let result = stage.execute(&input).await;
@@ -364,7 +365,7 @@ async fn downloaded_blocks_do_not_form_valid_chain() {
         // Block 102 with incorrect parent hash (should be 101)
         .with_block(102, create_downloaded_block_with_parent(102, Felt::from(999)));
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
     let input = StageExecutionInput::new(100, 102);
 
     let result = stage.execute(&input).await;
