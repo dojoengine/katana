@@ -32,7 +32,7 @@ type SettlementInitializerAccount = SingleOwnerAccount<SettlementChainProvider, 
 /// This program hash is required to be known by the settlement contract in order to
 /// only accept a new state from a valid SNOS program.
 ///
-/// This program can be found here: <https://github.com/starkware-libs/cairo-lang/blob/a86e92bfde9c171c0856d7b46580c66e004922f3/src/starkware/starknet/core/os/os.cairo>.
+/// This program can be found here: <https://github.com/starkware-libs/sequencer/blob/v0.16.0-rc.0/crates/apollo_starknet_os_program/src/cairo/starkware/starknet/core/os/os.cairo>.
 const SNOS_PROGRAM_HASH: Felt =
     felt!("0x10e5341a417427d140af8f5def7d2cc687d84591ff8ec241623c590b5ca8c80");
 
@@ -403,12 +403,11 @@ fn compute_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
     compute_starknet_os_config_hash(chain_id, fee_token)
 }
 
-// https://github.com/starkware-libs/cairo-lang/blob/a86e92bfde9c171c0856d7b46580c66e004922f3/src/starkware/starknet/core/os/os_config/os_config.cairo#L1-L39
+// https://github.com/starkware-libs/sequencer/blob/e13acc4c582352e777f5beae3476d157e6bdf4cf/crates/apollo_starknet_os_program/src/cairo/starkware/starknet/core/os/os_config/os_config.cairo#L10
 fn compute_starknet_os_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
     // A constant representing the StarkNet OS config version.
-    const STARKNET_OS_CONFIG_VERSION: Felt = short_string!("StarknetOsConfig3");
-
-    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION, chain_id, fee_token])
+    const STARKNET_OS_CONFIG_VERSION: ShortString = ShortString::from_ascii("StarknetOsConfig3");
+    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION.into(), chain_id, fee_token])
 }
 
 #[cfg(test)]
