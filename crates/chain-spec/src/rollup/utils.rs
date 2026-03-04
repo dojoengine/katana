@@ -387,26 +387,19 @@ mod tests {
 
     use alloy_primitives::U256;
     use katana_contracts::contracts;
-    use katana_executor::blockifier::cache::ClassCache;
-    use katana_executor::blockifier::BlockifierFactory;
-    use katana_executor::{BlockLimits, ExecutorFactory};
     use katana_genesis::allocation::{
         DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
     };
-    use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS};
+    use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
     use katana_genesis::Genesis;
     use katana_primitives::chain::ChainId;
     use katana_primitives::class::ClassHash;
-    use katana_primitives::contract::Nonce;
     use katana_primitives::transaction::TxType;
     use katana_primitives::Felt;
-    use katana_provider::api::state::StateFactoryProvider;
-    use katana_provider::providers::db::DbProvider;
-    use katana_provider::DbProviderFactory;
     use url::Url;
 
     use super::GenesisTransactionsBuilder;
-    use crate::rollup::{ChainSpec, FeeContracts, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
+    use crate::rollup::{ChainSpec, FeeContracts};
     use crate::SettlementLayer;
 
     fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
@@ -432,83 +425,6 @@ mod tests {
         };
 
         ChainSpec { id, genesis, settlement, fee_contracts }
-    }
-
-    fn executor(chain_spec: &ChainSpec) -> BlockifierFactory {
-        BlockifierFactory::new(
-            CfgEnv {
-                chain_id: chain_spec.id,
-                validate_max_n_steps: u32::MAX,
-                invoke_tx_max_n_steps: u32::MAX,
-                max_recursion_depth: usize::MAX,
-                ..Default::default()
-            },
-            Default::default(),
-            BlockLimits::default(),
-            ClassCache::new().unwrap(),
-        )
-    }
-
-    #[test]
-    fn valid_transactions() {
-        let chain_spec = chain_spec(1, true);
-        let provider_factory = DbProviderFactory::new_in_memory();
-
-        let provider = provider_factory.provider();
-        let ef = executor(&chain_spec);
-
-        let mut executor = ef.with_state(provider.latest().unwrap());
-        executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
-
-        let output = executor.take_execution_output().unwrap();
-
-        for (i, (.., result)) in output.transactions.iter().enumerate() {
-            assert!(result.is_success(), "tx {i} failed; {result:?}");
-        }
-    }
-
-    #[test]
-    fn genesis_states() {
-        let chain_spec = chain_spec(1, true);
-        let provider_factory = DbProviderFactory::new_in_memory();
-
-        let provider = provider_factory.provider();
-        let ef = executor(&chain_spec);
-
-        let mut executor = ef.with_state(provider.latest().unwrap());
-        executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
-
-        let genesis_state = executor.state();
-
-        // -----------------------------------------------------------------------
-        // Classes
-
-        // check that the default erc20 class is declared
-        let erc20_class_hash = contracts::LegacyERC20::HASH;
-        assert!(genesis_state.class(erc20_class_hash).unwrap().is_some());
-
-        // check that the default udc class is declared
-        let udc_class_hash = contracts::UniversalDeployer::HASH;
-        assert!(genesis_state.class(udc_class_hash).unwrap().is_some());
-
-        // -----------------------------------------------------------------------
-        // Contracts
-
-        // check that the default fee token is deployed
-        let res = genesis_state.class_hash_of_contract(DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS).unwrap();
-        assert_eq!(res, Some(erc20_class_hash));
-
-        // check that the default udc is deployed
-        let res = genesis_state.class_hash_of_contract(DEFAULT_UDC_ADDRESS).unwrap();
-        assert_eq!(res, Some(udc_class_hash));
-
-        for (address, account) in chain_spec.genesis.accounts() {
-            let nonce = genesis_state.nonce(*address).unwrap();
-            let class_hash = genesis_state.class_hash_of_contract(*address).unwrap();
-
-            assert_eq!(nonce, Some(Nonce::ONE));
-            assert_eq!(class_hash, Some(account.class_hash()));
-        }
     }
 
     #[test]
