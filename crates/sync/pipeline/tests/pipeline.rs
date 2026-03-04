@@ -444,10 +444,19 @@ async fn run_processes_single_chunk_to_tip() {
     pipeline.add_stage(stage);
 
     // Set tip to 50 (within one chunk)
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(50);
 
     let task_handle = tokio::spawn(async move { pipeline.run().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Wait until the pipeline has processed up to block 50
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 50 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
 
@@ -474,10 +483,19 @@ async fn run_processes_multiple_chunks_to_tip() {
     pipeline.add_stage(stage);
 
     // Set tip to 25 (requires 3 chunks: 10, 20, 25)
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(25);
 
     let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Wait until the pipeline has processed up to block 25
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 25 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
 
@@ -512,18 +530,31 @@ async fn run_processes_new_tip_after_completing_previous() {
     pipeline.add_stage(stage);
 
     // Set initial tip
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(10);
 
     let task_handle = tokio::spawn(async move { pipeline.run().await });
 
     // Wait for first tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 10 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     // Set new tip
     handle.set_tip(25);
 
     // Wait for second tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 25 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
     let result = task_handle.await.unwrap();
@@ -548,18 +579,32 @@ async fn run_should_prune() {
     let prunings = stage.prunes.clone();
 
     pipeline.add_stage(stage);
+
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(10); // Set initial tip
 
     let task_handle = tokio::spawn(async move { pipeline.run().await });
 
     // Wait for first tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 10 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     // Set new tip
     handle.set_tip(25);
 
     // Wait for second tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 25 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
     let result = task_handle.await.unwrap();
@@ -590,18 +635,32 @@ async fn run_should_not_prune_if_pruning_disabled() {
     let prunings = stage.prunes.clone();
 
     pipeline.add_stage(stage);
+
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(10); // Set initial tip
 
     let task_handle = tokio::spawn(async move { pipeline.run().await });
 
     // Wait for first tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 10 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     // Set new tip
     handle.set_tip(25);
 
     // Wait for second tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 25 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
     let result = task_handle.await.unwrap();
@@ -790,10 +849,20 @@ async fn chunk_size_one_executes_block_by_block() {
     let stage_clone = stage.clone();
 
     pipeline.add_stage(stage);
+
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(3);
 
     let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // Wait until the pipeline has processed up to block 3
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 3 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
     pipeline_handle.await.unwrap().unwrap();
