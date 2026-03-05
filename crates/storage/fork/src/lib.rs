@@ -38,8 +38,9 @@ use parking_lot::Mutex;
 use tracing::{error, trace};
 
 /// Default maximum number of concurrent requests that can be processed.
-/// This is a reasonable default to prevent overwhelming the remote RPC provider.
-const DEFAULT_WORKER_MAX_CONCURRENT_REQUESTS: usize = 50;
+/// Heavy game transactions (e.g. Eternum create_building) can trigger 30+ storage
+/// reads each, so 50 is too low for forked chains under gameplay load.
+const DEFAULT_WORKER_MAX_CONCURRENT_REQUESTS: usize = 200;
 
 type BackendResult<T> = Result<T, BackendError>;
 
@@ -948,8 +949,23 @@ impl Future for BackendWorker {
                 pin.stats.queued_requests_count.store(queued_count, Ordering::Relaxed);
             }
 
-            // if no queued requests, then yield
-            if pin.queued_requests.is_empty() {
+            // Yield back to the tokio runtime when no forward progress can be made.
+            //
+            // This is critical because the worker runs on a single-threaded tokio runtime
+            // (`current_thread`). Returning `Poll::Pending` is the ONLY way the runtime gets
+            // to call `park()` and drive the IO reactor — which is what actually processes
+            // incoming HTTP responses from the remote RPC provider.
+            //
+            // Without the second condition, when `queued_requests` is non-empty but
+            // `pending_requests` is at capacity, the worker would busy-spin: it can't move
+            // queued items into pending (limit reached), all pending futures return `Pending`
+            // (no IO events processed), and `queued_requests` is still non-empty so the loop
+            // restarts. The IO reactor never runs, HTTP responses pile up in kernel buffers,
+            // pending futures never complete, and every `rx.recv()` on the calling threads
+            // blocks forever — deadlock.
+            if pin.queued_requests.is_empty()
+                || pin.pending_requests.len() >= pin.max_concurrent_requests
+            {
                 return Poll::Pending;
             }
         }
