@@ -2,16 +2,98 @@
 //!
 //! The Starknet block hash algorithm changed across protocol versions:
 //!
-//! - **Pre-0.7**: Pedersen hash chain with chain ID, uses zero for timestamp and sequencer address.
+//! ## Pre-0.7
 //!
-//! - **0.7 to pre-0.13.2**: Pedersen hash chain without chain ID, uses actual timestamp and
-//!   sequencer address.
+//! ```text
+//! Pedersen(
+//!     block_number,
+//!     state_root,
+//!     0,                          // sequencer_address (zero)
+//!     0,                          // timestamp (zero)
+//!     transaction_count,
+//!     transaction_commitment,
+//!     0,                          // event_count (zero)
+//!     0,                          // event_commitment (zero)
+//!     0,                          // protocol_version
+//!     0,                          // extra_data
+//!     chain_id,
+//!     parent_hash,
+//! )
+//! ```
 //!
-//! - **Post-0.13.2 (v0)**: Poseidon hash with `STARKNET_BLOCK_HASH0` prefix, individual gas price
-//!   fields, and the protocol version as a short string.
+//! ## 0.7 to pre-0.13.2
 //!
-//! - **Post-0.13.4 (v1)**: Poseidon hash with `STARKNET_BLOCK_HASH1` prefix, gas prices
-//!   consolidated into a single Poseidon hash.
+//! ```text
+//! Pedersen(
+//!     block_number,
+//!     state_root,
+//!     sequencer_address,
+//!     timestamp,
+//!     transaction_count,
+//!     transaction_commitment,
+//!     event_count,
+//!     event_commitment,
+//!     0,                          // protocol_version
+//!     0,                          // extra_data
+//!     parent_hash,
+//! )
+//! ```
+//!
+//! ## Post-0.13.2 (v0)
+//!
+//! ```text
+//! Poseidon(
+//!     "STARKNET_BLOCK_HASH0",
+//!     block_number,
+//!     state_root,
+//!     sequencer_address,
+//!     timestamp,
+//!     concat(tx_count, event_count, state_diff_length, l1_da_mode),
+//!     state_diff_commitment,
+//!     transaction_commitment,
+//!     event_commitment,
+//!     receipt_commitment,
+//!     gas_price_wei,
+//!     gas_price_fri,
+//!     data_gas_price_wei,
+//!     data_gas_price_fri,
+//!     protocol_version,
+//!     0,
+//!     parent_hash,
+//! )
+//! ```
+//!
+//! ## Post-0.13.4 (v1)
+//!
+//! ```text
+//! gas_prices_hash = Poseidon(
+//!     "STARKNET_GAS_PRICES0",
+//!     gas_price_wei, gas_price_fri,
+//!     data_gas_price_wei, data_gas_price_fri,
+//!     l2_gas_price_wei, l2_gas_price_fri,
+//! )
+//!
+//! Poseidon(
+//!     "STARKNET_BLOCK_HASH1",
+//!     block_number,
+//!     state_root,
+//!     sequencer_address,
+//!     timestamp,
+//!     concat(tx_count, event_count, state_diff_length, l1_da_mode),
+//!     state_diff_commitment,
+//!     transaction_commitment,
+//!     event_commitment,
+//!     receipt_commitment,
+//!     gas_prices_hash,
+//!     protocol_version,
+//!     0,
+//!     parent_hash,
+//! )
+//! ```
+//!
+//! Reference implementation (v0 and v1):-
+//! * <https://github.com/starkware-libs/sequencer/blob/e3be9f1a0f3514e989f5b6d753022f6ef7bf5b1d/crates/starknet_api/src/block_hash/block_hash_calculator.rs#L219-L256>
+//! * <https://github.com/starkware-libs/sequencer/blob/e3be9f1a0f3514e989f5b6d753022f6ef7bf5b1d/crates/starknet_api/src/block_hash/block_hash_calculator.rs#L383-L409>
 
 use katana_primitives::block::Header;
 use katana_primitives::cairo::ShortString;
@@ -130,16 +212,8 @@ fn compute_hash_post_0_13_4(header: &Header, version_str: &str) -> Felt {
         header.l1_da_mode,
     );
 
-    // gas_prices_hash = Poseidon(
-    //     "STARKNET_GAS_PRICES0",
-    //     gas_price_wei, gas_price_fri,
-    //     data_gas_price_wei, data_gas_price_fri,
-    //     l2_gas_price_wei, l2_gas_price_fri,
-    // )
-    //
-    // https://github.com/starkware-libs/sequencer/blob/e3be9f1a0f3514e989f5b6d753022f6ef7bf5b1d/crates/starknet_api/src/block_hash/block_hash_calculator.rs#L375-L409
+    // See module-level docs for the gas prices hash pseudocode.
     const GAS_PRICES_VERSION: ShortString = ShortString::from_ascii("STARKNET_GAS_PRICES0");
-
     let gas_prices_hash = Poseidon::hash_array(&[
         GAS_PRICES_VERSION.into(),
         header.l1_gas_prices.eth.get().into(),
@@ -190,11 +264,7 @@ mod tests {
         let block_hash = Felt::from_hex(v["block_hash"].as_str().unwrap()).unwrap();
 
         let parent_hash = Felt::from_hex(
-            v.get("parent_block_hash")
-                .or_else(|| v.get("parent_hash"))
-                .unwrap()
-                .as_str()
-                .unwrap(),
+            v.get("parent_block_hash").or_else(|| v.get("parent_hash")).unwrap().as_str().unwrap(),
         )
         .unwrap();
 
@@ -208,10 +278,8 @@ mod tests {
         let state_diff_commitment = felt_or_zero(&v, "state_diff_commitment");
         let receipts_commitment = felt_or_zero(&v, "receipt_commitment");
 
-        let state_diff_length = v
-            .get("state_diff_length")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
+        let state_diff_length =
+            v.get("state_diff_length").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
         let transaction_count = v["transactions"].as_array().unwrap().len() as u32;
 
@@ -244,10 +312,8 @@ mod tests {
 
         let l1_gas_prices = parse_gas_prices(&v["l1_gas_price"]);
         let l1_data_gas_prices = parse_gas_prices(&v["l1_data_gas_price"]);
-        let l2_gas_prices = v
-            .get("l2_gas_price")
-            .map(parse_gas_prices)
-            .unwrap_or(GasPrices::default());
+        let l2_gas_prices =
+            v.get("l2_gas_price").map(parse_gas_prices).unwrap_or(GasPrices::default());
 
         let header = Header {
             number,
