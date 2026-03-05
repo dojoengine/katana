@@ -24,7 +24,7 @@ pub struct NodeCli {
 
 #[derive(Debug, Subcommand, PartialEq)]
 pub enum NodeSubcommand {
-    #[command(about = "Launch a full node", hide = true)]
+    #[command(about = "Launch a full node")]
     Full(Box<FullNodeArgs>),
 
     #[command(about = "Launch a sequencer node")]
