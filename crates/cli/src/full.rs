@@ -55,6 +55,9 @@ pub struct FullNodeArgs {
     pub explorer: ExplorerOptions,
 
     #[command(flatten)]
+    pub trie: TrieOptions,
+
+    #[command(flatten)]
     pub pruning: PruningOptions,
 }
 
@@ -114,6 +117,7 @@ impl FullNodeArgs {
             pruning,
             network: self.network,
             gateway_api_key: self.gateway_api_key.clone(),
+            trie: !self.trie.disable,
         })
     }
 

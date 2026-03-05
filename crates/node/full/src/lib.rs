@@ -73,6 +73,7 @@ pub struct Config {
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
     pub network: Network,
+    pub trie: bool,
 }
 
 #[derive(Debug)]
@@ -144,7 +145,9 @@ impl Node {
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
         pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
         pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
-        pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
+        if config.trie {
+            pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
+        }
 
         // -- build chain tip watcher using gateway client
 
