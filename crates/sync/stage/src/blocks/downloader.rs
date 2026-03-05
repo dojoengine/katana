@@ -86,9 +86,7 @@ where
         to: BlockNumber,
     ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
     {
-        // convert the range to a list of block keys
-        let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
-        self.inner.download(block_keys)
+        self.inner.download_iter(from..=to)
     }
 }
 

@@ -16,6 +16,7 @@ This guide explains how to use the `Downloader` trait and `BatchDownloader` arch
 
 The Downloader architecture provides a generic framework for:
 - **Batch Downloads**: Download multiple items concurrently in configurable batches
+- **Iterator-fed Downloads**: Stream keys lazily without materializing full key lists
 - **Automatic Retries**: Retry transient failures with exponential backoff
 - **Partial Failure Handling**: Only retry failed items, not entire batches
 - **Flexible Error Handling**: Distinguish between retryable and permanent errors
@@ -176,6 +177,11 @@ pub struct BatchDownloader<D, B = ExponentialBuilder> {
     backoff: B,         // Retry strategy
 }
 ```
+
+`BatchDownloader` exposes two entry points:
+- `download(Vec<Key>)` when you already have all keys.
+- `download_iter(impl IntoIterator<Item = Key>)` when keys can be produced lazily (for example,
+  block number ranges), reducing allocation overhead for large sync ranges.
 
 **Configuration:**
 
