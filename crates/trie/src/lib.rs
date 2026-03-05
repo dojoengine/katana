@@ -44,7 +44,7 @@ where
             //
             // The value 5 is chosen arbitrarily as a placeholder. This value should be
             // configurable.
-            max_saved_trie_logs: Some(5),
+            max_saved_trie_logs: Some(0),
 
             // in the bonsai-trie crate, this field seems to be only used in rocksdb impl.
             // i dont understand why would they add a config thats implementation specific ????
@@ -57,7 +57,7 @@ where
             max_saved_snapshots: Some(64usize),
 
             // creates a snapshot for every block
-            snapshot_interval: 1,
+            snapshot_interval: 0,
         };
 
         Self { storage: BonsaiStorage::new(db, config, 251) }
