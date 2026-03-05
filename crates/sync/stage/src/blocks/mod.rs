@@ -129,10 +129,7 @@ where
 
                 // Compute missing commitments for older blocks where the gateway
                 // doesn't include them in the block header.
-                compute_missing_commitments(
-                    &mut block.block,
-                    &receipts,
-                );
+                compute_missing_commitments(&mut block.block, &receipts);
 
                 // Verify the block hash matches what we compute locally.
                 let computed_hash = hash::compute_hash(&block.block.header, &self.chain_id);
@@ -283,8 +280,7 @@ fn extract_block_data(
         .collect::<Vec<Receipt>>();
 
     let transaction_count = transactions.len() as u32;
-    let events_count =
-        receipts.iter().map(|r| r.events().len() as u32).sum::<u32>();
+    let events_count = receipts.iter().map(|r| r.events().len() as u32).sum::<u32>();
 
     let block = SealedBlock {
         body: transactions,
@@ -382,15 +378,11 @@ fn compute_missing_commitments(block: &mut SealedBlock, receipts: &[Receipt]) {
 
     // Receipt commitment: only used in post-0.13.2 block hashes. The gateway may not
     // include it, so we compute it when missing.
-    if block.header.receipts_commitment == Felt::ZERO
-        && version >= StarknetVersion::V0_13_2
-    {
+    if block.header.receipts_commitment == Felt::ZERO && version >= StarknetVersion::V0_13_2 {
         let receipt_hashes: Vec<Felt> = receipts
             .iter()
             .zip(block.body.iter())
-            .map(|(receipt, tx)| {
-                ReceiptWithTxHash::new(tx.hash, receipt.clone()).compute_hash()
-            })
+            .map(|(receipt, tx)| ReceiptWithTxHash::new(tx.hash, receipt.clone()).compute_hash())
             .collect();
         block.header.receipts_commitment =
             compute_merkle_root::<Poseidon>(&receipt_hashes).unwrap();
