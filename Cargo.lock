@@ -6842,6 +6842,7 @@ dependencies = [
  "num-traits",
  "rayon",
  "rstest 0.18.2",
+ "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "starknet-types-core 0.2.3",
  "thiserror 1.0.69",

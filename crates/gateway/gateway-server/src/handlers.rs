@@ -85,6 +85,7 @@ where
                         status: status.into(),
                         block_hash: Some(block_hash),
                         block_number: Some(block.header.number),
+                        receipt_commitment: Some(block.header.receipts_commitment),
                         event_commitment: Some(block.header.events_commitment),
                         l1_da_mode: block.header.l1_da_mode,
                         sequencer_address: Some(block.header.sequencer_address),

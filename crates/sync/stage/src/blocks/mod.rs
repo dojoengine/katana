@@ -8,15 +8,18 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
     DeclareTxReceipt, DeployAccountTxReceipt, DeployTxReceipt, InvokeTxReceipt, L1HandlerTxReceipt,
-    Receipt,
+    Receipt, ReceiptWithTxHash,
 };
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
+use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
+use katana_trie::compute_merkle_root;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
+use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 use tracing::{error, info_span, warn, Instrument};
 
 use crate::{
@@ -121,8 +124,12 @@ where
             let provider_mut = self.provider.provider_mut();
 
             for block in blocks {
-                let (block, receipts, state_updates) = extract_block_data(block)?;
+                let (mut block, receipts, state_updates) = extract_block_data(block)?;
                 let block_number = block.block.header.number;
+
+                // Compute missing commitments for older blocks where the gateway
+                // doesn't include them in the block header.
+                compute_missing_commitments(&mut block.block, &receipts);
 
                 // Verify the block hash matches what we compute locally.
                 let computed_hash = hash::compute_hash(&block.block.header, &self.chain_id);
@@ -273,17 +280,18 @@ fn extract_block_data(
         .collect::<Vec<Receipt>>();
 
     let transaction_count = transactions.len() as u32;
+    let events_count = receipts.iter().map(|r| r.events().len() as u32).sum::<u32>();
+
     let block = SealedBlock {
         body: transactions,
         hash: data.block.block_hash.unwrap_or_default(),
         header: Header {
             transaction_count,
+            events_count,
             timestamp: data.block.timestamp,
             l1_da_mode: data.block.l1_da_mode,
-            events_count: Default::default(),
             parent_hash: data.block.parent_block_hash,
             state_diff_length: Default::default(),
-            receipts_commitment: Default::default(),
             state_diff_commitment: Default::default(),
             number: data.block.block_number.unwrap_or_default(),
             l1_gas_prices: to_gas_prices(data.block.l1_gas_price),
@@ -292,6 +300,7 @@ fn extract_block_data(
             l1_data_gas_prices: to_gas_prices(data.block.l1_data_gas_price),
             starknet_version: data.block.starknet_version.unwrap_or_default().try_into().unwrap(),
             events_commitment: data.block.event_commitment.unwrap_or_default(),
+            receipts_commitment: data.block.receipt_commitment.unwrap_or_default(),
             sequencer_address: data.block.sequencer_address.unwrap_or_default(),
             transactions_commitment: data.block.transaction_commitment.unwrap_or_default(),
         },
@@ -305,4 +314,77 @@ fn extract_block_data(
     let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
 
     Ok((SealedBlockWithStatus { block, status }, receipts, state_updates))
+}
+
+/// Computes missing block commitments that older gateway blocks don't include.
+///
+/// For blocks before 0.13.2, the gateway may return zero for transaction and event
+/// commitments. For receipt commitment, the gateway may not include it at all for
+/// older blocks. This function computes them locally so that block hash verification
+/// can succeed.
+fn compute_missing_commitments(block: &mut SealedBlock, receipts: &[Receipt]) {
+    let version = block.header.starknet_version;
+
+    // Transaction commitment: older blocks (pre-0.7 and 0.7.0) return zero from the gateway.
+    // Pre-0.13.2 uses Pedersen, post-0.13.2 uses Poseidon.
+    if block.header.transactions_commitment == Felt::ZERO {
+        let tx_hashes: Vec<Felt> = block.body.iter().map(|t| t.hash).collect();
+        block.header.transactions_commitment = if version < StarknetVersion::V0_13_2 {
+            compute_merkle_root::<Pedersen>(&tx_hashes).unwrap()
+        } else {
+            compute_merkle_root::<Poseidon>(&tx_hashes).unwrap()
+        };
+    }
+
+    // Event commitment: older blocks return zero from the gateway.
+    // Pre-0.13.2 uses Pedersen, post-0.13.2 uses Poseidon (and includes tx_hash in leaf).
+    if block.header.events_commitment == Felt::ZERO {
+        let event_hashes: Vec<Felt> = if version < StarknetVersion::V0_13_2 {
+            receipts
+                .iter()
+                .flat_map(|r| {
+                    r.events().iter().map(|event| {
+                        let keys_hash = Pedersen::hash_array(&event.keys);
+                        let data_hash = Pedersen::hash_array(&event.data);
+                        Pedersen::hash_array(&[event.from_address.into(), keys_hash, data_hash])
+                    })
+                })
+                .collect()
+        } else {
+            receipts
+                .iter()
+                .zip(block.body.iter())
+                .flat_map(|(receipt, tx)| {
+                    receipt.events().iter().map(move |event| {
+                        let keys_hash = Poseidon::hash_array(&event.keys);
+                        let data_hash = Poseidon::hash_array(&event.data);
+                        Poseidon::hash_array(&[
+                            tx.hash,
+                            event.from_address.into(),
+                            keys_hash,
+                            data_hash,
+                        ])
+                    })
+                })
+                .collect()
+        };
+
+        block.header.events_commitment = if version < StarknetVersion::V0_13_2 {
+            compute_merkle_root::<Pedersen>(&event_hashes).unwrap()
+        } else {
+            compute_merkle_root::<Poseidon>(&event_hashes).unwrap()
+        };
+    }
+
+    // Receipt commitment: only used in post-0.13.2 block hashes. The gateway may not
+    // include it, so we compute it when missing.
+    if block.header.receipts_commitment == Felt::ZERO && version >= StarknetVersion::V0_13_2 {
+        let receipt_hashes: Vec<Felt> = receipts
+            .iter()
+            .zip(block.body.iter())
+            .map(|(receipt, tx)| ReceiptWithTxHash::new(tx.hash, receipt.clone()).compute_hash())
+            .collect();
+        block.header.receipts_commitment =
+            compute_merkle_root::<Poseidon>(&receipt_hashes).unwrap();
+    }
 }

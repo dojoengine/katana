@@ -194,6 +194,7 @@ fn create_downloaded_block_with_parent(
             transaction_receipts: Vec::new(),
             starknet_version: Some("0.13.0".to_string()),
             transaction_commitment: Some(Felt::ZERO),
+            receipt_commitment: Some(Felt::ZERO),
             event_commitment: Some(Felt::ZERO),
             state_diff_commitment: Some(Felt::ZERO),
             state_root: Some(Felt::ZERO),
