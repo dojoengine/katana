@@ -16,6 +16,7 @@ katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-types.workspace = true
 katana-tasks.workspace = true
+katana-trie.workspace = true
 
 anyhow.workspace = true
 backon.workspace = true

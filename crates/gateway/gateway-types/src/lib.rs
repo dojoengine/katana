@@ -136,6 +136,8 @@ pub struct Block {
     pub state_root: Option<Felt>,
     #[serde(default)]
     pub transaction_commitment: Option<Felt>,
+    #[serde(default)]
+    pub receipt_commitment: Option<Felt>,
     pub transaction_receipts: Vec<ConfirmedReceipt>,
     pub transactions: Vec<ConfirmedTransaction>,
 }
