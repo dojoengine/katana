@@ -122,10 +122,6 @@ pub fn compute_hash(header: &Header, chain_id: &ChainId) -> Felt {
 }
 
 /// Pre-0.7 block hash using Pedersen hash chain with chain ID.
-///
-/// Used for the earliest Starknet blocks (mainnet blocks before ~833). These blocks
-/// use zero for both timestamp and sequencer address, and include the chain ID as
-/// an extra field in the hash.
 fn compute_hash_pre_0_7(header: &Header, chain_id: &ChainId) -> Felt {
     Pedersen::hash_array(&[
         header.number.into(), // block number
