@@ -130,6 +130,7 @@ fn compute_hash_post_0_13_4(header: &Header, version_str: &str) -> Felt {
         header.l1_da_mode,
     );
 
+    // Reference: https://github.com/starkware-libs/sequencer/blob/e3be9f1a0f3514e989f5b6d753022f6ef7bf5b1d/crates/starknet_api/src/block_hash/block_hash_calculator.rs#L45-L47
     const GAS_PRICES_VERSION: ShortString = ShortString::from_ascii("STARKNET_GAS_PRICES0");
 
     let gas_prices_hash = Poseidon::hash_array(&[
