@@ -178,10 +178,9 @@ pub struct BatchDownloader<D, B = ExponentialBuilder> {
 }
 ```
 
-`BatchDownloader` exposes two entry points:
-- `download(Vec<Key>)` when you already have all keys.
-- `download_iter(impl IntoIterator<Item = Key>)` when keys can be produced lazily (for example,
-  block number ranges), reducing allocation overhead for large sync ranges.
+`BatchDownloader` exposes `download(impl IntoIterator<Item = Key>)`, so callers can pass either a
+pre-built collection or a lazy key source (for example, block number ranges) without a separate
+API.
 
 **Configuration:**
 

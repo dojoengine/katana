@@ -35,7 +35,7 @@ use tracing::{trace, warn};
 ///
 /// // Download multiple items
 /// let keys = vec![1, 2, 3, 4, 5];
-/// let values = downloader.download(&keys).await?;
+/// let values = downloader.download(keys).await?;
 /// ```
 #[derive(Debug, Clone)]
 pub struct BatchDownloader<D, B = ExponentialBuilder> {
@@ -119,7 +119,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `keys` - List of keys to download
+    /// * `keys` - Keys to download
     ///
     /// # Returns
     ///
@@ -138,18 +138,10 @@ where
     /// // With batch_size=10, this downloads items 1-10 concurrently in the first batch,
     /// // then items 11-15 concurrently in the second batch
     /// let keys = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-    /// let values = downloader.download(&keys).await?;
+    /// let values = downloader.download(keys).await?;
     /// assert_eq!(values.len(), 15);
     /// ```
-    pub async fn download(&self, keys: Vec<D::Key>) -> Result<Vec<D::Value>, D::Error> {
-        self.download_iter(keys).await
-    }
-
-    /// Downloads values for keys from an iterator, buffering only one batch at a time.
-    ///
-    /// This is useful when the caller can produce keys lazily (e.g. block number ranges),
-    /// because it avoids materializing the entire key set before downloading.
-    pub async fn download_iter<I>(&self, keys: I) -> Result<Vec<D::Value>, D::Error>
+    pub async fn download<I>(&self, keys: I) -> Result<Vec<D::Value>, D::Error>
     where
         I: IntoIterator<Item = D::Key>,
     {
@@ -519,7 +511,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_iter_succeeds_and_preserves_order() {
+    async fn download_with_iter_succeeds_and_preserves_order() {
         let mut downloader = MockDownloader::new();
         for key in 1..=5 {
             downloader =
@@ -527,7 +519,7 @@ mod tests {
         }
 
         let batch_downloader = BatchDownloader::new(downloader.clone(), 2);
-        let result = batch_downloader.download_iter(1..=5).await;
+        let result = batch_downloader.download(1..=5).await;
 
         assert!(result.is_ok());
         assert_eq!(
@@ -547,7 +539,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_iter_retries_only_failed_keys() {
+    async fn download_with_iter_retries_only_failed_keys() {
         let downloader = MockDownloader::new()
             .with_response(1, vec![DownloaderResult::Ok("value1".to_string())])
             .with_response(
@@ -561,7 +553,7 @@ mod tests {
 
         let batch_downloader = BatchDownloader::new(downloader.clone(), 3)
             .backoff(ConstantBuilder::default().with_delay(Duration::from_millis(1)));
-        let result = batch_downloader.download_iter([1, 2, 3]).await;
+        let result = batch_downloader.download([1, 2, 3]).await;
 
         assert!(result.is_ok());
         assert_eq!(

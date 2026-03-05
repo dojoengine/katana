@@ -86,7 +86,7 @@ where
         to: BlockNumber,
     ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
     {
-        self.inner.download_iter(from..=to)
+        self.inner.download(from..=to)
     }
 }
 
