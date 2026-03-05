@@ -11,6 +11,7 @@ use anyhow::Result;
 use config::db::DbConfig;
 use config::metrics::MetricsConfig;
 use config::rpc::{RpcConfig, RpcModuleKind};
+use config::trie::TrieConfig;
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
@@ -73,7 +74,7 @@ pub struct Config {
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
     pub network: Network,
-    pub trie: bool,
+    pub trie: TrieConfig,
 }
 
 #[derive(Debug)]
@@ -145,7 +146,7 @@ impl Node {
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
         pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
         pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
-        if config.trie {
+        if config.trie.compute {
             pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
         }
 
