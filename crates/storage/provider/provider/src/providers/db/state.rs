@@ -1,6 +1,7 @@
 use katana_db::abstraction::{DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::ContractInfoChangeList;
 use katana_db::models::list::BlockList;
+use katana_db::models::stage::PruningCheckpoint;
 use katana_db::models::storage::{ContractStorageKey, StorageEntry};
 use katana_db::tables;
 use katana_db::trie::TrieDbFactory;
@@ -19,6 +20,8 @@ use katana_provider_api::ProviderError;
 
 use super::DbProvider;
 use crate::ProviderResult;
+
+const STATE_HISTORY_STAGE_ID: &str = "Blocks";
 
 impl<Tx: DbTxMut> StateWriter for DbProvider<Tx> {
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
@@ -108,6 +111,18 @@ impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
         };
 
         let Some(num) = block_number else { return Ok(None) };
+
+        // Pruned historical state is treated as unavailable for historical reads.
+        // Stage prune checkpoints are inclusive (`pruned up to`), so the first available block is
+        // `checkpoint + 1`.
+        let pruned_to = self
+            .0
+            .get::<tables::StagePruningCheckpoints>(STATE_HISTORY_STAGE_ID.to_string())?
+            .map(|PruningCheckpoint { block }| block);
+
+        if pruned_to.is_some_and(|checkpoint| num <= checkpoint) {
+            return Ok(None);
+        }
 
         Ok(Some(Box::new(HistoricalStateProvider::new(self.0.clone(), num))))
     }
