@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_primitives::block::BlockNumber;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, HeaderProvider};
 use katana_provider::ProviderFactory;
@@ -41,9 +42,24 @@ where
     /// Compute the 64-byte report data for attestation.
     ///
     /// The report data is: Poseidon(state_root, block_hash) padded to 64 bytes.
-    fn compute_report_data(&self, state_root: Felt, block_hash: Felt) -> [u8; 64] {
+    fn compute_report_data(
+        &self,
+        prev_state_root: Felt,
+        state_root: Felt,
+        prev_block_hash: Felt,
+        block_hash: Felt,
+        prev_block_number: Felt,
+        block_number: Felt,
+    ) -> [u8; 64] {
         // Compute Poseidon hash of state_root and block_hash
-        let commitment = Poseidon::hash(&state_root, &block_hash);
+        let commitment = Poseidon::hash_array(&[
+            prev_state_root,
+            state_root,
+            prev_block_hash,
+            block_hash,
+            prev_block_number,
+            block_number,
+        ]);
 
         // Convert Felt to bytes (32 bytes) and pad to 64 bytes
         let commitment_bytes = commitment.to_bytes_be();
@@ -72,31 +88,54 @@ where
     <PF as ProviderFactory>::Provider:
         BlockHashProvider + BlockNumberProvider + HeaderProvider + Send + Sync,
 {
-    async fn generate_quote(&self) -> RpcResult<TeeQuoteResponse> {
+    async fn generate_quote(
+        &self,
+        prev_block_id: BlockNumber,
+        block_id: BlockNumber,
+    ) -> RpcResult<TeeQuoteResponse> {
         debug!(target: "rpc::tee", "Generating TEE attestation quote");
 
         // Get the latest blockchain state
         let provider = self.provider_factory.provider();
 
         // Get latest block information
-        let block_number =
-            provider.latest_number().map_err(|e| TeeApiError::ProviderError(e.to_string()))?;
 
-        let block_hash =
-            provider.latest_hash().map_err(|e| TeeApiError::ProviderError(e.to_string()))?;
+        let prev_block_hash = provider
+            .block_hash_by_num(prev_block_id)
+            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+            .unwrap();
+        let block_hash = provider
+            .block_hash_by_num(block_id)
+            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+            .unwrap();
+
+        let prev_header = provider
+            .header_by_number(prev_block_id)
+            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+            .ok_or_else(|| {
+                TeeApiError::ProviderError(format!("Header not found for block {prev_block_id}"))
+            })?;
+        let prev_state_root = prev_header.state_root;
 
         // Get the header to retrieve state_root
         let header = provider
-            .header_by_number(block_number)
+            .header_by_number(block_id)
             .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
             .ok_or_else(|| {
-                TeeApiError::ProviderError(format!("Header not found for block {block_number}"))
+                TeeApiError::ProviderError(format!("Header not found for block {block_id}"))
             })?;
 
         let state_root = header.state_root;
 
         // Compute report data: Poseidon(state_root, block_hash)
-        let report_data = self.compute_report_data(state_root, block_hash);
+        let report_data = self.compute_report_data(
+            prev_state_root,
+            state_root,
+            prev_block_hash,
+            block_hash,
+            Felt::from(prev_block_id),
+            Felt::from(block_id),
+        );
 
         // Generate the attestation quote
         let quote = self
@@ -106,17 +145,20 @@ where
 
         info!(
             target: "rpc::tee",
-            block_number,
+            block_number = block_id,
             %block_hash,
             quote_size = quote.len(),
-            "Generated TEE attestation quote"
+            "Generated TEE attestation quote test test test"
         );
 
         Ok(TeeQuoteResponse {
             quote: format!("0x{}", hex::encode(&quote)),
+            prev_state_root,
             state_root,
+            prev_block_hash,
             block_hash,
-            block_number,
+            prev_block_number: prev_block_id,
+            block_number: block_id,
         })
     }
 }
