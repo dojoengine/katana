@@ -34,7 +34,7 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
-
+use starknet_rust_core::types::Felt;
 pub mod error;
 pub mod rpc;
 pub mod starknet;
@@ -77,9 +77,9 @@ pub struct TeeQuoteResponse {
     /// The hash of the attested block (hex-encoded).
     pub block_hash: String,
 
-    pub prev_block_number: u64,
+    pub prev_block_number: Felt,
     /// The number of the attested block.
-    pub block_number: u64,
+    pub block_number: Felt,
 
     /// Merkle root of all events in the attested block (hex-encoded Felt).
     /// Included in report_data: Poseidon(state_root, block_hash, fork_block, events_commitment).

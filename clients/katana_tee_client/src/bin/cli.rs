@@ -333,7 +333,7 @@ async fn cmd_fetch(rpc: &str, output: Option<PathBuf>) -> anyhow::Result<()> {
     println!("🌐 Fetching attestation from: {}", rpc);
 
     let client = KatanaRpcClient::new(rpc);
-    let attestation = client.fetch_attestation().await?;
+    let attestation = client.fetch_attestation(None, 0).await?;
 
     println!("✅ Attestation received");
     println!();
@@ -545,7 +545,7 @@ async fn cmd_pipeline(
 
     let state_root = felt_from_hex(&attestation.state_root)?;
     let block_hash = felt_from_hex(&attestation.block_hash)?;
-    let block_number = attestation.block_number;
+    let block_number = attestation.clone().block_number;
 
     println!("🔎 Starknet RPC: {}", starknet_rpc);
     println!("🧾 Katana block: {}", block_number);
@@ -665,7 +665,7 @@ async fn get_attestation(rpc: &str, json: Option<PathBuf>) -> anyhow::Result<Tee
         None => {
             println!("🌐 Fetching attestation from: {}", rpc);
             let client = KatanaRpcClient::new(rpc);
-            Ok(client.fetch_attestation().await?)
+            Ok(client.fetch_attestation(None, 0).await?)
         }
     }
 }
