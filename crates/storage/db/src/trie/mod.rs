@@ -132,7 +132,15 @@ fn storage_trie_root_key(address: ContractAddress, block: BlockNumber) -> u64 {
     0x80_00000000000000 | (mixed & 0x00FFFFFFFFFFFFFF)
 }
 
+/// Default capacity for the node cache (number of entries).
+const NODE_CACHE_CAPACITY: usize = 4096;
+
 /// DB-backed storage implementation for the trie.
+///
+/// Includes an LRU cache for node entries to avoid redundant DB reads.
+/// Both `get()` and `hash()` read from the same underlying `TrieNodeEntry`,
+/// so caching the full entry serves both lookups. The cache uses an LRU
+/// eviction policy to bound memory usage.
 pub struct DbTrieStorage<Tb, Lb, Tx>
 where
     Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
@@ -142,6 +150,8 @@ where
     tx: Tx,
     /// Optional prefix for leaf key lookups (used for per-contract storage tries).
     leaf_key_prefix: Option<Felt>,
+    /// LRU cache for trie node entries, keyed by node index.
+    node_cache: std::cell::RefCell<quick_cache::unsync::Cache<u64, TrieNodeEntry>>,
     _phantom: std::marker::PhantomData<(Tb, Lb)>,
 }
 
@@ -152,7 +162,12 @@ where
     Tx: DbTx,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DbTrieStorage").field("tx", &"..").finish()
+        let cache = self.node_cache.borrow();
+        f.debug_struct("DbTrieStorage")
+            .field("tx", &"..")
+            .field("cache_len", &cache.len())
+            .field("cache_capacity", &cache.capacity())
+            .finish()
     }
 }
 
@@ -163,11 +178,46 @@ where
     Tx: DbTx,
 {
     pub fn new(tx: Tx) -> Self {
-        Self { tx, leaf_key_prefix: None, _phantom: std::marker::PhantomData }
+        Self {
+            tx,
+            leaf_key_prefix: None,
+            node_cache: std::cell::RefCell::new(quick_cache::unsync::Cache::new(
+                NODE_CACHE_CAPACITY,
+            )),
+            _phantom: std::marker::PhantomData,
+        }
     }
 
     pub fn with_leaf_prefix(tx: Tx, prefix: Felt) -> Self {
-        Self { tx, leaf_key_prefix: Some(prefix), _phantom: std::marker::PhantomData }
+        Self {
+            tx,
+            leaf_key_prefix: Some(prefix),
+            node_cache: std::cell::RefCell::new(quick_cache::unsync::Cache::new(
+                NODE_CACHE_CAPACITY,
+            )),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Fetches a node entry, returning a cached copy if available.
+    /// Uses LRU eviction when the cache is full.
+    fn get_cached_entry(&self, index: TrieNodeIndex) -> anyhow::Result<Option<TrieNodeEntry>> {
+        // Check cache first
+        if let Some(entry) = self.node_cache.borrow_mut().get(&index.0) {
+            return Ok(Some(entry.clone()));
+        }
+
+        // Cache miss — read from DB
+        let entry = self
+            .tx
+            .get::<Tb>(index.0)
+            .map_err(|e| anyhow::anyhow!("DB error reading trie node {}: {e}", index.0))?;
+
+        if let Some(ref entry) = entry {
+            self.node_cache.borrow_mut().insert(index.0, entry.clone());
+        }
+
+        Ok(entry)
     }
 }
 
@@ -193,18 +243,12 @@ where
     Tx: DbTx,
 {
     fn get(&self, index: TrieNodeIndex) -> anyhow::Result<Option<StoredNode>> {
-        let entry = self
-            .tx
-            .get::<Tb>(index.0)
-            .map_err(|e| anyhow::anyhow!("DB error reading trie node {}: {e}", index.0))?;
-        Ok(entry.map(|e| e.node))
+        let entry = self.get_cached_entry(index)?;
+        Ok(entry.map(|e| e.node.clone()))
     }
 
     fn hash(&self, index: TrieNodeIndex) -> anyhow::Result<Option<Felt>> {
-        let entry = self
-            .tx
-            .get::<Tb>(index.0)
-            .map_err(|e| anyhow::anyhow!("DB error reading trie hash {}: {e}", index.0))?;
+        let entry = self.get_cached_entry(index)?;
         Ok(entry.map(|e| e.hash))
     }
 
