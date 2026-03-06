@@ -3,7 +3,7 @@ use katana_primitives::cairo::ShortString;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::Felt;
-use katana_trie::MultiProof;
+use katana_trie::ProofNode;
 use starknet_types_core::hash::StarkHash;
 
 use super::contract::ContractClassProvider;
@@ -90,6 +90,11 @@ pub trait StateWriter: Send + Sync {
         class_hash: ClassHash,
     ) -> ProviderResult<()>;
 }
+
+/// Proof data returned by the proof provider.
+/// Contains a list of proof paths, one per requested key.
+/// Each path is a list of (ProofNode, node_hash) pairs.
+pub type MultiProof = Vec<Vec<(ProofNode, Felt)>>;
 
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait StateProofProvider: Send + Sync {

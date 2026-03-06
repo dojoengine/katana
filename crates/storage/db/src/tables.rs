@@ -4,6 +4,7 @@ use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageK
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxNumber};
+use katana_primitives::Felt;
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
 use crate::models::block::StoredBlockBodyIndices;
@@ -12,7 +13,7 @@ use crate::models::contract::{ContractClassChange, ContractInfoChangeList, Contr
 use crate::models::list::BlockList;
 use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint, StageId};
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
-use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
+use crate::models::trie::TrieNodeEntry;
 use crate::models::{VersionedContractClass, VersionedHeader, VersionedTx};
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
@@ -39,13 +40,6 @@ pub trait DupSort: Table {
     type SubKey: Key;
 }
 
-pub trait Trie: Table<Key = TrieDatabaseKey, Value = TrieDatabaseValue> {
-    /// Table for storing the trie entries according to the block its was committed.
-    type History: DupSort<Key = BlockNumber, SubKey = TrieDatabaseKey, Value = TrieHistoryEntry>;
-    /// Table for storing the trie change set.
-    type Changeset: Table<Key = TrieDatabaseKey, Value = BlockList>;
-}
-
 /// Enum for the types of tables present in libmdbx.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TableType {
@@ -55,7 +49,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 34;
+pub const NUM_TABLES: usize = 33;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -181,15 +175,14 @@ define_tables_enum! {[
     (StorageChangeSet, TableType::Table),
     (StageExecutionCheckpoints, TableType::Table),
     (StagePruningCheckpoints, TableType::Table),
-    (ClassesTrie, TableType::Table),
-    (ContractsTrie, TableType::Table),
-    (StoragesTrie, TableType::Table),
-    (ClassesTrieHistory, TableType::DupSort),
-    (ContractsTrieHistory, TableType::DupSort),
-    (StoragesTrieHistory, TableType::DupSort),
-    (ClassesTrieChangeSet, TableType::Table),
-    (ContractsTrieChangeSet, TableType::Table),
-    (StoragesTrieChangeSet, TableType::Table)
+    (TrieClassNodes, TableType::Table),
+    (TrieContractNodes, TableType::Table),
+    (TrieStorageNodes, TableType::Table),
+    (TrieRoots, TableType::Table),
+    (TrieBlockLog, TableType::Table),
+    (TrieClassLeaves, TableType::Table),
+    (TrieContractLeaves, TableType::Table),
+    (TrieStorageLeaves, TableType::Table)
 ]}
 
 tables! {
@@ -251,41 +244,28 @@ tables! {
     /// Account storage change set
     StorageChangeHistory: (BlockNumber, ContractStorageKey) => ContractStorageEntry,
 
-    /// Class trie
-    ClassesTrie: (TrieDatabaseKey) => TrieDatabaseValue,
-    /// Contract trie
-    ContractsTrie: (TrieDatabaseKey) => TrieDatabaseValue,
-    /// Contract storage trie
-    StoragesTrie: (TrieDatabaseKey) => TrieDatabaseValue,
+    /// Class trie nodes: TrieNodeIndex (u64) -> TrieNodeEntry
+    TrieClassNodes: (u64) => TrieNodeEntry,
+    /// Contract trie nodes: TrieNodeIndex (u64) -> TrieNodeEntry
+    TrieContractNodes: (u64) => TrieNodeEntry,
+    /// Contract storage trie nodes: (ContractAddress, TrieNodeIndex as u64) -> TrieNodeEntry
+    /// We use a composite key to namespace per-contract storage tries.
+    TrieStorageNodes: (u64) => TrieNodeEntry,
 
-    /// Class trie history
-    ClassesTrieHistory: (BlockNumber, TrieDatabaseKey) => TrieHistoryEntry,
-    /// Contract trie history
-    ContractsTrieHistory: (BlockNumber, TrieDatabaseKey) => TrieHistoryEntry,
-    /// Contract storage trie history
-    StoragesTrieHistory: (BlockNumber, TrieDatabaseKey) => TrieHistoryEntry,
+    /// Trie roots: (trie_type as u8 << 56 | block_number) -> root TrieNodeIndex (u64)
+    /// Composite key encodes trie type in upper bits.
+    TrieRoots: (u64) => u64,
 
-    /// Class trie change set
-    ClassesTrieChangeSet: (TrieDatabaseKey) => BlockList,
-    /// contract trie change set
-    ContractsTrieChangeSet: (TrieDatabaseKey) => BlockList,
-    /// contract storage trie change set
-    StoragesTrieChangeSet: (TrieDatabaseKey) => BlockList
-}
+    /// Trie block log: (trie_type as u8 << 56 | block_number) -> BlockList of added node indices
+    /// Used for revert: stores which node indices were added at each block.
+    TrieBlockLog: (u64) => BlockList,
 
-impl Trie for ClassesTrie {
-    type History = ClassesTrieHistory;
-    type Changeset = ClassesTrieChangeSet;
-}
-
-impl Trie for ContractsTrie {
-    type History = ContractsTrieHistory;
-    type Changeset = ContractsTrieChangeSet;
-}
-
-impl Trie for StoragesTrie {
-    type History = StoragesTrieHistory;
-    type Changeset = StoragesTrieChangeSet;
+    /// Leaf values for class trie: Felt (class hash key) -> Felt (leaf value)
+    TrieClassLeaves: (Felt) => Felt,
+    /// Leaf values for contract trie: Felt (contract address key) -> Felt (leaf value)
+    TrieContractLeaves: (Felt) => Felt,
+    /// Leaf values for storage tries: Felt (composite key of address + storage key) -> Felt (value)
+    TrieStorageLeaves: (Felt) => Felt
 }
 
 #[cfg(test)]
@@ -321,50 +301,25 @@ mod tests {
         assert_eq!(Tables::ALL[22].name(), StorageChangeSet::NAME);
         assert_eq!(Tables::ALL[23].name(), StageExecutionCheckpoints::NAME);
         assert_eq!(Tables::ALL[24].name(), StagePruningCheckpoints::NAME);
-        assert_eq!(Tables::ALL[25].name(), ClassesTrie::NAME);
-        assert_eq!(Tables::ALL[26].name(), ContractsTrie::NAME);
-        assert_eq!(Tables::ALL[27].name(), StoragesTrie::NAME);
-        assert_eq!(Tables::ALL[28].name(), ClassesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[29].name(), ContractsTrieHistory::NAME);
-        assert_eq!(Tables::ALL[30].name(), StoragesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[31].name(), ClassesTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[32].name(), ContractsTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[33].name(), StoragesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[25].name(), TrieClassNodes::NAME);
+        assert_eq!(Tables::ALL[26].name(), TrieContractNodes::NAME);
+        assert_eq!(Tables::ALL[27].name(), TrieStorageNodes::NAME);
+        assert_eq!(Tables::ALL[28].name(), TrieRoots::NAME);
+        assert_eq!(Tables::ALL[29].name(), TrieBlockLog::NAME);
+        assert_eq!(Tables::ALL[30].name(), TrieClassLeaves::NAME);
+        assert_eq!(Tables::ALL[31].name(), TrieContractLeaves::NAME);
+        assert_eq!(Tables::ALL[32].name(), TrieStorageLeaves::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
-        assert_eq!(Tables::BlockHashes.table_type(), TableType::Table);
-        assert_eq!(Tables::BlockNumbers.table_type(), TableType::Table);
-        assert_eq!(Tables::BlockBodyIndices.table_type(), TableType::Table);
-        assert_eq!(Tables::BlockStatusses.table_type(), TableType::Table);
-        assert_eq!(Tables::TxNumbers.table_type(), TableType::Table);
-        assert_eq!(Tables::TxBlocks.table_type(), TableType::Table);
-        assert_eq!(Tables::TxHashes.table_type(), TableType::Table);
-        assert_eq!(Tables::TxTraces.table_type(), TableType::Table);
-        assert_eq!(Tables::Transactions.table_type(), TableType::Table);
-        assert_eq!(Tables::Receipts.table_type(), TableType::Table);
-        assert_eq!(Tables::CompiledClassHashes.table_type(), TableType::Table);
-        assert_eq!(Tables::Classes.table_type(), TableType::Table);
-        assert_eq!(Tables::ContractInfo.table_type(), TableType::Table);
         assert_eq!(Tables::ContractStorage.table_type(), TableType::DupSort);
-        assert_eq!(Tables::ClassDeclarationBlock.table_type(), TableType::Table);
-        assert_eq!(Tables::ClassDeclarations.table_type(), TableType::DupSort);
-        assert_eq!(Tables::MigratedCompiledClassHashes.table_type(), TableType::DupSort);
-        assert_eq!(Tables::ContractInfoChangeSet.table_type(), TableType::Table);
-        assert_eq!(Tables::NonceChangeHistory.table_type(), TableType::DupSort);
-        assert_eq!(Tables::ClassChangeHistory.table_type(), TableType::DupSort);
-        assert_eq!(Tables::StorageChangeHistory.table_type(), TableType::DupSort);
-        assert_eq!(Tables::StorageChangeSet.table_type(), TableType::Table);
-        assert_eq!(Tables::StageExecutionCheckpoints.table_type(), TableType::Table);
-        assert_eq!(Tables::StagePruningCheckpoints.table_type(), TableType::Table);
-        assert_eq!(Tables::ClassesTrie.table_type(), TableType::Table);
-        assert_eq!(Tables::ContractsTrie.table_type(), TableType::Table);
-        assert_eq!(Tables::StoragesTrie.table_type(), TableType::Table);
-        assert_eq!(Tables::ClassesTrieHistory.table_type(), TableType::DupSort);
-        assert_eq!(Tables::ContractsTrieHistory.table_type(), TableType::DupSort);
-        assert_eq!(Tables::StoragesTrieHistory.table_type(), TableType::DupSort);
-        assert_eq!(Tables::ClassesTrieChangeSet.table_type(), TableType::Table);
-        assert_eq!(Tables::ContractsTrieChangeSet.table_type(), TableType::Table);
-        assert_eq!(Tables::StoragesTrieChangeSet.table_type(), TableType::Table);
+        assert_eq!(Tables::TrieClassNodes.table_type(), TableType::Table);
+        assert_eq!(Tables::TrieContractNodes.table_type(), TableType::Table);
+        assert_eq!(Tables::TrieStorageNodes.table_type(), TableType::Table);
+        assert_eq!(Tables::TrieRoots.table_type(), TableType::Table);
+        assert_eq!(Tables::TrieBlockLog.table_type(), TableType::Table);
+        assert_eq!(Tables::TrieClassLeaves.table_type(), TableType::Table);
+        assert_eq!(Tables::TrieContractLeaves.table_type(), TableType::Table);
+        assert_eq!(Tables::TrieStorageLeaves.table_type(), TableType::Table);
     }
 
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
@@ -383,9 +338,6 @@ mod tests {
     };
     use crate::models::list::BlockList;
     use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
-    use crate::models::trie::{
-        TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
-    };
     use crate::models::{VersionedHeader, VersionedTx};
 
     macro_rules! assert_key_encode_decode {
@@ -460,12 +412,7 @@ mod tests {
                 fee: Default::default(),
                 messages_sent: Vec::new(),
                 execution_resources: Default::default(),
-            })),
-            (TrieDatabaseValue, TrieDatabaseValue::default()),
-            (TrieHistoryEntry, TrieHistoryEntry {
-                value: TrieDatabaseValue::default(),
-                key: TrieDatabaseKey { key: Vec::default(), r#type: TrieDatabaseKeyType::Flat },
-            })
+            }))
         }
     }
 }

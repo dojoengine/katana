@@ -23,10 +23,11 @@ use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::providers::EmptyStateProvider;
 use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
-use katana_trie::bonsai::databases::HashMapDb;
+use katana_trie::bitvec::view::AsBits;
+use katana_trie::bitvec::{self};
 use katana_trie::{
-    compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf,
-    ContractsTrie, StoragesTrie,
+    compute_contract_state_hash, compute_merkle_root, ClassesTrie, ContractLeaf, ContractsTrie,
+    MemStorage, StoragesTrie,
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;
@@ -615,10 +616,11 @@ struct GenesisTrieWriter;
 impl TrieWriter for GenesisTrieWriter {
     fn trie_insert_contract_updates(
         &self,
-        block_number: BlockNumber,
+        _block_number: BlockNumber,
         state_updates: &StateUpdates,
     ) -> katana_provider::ProviderResult<Felt> {
-        let mut contract_trie_db = ContractsTrie::new(HashMapDb::<CommitId>::default());
+        let mut contract_storage = MemStorage::new();
+        let mut contract_trie = ContractsTrie::empty(MemStorage::new());
         let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
 
         let leaf_hashes = {
@@ -635,19 +637,20 @@ impl TrieWriter for GenesisTrieWriter {
             }
 
             for (address, storage_entries) in &state_updates.storage_updates {
-                let mut storage_trie_db =
-                    StoragesTrie::new(HashMapDb::<CommitId>::default(), *address);
+                let mut storage = MemStorage::new();
+                let mut storage_trie = StoragesTrie::empty(MemStorage::new(), *address);
 
                 for (key, value) in storage_entries {
-                    storage_trie_db.insert(*key, *value);
+                    storage_trie.insert(*key, *value).expect("failed to insert storage");
+                    // Set leaf in storage for commit
+                    let key_bits =
+                        key.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
+                    storage.set_leaf(key_bits, *value);
                 }
 
-                // Then we commit them
-                storage_trie_db.commit(block_number);
-                let storage_root = storage_trie_db.root();
+                let update = storage_trie.commit().expect("failed to commit storage trie");
+                let storage_root = update.root_commitment;
 
-                // insert the contract address in the contract_leafs to put the storage root
-                // later
                 contract_leafs.entry(*address).or_default().storage_root = Some(storage_root);
             }
 
@@ -657,12 +660,10 @@ impl TrieWriter for GenesisTrieWriter {
                     let class_hash = if let Some(class_hash) = leaf.class_hash {
                         class_hash
                     } else {
-                        // TODO: there's must be a better way to handle this
                         assert!(
                             address == address!("0x1") || address == address!("0x2"),
                             "Only special contracts may have unspecified class hash."
                         );
-
                         ClassHash::ZERO
                     };
 
@@ -674,26 +675,34 @@ impl TrieWriter for GenesisTrieWriter {
                 .collect::<Vec<_>>()
         };
 
-        for (k, v) in leaf_hashes {
-            contract_trie_db.insert(k, v);
+        for (k, v) in &leaf_hashes {
+            contract_trie.insert(*k, *v).expect("failed to insert contract");
+            let key_bits =
+                Felt::from(*k).to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
+            contract_storage.set_leaf(key_bits, *v);
         }
 
-        contract_trie_db.commit(block_number);
-        Ok(contract_trie_db.root())
+        let update = contract_trie.commit().expect("failed to commit contracts trie");
+        Ok(update.root_commitment)
     }
 
     fn trie_insert_declared_classes(
         &self,
-        block_number: BlockNumber,
+        _block_number: BlockNumber,
         updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
-        let mut trie = ClassesTrie::new(HashMapDb::default());
+        let mut storage = MemStorage::new();
+        let mut trie = ClassesTrie::empty(MemStorage::new());
 
         for (class_hash, compiled_hash) in updates {
-            trie.insert(class_hash, compiled_hash);
+            trie.insert(class_hash, compiled_hash).expect("failed to insert class");
+            let value = katana_trie::compute_classes_trie_value(compiled_hash);
+            let key_bits =
+                class_hash.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
+            storage.set_leaf(key_bits, value);
         }
 
-        trie.commit(block_number);
-        Ok(trie.root())
+        let update = trie.commit().expect("failed to commit classes trie");
+        Ok(update.root_commitment)
     }
 }

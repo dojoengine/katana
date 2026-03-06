@@ -1,69 +1,70 @@
-use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
-use katana_primitives::block::BlockNumber;
+use bitvec::view::AsBits;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
-use katana_primitives::hash::{Poseidon, StarkHash};
+use katana_primitives::hash::Poseidon;
 use katana_primitives::Felt;
+use starknet_types_core::hash::StarkHash;
 
-use crate::id::CommitId;
+use crate::node::{TrieNodeIndex, TrieUpdate};
+use crate::proof::ProofNode;
+use crate::storage::Storage;
+use crate::tree::MerkleTree;
 
-#[derive(Debug)]
-pub struct ClassesMultiProof(pub MultiProof);
+/// The classes trie — maps class hash to `Poseidon("CONTRACT_CLASS_LEAF_V0", compiled_hash)`.
+pub struct ClassesTrie<S: Storage> {
+    tree: MerkleTree<Poseidon, 251>,
+    storage: S,
+}
 
-impl ClassesMultiProof {
-    // TODO: maybe perform results check in this method as well. make it accept the compiled class
-    // hashes
-    pub fn verify(&self, root: Felt, class_hashes: Vec<ClassHash>) -> Vec<Felt> {
-        crate::verify_proof::<Poseidon>(&self.0, root, class_hashes)
+impl<S: Storage + std::fmt::Debug> std::fmt::Debug for ClassesTrie<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClassesTrie")
+            .field("tree", &self.tree)
+            .field("storage", &self.storage)
+            .finish()
     }
 }
 
-impl From<MultiProof> for ClassesMultiProof {
-    fn from(value: MultiProof) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Debug)]
-pub struct ClassesTrie<DB: BonsaiDatabase> {
-    trie: crate::BonsaiTrie<DB, Poseidon>,
-}
-
-//////////////////////////////////////////////////////////////
-// 	ClassesTrie implementations
-//////////////////////////////////////////////////////////////
-
-impl<DB: BonsaiDatabase> ClassesTrie<DB> {
-    const BONSAI_IDENTIFIER: &'static [u8] = b"classes";
-
-    pub fn new(db: DB) -> Self {
-        Self { trie: crate::BonsaiTrie::new(db) }
+impl<S: Storage> ClassesTrie<S> {
+    pub fn new(storage: S, root: TrieNodeIndex) -> Self {
+        Self { tree: MerkleTree::new(root), storage }
     }
 
-    pub fn root(&self) -> Felt {
-        self.trie.root(Self::BONSAI_IDENTIFIER)
+    pub fn empty(storage: S) -> Self {
+        Self { tree: MerkleTree::empty(), storage }
     }
 
-    pub fn multiproof(&mut self, class_hashes: Vec<ClassHash>) -> MultiProof {
-        self.trie.multiproof(Self::BONSAI_IDENTIFIER, class_hashes)
-    }
-
-    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
-        self.trie.revert_to(block, latest_block);
-    }
-}
-
-impl<DB> ClassesTrie<DB>
-where
-    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
-{
-    pub fn insert(&mut self, hash: ClassHash, compiled_hash: CompiledClassHash) {
+    pub fn insert(
+        &mut self,
+        hash: ClassHash,
+        compiled_hash: CompiledClassHash,
+    ) -> anyhow::Result<()> {
         let value = compute_classes_trie_value(compiled_hash);
-        self.trie.insert(Self::BONSAI_IDENTIFIER, hash, value)
+        let key = hash.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
+        self.tree.set(&self.storage, key, value)
     }
 
-    pub fn commit(&mut self, block: BlockNumber) {
-        self.trie.commit(block.into())
+    pub fn commit(self) -> anyhow::Result<TrieUpdate> {
+        self.tree.commit(&self.storage)
+    }
+
+    pub fn root_hash(&self) -> anyhow::Result<Felt> {
+        // Commit a clone to compute the root without consuming self
+        let update = self.tree.clone().commit(&self.storage)?;
+        Ok(update.root_commitment)
+    }
+
+    pub fn proofs(
+        &self,
+        root: TrieNodeIndex,
+        keys: &[ClassHash],
+    ) -> anyhow::Result<Vec<Vec<(ProofNode, Felt)>>> {
+        let bit_keys: Vec<_> = keys
+            .iter()
+            .map(|k| k.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned())
+            .collect();
+        let refs: Vec<_> = bit_keys.iter().map(|k| k.as_bitslice()).collect();
+        MerkleTree::<Poseidon, 251>::get_proofs(root, &self.storage, &refs)
     }
 }
 

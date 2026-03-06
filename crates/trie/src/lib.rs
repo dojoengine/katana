@@ -1,133 +1,90 @@
+pub mod classes;
+pub mod contracts;
+pub mod mem_storage;
+pub mod node;
+pub mod proof;
+pub mod storage;
+pub mod storages;
+pub mod tree;
+
+pub use bitvec;
 use bitvec::view::AsBits;
-pub use bonsai::{BitVec, MultiProof, Path, ProofNode};
-pub use bonsai_trie::databases::HashMapDb;
-use bonsai_trie::BonsaiStorage;
-pub use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, BonsaiStorageConfig};
-use katana_primitives::block::BlockNumber;
-use katana_primitives::class::ClassHash;
-use katana_primitives::Felt;
-use starknet_types_core::hash::{Pedersen, StarkHash};
-pub use {bitvec, bonsai_trie as bonsai};
-
-mod classes;
-mod contracts;
-mod id;
-mod storages;
-
 pub use classes::*;
 pub use contracts::*;
-pub use id::CommitId;
+use katana_primitives::class::ClassHash;
+use katana_primitives::Felt;
+pub use mem_storage::MemStorage;
+pub use node::{Node, NodeRef, StoredNode, TrieNodeIndex, TrieUpdate};
+pub use proof::ProofNode;
+use starknet_types_core::hash::{Pedersen, StarkHash};
+pub use storage::Storage;
 pub use storages::StoragesTrie;
+pub use tree::MerkleTree;
 
-/// A lightweight shim for [`BonsaiStorage`].
-///
-/// This abstract the Bonsai Trie operations - providing a simplified interface without
-/// having to handle how to transform the keys into the internal keys used by the trie.
-/// This struct is not meant to be used directly, and instead use the specific tries that have
-/// been derived from it, [`ClassesTrie`], [`ContractsTrie`], or [`StoragesTrie`].
-pub struct BonsaiTrie<DB, Hash = Pedersen>
-where
-    DB: BonsaiDatabase,
-    Hash: StarkHash + Send + Sync,
-{
-    storage: BonsaiStorage<CommitId, DB, Hash>,
+/// A multi-proof: list of (ProofNode, hash) pairs representing proof paths.
+/// This is a flat representation used for serialization/deserialization.
+#[derive(Debug, Clone)]
+pub struct MultiProof(pub Vec<(Felt, ProofNode)>);
+
+/// Verifies a multi-proof against a root and a set of Felt keys.
+/// Returns the leaf values for each key.
+pub fn verify_proof<H: StarkHash>(proofs: &MultiProof, root: Felt, keys: Vec<Felt>) -> Vec<Felt> {
+    // Convert to per-key paths (single path containing all nodes for backward compatibility)
+    let bit_keys: Vec<_> = keys
+        .iter()
+        .map(|k| k.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned())
+        .collect();
+
+    // Convert flat proof to per-key format by creating one path for all keys
+    let paths: Vec<Vec<(ProofNode, Felt)>> = bit_keys
+        .iter()
+        .map(|_| proofs.0.iter().map(|(hash, node)| (node.clone(), *hash)).collect())
+        .collect();
+
+    proof::verify_proof::<H>(&paths, root, &bit_keys).unwrap_or_default()
 }
 
-impl<DB, Hash> BonsaiTrie<DB, Hash>
-where
-    DB: BonsaiDatabase,
-    Hash: StarkHash + Send + Sync,
-{
-    pub fn new(db: DB) -> Self {
-        let config = BonsaiStorageConfig {
-            // This field controls what's the oldest block we can revert to.
-            //
-            // The value 5 is chosen arbitrarily as a placeholder. This value should be
-            // configurable.
-            max_saved_trie_logs: Some(5),
+/// A classes multi-proof with verify support using Poseidon hash.
+#[derive(Debug, Clone)]
+pub struct ClassesMultiProof(pub MultiProof);
 
-            // in the bonsai-trie crate, this field seems to be only used in rocksdb impl.
-            // i dont understand why would they add a config thats implementation specific ????
-            //
-            // this config should be used by our implementation of the
-            // BonsaiPersistentDatabase::snapshot()
-            //
-            // note: currently, this value is not being used for anything. our trie will stores
-            // all created snapshots.
-            max_saved_snapshots: Some(64usize),
-
-            // creates a snapshot for every block
-            snapshot_interval: 1,
-        };
-
-        Self { storage: BonsaiStorage::new(db, config, 251) }
-    }
-
-    pub fn root(&self, id: &[u8]) -> Felt {
-        self.storage.root_hash(id).expect("failed to get trie root")
-    }
-
-    pub fn multiproof(&mut self, id: &[u8], keys: Vec<Felt>) -> MultiProof {
-        let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
-        self.storage.get_multi_proof(id, keys).expect("failed to get multiproof")
-    }
-
-    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
-        self.storage.revert_to(block.into(), latest_block.into()).expect("failed to revert trie");
+impl ClassesMultiProof {
+    pub fn verify(&self, root: Felt, class_hashes: Vec<ClassHash>) -> Vec<Felt> {
+        verify_proof::<katana_primitives::hash::Poseidon>(&self.0, root, class_hashes)
     }
 }
 
-impl<DB, Hash> BonsaiTrie<DB, Hash>
-where
-    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
-    Hash: StarkHash + Send + Sync,
-{
-    pub fn insert(&mut self, id: &[u8], key: Felt, value: Felt) {
-        let key: BitVec = key.to_bytes_be().as_bits()[5..].to_owned();
-        self.storage.insert(id, &key, &value).unwrap();
-    }
-
-    pub fn commit(&mut self, id: CommitId) {
-        self.storage.commit(id).expect("failed to commit trie");
+impl From<MultiProof> for ClassesMultiProof {
+    fn from(value: MultiProof) -> Self {
+        Self(value)
     }
 }
 
-impl<DB, Hash> std::fmt::Debug for BonsaiTrie<DB, Hash>
-where
-    DB: BonsaiDatabase,
-    Hash: StarkHash + Send + Sync,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BonsaiTrie").field("storage", &self.storage).finish()
-    }
-}
-
+/// Computes a Merkle root from a list of values using an in-memory trie.
 pub fn compute_merkle_root<H>(values: &[Felt]) -> anyhow::Result<Felt>
 where
     H: StarkHash + Send + Sync,
 {
-    use bonsai_trie::id::BasicId;
-    use bonsai_trie::{databases, BonsaiStorage, BonsaiStorageConfig};
-
-    // the value is irrelevant
-    const IDENTIFIER: &[u8] = b"1";
-
-    let config = BonsaiStorageConfig::default();
-    let bonsai_db = databases::HashMapDb::<BasicId>::default();
-    let mut bs = BonsaiStorage::<_, _, H>::new(bonsai_db, config, 64);
+    let mut storage = MemStorage::new();
+    let mut tree = MerkleTree::<H, 64>::empty();
 
     for (id, value) in values.iter().enumerate() {
-        let key = BitVec::from_iter(id.to_be_bytes());
-        bs.insert(IDENTIFIER, key.as_bitslice(), value).unwrap();
+        let key = bitvec::vec::BitVec::<u8, bitvec::order::Msb0>::from_iter(id.to_be_bytes());
+        tree.set(&storage, key.clone(), *value)?;
+        storage.set_leaf(key, *value);
     }
 
-    let id = bonsai_trie::id::BasicIdBuilder::new().new_id();
-    bs.commit(id).unwrap();
-
-    Ok(bs.root_hash(IDENTIFIER).unwrap())
+    let update = tree.commit(&storage)?;
+    Ok(update.root_commitment)
 }
 
-// H(H(H(class_hash, storage_root), nonce), 0), where H is the pedersen hash
+/// Computes a Pedersen hash of two felts. Convenience wrapper for external callers.
+pub fn pedersen_hash(a: &Felt, b: &Felt) -> Felt {
+    Pedersen::hash(a, b)
+}
+
+/// Computes the contract state hash: `H(H(H(class_hash, storage_root), nonce), 0)`
+/// where H is the Pedersen hash.
 pub fn compute_contract_state_hash(
     class_hash: &ClassHash,
     storage_root: &Felt,
@@ -139,18 +96,8 @@ pub fn compute_contract_state_hash(
     Pedersen::hash(&hash, &CONTRACT_STATE_HASH_VERSION)
 }
 
-pub fn verify_proof<Hash: StarkHash>(
-    proofs: &MultiProof,
-    root: Felt,
-    keys: Vec<Felt>,
-) -> Vec<Felt> {
-    let keys = keys.into_iter().map(|f| f.to_bytes_be().as_bits()[5..].to_owned());
-    proofs.verify_proof::<Hash>(root, keys, 251).collect::<Result<Vec<Felt>, _>>().unwrap()
-}
-
 #[cfg(test)]
 mod tests {
-
     use katana_primitives::contract::Nonce;
     use katana_primitives::felt;
     use starknet_types_core::hash;
@@ -185,52 +132,115 @@ mod tests {
     }
 
     #[test]
-    fn test_revert_to() {
-        use bonsai_trie::databases;
+    fn test_set_and_commit() {
+        use bitvec::prelude::*;
 
-        // the identifier for the trie
-        const IDENTIFIER: &[u8] = b"test_trie";
+        let mut storage = MemStorage::new();
+        let mut tree = MerkleTree::<hash::Pedersen, 251>::empty();
 
-        // Create a BonsaiStorage with in-memory database and trie logs enabled
-        let bonsai_db = databases::HashMapDb::<CommitId>::default();
-        let mut trie = BonsaiTrie::<_, hash::Pedersen>::new(bonsai_db);
+        // Insert some values
+        let key1 = felt!("0x1").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
+        let key2 = felt!("0x2").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
 
-        // Insert values at block 0
-        trie.insert(IDENTIFIER, Felt::from(1), Felt::from(100));
-        trie.insert(IDENTIFIER, Felt::from(2), Felt::from(200));
-        trie.commit(0.into());
-        let root_at_block_0 = trie.root(IDENTIFIER);
+        tree.set(&storage, key1.clone(), Felt::from(100)).unwrap();
+        storage.set_leaf(key1, Felt::from(100));
+        tree.set(&storage, key2.clone(), Felt::from(200)).unwrap();
+        storage.set_leaf(key2, Felt::from(200));
 
-        // Insert more values at block 1
-        trie.insert(IDENTIFIER, Felt::from(3), Felt::from(300));
-        trie.insert(IDENTIFIER, Felt::from(4), Felt::from(400));
-        trie.commit(1.into());
-        let root_at_block_1 = trie.root(IDENTIFIER);
+        let update = tree.commit(&storage).unwrap();
+        assert_ne!(update.root_commitment, Felt::ZERO);
+        assert!(!update.nodes_added.is_empty());
+    }
 
-        // Roots should be different
-        assert_ne!(root_at_block_0, root_at_block_1);
+    #[test]
+    fn test_empty_tree_root_is_zero() {
+        let storage = MemStorage::new();
+        let tree = MerkleTree::<hash::Pedersen, 251>::empty();
+        let update = tree.commit(&storage).unwrap();
+        assert_eq!(update.root_commitment, Felt::ZERO);
+    }
 
-        // Insert even more values at block 2
-        trie.insert(IDENTIFIER, Felt::from(5), Felt::from(500));
-        trie.commit(2.into());
-        let root_at_block_2 = trie.root(IDENTIFIER);
+    #[test]
+    fn test_multi_block_with_random_keys_mem_storage() {
+        use bitvec::prelude::*;
 
-        // Roots should be different
-        assert_ne!(root_at_block_1, root_at_block_2);
-        assert_ne!(root_at_block_0, root_at_block_2);
+        let mut storage = MemStorage::new();
 
-        // Revert to block 1
-        trie.revert_to(1, 2);
-        let root_after_revert = trie.root(IDENTIFIER);
+        // Generate pseudo-random keys
+        let mut rng_state = 0x12345678u64;
+        let mut next_random_felt = || -> Felt {
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let hi = rng_state;
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let lo = rng_state;
+            let mut bytes = [0u8; 32];
+            bytes[16..24].copy_from_slice(&hi.to_be_bytes());
+            bytes[24..32].copy_from_slice(&lo.to_be_bytes());
+            bytes[0] &= 0x07;
+            Felt::from_bytes_be(&bytes)
+        };
 
-        // After revert, root should match block 1
-        assert_eq!(root_after_revert, root_at_block_1);
+        // Block 0: insert 10 keys
+        let mut tree0 = MerkleTree::<hash::Pedersen, 251>::empty();
+        for _ in 0..10 {
+            let key_felt = next_random_felt();
+            let value = next_random_felt();
+            let key = key_felt.to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
+            tree0.set(&storage, key.clone(), value).unwrap();
+            storage.set_leaf(key, value);
+        }
 
-        // Revert to block 0
-        trie.revert_to(0, 1);
-        let root_after_second_revert = trie.root(IDENTIFIER);
+        let update0 = tree0.commit(&storage).unwrap();
+        let root0_idx = storage.apply_update(&update0).unwrap();
 
-        // After revert, root should match block 0
-        assert_eq!(root_after_second_revert, root_at_block_0);
+        // Block 1: insert 10 more keys using block 0's root
+        let mut tree1 = MerkleTree::<hash::Pedersen, 251>::new(root0_idx);
+        for _ in 0..10 {
+            let key_felt = next_random_felt();
+            let value = next_random_felt();
+            let key = key_felt.to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
+            tree1.set(&storage, key.clone(), value).unwrap();
+            storage.set_leaf(key, value);
+        }
+
+        let update1 = tree1.commit(&storage).unwrap();
+        assert_ne!(update1.root_commitment, Felt::ZERO);
+    }
+
+    #[test]
+    fn test_revert_by_root_switch() {
+        use bitvec::prelude::*;
+
+        let mut storage = MemStorage::new();
+
+        // Block 0: insert values
+        let mut tree0 = MerkleTree::<hash::Pedersen, 251>::empty();
+        let key1 = felt!("0x1").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
+        let key2 = felt!("0x2").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
+        tree0.set(&storage, key1.clone(), Felt::from(100)).unwrap();
+        storage.set_leaf(key1.clone(), Felt::from(100));
+        tree0.set(&storage, key2.clone(), Felt::from(200)).unwrap();
+        storage.set_leaf(key2.clone(), Felt::from(200));
+
+        let update0 = tree0.commit(&storage).unwrap();
+        let root0 = update0.root_commitment;
+        let root0_idx = storage.apply_update(&update0).unwrap();
+
+        // Block 1: insert more values
+        let mut tree1 = MerkleTree::<hash::Pedersen, 251>::new(root0_idx);
+        let key3 = felt!("0x3").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
+        tree1.set(&storage, key3.clone(), Felt::from(300)).unwrap();
+        storage.set_leaf(key3, Felt::from(300));
+
+        let update1 = tree1.commit(&storage).unwrap();
+        let root1 = update1.root_commitment;
+        let _root1_idx = storage.apply_update(&update1);
+
+        assert_ne!(root0, root1);
+
+        // "Revert" to block 0 by using root0_idx
+        let reverted_tree = MerkleTree::<hash::Pedersen, 251>::new(root0_idx);
+        let reverted_update = reverted_tree.commit(&storage).unwrap();
+        assert_eq!(reverted_update.root_commitment, root0);
     }
 }

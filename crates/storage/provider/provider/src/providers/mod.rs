@@ -5,8 +5,9 @@ use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider_api::contract::ContractClassProvider;
-use katana_provider_api::state::{StateProofProvider, StateProvider, StateRootProvider};
-use katana_trie::MultiProof;
+use katana_provider_api::state::{
+    MultiProof, StateProofProvider, StateProvider, StateRootProvider,
+};
 
 use crate::ProviderResult;
 
@@ -56,12 +57,12 @@ impl ContractClassProvider for EmptyStateProvider {
 impl StateProofProvider for EmptyStateProvider {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<MultiProof> {
         let _ = classes;
-        Ok(MultiProof(Default::default()))
+        Ok(Default::default())
     }
 
     fn contract_multiproof(&self, addresses: Vec<ContractAddress>) -> ProviderResult<MultiProof> {
         let _ = addresses;
-        Ok(MultiProof(Default::default()))
+        Ok(Default::default())
     }
 
     fn storage_multiproof(
@@ -71,7 +72,7 @@ impl StateProofProvider for EmptyStateProvider {
     ) -> ProviderResult<MultiProof> {
         let _ = address;
         let _ = key;
-        Ok(MultiProof(Default::default()))
+        Ok(Default::default())
     }
 }
 
