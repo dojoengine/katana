@@ -7,11 +7,8 @@ use futures::future::BoxFuture;
 use katana_pipeline::{Pipeline, PipelineConfig};
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::stage::StageCheckpointProvider;
-use katana_provider::api::state::HistoricalStateRetentionProvider;
 use katana_provider::test_utils::test_provider;
 use katana_provider::{MutableProvider, ProviderFactory};
-use katana_stage::blocks::BLOCKS_STAGE_ID;
-use katana_stage::trie::STATE_TRIE_STAGE_ID;
 use katana_stage::{
     PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
     StageResult,
@@ -1140,28 +1137,6 @@ async fn prune_multiple_stages_independently() {
     let provider = provider_factory.provider_mut();
     assert_eq!(provider.prune_checkpoint(stage1_clone.id()).unwrap(), Some(49));
     assert_eq!(provider.prune_checkpoint(stage2_clone.id()).unwrap(), Some(149));
-}
-
-#[tokio::test]
-async fn prune_updates_historical_state_retention_from_state_stage_checkpoints() {
-    let provider_factory = test_provider();
-    let (mut pipeline, _handle) = Pipeline::new(provider_factory.clone(), 10);
-    pipeline.set_pruning_config(PruningConfig::new(Some(50)));
-
-    pipeline.add_stage(TrackingStage::new(BLOCKS_STAGE_ID));
-    pipeline.add_stage(TrackingStage::new(STATE_TRIE_STAGE_ID));
-
-    let provider = provider_factory.provider_mut();
-    provider.set_execution_checkpoint(BLOCKS_STAGE_ID, 100).unwrap();
-    provider.set_execution_checkpoint(STATE_TRIE_STAGE_ID, 120).unwrap();
-    provider.commit().unwrap();
-
-    pipeline.prune().await.unwrap();
-
-    let provider = provider_factory.provider_mut();
-    assert_eq!(provider.prune_checkpoint(BLOCKS_STAGE_ID).unwrap(), Some(49));
-    assert_eq!(provider.prune_checkpoint(STATE_TRIE_STAGE_ID).unwrap(), Some(69));
-    assert_eq!(provider.earliest_available_state_block().unwrap(), Some(70));
 }
 
 /// Tests incremental pruning across multiple runs and verifies checkpoint persistence.

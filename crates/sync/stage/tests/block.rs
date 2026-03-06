@@ -465,6 +465,7 @@ async fn prune_compacts_state_history_at_boundary() {
     // keep_from = 5, prune range = [0, 5)
     let output = stage.prune(&PruneInput::new(8, Some(3), None)).await.expect("prune must succeed");
     assert!(output.pruned_count > 0, "expected prune to delete history entries");
+    assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), Some(5));
 
     // Historical reads in the retained window must still work due to anchor compaction.
     let retained_state = provider.provider().historical(7.into()).unwrap().unwrap();
@@ -472,11 +473,11 @@ async fn prune_compacts_state_history_at_boundary() {
     assert_eq!(retained_state.nonce(contract_address).unwrap(), Some(nonce));
     assert_eq!(retained_state.storage(contract_address, storage_key).unwrap(), Some(storage_value));
 
-    // Pruned historical range should no longer reconstruct the old values.
-    let pruned_state = provider.provider().historical(2.into()).unwrap().unwrap();
-    assert_eq!(pruned_state.class_hash_of_contract(contract_address).unwrap(), None);
-    assert_eq!(pruned_state.nonce(contract_address).unwrap(), None);
-    assert_eq!(pruned_state.storage(contract_address, storage_key).unwrap(), None);
+    // Pruned historical range should be unavailable.
+    assert!(matches!(
+        provider.provider().historical(2.into()),
+        Err(ProviderError::HistoricalStatePruned { requested: 2, earliest_available: 5 })
+    ));
 }
 
 #[tokio::test]
@@ -497,4 +498,18 @@ async fn historical_returns_pruned_error_below_retention_boundary() {
     ));
     assert!(provider.provider().historical(5.into()).unwrap().is_some());
     assert!(provider.provider().historical(8.into()).unwrap().is_some());
+}
+
+#[tokio::test]
+async fn blocks_prune_does_not_decrease_existing_retention_boundary() {
+    let provider = create_provider_with_blocks(0..=8, BTreeMap::new());
+    let mut stage = Blocks::new(provider.clone(), MockBlockDownloader::new(), ChainId::SEPOLIA);
+
+    let provider_mut = provider.provider_mut();
+    provider_mut.set_earliest_available_state_block(10).unwrap();
+    provider_mut.commit().unwrap();
+
+    // keep_from=5
+    let _output = stage.prune(&PruneInput::new(8, Some(3), None)).await.expect("prune must succeed");
+    assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), Some(10));
 }
