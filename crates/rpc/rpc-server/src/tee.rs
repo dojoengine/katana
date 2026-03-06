@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
+use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, HeaderProvider};
 use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
@@ -47,38 +47,6 @@ where
         );
         Self { provider_factory, tee_provider, fork_block_number }
     }
-
-    /// Compute the 64-byte report data for attestation.
-    /// report_data = Poseidon(state_root, block_hash, fork_block_number, events_commitment)
-    fn compute_report_data(
-        &self,
-        state_root: Felt,
-        block_hash: Felt,
-        events_commitment: Felt,
-    ) -> [u8; 64] {
-        let fb = Felt::from(self.fork_block_number.unwrap_or(0));
-        let commitment = Poseidon::hash_array(&[state_root, block_hash, fb, events_commitment]);
-
-        // Convert Felt to bytes (32 bytes) and pad to 64 bytes
-        let commitment_bytes = commitment.to_bytes_be();
-
-        let mut report_data = [0u8; 64];
-        // Place the 32-byte hash in the first half
-        report_data[..32].copy_from_slice(&commitment_bytes);
-        // Second half remains zeros
-
-        debug!(
-            target: "rpc::tee",
-            %state_root,
-            %block_hash,
-            fork_block_number = ?self.fork_block_number,
-            %events_commitment,
-            %commitment,
-            "Computed report data for attestation"
-        );
-
-        report_data
-    }
 }
 
 #[async_trait]
@@ -95,7 +63,7 @@ where
 {
     async fn generate_quote(
         &self,
-        prev_block_id: Option<BlockNumber>,
+        prev_block_id: BlockNumber,
         block_id: BlockNumber,
     ) -> RpcResult<TeeQuoteResponse> {
         debug!(
@@ -108,33 +76,24 @@ where
         // Get blockchain state for the requested block(s)
         let provider = self.provider_factory.provider();
 
-        let (prev_block_number, prev_block_hash, prev_state_root) = match prev_block_id {
-            Some(prev_num) => {
-                let prev_hash = provider
-                    .block_hash_by_num(prev_num)
-                    .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
-                    .ok_or_else(|| {
-                        TeeApiError::ProviderError(format!(
-                            "Block hash not found for block {prev_num}"
-                        ))
-                    })?;
-                let prev_header = provider
-                    .header_by_number(prev_num)
-                    .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
-                    .ok_or_else(|| {
-                        TeeApiError::ProviderError(format!("Header not found for block {prev_num}"))
-                    })?;
-                (prev_num, prev_hash, prev_header.state_root)
-            }
-            None => (u64::MAX, Felt::ZERO, Felt::ZERO),
-        };
+        // Get latest block information
 
+        let prev_block_hash = provider
+            .block_hash_by_num(prev_block_id)
+            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+            .unwrap();
         let block_hash = provider
             .block_hash_by_num(block_id)
             .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+            .unwrap();
+
+        let prev_header = provider
+            .header_by_number(prev_block_id)
+            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
             .ok_or_else(|| {
-                TeeApiError::ProviderError(format!("Block hash not found for block {block_id}"))
+                TeeApiError::ProviderError(format!("Header not found for block {prev_block_id}"))
             })?;
+        let prev_state_root = prev_header.state_root;
 
         // Get the header to retrieve state_root
         let header = provider
@@ -146,9 +105,18 @@ where
 
         let state_root = header.state_root;
         let events_commitment = header.events_commitment;
+        let fork_block_id = self.fork_block_number.unwrap_or(0);
 
-        // Compute report data: Poseidon(state_root, block_hash, fork_block, events_commitment)
-        let report_data = self.compute_report_data(state_root, block_hash, events_commitment);
+        let report_data = compute_report_data(
+            prev_state_root,
+            state_root,
+            prev_block_hash,
+            block_hash,
+            prev_block_id,
+            block_id,
+            fork_block_id,
+            events_commitment,
+        );
 
         // Generate the attestation quote
         let quote = self
@@ -158,12 +126,12 @@ where
 
         info!(
             target: "rpc::tee",
-            prev_block_number,
+            ?prev_block_id,
             block_number = block_id,
             %prev_block_hash,
             %block_hash,
             quote_size = quote.len(),
-            "Generated TEE attestation quote"
+            "Generated TEE attestation quote test test test"
         );
 
         Ok(TeeQuoteResponse {
@@ -172,7 +140,7 @@ where
             state_root,
             prev_block_hash,
             block_hash,
-            prev_block_number,
+            prev_block_number: prev_block_id,
             block_number: block_id,
             fork_block_number: self.fork_block_number,
             events_commitment,
@@ -284,4 +252,62 @@ where
             data: event.data.clone(),
         })
     }
+}
+
+/// Compute the 64-byte report data for attestation.
+///
+/// ```text
+/// Poseidon(
+///     prev_state_root,
+///     state_root,
+///     prev_block_hash,
+///     block_hash,
+///     prev_block_number,
+///     block_number,
+///     fork_block_number,
+///     events_commitment,
+/// )
+/// report_data = commitment_bytes_be ++ [0u8; 32]   // 64 bytes total
+/// ```
+fn compute_report_data(
+    prev_state_root: Felt,
+    state_root: Felt,
+    prev_block_hash: BlockHash,
+    block_hash: BlockHash,
+    prev_block_number: BlockNumber,
+    block_number: BlockNumber,
+    fork_block_number: BlockNumber,
+    events_commitment: Felt,
+) -> [u8; 64] {
+    // Compute Poseidon hash of state_root and block_hash
+    let commitment = Poseidon::hash_array(&[
+        prev_state_root,
+        state_root,
+        prev_block_hash,
+        block_hash,
+        prev_block_number.into(),
+        block_number.into(),
+        fork_block_number.into(),
+        events_commitment,
+    ]);
+
+    // Convert Felt to bytes (32 bytes) and pad to 64 bytes
+    let commitment_bytes = commitment.to_bytes_be();
+
+    let mut report_data = [0u8; 64];
+    // Place the 32-byte hash in the first half
+    report_data[..32].copy_from_slice(&commitment_bytes);
+    // Second half remains zeros
+
+    debug!(
+        target: "rpc::tee",
+        %state_root,
+        %block_hash,
+        ?fork_block_number,
+        %events_commitment,
+        %commitment,
+        "Computed report data for attestation"
+    );
+
+    report_data
 }
