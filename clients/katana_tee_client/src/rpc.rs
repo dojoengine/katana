@@ -48,7 +48,7 @@ impl KatanaRpcClient {
         struct Request<'a> {
             jsonrpc: &'a str,
             method: &'a str,
-            params: Vec<u64>,
+            params: [Option<u64>; 2],
             id: u64,
         }
 
@@ -64,11 +64,7 @@ impl KatanaRpcClient {
             message: String,
         }
 
-        let mut params = Vec::new();
-        if let Some(prev) = prev_block_number {
-            params.push(prev);
-        }
-        params.push(block_number);
+        let params = [prev_block_number, Some(block_number)];
 
         let request = Request {
             jsonrpc: "2.0",
