@@ -52,6 +52,7 @@ use crate::models::block::StoredBlockBodyIndices;
 use crate::models::contract::ContractInfoChangeList;
 use crate::models::list::BlockList;
 use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
+use crate::models::state::HistoricalStateRetention;
 use crate::models::trie::TrieDatabaseValue;
 
 macro_rules! impl_compress_and_decompress_for_table_values {
@@ -98,6 +99,7 @@ impl_compress_and_decompress_for_table_values!(
     BlockList,
     ExecutionCheckpoint,
     PruningCheckpoint,
+    HistoricalStateRetention,
     GenericContractInfo,
     StoredBlockBodyIndices,
     ContractInfoChangeList
