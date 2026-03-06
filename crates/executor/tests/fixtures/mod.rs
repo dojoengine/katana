@@ -239,6 +239,7 @@ pub fn overrides() -> VersionedConstantsOverrides {
         max_recursion_depth: Some(usize::MAX),
         validate_max_n_steps: Some(u32::MAX),
         invoke_tx_max_n_steps: Some(u32::MAX),
+        is_l3: false,
     }
 }
 
