@@ -97,7 +97,17 @@ build-explorer:
 	@which bun >/dev/null 2>&1 || { echo "Error: bun is required but not installed. Please install bun first."; exit 1; }
 	@$(MAKE) $(EXPLORER_UI_DIST)
 
-contracts: install-scarb $(CONTRACTS_BUILD_DIR)
+contracts: install-scarb
+	@mkdir -p $(CONTRACTS_BUILD_DIR)
+	@echo "Building main contracts..."
+	@cd $(CONTRACTS_DIR) && asdf exec scarb build || { echo "Main contracts build failed!"; exit 1; }
+	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
+	@echo "Building VRF contracts..."
+	@cd $(VRF_DIR) && asdf exec scarb build || { echo "VRF contracts build failed!"; exit 1; }
+	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
+	@echo "Building AVNU contracts..."
+	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
+	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
 
 tee-sev-snp:
 	@echo "Building AMD SEV-SNP TEE VM components..."
@@ -112,18 +122,6 @@ tee-sev-snp:
 		$(AMDSEV_DIR)/build.sh; \
 	fi
 
-# Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
-$(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
-	@mkdir -p $@
-	@echo "Building main contracts..."
-	@cd $(CONTRACTS_DIR) && asdf exec scarb build || { echo "Main contracts build failed!"; exit 1; }
-	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
-	@echo "Building VRF contracts..."
-	@cd $(VRF_DIR) && asdf exec scarb build || { echo "VRF contracts build failed!"; exit 1; }
-	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
-	@echo "Building AVNU contracts..."
-	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
-	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."

@@ -11,12 +11,21 @@ pub struct TeeQuoteResponse {
     /// The raw attestation quote bytes (hex-encoded).
     pub quote: String,
 
+    /// The prev state root of the attested block.
+    pub prev_state_root: Felt,
+
     /// The state root at the attested block.
     pub state_root: Felt,
+
+    /// The hash of the previous block.
+    pub prev_block_hash: BlockHash,
 
     /// The hash of the attested block.
     pub block_hash: BlockHash,
 
+    /// The number of the previous block.
+    pub prev_block_number: BlockNumber,
+    
     /// The number of the attested block.
     pub block_number: BlockNumber,
 }
@@ -41,5 +50,5 @@ pub trait TeeApi {
     /// # Errors
     /// - Returns an error if TEE quote generation fails or TEE is not available.
     #[method(name = "generateQuote")]
-    async fn generate_quote(&self) -> RpcResult<TeeQuoteResponse>;
+    async fn generate_quote(&self, prev_block_id: BlockNumber, block_id: BlockNumber) -> RpcResult<TeeQuoteResponse>;
 }
