@@ -1,37 +1,22 @@
-use core::fmt;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::marker::PhantomData;
+use std::collections::VecDeque;
 
-use anyhow::Result;
 use katana_primitives::block::BlockNumber;
-use katana_primitives::ContractAddress;
-use katana_trie::bonsai::{BonsaiDatabase, BonsaiPersistentDatabase, ByteVec, DatabaseKey};
-use katana_trie::CommitId;
-use smallvec::ToSmallVec;
+use katana_primitives::{ContractAddress, Felt};
+use katana_trie::node::{Node, NodeRef, StoredNode, TrieNodeIndex, TrieUpdate};
+use katana_trie::{ClassesTrie, ContractsTrie, MemStorage, StoragesTrie};
 
-use crate::abstraction::{DbCursor, DbDupSortCursor, DbTx, DbTxMut};
-use crate::models::trie::{TrieDatabaseKey, TrieDatabaseKeyType, TrieHistoryEntry};
-use crate::models::{self};
-use crate::tables::{self, Trie};
+use crate::abstraction::{DbTx, DbTxMut};
+use crate::models::list::BlockList;
+use crate::models::trie::{TrieNodeEntry, TrieType};
+use crate::tables;
 
-mod snapshot;
-
-pub use snapshot::SnapshotTrieDb;
-
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct Error(#[from] crate::error::DatabaseError);
-
-impl katana_trie::bonsai::DBError for Error {}
-
-impl Error {
-    /// Returns the inner database error.
-    pub fn into_inner(self) -> crate::error::DatabaseError {
-        self.0
-    }
+/// Composite key for TrieRoots and TrieBlockLog tables.
+/// Encodes trie type in the upper 8 bits and block number in the lower 56 bits.
+fn trie_composite_key(trie_type: TrieType, block_number: BlockNumber) -> u64 {
+    ((trie_type as u64) << 56) | block_number
 }
 
+/// Factory for creating trie instances backed by the database.
 #[derive(Debug)]
 pub struct TrieDbFactory<Tx: DbTx> {
     tx: Tx,
@@ -42,768 +27,809 @@ impl<Tx: DbTx> TrieDbFactory<Tx> {
         Self { tx }
     }
 
-    pub fn latest(&self) -> GlobalTrie<Tx> {
-        GlobalTrie { tx: self.tx.clone() }
-    }
-
-    // TODO: check that the snapshot for the block number is available
-    pub fn historical(&self, block: BlockNumber) -> Option<HistoricalGlobalTrie<Tx>> {
-        Some(HistoricalGlobalTrie { tx: self.tx.clone(), block })
-    }
-}
-
-/// Provides access to the latest tries.
-#[derive(Debug)]
-pub struct GlobalTrie<Tx: DbTx> {
-    tx: Tx,
-}
-
-impl<Tx: DbTx> GlobalTrie<Tx> {
-    /// Returns the contracts trie.
-    pub fn contracts_trie(&self) -> katana_trie::ContractsTrie<TrieDb<tables::ContractsTrie, Tx>> {
-        katana_trie::ContractsTrie::new(TrieDb::new(self.tx.clone()))
-    }
-
-    /// Returns the classes trie.
-    pub fn classes_trie(&self) -> katana_trie::ClassesTrie<TrieDb<tables::ClassesTrie, Tx>> {
-        katana_trie::ClassesTrie::new(TrieDb::new(self.tx.clone()))
-    }
-
-    // TODO: makes this return an Option
-    /// Returns the storages trie.
-    pub fn storages_trie(
-        &self,
-        address: ContractAddress,
-    ) -> katana_trie::StoragesTrie<TrieDb<tables::StoragesTrie, Tx>> {
-        katana_trie::StoragesTrie::new(TrieDb::new(self.tx.clone()), address)
-    }
-}
-
-/// Historical tries, allowing access to the state tries at each block.
-#[derive(Debug)]
-pub struct HistoricalGlobalTrie<Tx: DbTx> {
-    /// The database transaction.
-    tx: Tx,
-    /// The block number at which the trie was constructed.
-    block: BlockNumber,
-}
-
-impl<Tx: DbTx> HistoricalGlobalTrie<Tx> {
-    /// Returns the historical contracts trie.
-    pub fn contracts_trie(
-        &self,
-    ) -> katana_trie::ContractsTrie<SnapshotTrieDb<tables::ContractsTrie, Tx>> {
-        let commit = CommitId::new(self.block);
-        katana_trie::ContractsTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit))
-    }
-
-    /// Returns the historical classes trie.
+    /// Returns the classes trie at the given block.
     pub fn classes_trie(
         &self,
-    ) -> katana_trie::ClassesTrie<SnapshotTrieDb<tables::ClassesTrie, Tx>> {
-        let commit = CommitId::new(self.block);
-        katana_trie::ClassesTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit))
+        block: BlockNumber,
+    ) -> ClassesTrie<DbTrieStorage<tables::TrieClassNodes, Tx>> {
+        let storage = DbTrieStorage::new(self.tx.clone());
+        match self.get_root(TrieType::Classes, block) {
+            Some(root) => ClassesTrie::new(storage, root),
+            None => ClassesTrie::empty(storage),
+        }
     }
 
-    // TODO: makes this return an Option
-    /// Returns the historical storages trie.
+    /// Returns the contracts trie at the given block.
+    pub fn contracts_trie(
+        &self,
+        block: BlockNumber,
+    ) -> ContractsTrie<DbTrieStorage<tables::TrieContractNodes, Tx>> {
+        let storage = DbTrieStorage::new(self.tx.clone());
+        match self.get_root(TrieType::Contracts, block) {
+            Some(root) => ContractsTrie::new(storage, root),
+            None => ContractsTrie::empty(storage),
+        }
+    }
+
+    /// Returns the storage trie for a given contract address at the given block.
     pub fn storages_trie(
         &self,
         address: ContractAddress,
-    ) -> katana_trie::StoragesTrie<SnapshotTrieDb<tables::StoragesTrie, Tx>> {
-        let commit = CommitId::new(self.block);
-        katana_trie::StoragesTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit), address)
-    }
-}
-
-// --- Trie's database implementations. These are implemented based on the Bonsai Trie
-// functionalities and abstractions.
-
-pub struct TrieDb<Tb, Tx>
-where
-    Tb: Trie,
-    Tx: DbTx,
-{
-    tx: Tx,
-    _phantom: PhantomData<Tb>,
-}
-
-impl<Tb, Tx> fmt::Debug for TrieDb<Tb, Tx>
-where
-    Tb: Trie,
-    Tx: DbTx,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TrieDbMut").field("tx", &"..").finish()
-    }
-}
-
-impl<Tb, Tx> TrieDb<Tb, Tx>
-where
-    Tb: Trie,
-    Tx: DbTx,
-{
-    pub(crate) fn new(tx: Tx) -> Self {
-        Self { tx, _phantom: PhantomData }
-    }
-}
-
-impl<Tb, Tx> BonsaiDatabase for TrieDb<Tb, Tx>
-where
-    Tb: Trie,
-    Tx: DbTx,
-{
-    type Batch = ();
-    type DatabaseError = Error;
-
-    fn create_batch(&self) -> Self::Batch {}
-
-    fn remove_by_prefix(&mut self, _: &DatabaseKey<'_>) -> Result<(), Self::DatabaseError> {
-        Ok(())
+        block: BlockNumber,
+    ) -> StoragesTrie<DbTrieStorage<tables::TrieStorageNodes, Tx>> {
+        let storage = DbTrieStorage::new(self.tx.clone());
+        match self.get_storage_root(address, block) {
+            Some(root) => StoragesTrie::new(storage, address, root),
+            None => StoragesTrie::empty(storage, address),
+        }
     }
 
-    fn get(&self, key: &DatabaseKey<'_>) -> Result<Option<ByteVec>, Self::DatabaseError> {
-        let value = self.tx.get::<Tb>(to_db_key(key))?;
-        Ok(value)
-    }
-
-    fn get_by_prefix(
+    /// Public accessor for getting the root index for proof generation.
+    pub fn get_root_for_proofs(
         &self,
-        prefix: &DatabaseKey<'_>,
-    ) -> Result<Vec<(ByteVec, ByteVec)>, Self::DatabaseError> {
-        let mut results = Vec::new();
+        trie_type: TrieType,
+        block: BlockNumber,
+    ) -> Option<TrieNodeIndex> {
+        self.get_root(trie_type, block)
+    }
 
-        let mut cursor = self.tx.cursor::<Tb>()?;
-        let walker = cursor.walk(None)?;
+    /// Public accessor for getting a storage root index for proof generation.
+    pub fn get_storage_root_for_proofs(
+        &self,
+        address: ContractAddress,
+        block: BlockNumber,
+    ) -> Option<TrieNodeIndex> {
+        self.get_storage_root(address, block)
+    }
 
-        for entry in walker {
-            let (TrieDatabaseKey { key, .. }, value) = entry?;
+    /// Looks up the root TrieNodeIndex for the given trie type and block.
+    fn get_root(&self, trie_type: TrieType, block: BlockNumber) -> Option<TrieNodeIndex> {
+        let key = trie_composite_key(trie_type, block);
+        self.tx.get::<tables::TrieRoots>(key).ok().flatten().map(TrieNodeIndex)
+    }
 
-            if key.starts_with(prefix.as_slice()) {
-                results.push((key.to_smallvec(), value));
+    /// Looks up the root TrieNodeIndex for a contract's storage trie at a block.
+    fn get_storage_root(
+        &self,
+        address: ContractAddress,
+        block: BlockNumber,
+    ) -> Option<TrieNodeIndex> {
+        let storage_root_key = storage_trie_root_key(address, block);
+        self.tx.get::<tables::TrieRoots>(storage_root_key).ok().flatten().map(TrieNodeIndex)
+    }
+
+    /// Returns the classes trie at the given block, loaded entirely into memory.
+    pub fn classes_trie_in_memory(
+        &self,
+        block: BlockNumber,
+    ) -> anyhow::Result<ClassesTrie<MemStorage>> {
+        match self.get_root(TrieType::Classes, block) {
+            Some(root) => {
+                let mem = load_trie_to_memory::<tables::TrieClassNodes, _>(&self.tx, root)?;
+                Ok(ClassesTrie::new(mem, root))
+            }
+            None => Ok(ClassesTrie::empty(MemStorage::new())),
+        }
+    }
+
+    /// Returns the contracts trie at the given block, loaded entirely into memory.
+    pub fn contracts_trie_in_memory(
+        &self,
+        block: BlockNumber,
+    ) -> anyhow::Result<ContractsTrie<MemStorage>> {
+        match self.get_root(TrieType::Contracts, block) {
+            Some(root) => {
+                let mem = load_trie_to_memory::<tables::TrieContractNodes, _>(&self.tx, root)?;
+                Ok(ContractsTrie::new(mem, root))
+            }
+            None => Ok(ContractsTrie::empty(MemStorage::new())),
+        }
+    }
+
+    /// Returns the storage trie for a contract at the given block, loaded entirely into memory.
+    pub fn storages_trie_in_memory(
+        &self,
+        address: ContractAddress,
+        block: BlockNumber,
+    ) -> anyhow::Result<StoragesTrie<MemStorage>> {
+        match self.get_storage_root(address, block) {
+            Some(root) => {
+                let mem = load_trie_to_memory::<tables::TrieStorageNodes, _>(&self.tx, root)?;
+                Ok(StoragesTrie::new(mem, address, root))
+            }
+            None => Ok(StoragesTrie::empty(MemStorage::new(), address)),
+        }
+    }
+}
+
+/// Loads all reachable nodes from a trie root into a [`MemStorage`] via BFS.
+pub fn load_trie_to_memory<Tb, Tx>(tx: &Tx, root: TrieNodeIndex) -> anyhow::Result<MemStorage>
+where
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
+    Tx: DbTx,
+{
+    let mut mem = MemStorage::new();
+    let mut queue = VecDeque::new();
+    queue.push_back(root);
+
+    while let Some(index) = queue.pop_front() {
+        let entry = tx
+            .get::<Tb>(index.0)
+            .map_err(|e| anyhow::anyhow!("DB error reading trie node {}: {e}", index.0))?
+            .ok_or_else(|| anyhow::anyhow!("Trie node {} is missing from DB", index.0))?;
+
+        // Enqueue children for non-leaf nodes
+        match &entry.node {
+            StoredNode::Binary { left, right } => {
+                queue.push_back(*left);
+                queue.push_back(*right);
+            }
+            StoredNode::Edge { child, .. } => {
+                queue.push_back(*child);
+            }
+            StoredNode::LeafBinary { .. } | StoredNode::LeafEdge { .. } => {
+                // Terminal nodes — no children to follow
             }
         }
 
-        Ok(results)
+        mem.insert_node(index.0, entry.hash, entry.node);
     }
 
-    fn insert(
-        &mut self,
-        _: &DatabaseKey<'_>,
-        _: &[u8],
-        _: Option<&mut Self::Batch>,
-    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
-        unimplemented!("not supported in read-only transaction")
-    }
-
-    fn remove(
-        &mut self,
-        _: &DatabaseKey<'_>,
-        _: Option<&mut Self::Batch>,
-    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
-        unimplemented!("not supported in read-only transaction")
-    }
-
-    fn contains(&self, key: &DatabaseKey<'_>) -> Result<bool, Self::DatabaseError> {
-        let key = to_db_key(key);
-        let value = self.tx.get::<Tb>(key)?;
-        Ok(value.is_some())
-    }
-
-    fn write_batch(&mut self, _: Self::Batch) -> Result<(), Self::DatabaseError> {
-        unimplemented!("not supported in read-only transaction")
-    }
+    Ok(mem)
 }
 
-pub struct TrieDbMut<Tb, Tx>
+/// Generates a deterministic key for storage trie roots.
+/// Combines contract address and block number into a u64 key.
+/// Uses a different key space (high byte = 0x80+) to avoid collisions with class/contract tries.
+fn storage_trie_root_key(address: ContractAddress, block: BlockNumber) -> u64 {
+    let addr_bytes = Felt::from(address).to_bytes_be();
+    let addr_hash = u64::from_be_bytes(addr_bytes[24..32].try_into().unwrap());
+    let mixed = addr_hash.wrapping_mul(0x517cc1b727220a95) ^ block;
+    0x80_00000000000000 | (mixed & 0x00FFFFFFFFFFFFFF)
+}
+
+/// Default capacity for the node cache (number of entries).
+const NODE_CACHE_CAPACITY: usize = 4096;
+
+/// DB-backed storage implementation for the trie.
+///
+/// Includes an LRU cache for node entries to avoid redundant DB reads.
+/// Both `get()` and `hash()` read from the same underlying `TrieNodeEntry`,
+/// so caching the full entry serves both lookups.
+pub struct DbTrieStorage<Tb, Tx>
 where
-    Tb: Trie,
-    Tx: DbTxMut,
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
+    Tx: DbTx,
 {
     tx: Tx,
-    /// List of key-value pairs that has been added throughout the duration of the trie
-    /// transaction.
-    ///
-    /// This will be used to create the trie snapshot.
-    write_cache: HashMap<TrieDatabaseKey, ByteVec>,
-    _phantom: PhantomData<Tb>,
+    /// LRU cache for trie node entries, keyed by node index.
+    node_cache: std::cell::RefCell<quick_cache::unsync::Cache<u64, TrieNodeEntry>>,
+    _phantom: std::marker::PhantomData<Tb>,
 }
 
-impl<Tb, Tx> fmt::Debug for TrieDbMut<Tb, Tx>
+impl<Tb, Tx> std::fmt::Debug for DbTrieStorage<Tb, Tx>
 where
-    Tb: Trie,
-    Tx: DbTxMut,
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
+    Tx: DbTx,
 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TrieDbMut").field("tx", &"..").finish()
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cache = self.node_cache.borrow();
+        f.debug_struct("DbTrieStorage")
+            .field("tx", &"..")
+            .field("cache_len", &cache.len())
+            .field("cache_capacity", &cache.capacity())
+            .finish()
     }
 }
 
-impl<Tb, Tx> TrieDbMut<Tb, Tx>
+impl<Tb, Tx> DbTrieStorage<Tb, Tx>
 where
-    Tb: Trie,
-    Tx: DbTxMut,
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
+    Tx: DbTx,
 {
     pub fn new(tx: Tx) -> Self {
-        Self { tx, write_cache: HashMap::new(), _phantom: PhantomData }
+        Self {
+            tx,
+            node_cache: std::cell::RefCell::new(quick_cache::unsync::Cache::new(
+                NODE_CACHE_CAPACITY,
+            )),
+            _phantom: std::marker::PhantomData,
+        }
     }
 
-    /// Removes the snapshot data for the given block number.
-    ///
-    /// This is the inverse of [`BonsaiPersistentDatabase::snapshot`] - it removes all history
-    /// entries for the given block and updates the corresponding changesets.
-    ///
-    /// Note: There is currently no efficient way to check if a snapshot exists for a given block
-    /// without querying the `Tb::History` table. As a result, calling this method on a
-    /// non-existent snapshot is a no-op.
-    pub fn remove_snapshot(&mut self, block: BlockNumber) -> Result<(), Error> {
-        // Get all history entries for this block using dupsort cursor
-        let mut cursor = self.tx.cursor_dup::<Tb::History>()?;
-
-        // walk_dup iterates only over entries with the same key (block number)
-        let Some(walker) = cursor.walk_dup(Some(block), None)? else {
-            // No entries for this block
-            return Ok(());
-        };
-
-        let mut keys_to_update = Vec::new();
-        for entry in walker {
-            let (_, entry) = entry?;
-            keys_to_update.push(entry.key);
+    /// Fetches a node entry, returning a cached copy if available.
+    fn get_cached_entry(&self, index: TrieNodeIndex) -> anyhow::Result<Option<TrieNodeEntry>> {
+        if let Some(entry) = self.node_cache.borrow_mut().get(&index.0) {
+            return Ok(Some(entry.clone()));
         }
 
-        // For each key, update its changeset by removing this block number
-        for key in &keys_to_update {
-            if let Some(mut set) = self.tx.get::<Tb::Changeset>(key.clone())? {
-                set.remove(block);
-                if set.is_empty() {
-                    self.tx.delete::<Tb::Changeset>(key.clone(), None)?;
-                } else {
-                    self.tx.put::<Tb::Changeset>(key.clone(), set)?;
-                }
-            }
+        let entry = self
+            .tx
+            .get::<Tb>(index.0)
+            .map_err(|e| anyhow::anyhow!("DB error reading trie node {}: {e}", index.0))?;
+
+        if let Some(ref entry) = entry {
+            self.node_cache.borrow_mut().insert(index.0, entry.clone());
         }
 
-        // Delete all history entries for this block using dupsort cursor
-        let mut cursor = self.tx.cursor_dup_mut::<Tb::History>()?;
-
-        let Some(mut walker) = cursor.walk_dup(Some(block), None)? else {
-            return Ok(());
-        };
-
-        // Use delete_current to delete each entry as we iterate
-        while walker.next().is_some() {
-            walker.delete_current()?;
-        }
-
-        Ok(())
+        Ok(entry)
     }
 }
 
-impl<Tb, Tx> BonsaiDatabase for TrieDbMut<Tb, Tx>
+impl<Tb, Tx> katana_trie::Storage for DbTrieStorage<Tb, Tx>
 where
-    Tb: Trie,
-    Tx: DbTxMut,
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
+    Tx: DbTx,
 {
-    type Batch = ();
-    type DatabaseError = Error;
-
-    fn create_batch(&self) -> Self::Batch {}
-
-    fn remove_by_prefix(&mut self, prefix: &DatabaseKey<'_>) -> Result<(), Self::DatabaseError> {
-        let mut cursor = self.tx.cursor_mut::<Tb>()?;
-        let walker = cursor.walk(None)?;
-
-        let mut keys_to_remove = Vec::new();
-        // iterate over all entries in the table
-        for entry in walker {
-            let (key, _) = entry?;
-
-            match key.r#type {
-                TrieDatabaseKeyType::Flat => {
-                    if let DatabaseKey::Flat(prefix_key) = prefix {
-                        if key.key.starts_with(prefix_key) {
-                            keys_to_remove.push(key);
-                        }
-                    }
-                }
-                TrieDatabaseKeyType::Trie => {
-                    if let DatabaseKey::Trie(prefix_key) = prefix {
-                        if key.key.starts_with(prefix_key) {
-                            keys_to_remove.push(key);
-                        }
-                    }
-                }
-                TrieDatabaseKeyType::TrieLog => {
-                    if let DatabaseKey::TrieLog(prefix_key) = prefix {
-                        if key.key.starts_with(prefix_key) {
-                            keys_to_remove.push(key);
-                        }
-                    }
-                }
-            }
-        }
-
-        for key in keys_to_remove {
-            let _ = self.tx.delete::<Tb>(key, None)?;
-        }
-
-        Ok(())
+    fn get(&self, index: TrieNodeIndex) -> anyhow::Result<Option<StoredNode>> {
+        let entry = self.get_cached_entry(index)?;
+        Ok(entry.map(|e| e.node.clone()))
     }
 
-    fn get(&self, key: &DatabaseKey<'_>) -> Result<Option<ByteVec>, Self::DatabaseError> {
-        let value = self.tx.get::<Tb>(to_db_key(key))?;
-        Ok(value)
-    }
-
-    fn get_by_prefix(
-        &self,
-        prefix: &DatabaseKey<'_>,
-    ) -> Result<Vec<(ByteVec, ByteVec)>, Self::DatabaseError> {
-        TrieDb::<Tb, Tx>::new(self.tx.clone()).get_by_prefix(prefix)
-    }
-
-    fn insert(
-        &mut self,
-        key: &DatabaseKey<'_>,
-        value: &[u8],
-        batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
-        let _ = batch;
-        let key = to_db_key(key);
-        let value: ByteVec = value.to_smallvec();
-
-        let old_value = self.tx.get::<Tb>(key.clone())?;
-        self.tx.put::<Tb>(key.clone(), value.clone())?;
-
-        self.write_cache.insert(key, value);
-        Ok(old_value)
-    }
-
-    fn remove(
-        &mut self,
-        key: &DatabaseKey<'_>,
-        batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
-        let _ = batch;
-        let key = to_db_key(key);
-
-        let old_value = self.tx.get::<Tb>(key.clone())?;
-        self.tx.delete::<Tb>(key, None)?;
-
-        Ok(old_value)
-    }
-
-    fn contains(&self, key: &DatabaseKey<'_>) -> Result<bool, Self::DatabaseError> {
-        let key = to_db_key(key);
-        let value = self.tx.get::<Tb>(key)?;
-        Ok(value.is_some())
-    }
-
-    fn write_batch(&mut self, _: Self::Batch) -> Result<(), Self::DatabaseError> {
-        Ok(())
+    fn hash(&self, index: TrieNodeIndex) -> anyhow::Result<Option<Felt>> {
+        let entry = self.get_cached_entry(index)?;
+        Ok(entry.map(|e| e.hash))
     }
 }
 
-impl<Tb, Tx> BonsaiPersistentDatabase<CommitId> for TrieDbMut<Tb, Tx>
+/// Persists a TrieUpdate to the database.
+pub fn persist_trie_update<Tb, Tx>(
+    tx: &Tx,
+    update: &TrieUpdate,
+    block: BlockNumber,
+    trie_type: TrieType,
+    next_index: &mut u64,
+) -> anyhow::Result<Option<TrieNodeIndex>>
 where
-    Tb: Trie,
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
     Tx: DbTxMut,
 {
-    type DatabaseError = Error;
-    type Transaction<'a>
-        = SnapshotTrieDb<Tb, Tx>
-    where
-        Self: 'a;
+    if update.nodes_added.is_empty() {
+        return Ok(None);
+    }
 
-    fn snapshot(&mut self, id: CommitId) {
-        let block_number: BlockNumber = id.into();
+    let base_index = *next_index;
+    let mut added_indices = BlockList::default();
 
-        let entries = std::mem::take(&mut self.write_cache);
-        let entries = entries.into_iter().map(|(key, value)| TrieHistoryEntry { key, value });
+    for (i, (hash, node)) in update.nodes_added.iter().enumerate() {
+        let index = base_index + i as u64;
+        let stored = resolve_node_ref(node, base_index);
+        let entry = TrieNodeEntry { hash: *hash, node: stored };
+        tx.put::<Tb>(index, entry)
+            .map_err(|e| anyhow::anyhow!("DB error writing trie node {index}: {e}"))?;
+        added_indices.insert(index);
+    }
 
-        for entry in entries {
-            let mut set = self
-                .tx
-                .get::<Tb::Changeset>(entry.key.clone())
-                .expect("failed to get trie change set")
-                .unwrap_or_default();
-            set.insert(block_number);
+    *next_index = base_index + update.nodes_added.len() as u64;
 
-            self.tx
-                .put::<Tb::Changeset>(entry.key.clone(), set)
-                .expect("failed to put trie change set");
+    // Store the root index
+    let root_index = base_index + update.nodes_added.len() as u64 - 1;
 
-            self.tx
-                .put::<Tb::History>(block_number, entry)
-                .expect("failed to put trie history entry");
+    // Store root in TrieRoots
+    let root_key = trie_composite_key(trie_type, block);
+    tx.put::<tables::TrieRoots>(root_key, root_index)
+        .map_err(|e| anyhow::anyhow!("DB error writing trie root: {e}"))?;
+
+    // Store block log for revert support
+    let log_key = trie_composite_key(trie_type, block);
+    tx.put::<tables::TrieBlockLog>(log_key, added_indices)
+        .map_err(|e| anyhow::anyhow!("DB error writing trie block log: {e}"))?;
+
+    Ok(Some(TrieNodeIndex(root_index)))
+}
+
+/// Persists a storage trie update for a specific contract.
+pub fn persist_storage_trie_update<Tx>(
+    tx: &Tx,
+    update: &TrieUpdate,
+    block: BlockNumber,
+    address: ContractAddress,
+    next_index: &mut u64,
+) -> anyhow::Result<Option<TrieNodeIndex>>
+where
+    Tx: DbTxMut,
+{
+    if update.nodes_added.is_empty() {
+        return Ok(None);
+    }
+
+    let base_index = *next_index;
+    let mut added_indices = BlockList::default();
+
+    for (i, (hash, node)) in update.nodes_added.iter().enumerate() {
+        let index = base_index + i as u64;
+        let stored = resolve_node_ref(node, base_index);
+        let entry = TrieNodeEntry { hash: *hash, node: stored };
+        tx.put::<tables::TrieStorageNodes>(index, entry)
+            .map_err(|e| anyhow::anyhow!("DB error writing storage trie node {index}: {e}"))?;
+        added_indices.insert(index);
+    }
+
+    *next_index = base_index + update.nodes_added.len() as u64;
+    let root_index = base_index + update.nodes_added.len() as u64 - 1;
+
+    let root_key = storage_trie_root_key(address, block);
+    tx.put::<tables::TrieRoots>(root_key, root_index)
+        .map_err(|e| anyhow::anyhow!("DB error writing storage trie root: {e}"))?;
+
+    tx.put::<tables::TrieBlockLog>(root_key, added_indices)
+        .map_err(|e| anyhow::anyhow!("DB error writing storage trie block log: {e}"))?;
+
+    Ok(Some(TrieNodeIndex(root_index)))
+}
+
+/// Resolves a Node with NodeRef children into a StoredNode with concrete indices.
+fn resolve_node_ref(node: &Node, base: u64) -> StoredNode {
+    fn resolve_ref(r: &NodeRef, base: u64) -> TrieNodeIndex {
+        match r {
+            NodeRef::StorageIndex(idx) => *idx,
+            NodeRef::Index(i) => TrieNodeIndex(base + *i as u64),
         }
     }
 
-    // merging should recompute the trie again
-    fn merge<'a>(&mut self, transaction: Self::Transaction<'a>) -> Result<(), Self::DatabaseError>
-    where
-        Self: 'a,
+    match node {
+        Node::Binary { left, right } => {
+            StoredNode::Binary { left: resolve_ref(left, base), right: resolve_ref(right, base) }
+        }
+        Node::Edge { child, path } => {
+            StoredNode::Edge { child: resolve_ref(child, base), path: path.clone() }
+        }
+        Node::LeafBinary { left_hash, right_hash } => {
+            StoredNode::LeafBinary { left_hash: *left_hash, right_hash: *right_hash }
+        }
+        Node::LeafEdge { path, child_hash } => {
+            StoredNode::LeafEdge { path: path.clone(), child_hash: *child_hash }
+        }
+    }
+}
+
+/// Gets the next available node index for a trie node table.
+pub fn next_node_index<Tb, Tx>(tx: &Tx) -> anyhow::Result<u64>
+where
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
+    Tx: DbTx,
+{
+    use crate::abstraction::DbCursor;
+
+    let mut cursor =
+        tx.cursor::<Tb>().map_err(|e| anyhow::anyhow!("DB error creating cursor: {e}"))?;
+    match cursor.last().map_err(|e| anyhow::anyhow!("DB error seeking last: {e}"))? {
+        Some((key, _)) => Ok(key + 1),
+        None => Ok(0),
+    }
+}
+
+/// Reverts trie state to a target block by removing nodes added after it.
+pub fn revert_trie_to_block<Tx: DbTxMut>(
+    tx: &Tx,
+    target_block: BlockNumber,
+    latest_block: BlockNumber,
+) -> anyhow::Result<()> {
+    for block in (target_block + 1)..=latest_block {
+        revert_trie_block::<tables::TrieClassNodes, Tx>(
+            tx,
+            trie_composite_key(TrieType::Classes, block),
+        )?;
+
+        revert_trie_block::<tables::TrieContractNodes, Tx>(
+            tx,
+            trie_composite_key(TrieType::Contracts, block),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn revert_trie_block<Tb, Tx>(tx: &Tx, log_key: u64) -> anyhow::Result<()>
+where
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
+    Tx: DbTxMut,
+{
+    if let Some(added) = tx
+        .get::<tables::TrieBlockLog>(log_key)
+        .map_err(|e| anyhow::anyhow!("DB error reading block log: {e}"))?
     {
-        let _ = transaction;
-        unimplemented!();
+        for index in added.iter() {
+            let _ = tx.delete::<Tb>(index, None);
+        }
+
+        let _ = tx.delete::<tables::TrieRoots>(log_key, None);
+        let _ = tx.delete::<tables::TrieBlockLog>(log_key, None);
     }
 
-    // TODO: check if the snapshot exist
-    fn transaction(&self, id: CommitId) -> Option<(CommitId, Self::Transaction<'_>)> {
-        Some((id, SnapshotTrieDb::new(self.tx.clone(), id)))
-    }
+    Ok(())
 }
 
-fn to_db_key(key: &DatabaseKey<'_>) -> models::trie::TrieDatabaseKey {
-    match key {
-        DatabaseKey::Flat(bytes) => {
-            TrieDatabaseKey { key: bytes.to_vec(), r#type: TrieDatabaseKeyType::Flat }
-        }
-        DatabaseKey::Trie(bytes) => {
-            TrieDatabaseKey { key: bytes.to_vec(), r#type: TrieDatabaseKeyType::Trie }
-        }
-        DatabaseKey::TrieLog(bytes) => {
-            TrieDatabaseKey { key: bytes.to_vec(), r#type: TrieDatabaseKeyType::TrieLog }
-        }
+/// Prunes trie data for a block (removes roots and block log, but not nodes).
+pub fn prune_trie_block<Tx: DbTxMut>(tx: &Tx, block: BlockNumber) -> anyhow::Result<()> {
+    for trie_type in [TrieType::Classes, TrieType::Contracts] {
+        let key = trie_composite_key(trie_type, block);
+        let _ = tx.delete::<tables::TrieRoots>(key, None);
+        let _ = tx.delete::<tables::TrieBlockLog>(key, None);
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use katana_primitives::cairo::ShortString;
-    use katana_primitives::hash::{Poseidon, StarkHash};
-    use katana_primitives::{felt, hash};
-    use katana_trie::{verify_proof, ClassesTrie, CommitId};
-
-    use super::TrieDbMut;
-    use crate::abstraction::Database;
+    use super::*;
+    use crate::abstraction::{Database, DbTxMut as _};
     use crate::mdbx::test_utils;
-    use crate::tables;
-    use crate::trie::SnapshotTrieDb;
 
     #[test]
-    fn snapshot() {
+    fn test_classes_trie_multi_block_with_db() {
         let db = test_utils::create_test_db();
-        let tx = db.tx_mut().expect("failed to get tx");
 
-        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
-
-        let root0 = {
-            let entries = [
-                (felt!("0x9999"), felt!("0xdead")),
-                (felt!("0x5555"), felt!("0xbeef")),
-                (felt!("0x1337"), felt!("0xdeadbeef")),
-            ];
-
-            for (key, value) in entries {
-                trie.insert(key, value);
-            }
-
-            trie.commit(0);
-            trie.root()
-        };
-
-        let root1 = {
-            let entries = [
-                (felt!("0x6969"), felt!("0x80085")),
-                (felt!("0x3333"), felt!("0x420")),
-                (felt!("0x2222"), felt!("0x7171")),
-            ];
-
-            for (key, value) in entries {
-                trie.insert(key, value);
-            }
-
-            trie.commit(1);
-            trie.root()
-        };
-
-        assert_ne!(root0, root1);
-
+        // Block 0: insert some classes
         {
-            let db = SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), CommitId::new(0));
-            let mut snapshot0 = ClassesTrie::new(db);
+            let tx = db.tx_mut().unwrap();
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
 
-            let snapshot_root0 = snapshot0.root();
-            assert_eq!(snapshot_root0, root0);
+            trie.insert(Felt::from(1u64), Felt::from(100u64)).unwrap();
+            trie.insert(Felt::from(2u64), Felt::from(200u64)).unwrap();
 
-            let proofs0 = snapshot0.multiproof(vec![felt!("0x9999")]);
-            let verify_result0 =
-                verify_proof::<Poseidon>(&proofs0, snapshot_root0, vec![felt!("0x9999")]);
+            let update = trie.commit().unwrap();
+            assert_ne!(update.root_commitment, Felt::ZERO);
 
-            let value = hash::Poseidon::hash(
-                &ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0").into(),
-                &felt!("0xdead"),
-            );
-            assert_eq!(vec![value], verify_result0);
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                0,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+
+            tx.commit().unwrap();
         }
 
+        // Block 1: insert more classes, building on block 0's root
         {
-            let commit = CommitId::new(1);
-            let mut snapshot1 =
-                ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), commit));
+            let tx = db.tx_mut().unwrap();
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
 
-            let snapshot_root1 = snapshot1.root();
-            assert_eq!(snapshot_root1, root1);
+            trie.insert(Felt::from(3u64), Felt::from(300u64)).unwrap();
 
-            let proofs1 = snapshot1.multiproof(vec![felt!("0x6969")]);
-            let verify_result1 =
-                verify_proof::<Poseidon>(&proofs1, snapshot_root1, vec![felt!("0x6969")]);
+            let update = trie.commit().unwrap();
+            assert_ne!(update.root_commitment, Felt::ZERO);
 
-            let value = hash::Poseidon::hash(
-                &ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0").into(),
-                &felt!("0x80085"),
-            );
-            assert_eq!(vec![value], verify_result1);
-        }
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                1,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
 
-        {
-            let root = trie.root();
-            let proofs = trie.multiproof(vec![felt!("0x6969"), felt!("0x9999")]);
-            let result =
-                verify_proof::<Poseidon>(&proofs, root, vec![felt!("0x6969"), felt!("0x9999")]);
-
-            let value0 = hash::Poseidon::hash(
-                &ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0").into(),
-                &felt!("0x80085"),
-            );
-            let value1 = hash::Poseidon::hash(
-                &ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0").into(),
-                &felt!("0xdead"),
-            );
-
-            assert_eq!(vec![value0, value1], result);
+            tx.commit().unwrap();
         }
     }
 
     #[test]
-    fn revert_to() {
+    fn test_classes_trie_multi_block_single_tx() {
+        use katana_primitives::class::{ClassHash, CompiledClassHash};
+
         let db = test_utils::create_test_db();
-        let tx = db.tx_mut().expect("failed to get tx");
+        let tx = db.tx_mut().unwrap();
 
-        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
+        // Block 0
+        {
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
 
-        // Insert values at block 0
-        trie.insert(felt!("0x1"), felt!("0x100"));
-        trie.insert(felt!("0x2"), felt!("0x200"));
-        trie.commit(0);
-        let root_at_block_0 = trie.root();
+            for i in 0u64..10 {
+                let class_hash = ClassHash::from(Felt::from(i * 7919 + 1000));
+                let compiled_hash = CompiledClassHash::from(Felt::from(i * 100 + 100));
+                trie.insert(class_hash, compiled_hash).unwrap();
+            }
 
-        // Insert more values at block 1
-        trie.insert(felt!("0x3"), felt!("0x300"));
-        trie.insert(felt!("0x4"), felt!("0x400"));
-        trie.commit(1);
-        let root_at_block_1 = trie.root();
+            let update = trie.commit().unwrap();
 
-        // Roots should be different
-        assert_ne!(root_at_block_0, root_at_block_1);
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                0,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+        }
 
-        // Insert even more values at block 2
-        trie.insert(felt!("0x5"), felt!("0x500"));
-        trie.commit(2);
-        let root_at_block_2 = trie.root();
+        // Block 1
+        {
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
 
-        // Roots should be different
-        assert_ne!(root_at_block_1, root_at_block_2);
-        assert_ne!(root_at_block_0, root_at_block_2);
+            for i in 0u64..10 {
+                let class_hash = ClassHash::from(Felt::from(i * 7919 + 100000));
+                let compiled_hash = CompiledClassHash::from(Felt::from(i * 100 + 10000));
+                trie.insert(class_hash, compiled_hash).unwrap();
+            }
 
-        // Revert to block 1
-        trie.revert_to(1, 2);
-        let root_after_revert = trie.root();
+            let update = trie.commit().unwrap();
 
-        // After revert, root should match block 1
-        assert_eq!(root_after_revert, root_at_block_1);
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                1,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+        }
 
-        // Revert to block 0
-        trie.revert_to(0, 1);
-        let root_after_second_revert = trie.root();
-
-        // After revert, root should match block 0
-        assert_eq!(root_after_second_revert, root_at_block_0);
-
-        // Insert more values at block 1
-        trie.insert(felt!("0x3"), felt!("0x300"));
-        trie.insert(felt!("0x4"), felt!("0x400"));
-        trie.commit(1);
-        let root_at_block_1_after_insert = trie.root();
-
-        // After insertion, root should match block 1
-        assert_eq!(root_at_block_1_after_insert, root_at_block_1);
-
-        // Insert even more values at block 2
-        trie.insert(felt!("0x5"), felt!("0x500"));
-        trie.commit(2);
-        let root_at_block_2_after_insert = trie.root();
-
-        // After insertion, root should match block 2
-        assert_eq!(root_at_block_2_after_insert, root_at_block_2);
+        tx.commit().unwrap();
     }
 
-    /// Tests the `remove_snapshot` method by creating multiple snapshots and removing them.
-    ///
-    /// Note: This test verifies that remaining snapshots still work correctly after removal,
-    /// but does not explicitly verify that removed snapshots no longer exist. This is because
-    /// there is currently no efficient way to check snapshot existence at the `SnapshotTrieDb`
-    /// level without querying the underlying `Tb::History` table directly.
     #[test]
-    fn remove_snapshot() {
-        use katana_primitives::Felt;
+    fn test_classes_trie_2keys_multi_block() {
+        use katana_primitives::class::{ClassHash, CompiledClassHash};
 
         let db = test_utils::create_test_db();
-        let tx = db.tx_mut().expect("failed to get tx");
+        let tx = db.tx_mut().unwrap();
 
-        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
+        let root0;
+        {
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
 
-        ////////////////////////////////////////////////////////////////////////////////////
-        // Setup: Create snapshots at blocks 0-4 with various insertions and updates
-        ////////////////////////////////////////////////////////////////////////////////////
+            trie.insert(
+                ClassHash::from(Felt::from_hex_unchecked(
+                    "0x0000000000000000000000000000000071f11b9b21ba14a3935fcf8dbf110022",
+                )),
+                CompiledClassHash::from(Felt::from(1u64)),
+            )
+            .unwrap();
+            trie.insert(
+                ClassHash::from(Felt::from_hex_unchecked(
+                    "0x000000000000000000000000000000005555555555555555aaaaaaaaaaaaaaaa",
+                )),
+                CompiledClassHash::from(Felt::from(2u64)),
+            )
+            .unwrap();
 
-        // Block 0: Insert 50 new values
-        for i in 0u64..50 {
-            trie.insert(Felt::from(i), Felt::from(i * 100));
+            let update = trie.commit().unwrap();
+            root0 = update.root_commitment;
+
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                0,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
         }
-        trie.commit(0);
-        let root_at_block_0 = trie.root();
 
-        // Block 1: Insert 50 new values + update 10 existing keys from block 0
-        for i in 50u64..100 {
-            trie.insert(Felt::from(i), Felt::from(i * 100));
+        {
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
+
+            trie.insert(
+                ClassHash::from(Felt::from_hex_unchecked(
+                    "0x000000000000000000000000000000003333333333333333cccccccccccccccc",
+                )),
+                CompiledClassHash::from(Felt::from(3u64)),
+            )
+            .unwrap();
+
+            let update = trie.commit().unwrap();
+            assert_ne!(update.root_commitment, Felt::ZERO);
+            assert_ne!(update.root_commitment, root0);
         }
-        for i in 10u64..20 {
-            trie.insert(Felt::from(i), Felt::from(i * 200));
+
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn test_classes_trie_multi_block_random_keys() {
+        use katana_primitives::class::{ClassHash, CompiledClassHash};
+
+        let db = test_utils::create_test_db();
+        let tx = db.tx_mut().unwrap();
+
+        let mut rng_state = 0x12345678u64;
+        let mut next_random_felt = || -> Felt {
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let hi = rng_state;
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let lo = rng_state;
+            let mut bytes = [0u8; 32];
+            bytes[16..24].copy_from_slice(&hi.to_be_bytes());
+            bytes[24..32].copy_from_slice(&lo.to_be_bytes());
+            bytes[0] &= 0x07;
+            Felt::from_bytes_be(&bytes)
+        };
+
+        // Block 0
+        {
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
+
+            for _ in 0u64..10 {
+                trie.insert(next_random_felt(), next_random_felt()).unwrap();
+            }
+
+            let update = trie.commit().unwrap();
+
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                0,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
         }
-        trie.commit(1);
-        let root_at_block_1 = trie.root();
-        assert_ne!(root_at_block_0, root_at_block_1);
 
-        // Block 2: Insert 50 new values + update 10 existing keys from block 1
-        for i in 100u64..150 {
-            trie.insert(Felt::from(i), Felt::from(i * 100));
+        // Block 1
+        {
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
+
+            for _ in 0u64..10 {
+                trie.insert(next_random_felt(), next_random_felt()).unwrap();
+            }
+
+            let update = trie.commit().unwrap();
+
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                1,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
         }
-        for i in 60u64..70 {
-            trie.insert(Felt::from(i), Felt::from(i * 300));
+
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn test_in_memory_trie_matches_db_trie() {
+        // Verify that loading a trie into memory and committing produces the same root
+        // as using the DB-backed trie directly.
+        let db = test_utils::create_test_db();
+
+        // Block 0: insert some classes via DB-backed trie
+        let root0;
+        {
+            let tx = db.tx_mut().unwrap();
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
+
+            trie.insert(Felt::from(1u64), Felt::from(100u64)).unwrap();
+            trie.insert(Felt::from(2u64), Felt::from(200u64)).unwrap();
+            trie.insert(Felt::from(3u64), Felt::from(300u64)).unwrap();
+
+            let update = trie.commit().unwrap();
+            root0 = update.root_commitment;
+
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                0,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+
+            tx.commit().unwrap();
         }
-        trie.commit(2);
-        let root_at_block_2 = trie.root();
-        assert_ne!(root_at_block_1, root_at_block_2);
 
-        // Block 3: Insert 50 new values
-        for i in 150u64..200 {
-            trie.insert(Felt::from(i), Felt::from(i * 100));
+        // Block 1: insert more classes via in-memory trie loaded from DB
+        let root1_in_memory;
+        {
+            let tx = db.tx_mut().unwrap();
+            let factory = TrieDbFactory::new(tx.clone());
+
+            let mut trie = factory.classes_trie_in_memory(0).unwrap();
+            trie.insert(Felt::from(4u64), Felt::from(400u64)).unwrap();
+            trie.insert(Felt::from(5u64), Felt::from(500u64)).unwrap();
+
+            let update = trie.commit().unwrap();
+            root1_in_memory = update.root_commitment;
+            assert_ne!(root1_in_memory, Felt::ZERO);
+            assert_ne!(root1_in_memory, root0);
+
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                1,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+
+            tx.commit().unwrap();
         }
-        trie.commit(3);
-        let root_at_block_3 = trie.root();
-        assert_ne!(root_at_block_2, root_at_block_3);
 
-        // Block 4: Insert 50 new values
-        for i in 200u64..250 {
-            trie.insert(Felt::from(i), Felt::from(i * 100));
+        // Verify: do the same operation via DB-backed trie and compare roots
+        let root1_db;
+        {
+            let db2 = test_utils::create_test_db();
+            let tx = db2.tx_mut().unwrap();
+            let factory = TrieDbFactory::new(tx.clone());
+
+            // Recreate block 0
+            let mut trie = factory.classes_trie(0);
+            trie.insert(Felt::from(1u64), Felt::from(100u64)).unwrap();
+            trie.insert(Felt::from(2u64), Felt::from(200u64)).unwrap();
+            trie.insert(Felt::from(3u64), Felt::from(300u64)).unwrap();
+
+            let update = trie.commit().unwrap();
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                0,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+
+            // Block 1 via DB-backed trie
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
+            trie.insert(Felt::from(4u64), Felt::from(400u64)).unwrap();
+            trie.insert(Felt::from(5u64), Felt::from(500u64)).unwrap();
+
+            let update = trie.commit().unwrap();
+            root1_db = update.root_commitment;
+
+            tx.commit().unwrap();
         }
-        trie.commit(4);
-        let root_at_block_4 = trie.root();
-        assert_ne!(root_at_block_3, root_at_block_4);
 
-        ////////////////////////////////////////////////////////////////////////////////////
-        // Verify: All snapshots (blocks 0-4) exist and have correct roots
-        ////////////////////////////////////////////////////////////////////////////////////
+        assert_eq!(
+            root1_in_memory, root1_db,
+            "In-memory and DB-backed trie should produce identical roots"
+        );
+    }
 
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 0.into()));
-        assert_eq!(snapshot.root(), root_at_block_0);
+    #[test]
+    fn test_load_trie_to_memory() {
+        // Verify that load_trie_to_memory correctly loads all nodes
+        let db = test_utils::create_test_db();
+        let tx = db.tx_mut().unwrap();
 
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 1.into()));
-        assert_eq!(snapshot.root(), root_at_block_1);
+        let factory = TrieDbFactory::new(tx.clone());
+        let mut trie = factory.classes_trie(0);
 
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 2.into()));
-        assert_eq!(snapshot.root(), root_at_block_2);
+        trie.insert(Felt::from(1u64), Felt::from(100u64)).unwrap();
+        trie.insert(Felt::from(2u64), Felt::from(200u64)).unwrap();
 
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 3.into()));
-        assert_eq!(snapshot.root(), root_at_block_3);
+        let update = trie.commit().unwrap();
+        let original_root = update.root_commitment;
 
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
-        assert_eq!(snapshot.root(), root_at_block_4);
+        let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+        persist_trie_update::<tables::TrieClassNodes, _>(
+            &tx,
+            &update,
+            0,
+            TrieType::Classes,
+            &mut next_idx,
+        )
+        .unwrap();
 
-        ////////////////////////////////////////////////////////////////////////////////////
-        // Remove snapshot at block 1
-        ////////////////////////////////////////////////////////////////////////////////////
+        // Load into memory and verify root hash matches
+        let factory = TrieDbFactory::new(tx.clone());
+        let mem_trie = factory.classes_trie_in_memory(0).unwrap();
+        let root = mem_trie.root_hash().unwrap();
+        assert_eq!(root, original_root);
 
-        let mut trie_db = TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
-        trie_db.remove_snapshot(1).expect("failed to remove snapshot");
-
-        // snapshots at blocks 0, 2, 3, 4 should still exist
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 0.into()));
-        assert_eq!(snapshot.root(), root_at_block_0);
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 2.into()));
-        assert_eq!(snapshot.root(), root_at_block_2);
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 3.into()));
-        assert_eq!(snapshot.root(), root_at_block_3);
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
-        assert_eq!(snapshot.root(), root_at_block_4);
-
-        ////////////////////////////////////////////////////////////////////////////////////
-        // Remove snapshots at blocks 0 and 2
-        ////////////////////////////////////////////////////////////////////////////////////
-
-        let mut trie_db = TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
-        trie_db.remove_snapshot(0).expect("failed to remove snapshot");
-        trie_db.remove_snapshot(2).expect("failed to remove snapshot");
-
-        // snapshots at blocks 3 and 4 should still exist
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 3.into()));
-        assert_eq!(snapshot.root(), root_at_block_3);
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
-        assert_eq!(snapshot.root(), root_at_block_4);
-
-        ////////////////////////////////////////////////////////////////////////////////////
-        // Remove snapshot at block 3
-        ////////////////////////////////////////////////////////////////////////////////////
-
-        let mut trie_db = TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
-        trie_db.remove_snapshot(3).expect("failed to remove snapshot");
-
-        // snapshot at block 4 should still exist
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
-        assert_eq!(snapshot.root(), root_at_block_4);
-
-        ////////////////////////////////////////////////////////////////////////////////////
-        // Verify: Trie still works after pruning - insert new values at block 5
-        ////////////////////////////////////////////////////////////////////////////////////
-
-        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
-        for i in 250u64..300 {
-            trie.insert(Felt::from(i), Felt::from(i * 100));
-        }
-        trie.commit(5);
-        let root_at_block_5 = trie.root();
-        assert_ne!(root_at_block_4, root_at_block_5);
-
-        // both remaining snapshots (blocks 4 and 5) should exist
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
-        assert_eq!(snapshot.root(), root_at_block_4);
-
-        let snapshot =
-            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 5.into()));
-        assert_eq!(snapshot.root(), root_at_block_5);
+        tx.commit().unwrap();
     }
 }

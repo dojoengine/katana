@@ -125,6 +125,31 @@ StorageChangeHistory {
     VALUE ContractStorageEntry
 }
 
+TrieClassNodes {
+    KEY u64
+    VALUE TrieNodeEntry
+}
+
+TrieContractNodes {
+    KEY u64
+    VALUE TrieNodeEntry
+}
+
+TrieStorageNodes {
+    KEY u64
+    VALUE TrieNodeEntry
+}
+
+TrieRoots {
+    KEY u64
+    VALUE u64
+}
+
+TrieBlockLog {
+    KEY u64
+    VALUE BlockList
+}
+
 
 BlockHashes ||--|| BlockNumbers : "block id"
 BlockNumbers ||--|| BlockBodyIndices : "has"
@@ -154,4 +179,13 @@ CompiledClassHashes ||--|| ClassDeclarationBlock : "has"
 ClassDeclarationBlock ||--|| ClassDeclarations : "has"
 BlockNumbers ||--|| ClassDeclarations : ""
 StorageChangeSet }|--|{ StorageChangeHistory : "has"
+
+TrieRoots ||--o| TrieClassNodes : "class root"
+TrieRoots ||--o| TrieContractNodes : "contract root"
+TrieRoots ||--o| TrieStorageNodes : "storage root"
+TrieBlockLog ||--o{ TrieClassNodes : "added nodes"
+TrieBlockLog ||--o{ TrieContractNodes : "added nodes"
+TrieBlockLog ||--o{ TrieStorageNodes : "added nodes"
 ```
+
+See [trie.md](trie.md) for details on the Merkle Patricia Trie implementation.

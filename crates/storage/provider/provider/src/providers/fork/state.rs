@@ -240,7 +240,10 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
 }
 
 impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
-    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
+    fn class_multiproof(
+        &self,
+        classes: Vec<ClassHash>,
+    ) -> ProviderResult<katana_provider_api::state::MultiProof> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
@@ -264,7 +267,7 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
     fn contract_multiproof(
         &self,
         addresses: Vec<ContractAddress>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
+    ) -> ProviderResult<katana_provider_api::state::MultiProof> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
@@ -289,7 +292,7 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
         &self,
         address: ContractAddress,
         storage_keys: Vec<StorageKey>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
+    ) -> ProviderResult<katana_provider_api::state::MultiProof> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
@@ -524,7 +527,10 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
 }
 
 impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
-    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
+    fn class_multiproof(
+        &self,
+        classes: Vec<ClassHash>,
+    ) -> ProviderResult<katana_provider_api::state::MultiProof> {
         // we don't have a way to construct state proofs for locally generated state yet
         if self.local_provider.block() > self.fork_provider.block_id {
             return Err(ProviderError::StateProofNotSupported);
@@ -540,7 +546,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
     fn contract_multiproof(
         &self,
         addresses: Vec<ContractAddress>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
+    ) -> ProviderResult<katana_provider_api::state::MultiProof> {
         // we don't have a way to construct state proofs for locally generated state yet
         if self.local_provider.block() > self.fork_provider.block_id {
             return Err(ProviderError::StateProofNotSupported);
@@ -559,7 +565,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
         &self,
         address: ContractAddress,
         storage_keys: Vec<StorageKey>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
+    ) -> ProviderResult<katana_provider_api::state::MultiProof> {
         // we don't have a way to construct state proofs for locally generated state yet
         if self.local_provider.block() > self.fork_provider.block_id {
             return Err(ProviderError::StateProofNotSupported);

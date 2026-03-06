@@ -13,7 +13,8 @@ use katana_primitives::Felt;
 use katana_provider_api::block::BlockNumberProvider;
 use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
 use katana_provider_api::state::{
-    StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
+    MultiProof, StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider,
+    StateWriter,
 };
 use katana_provider_api::ProviderError;
 
@@ -160,46 +161,70 @@ impl<Tx: DbTx> StateProvider for LatestStateProvider<Tx> {
 }
 
 impl<Tx: DbTx> StateProofProvider for LatestStateProvider<Tx> {
-    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
-        let mut trie = TrieDbFactory::new(self.0.tx().clone()).latest().classes_trie();
-        let proofs = trie.multiproof(classes);
-        Ok(proofs)
+    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<MultiProof> {
+        let factory = TrieDbFactory::new(self.0.tx().clone());
+        let latest = self.0.latest_number()?;
+        let trie = factory.classes_trie(latest);
+        // We need the root index to generate proofs
+        if let Some(root_idx) =
+            factory.get_root_for_proofs(katana_db::models::trie::TrieType::Classes, latest)
+        {
+            trie.proofs(root_idx, &classes).map_err(|e| ProviderError::Other(e.to_string()))
+        } else {
+            Ok(vec![])
+        }
     }
 
-    fn contract_multiproof(
-        &self,
-        addresses: Vec<ContractAddress>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
-        let mut trie = TrieDbFactory::new(self.0.tx().clone()).latest().contracts_trie();
-        let proofs = trie.multiproof(addresses);
-        Ok(proofs)
+    fn contract_multiproof(&self, addresses: Vec<ContractAddress>) -> ProviderResult<MultiProof> {
+        let factory = TrieDbFactory::new(self.0.tx().clone());
+        let latest = self.0.latest_number()?;
+        let trie = factory.contracts_trie(latest);
+        if let Some(root_idx) =
+            factory.get_root_for_proofs(katana_db::models::trie::TrieType::Contracts, latest)
+        {
+            trie.proofs(root_idx, &addresses).map_err(|e| ProviderError::Other(e.to_string()))
+        } else {
+            Ok(vec![])
+        }
     }
 
     fn storage_multiproof(
         &self,
         address: ContractAddress,
         storage_keys: Vec<StorageKey>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
-        let mut trie = TrieDbFactory::new(self.0.tx().clone()).latest().storages_trie(address);
-        let proofs = trie.multiproof(storage_keys);
-        Ok(proofs)
+    ) -> ProviderResult<MultiProof> {
+        let factory = TrieDbFactory::new(self.0.tx().clone());
+        let latest = self.0.latest_number()?;
+        let trie = factory.storages_trie(address, latest);
+        if let Some(root_idx) = factory.get_storage_root_for_proofs(address, latest) {
+            trie.proofs(root_idx, &storage_keys).map_err(|e| ProviderError::Other(e.to_string()))
+        } else {
+            Ok(vec![])
+        }
     }
 }
 
 impl<Tx: DbTx> StateRootProvider for LatestStateProvider<Tx> {
     fn classes_root(&self) -> ProviderResult<Felt> {
-        let trie = TrieDbFactory::new(self.0.tx().clone()).latest().classes_trie();
-        Ok(trie.root())
+        let factory = TrieDbFactory::new(self.0.tx().clone());
+        let latest = self.0.latest_number()?;
+        let trie = factory.classes_trie(latest);
+        trie.root_hash().map_err(|e| ProviderError::Other(e.to_string()))
     }
 
     fn contracts_root(&self) -> ProviderResult<Felt> {
-        let trie = TrieDbFactory::new(self.0.tx().clone()).latest().contracts_trie();
-        Ok(trie.root())
+        let factory = TrieDbFactory::new(self.0.tx().clone());
+        let latest = self.0.latest_number()?;
+        let trie = factory.contracts_trie(latest);
+        trie.root_hash().map_err(|e| ProviderError::Other(e.to_string()))
     }
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
-        let trie = TrieDbFactory::new(self.0.tx().clone()).latest().storages_trie(contract);
-        Ok(Some(trie.root()))
+        let factory = TrieDbFactory::new(self.0.tx().clone());
+        let latest = self.0.latest_number()?;
+        let trie = factory.storages_trie(contract, latest);
+        let root = trie.root_hash().map_err(|e| ProviderError::Other(e.to_string()))?;
+        Ok(Some(root))
     }
 }
 
@@ -334,66 +359,62 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
 }
 
 impl<Tx: DbTx> StateProofProvider for HistoricalStateProvider<Tx> {
-    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
-        let proofs = TrieDbFactory::new(self.tx().clone())
-            .historical(self.block_number)
-            .expect("should exist")
-            .classes_trie()
-            .multiproof(classes);
-        Ok(proofs)
+    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<MultiProof> {
+        let factory = TrieDbFactory::new(self.tx().clone());
+        let trie = factory.classes_trie(self.block_number);
+        if let Some(root_idx) = factory
+            .get_root_for_proofs(katana_db::models::trie::TrieType::Classes, self.block_number)
+        {
+            trie.proofs(root_idx, &classes).map_err(|e| ProviderError::Other(e.to_string()))
+        } else {
+            Ok(vec![])
+        }
     }
 
-    fn contract_multiproof(
-        &self,
-        addresses: Vec<ContractAddress>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
-        let proofs = TrieDbFactory::new(self.tx().clone())
-            .historical(self.block_number)
-            .expect("should exist")
-            .contracts_trie()
-            .multiproof(addresses);
-        Ok(proofs)
+    fn contract_multiproof(&self, addresses: Vec<ContractAddress>) -> ProviderResult<MultiProof> {
+        let factory = TrieDbFactory::new(self.tx().clone());
+        let trie = factory.contracts_trie(self.block_number);
+        if let Some(root_idx) = factory
+            .get_root_for_proofs(katana_db::models::trie::TrieType::Contracts, self.block_number)
+        {
+            trie.proofs(root_idx, &addresses).map_err(|e| ProviderError::Other(e.to_string()))
+        } else {
+            Ok(vec![])
+        }
     }
 
     fn storage_multiproof(
         &self,
         address: ContractAddress,
         storage_keys: Vec<StorageKey>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
-        let proofs = TrieDbFactory::new(self.tx().clone())
-            .historical(self.block_number)
-            .expect("should exist")
-            .storages_trie(address)
-            .multiproof(storage_keys);
-        Ok(proofs)
+    ) -> ProviderResult<MultiProof> {
+        let factory = TrieDbFactory::new(self.tx().clone());
+        let trie = factory.storages_trie(address, self.block_number);
+        if let Some(root_idx) = factory.get_storage_root_for_proofs(address, self.block_number) {
+            trie.proofs(root_idx, &storage_keys).map_err(|e| ProviderError::Other(e.to_string()))
+        } else {
+            Ok(vec![])
+        }
     }
 }
 
 impl<Tx: DbTx> StateRootProvider for HistoricalStateProvider<Tx> {
     fn classes_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        let root = TrieDbFactory::new(self.tx().clone())
-            .historical(self.block_number)
-            .expect("should exist")
-            .classes_trie()
-            .root();
-        Ok(root)
+        let factory = TrieDbFactory::new(self.tx().clone());
+        let trie = factory.classes_trie(self.block_number);
+        trie.root_hash().map_err(|e| ProviderError::Other(e.to_string()))
     }
 
     fn contracts_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        let root = TrieDbFactory::new(self.tx().clone())
-            .historical(self.block_number)
-            .expect("should exist")
-            .contracts_trie()
-            .root();
-        Ok(root)
+        let factory = TrieDbFactory::new(self.tx().clone());
+        let trie = factory.contracts_trie(self.block_number);
+        trie.root_hash().map_err(|e| ProviderError::Other(e.to_string()))
     }
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
-        let root = TrieDbFactory::new(self.tx().clone())
-            .historical(self.block_number)
-            .expect("should exist")
-            .storages_trie(contract)
-            .root();
+        let factory = TrieDbFactory::new(self.tx().clone());
+        let trie = factory.storages_trie(contract, self.block_number);
+        let root = trie.root_hash().map_err(|e| ProviderError::Other(e.to_string()))?;
         Ok(Some(root))
     }
 

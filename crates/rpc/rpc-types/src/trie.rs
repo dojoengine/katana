@@ -3,8 +3,10 @@ use std::ops::{Deref, DerefMut};
 use katana_primitives::contract::StorageKey;
 use katana_primitives::hash::StarkHash;
 use katana_primitives::{ContractAddress, Felt};
+use katana_trie::bitvec::order::Msb0;
+use katana_trie::bitvec::vec::BitVec;
 use katana_trie::bitvec::view::BitView;
-use katana_trie::{BitVec, MultiProof, Path, ProofNode};
+use katana_trie::ProofNode;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
@@ -132,19 +134,35 @@ impl DerefMut for Nodes {
 
 // --- Conversion from/to internal types for convenience
 
+/// The provider-level MultiProof type: `Vec<Vec<(ProofNode, Felt)>>`.
+/// Each inner Vec is a path from root to leaf for one requested key.
+type MultiProof = Vec<Vec<(ProofNode, Felt)>>;
+
 impl From<MultiProof> for Nodes {
     fn from(value: MultiProof) -> Self {
-        Self(
-            value
-                .0
-                .into_iter()
-                .map(|(hash, node)| NodeWithHash { node_hash: hash, node: MerkleNode::from(node) })
-                .collect(),
-        )
+        // Flatten all proof paths into a single deduplicated list of nodes.
+        let mut seen = std::collections::HashSet::new();
+        let mut nodes = Vec::new();
+        for path in value {
+            for (proof_node, hash) in path {
+                if seen.insert(hash) {
+                    nodes
+                        .push(NodeWithHash { node_hash: hash, node: MerkleNode::from(proof_node) });
+                }
+            }
+        }
+        Self(nodes)
     }
 }
 
 impl From<Nodes> for MultiProof {
+    fn from(value: Nodes) -> Self {
+        // Convert back to a single-path multi-proof (all nodes in one path).
+        vec![value.0.into_iter().map(|node| (ProofNode::from(node.node), node.node_hash)).collect()]
+    }
+}
+
+impl From<Nodes> for katana_trie::MultiProof {
     fn from(value: Nodes) -> Self {
         Self(value.0.into_iter().map(|node| (node.node_hash, ProofNode::from(node.node))).collect())
     }
@@ -155,7 +173,8 @@ impl From<ProofNode> for MerkleNode {
         match value {
             ProofNode::Binary { left, right } => MerkleNode::Binary { left, right },
             ProofNode::Edge { child, path } => {
-                MerkleNode::Edge { child, length: path.len() as u8, path: path_to_felt(path) }
+                let length = path.len() as u8;
+                MerkleNode::Edge { child, length, path: path_to_felt(path) }
             }
         }
     }
@@ -172,17 +191,17 @@ impl From<MerkleNode> for ProofNode {
     }
 }
 
-fn felt_to_path(felt: Felt, length: u8) -> Path {
+fn felt_to_path(felt: Felt, length: u8) -> BitVec<u8, Msb0> {
     let length = length as usize;
     let mut bits = BitVec::new();
 
-    // This function converts a Felt to a Path by preserving leading zeros
+    // This function converts a Felt to a path by preserving leading zeros
     // that are semantically important in the Merkle tree path representation.
     //
     // Example:
     // For a path "0000100" (length=7):
     // - As an integer/hex: 0x4 (leading zeros get truncated)
-    // - As a Path: [0,0,0,0,1,0,0] (leading zeros preserved)
+    // - As a path: [0,0,0,0,1,0,0] (leading zeros preserved)
     //
     // We need to preserve these leading zeros because in a Merkle tree path:
     // - Each bit represents a direction (left=0, right=1)
@@ -192,19 +211,17 @@ fn felt_to_path(felt: Felt, length: u8) -> Path {
         bits.push(*bit);
     }
 
-    Path(bits)
+    bits
 }
 
-fn path_to_felt(path: Path) -> Felt {
+fn path_to_felt(path: BitVec<u8, Msb0>) -> Felt {
     let mut bytes = [0u8; 32];
-    bytes.view_bits_mut()[256 - path.len()..].copy_from_bitslice(&path);
+    bytes.view_bits_mut::<Msb0>()[256 - path.len()..].copy_from_bitslice(&path);
     Felt::from_bytes_be(&bytes)
 }
 
 #[cfg(test)]
 mod tests {
-    use katana_trie::BitVec;
-
     use super::*;
 
     // Test cases taken from `bonsai-trie` crate
@@ -216,7 +233,7 @@ mod tests {
     #[case(&[0b11111111])]
     #[case(&[0b11111111, 0b00000000, 0b10101010, 0b10101010, 0b11111111, 0b00000000, 0b10101010, 0b10101010, 0b11111111, 0b00000000, 0b10101010, 0b10101010])]
     fn path_felt_rt(#[case] input: &[u8]) {
-        let path = Path(BitVec::from_slice(input));
+        let path = BitVec::<u8, Msb0>::from_slice(input);
 
         let converted_felt = path_to_felt(path.clone());
         let converted_path = felt_to_path(converted_felt, path.len() as u8);

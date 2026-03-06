@@ -52,8 +52,6 @@ use crate::models::block::StoredBlockBodyIndices;
 use crate::models::contract::ContractInfoChangeList;
 use crate::models::list::BlockList;
 use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
-use crate::models::trie::TrieDatabaseValue;
-
 macro_rules! impl_compress_and_decompress_for_table_values {
     ($($name:ty),*) => {
         $(
@@ -94,7 +92,6 @@ impl Decompress for TypedTransactionExecutionInfo {
 impl_compress_and_decompress_for_table_values!(
     u64,
     Receipt,
-    TrieDatabaseValue,
     BlockList,
     ExecutionCheckpoint,
     PruningCheckpoint,

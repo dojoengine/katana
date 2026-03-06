@@ -1,55 +1,66 @@
-use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
-use katana_primitives::block::BlockNumber;
+use bitvec::view::AsBits;
 use katana_primitives::hash::Pedersen;
 use katana_primitives::{ContractAddress, Felt};
 
-use crate::id::CommitId;
+use crate::node::{TrieNodeIndex, TrieUpdate};
+use crate::proof::ProofNode;
+use crate::storage::Storage;
+use crate::tree::MerkleTree;
 
-#[derive(Debug)]
-pub struct ContractsTrie<DB: BonsaiDatabase> {
-    trie: crate::BonsaiTrie<DB, Pedersen>,
+/// The contracts trie — maps contract address to contract state hash.
+pub struct ContractsTrie<S: Storage> {
+    tree: MerkleTree<Pedersen, 251>,
+    storage: S,
 }
 
-//////////////////////////////////////////////////////////////
-// 	ContractsTrie implementations
-//////////////////////////////////////////////////////////////
-
-impl<DB: BonsaiDatabase> ContractsTrie<DB> {
-    /// NOTE: The identifier value is only relevant if the underlying [`BonsaiDatabase`]
-    /// implementation is shared across other tries.
-    const BONSAI_IDENTIFIER: &'static [u8] = b"contracts";
-
-    pub fn new(db: DB) -> Self {
-        Self { trie: crate::BonsaiTrie::new(db) }
-    }
-
-    pub fn root(&self) -> Felt {
-        self.trie.root(Self::BONSAI_IDENTIFIER)
-    }
-
-    pub fn multiproof(&mut self, addresses: Vec<ContractAddress>) -> MultiProof {
-        let keys = addresses.into_iter().map(Felt::from).collect::<Vec<Felt>>();
-        self.trie.multiproof(Self::BONSAI_IDENTIFIER, keys)
-    }
-
-    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
-        self.trie.revert_to(block, latest_block);
+impl<S: Storage + std::fmt::Debug> std::fmt::Debug for ContractsTrie<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContractsTrie")
+            .field("tree", &self.tree)
+            .field("storage", &self.storage)
+            .finish()
     }
 }
 
-impl<DB> ContractsTrie<DB>
-where
-    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
-{
-    pub fn insert(&mut self, address: ContractAddress, state_hash: Felt) {
-        self.trie.insert(Self::BONSAI_IDENTIFIER, *address, state_hash)
+impl<S: Storage> ContractsTrie<S> {
+    pub fn new(storage: S, root: TrieNodeIndex) -> Self {
+        Self { tree: MerkleTree::new(root), storage }
     }
 
-    pub fn commit(&mut self, block: BlockNumber) {
-        self.trie.commit(block.into())
+    pub fn empty(storage: S) -> Self {
+        Self { tree: MerkleTree::empty(), storage }
+    }
+
+    pub fn insert(&mut self, address: ContractAddress, state_hash: Felt) -> anyhow::Result<()> {
+        let key =
+            Felt::from(address).to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
+        self.tree.set(&self.storage, key, state_hash)
+    }
+
+    pub fn commit(self) -> anyhow::Result<TrieUpdate> {
+        self.tree.commit(&self.storage)
+    }
+
+    pub fn root_hash(&self) -> anyhow::Result<Felt> {
+        let update = self.tree.clone().commit(&self.storage)?;
+        Ok(update.root_commitment)
+    }
+
+    pub fn proofs(
+        &self,
+        root: TrieNodeIndex,
+        addresses: &[ContractAddress],
+    ) -> anyhow::Result<Vec<Vec<(ProofNode, Felt)>>> {
+        let bit_keys: Vec<_> = addresses
+            .iter()
+            .map(|a| Felt::from(*a).to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned())
+            .collect();
+        let refs: Vec<_> = bit_keys.iter().map(|k| k.as_bitslice()).collect();
+        MerkleTree::<Pedersen, 251>::get_proofs(root, &self.storage, &refs)
     }
 }
 
+/// Data needed to compute a contract's leaf hash.
 #[derive(Debug, Default)]
 pub struct ContractLeaf {
     pub class_hash: Option<Felt>,

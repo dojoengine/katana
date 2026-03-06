@@ -333,12 +333,18 @@ async fn pre_fork_state_proof() {
         .await
         .unwrap();
 
+    // Build a map of hash -> node from the proof for comparison
+    let proofs_map: std::collections::HashMap<_, _> = proofs
+        .iter()
+        .flat_map(|path| path.iter())
+        .map(|(node, hash)| (*hash, MerkleNode::from(node.clone())))
+        .collect();
+
     // TODO: assert the nodes ordering - ensure they are in the same order. currently, pathfinder
     // doesn't return the nodes in the same order as katana.
-    assert_eq!(proofs.0.len(), expected_proofs.classes_proof.nodes.len());
+    assert_eq!(proofs_map.len(), expected_proofs.classes_proof.nodes.len());
     for expected_node in expected_proofs.classes_proof.nodes.0.into_iter() {
-        let node_hash = expected_node.node_hash;
-        let actual_node = proofs.0.get(&node_hash).cloned().map(MerkleNode::from);
+        let actual_node = proofs_map.get(&expected_node.node_hash).cloned();
         assert_eq!(Some(expected_node.node), actual_node)
     }
 
@@ -351,12 +357,17 @@ async fn pre_fork_state_proof() {
         .await
         .unwrap();
 
+    let proofs_map: std::collections::HashMap<_, _> = proofs
+        .iter()
+        .flat_map(|path| path.iter())
+        .map(|(node, hash)| (*hash, MerkleNode::from(node.clone())))
+        .collect();
+
     // TODO: assert the nodes ordering - ensure they are in the same order. currently, pathfinder
     // doesn't return the nodes in the same order as katana.
-    assert_eq!(proofs.0.len(), expected_proofs.contracts_proof.nodes.len());
+    assert_eq!(proofs_map.len(), expected_proofs.contracts_proof.nodes.len());
     for expected_node in expected_proofs.contracts_proof.nodes.0.into_iter() {
-        let node_hash = expected_node.node_hash;
-        let actual_node = proofs.0.get(&node_hash).cloned().map(MerkleNode::from);
+        let actual_node = proofs_map.get(&expected_node.node_hash).cloned();
         assert_eq!(Some(expected_node.node), actual_node)
     }
 }

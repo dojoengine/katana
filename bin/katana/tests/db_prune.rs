@@ -70,7 +70,7 @@ fn prune_latest_removes_all_history(db: TempDb) {
         //
         // Ref:
         // * crates/storage/db/src/trie/mod.rs#43-46
-        // * bonsai_trie::trie::trees::MerkleTrees::root_hash()
+        // Non-existent tries default to zero root.
         let (classes_root, contracts_root) = historical_roots(&provider, num).unwrap();
         assert_eq!(classes_root, Felt::ZERO);
         assert_eq!(contracts_root, Felt::ZERO);
@@ -126,7 +126,7 @@ fn prune_keep_last_n_blocks(db: TempDb) {
         //
         // Ref:
         // * crates/storage/db/src/trie/mod.rs#43-46
-        // * bonsai_trie::trie::trees::MerkleTrees::root_hash()
+        // Non-existent tries default to zero root.
         let (classes_root, contracts_root) = historical_roots(&provider, num).unwrap();
         assert_eq!(classes_root, Felt::ZERO);
         assert_eq!(contracts_root, Felt::ZERO);

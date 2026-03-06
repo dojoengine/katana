@@ -1,7 +1,6 @@
 use futures::future::BoxFuture;
 use katana_db::abstraction::{Database, DbTx};
-use katana_db::tables;
-use katana_db::trie::TrieDbMut;
+use katana_db::trie::prune_trie_block;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::Felt;
@@ -148,29 +147,10 @@ impl Stage for StateTrie {
                 .spawn_blocking(move || {
                     let mut pruned_count = 0u64;
 
-                    // Remove trie snapshots for blocks in the prune range
+                    // Remove trie roots and block logs for blocks in the prune range
                     for block_number in range {
-                        // Remove snapshot from classes trie
-                        let mut classes_trie_db =
-                            TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
-                        classes_trie_db
-                            .remove_snapshot(block_number)
-                            .map_err(|e| Error::Database(e.into_inner()))?;
-
-                        // Remove snapshot from contracts trie
-                        let mut contracts_trie_db =
-                            TrieDbMut::<tables::ContractsTrie, _>::new(tx.clone());
-                        contracts_trie_db
-                            .remove_snapshot(block_number)
-                            .map_err(|e| Error::Database(e.into_inner()))?;
-
-                        // Remove snapshot from storages trie
-                        let mut storages_trie_db =
-                            TrieDbMut::<tables::StoragesTrie, _>::new(tx.clone());
-                        storages_trie_db
-                            .remove_snapshot(block_number)
-                            .map_err(|e| Error::Database(e.into_inner()))?;
-
+                        prune_trie_block(&tx, block_number)
+                            .map_err(|e| Error::TriePrune(e.to_string()))?;
                         pruned_count += 1;
                     }
 
@@ -204,6 +184,9 @@ pub enum Error {
          computed {computed:#x}"
     )]
     StateRootMismatch { block_number: BlockNumber, expected: Felt, computed: Felt },
+
+    #[error("Trie prune error: {0}")]
+    TriePrune(String),
 
     #[error(transparent)]
     Database(#[from] katana_db::error::DatabaseError),

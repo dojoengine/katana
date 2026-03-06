@@ -1,45 +1,71 @@
-use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
-use katana_primitives::block::BlockNumber;
+use bitvec::view::AsBits;
 use katana_primitives::contract::{StorageKey, StorageValue};
 use katana_primitives::hash::Pedersen;
 use katana_primitives::{ContractAddress, Felt};
 
-use crate::id::CommitId;
+use crate::node::{TrieNodeIndex, TrieUpdate};
+use crate::proof::ProofNode;
+use crate::storage::Storage;
+use crate::tree::MerkleTree;
 
-#[derive(Debug)]
-pub struct StoragesTrie<DB: BonsaiDatabase> {
-    /// The contract address the storage trie belongs to.
+/// Per-contract storage trie — maps storage keys to storage values.
+pub struct StoragesTrie<S: Storage> {
     address: ContractAddress,
-    trie: crate::BonsaiTrie<DB, Pedersen>,
+    tree: MerkleTree<Pedersen, 251>,
+    storage: S,
 }
 
-impl<DB: BonsaiDatabase> StoragesTrie<DB> {
-    pub fn new(db: DB, address: ContractAddress) -> Self {
-        Self { address, trie: crate::BonsaiTrie::new(db) }
-    }
-
-    pub fn root(&self) -> Felt {
-        self.trie.root(&self.address.to_bytes_be())
-    }
-
-    pub fn multiproof(&mut self, storage_keys: Vec<StorageKey>) -> MultiProof {
-        self.trie.multiproof(&self.address.to_bytes_be(), storage_keys)
-    }
-
-    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
-        self.trie.revert_to(block, latest_block);
+impl<S: Storage + std::fmt::Debug> std::fmt::Debug for StoragesTrie<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoragesTrie")
+            .field("address", &self.address)
+            .field("tree", &self.tree)
+            .field("storage", &self.storage)
+            .finish()
     }
 }
 
-impl<DB> StoragesTrie<DB>
-where
-    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
-{
-    pub fn insert(&mut self, storage_key: StorageKey, storage_value: StorageValue) {
-        self.trie.insert(&self.address.to_bytes_be(), storage_key, storage_value)
+impl<S: Storage> StoragesTrie<S> {
+    pub fn new(storage: S, address: ContractAddress, root: TrieNodeIndex) -> Self {
+        Self { address, tree: MerkleTree::new(root), storage }
     }
 
-    pub fn commit(&mut self, block: BlockNumber) {
-        self.trie.commit(block.into())
+    pub fn empty(storage: S, address: ContractAddress) -> Self {
+        Self { address, tree: MerkleTree::empty(), storage }
+    }
+
+    pub fn address(&self) -> ContractAddress {
+        self.address
+    }
+
+    pub fn insert(
+        &mut self,
+        storage_key: StorageKey,
+        storage_value: StorageValue,
+    ) -> anyhow::Result<()> {
+        let key = storage_key.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
+        self.tree.set(&self.storage, key, storage_value)
+    }
+
+    pub fn commit(self) -> anyhow::Result<TrieUpdate> {
+        self.tree.commit(&self.storage)
+    }
+
+    pub fn root_hash(&self) -> anyhow::Result<Felt> {
+        let update = self.tree.clone().commit(&self.storage)?;
+        Ok(update.root_commitment)
+    }
+
+    pub fn proofs(
+        &self,
+        root: TrieNodeIndex,
+        storage_keys: &[StorageKey],
+    ) -> anyhow::Result<Vec<Vec<(ProofNode, Felt)>>> {
+        let bit_keys: Vec<_> = storage_keys
+            .iter()
+            .map(|k| k.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned())
+            .collect();
+        let refs: Vec<_> = bit_keys.iter().map(|k| k.as_bitslice()).collect();
+        MerkleTree::<Pedersen, 251>::get_proofs(root, &self.storage, &refs)
     }
 }
