@@ -23,6 +23,7 @@ use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
+use katana_provider::api::state::HistoricalStateRetentionProvider;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use katana_trie::compute_merkle_root;
 use num_traits::ToPrimitive;
@@ -177,6 +178,7 @@ where
             };
 
             let pruned_count = prune_state_history(&self.provider, range.start, range.end)?;
+            update_historical_state_retention(&self.provider, range.end)?;
             Ok(PruneOutput { pruned_count })
         })
     }
@@ -222,6 +224,22 @@ fn prune_state_history(
 
     tx.commit().map_err(Error::Database)?;
     Ok(pruned_count)
+}
+
+fn update_historical_state_retention(
+    provider: &DbProviderFactory,
+    keep_from: BlockNumber,
+) -> Result<(), Error> {
+    let provider_mut = provider.provider_mut();
+    let current = provider_mut.earliest_available_state_block()?;
+
+    let next = current.map_or(keep_from, |current| current.max(keep_from));
+    if current != Some(next) {
+        provider_mut.set_earliest_available_state_block(next)?;
+        provider_mut.commit()?;
+    }
+
+    Ok(())
 }
 
 fn collect_touched_history_keys<Tx: DbTx>(
