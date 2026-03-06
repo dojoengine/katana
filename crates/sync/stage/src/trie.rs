@@ -18,6 +18,8 @@ use crate::{
     StageResult,
 };
 
+pub const STATE_TRIE_STAGE_ID: &str = "StateTrie";
+
 /// A stage for computing and validating state tries.
 ///
 /// This stage processes blocks that have been stored by the [`Blocks`](crate::blocks::Blocks)
@@ -41,7 +43,7 @@ impl StateTrie {
 
 impl Stage for StateTrie {
     fn id(&self) -> &'static str {
-        "StateTrie"
+        STATE_TRIE_STAGE_ID
     }
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
