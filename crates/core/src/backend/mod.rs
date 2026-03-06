@@ -23,8 +23,6 @@ use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::providers::EmptyStateProvider;
 use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
-use katana_trie::bitvec::view::AsBits;
-use katana_trie::bitvec::{self};
 use katana_trie::{
     compute_contract_state_hash, compute_merkle_root, ClassesTrie, ContractLeaf, ContractsTrie,
     MemStorage, StoragesTrie,
@@ -619,7 +617,6 @@ impl TrieWriter for GenesisTrieWriter {
         _block_number: BlockNumber,
         state_updates: &StateUpdates,
     ) -> katana_provider::ProviderResult<Felt> {
-        let mut contract_storage = MemStorage::new();
         let mut contract_trie = ContractsTrie::empty(MemStorage::new());
         let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
 
@@ -637,15 +634,10 @@ impl TrieWriter for GenesisTrieWriter {
             }
 
             for (address, storage_entries) in &state_updates.storage_updates {
-                let mut storage = MemStorage::new();
                 let mut storage_trie = StoragesTrie::empty(MemStorage::new(), *address);
 
                 for (key, value) in storage_entries {
                     storage_trie.insert(*key, *value).expect("failed to insert storage");
-                    // Set leaf in storage for commit
-                    let key_bits =
-                        key.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
-                    storage.set_leaf(key_bits, *value);
                 }
 
                 let update = storage_trie.commit().expect("failed to commit storage trie");
@@ -677,9 +669,6 @@ impl TrieWriter for GenesisTrieWriter {
 
         for (k, v) in &leaf_hashes {
             contract_trie.insert(*k, *v).expect("failed to insert contract");
-            let key_bits =
-                Felt::from(*k).to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
-            contract_storage.set_leaf(key_bits, *v);
         }
 
         let update = contract_trie.commit().expect("failed to commit contracts trie");
@@ -691,15 +680,10 @@ impl TrieWriter for GenesisTrieWriter {
         _block_number: BlockNumber,
         updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
-        let mut storage = MemStorage::new();
         let mut trie = ClassesTrie::empty(MemStorage::new());
 
         for (class_hash, compiled_hash) in updates {
             trie.insert(class_hash, compiled_hash).expect("failed to insert class");
-            let value = katana_trie::compute_classes_trie_value(compiled_hash);
-            let key_bits =
-                class_hash.to_bytes_be().as_bits::<bitvec::order::Msb0>()[5..].to_owned();
-            storage.set_leaf(key_bits, value);
         }
 
         let update = trie.commit().expect("failed to commit classes trie");

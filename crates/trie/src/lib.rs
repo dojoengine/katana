@@ -65,13 +65,12 @@ pub fn compute_merkle_root<H>(values: &[Felt]) -> anyhow::Result<Felt>
 where
     H: StarkHash + Send + Sync,
 {
-    let mut storage = MemStorage::new();
+    let storage = MemStorage::new();
     let mut tree = MerkleTree::<H, 64>::empty();
 
     for (id, value) in values.iter().enumerate() {
         let key = bitvec::vec::BitVec::<u8, bitvec::order::Msb0>::from_iter(id.to_be_bytes());
-        tree.set(&storage, key.clone(), *value)?;
-        storage.set_leaf(key, *value);
+        tree.set(&storage, key, *value)?;
     }
 
     let update = tree.commit(&storage)?;
@@ -135,17 +134,15 @@ mod tests {
     fn test_set_and_commit() {
         use bitvec::prelude::*;
 
-        let mut storage = MemStorage::new();
+        let storage = MemStorage::new();
         let mut tree = MerkleTree::<hash::Pedersen, 251>::empty();
 
         // Insert some values
         let key1 = felt!("0x1").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
         let key2 = felt!("0x2").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
 
-        tree.set(&storage, key1.clone(), Felt::from(100)).unwrap();
-        storage.set_leaf(key1, Felt::from(100));
-        tree.set(&storage, key2.clone(), Felt::from(200)).unwrap();
-        storage.set_leaf(key2, Felt::from(200));
+        tree.set(&storage, key1, Felt::from(100)).unwrap();
+        tree.set(&storage, key2, Felt::from(200)).unwrap();
 
         let update = tree.commit(&storage).unwrap();
         assert_ne!(update.root_commitment, Felt::ZERO);
@@ -186,8 +183,7 @@ mod tests {
             let key_felt = next_random_felt();
             let value = next_random_felt();
             let key = key_felt.to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
-            tree0.set(&storage, key.clone(), value).unwrap();
-            storage.set_leaf(key, value);
+            tree0.set(&storage, key, value).unwrap();
         }
 
         let update0 = tree0.commit(&storage).unwrap();
@@ -199,8 +195,7 @@ mod tests {
             let key_felt = next_random_felt();
             let value = next_random_felt();
             let key = key_felt.to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
-            tree1.set(&storage, key.clone(), value).unwrap();
-            storage.set_leaf(key, value);
+            tree1.set(&storage, key, value).unwrap();
         }
 
         let update1 = tree1.commit(&storage).unwrap();
@@ -218,9 +213,7 @@ mod tests {
         let key1 = felt!("0x1").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
         let key2 = felt!("0x2").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
         tree0.set(&storage, key1.clone(), Felt::from(100)).unwrap();
-        storage.set_leaf(key1.clone(), Felt::from(100));
         tree0.set(&storage, key2.clone(), Felt::from(200)).unwrap();
-        storage.set_leaf(key2.clone(), Felt::from(200));
 
         let update0 = tree0.commit(&storage).unwrap();
         let root0 = update0.root_commitment;
@@ -229,8 +222,7 @@ mod tests {
         // Block 1: insert more values
         let mut tree1 = MerkleTree::<hash::Pedersen, 251>::new(root0_idx);
         let key3 = felt!("0x3").to_bytes_be().as_bits::<Msb0>()[5..].to_owned();
-        tree1.set(&storage, key3.clone(), Felt::from(300)).unwrap();
-        storage.set_leaf(key3, Felt::from(300));
+        tree1.set(&storage, key3, Felt::from(300)).unwrap();
 
         let update1 = tree1.commit(&storage).unwrap();
         let root1 = update1.root_commitment;

@@ -300,7 +300,7 @@ mod tests {
 
             // Insert class trie nodes
             let entry =
-                TrieNodeEntry { hash: Felt::from(block * 100), node: StoredNode::LeafBinary };
+                TrieNodeEntry { hash: Felt::from(block * 100), node: StoredNode::LeafBinary { left_hash: Felt::ZERO, right_hash: Felt::ZERO } };
             tx.put::<tables::TrieClassNodes>(idx, entry)?;
 
             let mut added = BlockList::default();
@@ -313,7 +313,7 @@ mod tests {
 
             // Insert contract trie nodes
             let entry =
-                TrieNodeEntry { hash: Felt::from(block * 200), node: StoredNode::LeafBinary };
+                TrieNodeEntry { hash: Felt::from(block * 200), node: StoredNode::LeafBinary { left_hash: Felt::ZERO, right_hash: Felt::ZERO } };
             tx.put::<tables::TrieContractNodes>(idx, entry)?;
 
             let mut added = BlockList::default();

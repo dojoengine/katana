@@ -1,8 +1,3 @@
-use std::collections::HashMap;
-
-use bitvec::order::Msb0;
-use bitvec::prelude::BitVec;
-use bitvec::slice::BitSlice;
 use katana_primitives::Felt;
 
 use crate::node::{StoredNode, TrieNodeIndex};
@@ -12,7 +7,6 @@ use crate::storage::Storage;
 #[derive(Debug, Default)]
 pub struct MemStorage {
     nodes: Vec<(Felt, StoredNode)>,
-    leaves: HashMap<BitVec<u8, Msb0>, Felt>,
 }
 
 impl MemStorage {
@@ -40,15 +34,6 @@ impl MemStorage {
 
         Some(TrieNodeIndex(base + update.nodes_added.len() as u64 - 1))
     }
-
-    /// Sets a leaf value for the given path.
-    pub fn set_leaf(&mut self, path: BitVec<u8, Msb0>, value: Felt) {
-        if value == Felt::ZERO {
-            self.leaves.remove(&path);
-        } else {
-            self.leaves.insert(path, value);
-        }
-    }
 }
 
 impl Storage for MemStorage {
@@ -58,10 +43,6 @@ impl Storage for MemStorage {
 
     fn hash(&self, index: TrieNodeIndex) -> anyhow::Result<Option<Felt>> {
         Ok(self.nodes.get(index.0 as usize).map(|(h, _)| *h))
-    }
-
-    fn leaf(&self, path: &BitSlice<u8, Msb0>) -> anyhow::Result<Option<Felt>> {
-        Ok(self.leaves.get(path).copied())
     }
 }
 
@@ -84,7 +65,11 @@ fn resolve_node(node: &crate::node::Node, base: u64) -> StoredNode {
         Node::Edge { child, path } => {
             StoredNode::Edge { child: resolve_ref(child, base), path: path.clone() }
         }
-        Node::LeafBinary => StoredNode::LeafBinary,
-        Node::LeafEdge { path } => StoredNode::LeafEdge { path: path.clone() },
+        Node::LeafBinary { left_hash, right_hash } => {
+            StoredNode::LeafBinary { left_hash: *left_hash, right_hash: *right_hash }
+        }
+        Node::LeafEdge { path, child_hash } => {
+            StoredNode::LeafEdge { path: path.clone(), child_hash: *child_hash }
+        }
     }
 }

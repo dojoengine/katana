@@ -50,7 +50,7 @@ fn create_trie_data(provider: &DbProviderFactory, blocks: &[BlockNumber]) {
 
             let update = trie.commit().unwrap();
             let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
-            persist_trie_update::<tables::TrieClassNodes, tables::TrieClassLeaves, _>(
+            persist_trie_update::<tables::TrieClassNodes, _>(
                 &tx,
                 &update,
                 block,
@@ -73,7 +73,7 @@ fn create_trie_data(provider: &DbProviderFactory, blocks: &[BlockNumber]) {
 
             let update = trie.commit().unwrap();
             let mut next_idx = next_node_index::<tables::TrieContractNodes, _>(&tx).unwrap();
-            persist_trie_update::<tables::TrieContractNodes, tables::TrieContractLeaves, _>(
+            persist_trie_update::<tables::TrieContractNodes, _>(
                 &tx,
                 &update,
                 block,

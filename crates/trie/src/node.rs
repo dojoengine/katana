@@ -32,8 +32,8 @@ pub enum InternalNode {
     Binary(BinaryNode),
     /// Describes a path connecting two other nodes.
     Edge(EdgeNode),
-    /// A leaf node.
-    Leaf,
+    /// A leaf node, carrying its hash value.
+    Leaf(Felt),
 }
 
 /// Describes the [InternalNode::Binary] variant.
@@ -135,7 +135,7 @@ impl InternalNode {
             InternalNode::Unresolved(storage_index) => Some(*storage_index),
             InternalNode::Binary(binary) => binary.storage_index,
             InternalNode::Edge(edge) => edge.storage_index,
-            InternalNode::Leaf => None,
+            InternalNode::Leaf(_) => None,
         }
     }
 }
@@ -177,10 +177,24 @@ pub fn felt_from_bits(bits: &BitSlice<u8, Msb0>) -> Felt {
 /// Node as persisted in DB (no Rc/RefCell).
 #[derive(Debug, Clone, PartialEq)]
 pub enum StoredNode {
-    Binary { left: TrieNodeIndex, right: TrieNodeIndex },
-    Edge { child: TrieNodeIndex, path: BitVec<u8, Msb0> },
-    LeafBinary,
-    LeafEdge { path: BitVec<u8, Msb0> },
+    Binary {
+        left: TrieNodeIndex,
+        right: TrieNodeIndex,
+    },
+    Edge {
+        child: TrieNodeIndex,
+        path: BitVec<u8, Msb0>,
+    },
+    /// A binary node where both children are leaves. Stores their hashes directly.
+    LeafBinary {
+        left_hash: Felt,
+        right_hash: Felt,
+    },
+    /// An edge node whose child is a leaf. Stores the leaf hash directly.
+    LeafEdge {
+        path: BitVec<u8, Msb0>,
+        child_hash: Felt,
+    },
 }
 
 /// Reference to a child node in a TrieUpdate.
@@ -196,8 +210,8 @@ pub enum NodeRef {
 pub enum Node {
     Binary { left: NodeRef, right: NodeRef },
     Edge { child: NodeRef, path: BitVec<u8, Msb0> },
-    LeafBinary,
-    LeafEdge { path: BitVec<u8, Msb0> },
+    LeafBinary { left_hash: Felt, right_hash: Felt },
+    LeafEdge { path: BitVec<u8, Msb0>, child_hash: Felt },
 }
 
 /// Result of committing tree mutations.
@@ -206,7 +220,4 @@ pub struct TrieUpdate {
     pub nodes_added: Vec<(Felt, Node)>,
     pub nodes_removed: Vec<TrieNodeIndex>,
     pub root_commitment: Felt,
-    /// Leaf values that were set during this update.
-    /// Maps trie path (as BitVec) to the leaf value (hash).
-    pub leaves: std::collections::HashMap<BitVec<u8, Msb0>, Felt>,
 }

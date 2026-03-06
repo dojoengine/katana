@@ -18,19 +18,20 @@ use crate::storage::Storage;
 ///
 /// Ported from pathfinder's merkle-tree crate. Uses an immutable tree model
 /// where mutations are tracked in-memory and materialized via `commit()`.
+///
+/// Leaf hashes are embedded directly in leaf nodes (`InternalNode::Leaf(hash)`)
+/// and persisted in the parent `LeafEdge`/`LeafBinary` stored nodes. This
+/// eliminates the need for a separate leaf table and enables correct historical
+/// trie access.
 pub struct MerkleTree<H: StarkHash, const HEIGHT: usize> {
     root: Option<Rc<RefCell<InternalNode>>>,
-    leaves: HashMap<BitVec<u8, Msb0>, Felt>,
     nodes_removed: Vec<TrieNodeIndex>,
     _hasher: PhantomData<H>,
 }
 
 impl<H: StarkHash, const HEIGHT: usize> std::fmt::Debug for MerkleTree<H, HEIGHT> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MerkleTree")
-            .field("root", &self.root)
-            .field("leaves_count", &self.leaves.len())
-            .finish()
+        f.debug_struct("MerkleTree").field("root", &self.root).finish()
     }
 }
 
@@ -38,7 +39,6 @@ impl<H: StarkHash, const HEIGHT: usize> Clone for MerkleTree<H, HEIGHT> {
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
-            leaves: self.leaves.clone(),
             nodes_removed: self.nodes_removed.clone(),
             _hasher: PhantomData,
         }
@@ -49,22 +49,12 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
     /// Creates a tree with an existing root node from storage.
     pub fn new(root: TrieNodeIndex) -> Self {
         let root = Some(Rc::new(RefCell::new(InternalNode::Unresolved(root))));
-        Self {
-            root,
-            _hasher: PhantomData,
-            leaves: Default::default(),
-            nodes_removed: Default::default(),
-        }
+        Self { root, _hasher: PhantomData, nodes_removed: Default::default() }
     }
 
     /// Creates an empty tree.
     pub fn empty() -> Self {
-        Self {
-            root: None,
-            _hasher: PhantomData,
-            leaves: Default::default(),
-            nodes_removed: Default::default(),
-        }
+        Self { root: None, _hasher: PhantomData, nodes_removed: Default::default() }
     }
 
     /// Sets a key-value pair. Setting value to ZERO deletes the leaf.
@@ -91,13 +81,13 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
                         let old_path = edge.path[common.len() + 1..].to_bitvec();
 
                         let new = match new_path.is_empty() {
-                            true => Rc::new(RefCell::new(InternalNode::Leaf)),
+                            true => Rc::new(RefCell::new(InternalNode::Leaf(value))),
                             false => {
                                 let new_edge = InternalNode::Edge(EdgeNode {
                                     storage_index: None,
                                     height: child_height,
                                     path: new_path,
-                                    child: Rc::new(RefCell::new(InternalNode::Leaf)),
+                                    child: Rc::new(RefCell::new(InternalNode::Leaf(value))),
                                 });
                                 Rc::new(RefCell::new(new_edge))
                             }
@@ -139,7 +129,8 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
                             }),
                         }
                     }
-                    InternalNode::Leaf => InternalNode::Leaf,
+                    // Updating an existing leaf — replace with new value.
+                    InternalNode::Leaf(_) => InternalNode::Leaf(value),
                     InternalNode::Unresolved(_) | InternalNode::Binary(_) => {
                         unreachable!("End of traversal cannot be unresolved or binary")
                     }
@@ -155,13 +146,12 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
                     storage_index: None,
                     height: 0,
                     path: key.to_bitvec(),
-                    child: Rc::new(RefCell::new(InternalNode::Leaf)),
+                    child: Rc::new(RefCell::new(InternalNode::Leaf(value))),
                 });
                 self.root = Some(Rc::new(RefCell::new(edge)));
             }
         }
 
-        self.leaves.insert(key, value);
         Ok(())
     }
 
@@ -171,22 +161,15 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
         storage: &impl Storage,
         key: BitVec<u8, Msb0>,
     ) -> anyhow::Result<Option<Felt>> {
-        let node = self.traverse(storage, &key)?;
-        let node = node.last();
-
-        let Some(node) = node else {
+        let nodes = self.traverse(storage, &key)?;
+        let Some(node) = nodes.last() else {
             return Ok(None);
         };
 
-        if *node.borrow() == InternalNode::Leaf {
-            if let Some(value) = self.leaves.get(&key) {
-                Ok(Some(*value))
-            } else {
-                storage.leaf(&key)
-            }
-        } else {
-            Ok(None)
-        }
+        let result =
+            if let InternalNode::Leaf(hash) = &*node.borrow() { Some(*hash) } else { None };
+
+        Ok(result)
     }
 
     /// Deletes a leaf from the tree.
@@ -199,7 +182,7 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
 
         match path.last() {
             Some(node) => match &*node.borrow() {
-                InternalNode::Leaf => {}
+                InternalNode::Leaf(_) => {}
                 _ => return Ok(()),
             },
             None => return Ok(()),
@@ -266,13 +249,8 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
                     .context("Fetching root node's hash")?
                     .context("Root node's hash is missing")?,
                 other => {
-                    let (root_hash, _) = self.commit_subtree(
-                        other,
-                        &mut added,
-                        &mut removed,
-                        storage,
-                        BitVec::new(),
-                    )?;
+                    let (root_hash, _) =
+                        Self::commit_subtree(other, &mut added, &mut removed, storage)?;
                     root_hash
                 }
             }
@@ -282,21 +260,14 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
 
         removed.extend(self.nodes_removed);
 
-        Ok(TrieUpdate {
-            nodes_added: added,
-            nodes_removed: removed,
-            root_commitment: root_hash,
-            leaves: self.leaves,
-        })
+        Ok(TrieUpdate { nodes_added: added, nodes_removed: removed, root_commitment: root_hash })
     }
 
     fn commit_subtree(
-        &self,
         node: &mut InternalNode,
         added: &mut Vec<(Felt, Node)>,
         removed: &mut Vec<TrieNodeIndex>,
         storage: &impl Storage,
-        mut path: BitVec<u8, Msb0>,
     ) -> anyhow::Result<(Felt, Option<NodeRef>)> {
         let result = match node {
             InternalNode::Unresolved(idx) => {
@@ -306,49 +277,16 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
                     .context("Stored node's hash is missing")?;
                 (hash, Some(NodeRef::StorageIndex(*idx)))
             }
-            InternalNode::Leaf => {
-                let hash = if let Some(value) = self.leaves.get(&path) {
-                    *value
-                } else {
-                    let result = storage.leaf(&path).with_context(|| {
-                        format!("Fetching leaf value from storage (path len={})", path.len())
-                    })?;
-                    match result {
-                        Some(v) => v,
-                        None => {
-                            anyhow::bail!(
-                                "Leaf value missing from storage (path len={}, expected={})",
-                                path.len(),
-                                HEIGHT
-                            );
-                        }
-                    }
-                };
-                (hash, None)
-            }
+            InternalNode::Leaf(hash) => (*hash, None),
             InternalNode::Binary(binary) => {
-                let mut left_path = path.clone();
-                left_path.push(Direction::Left.into());
-                let (left_hash, left_child) = self.commit_subtree(
-                    &mut binary.left.borrow_mut(),
-                    added,
-                    removed,
-                    storage,
-                    left_path,
-                )?;
-                let mut right_path = path.clone();
-                right_path.push(Direction::Right.into());
-                let (right_hash, right_child) = self.commit_subtree(
-                    &mut binary.right.borrow_mut(),
-                    added,
-                    removed,
-                    storage,
-                    right_path,
-                )?;
+                let (left_hash, left_child) =
+                    Self::commit_subtree(&mut binary.left.borrow_mut(), added, removed, storage)?;
+                let (right_hash, right_child) =
+                    Self::commit_subtree(&mut binary.right.borrow_mut(), added, removed, storage)?;
                 let hash = BinaryNode::calculate_hash::<H>(left_hash, right_hash);
 
                 let persisted_node = match (left_child, right_child) {
-                    (None, None) => Node::LeafBinary,
+                    (None, None) => Node::LeafBinary { left_hash, right_hash },
                     (Some(_), None) | (None, Some(_)) => {
                         anyhow::bail!("Inconsistent binary children. Both must be leaves or not.")
                     }
@@ -365,19 +303,13 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
                 (hash, Some(NodeRef::Index(node_index)))
             }
             InternalNode::Edge(edge) => {
-                path.extend_from_bitslice(&edge.path);
-                let (child_hash, child) = self.commit_subtree(
-                    &mut edge.child.borrow_mut(),
-                    added,
-                    removed,
-                    storage,
-                    path,
-                )?;
+                let (child_hash, child) =
+                    Self::commit_subtree(&mut edge.child.borrow_mut(), added, removed, storage)?;
 
                 let hash = EdgeNode::calculate_hash::<H>(child_hash, &edge.path);
 
                 let persisted_node = match child {
-                    None => Node::LeafEdge { path: edge.path.clone() },
+                    None => Node::LeafEdge { path: edge.path.clone(), child_hash },
                     Some(child) => Node::Edge { child, path: edge.path.clone() },
                 };
 
@@ -427,7 +359,7 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
                     height += edge.path.len();
                     edge.child.clone()
                 }
-                InternalNode::Leaf | InternalNode::Edge(_) => {
+                InternalNode::Leaf(_) | InternalNode::Edge(_) => {
                     nodes.push(current);
                     return Ok(nodes);
                 }
@@ -466,17 +398,17 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
                 path,
                 child: Rc::new(RefCell::new(InternalNode::Unresolved(child))),
             }),
-            StoredNode::LeafBinary => InternalNode::Binary(BinaryNode {
+            StoredNode::LeafBinary { left_hash, right_hash } => InternalNode::Binary(BinaryNode {
                 storage_index: Some(index),
                 height,
-                left: Rc::new(RefCell::new(InternalNode::Leaf)),
-                right: Rc::new(RefCell::new(InternalNode::Leaf)),
+                left: Rc::new(RefCell::new(InternalNode::Leaf(left_hash))),
+                right: Rc::new(RefCell::new(InternalNode::Leaf(right_hash))),
             }),
-            StoredNode::LeafEdge { path } => InternalNode::Edge(EdgeNode {
+            StoredNode::LeafEdge { path, child_hash } => InternalNode::Edge(EdgeNode {
                 storage_index: Some(index),
                 height,
                 path,
-                child: Rc::new(RefCell::new(InternalNode::Leaf)),
+                child: Rc::new(RefCell::new(InternalNode::Leaf(child_hash))),
             }),
         };
 
@@ -569,31 +501,11 @@ impl<H: StarkHash, const HEIGHT: usize> MerkleTree<H, HEIGHT> {
 
                         ProofNode::Edge { child, path }
                     }
-                    StoredNode::LeafBinary => {
-                        let mut path = key[..height].to_bitvec();
-                        path.push(Direction::Left.into());
-                        let left = storage
-                            .leaf(&path)
-                            .context("Querying left leaf hash")?
-                            .context("Left leaf is missing")?;
-                        path.pop();
-                        path.push(Direction::Right.into());
-                        let right = storage
-                            .leaf(&path)
-                            .context("Querying right leaf hash")?
-                            .context("Right leaf is missing")?;
-
-                        ProofNode::Binary { left, right }
+                    StoredNode::LeafBinary { left_hash, right_hash } => {
+                        ProofNode::Binary { left: left_hash, right: right_hash }
                     }
-                    StoredNode::LeafEdge { path } => {
-                        let mut current_path = key[..height].to_bitvec();
-                        current_path.extend_from_bitslice(&path);
-                        let child = storage
-                            .leaf(&current_path)
-                            .context("Querying leaf hash")?
-                            .context("Child leaf is missing")?;
-
-                        ProofNode::Edge { child, path }
+                    StoredNode::LeafEdge { path, child_hash } => {
+                        ProofNode::Edge { child: child_hash, path }
                     }
                 };
 

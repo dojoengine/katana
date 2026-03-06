@@ -4,7 +4,6 @@ use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageK
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxNumber};
-use katana_primitives::Felt;
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
 use crate::models::block::StoredBlockBodyIndices;
@@ -49,7 +48,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 33;
+pub const NUM_TABLES: usize = 30;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -179,10 +178,7 @@ define_tables_enum! {[
     (TrieContractNodes, TableType::Table),
     (TrieStorageNodes, TableType::Table),
     (TrieRoots, TableType::Table),
-    (TrieBlockLog, TableType::Table),
-    (TrieClassLeaves, TableType::Table),
-    (TrieContractLeaves, TableType::Table),
-    (TrieStorageLeaves, TableType::Table)
+    (TrieBlockLog, TableType::Table)
 ]}
 
 tables! {
@@ -258,14 +254,8 @@ tables! {
 
     /// Trie block log: (trie_type as u8 << 56 | block_number) -> BlockList of added node indices
     /// Used for revert: stores which node indices were added at each block.
-    TrieBlockLog: (u64) => BlockList,
+    TrieBlockLog: (u64) => BlockList
 
-    /// Leaf values for class trie: Felt (class hash key) -> Felt (leaf value)
-    TrieClassLeaves: (Felt) => Felt,
-    /// Leaf values for contract trie: Felt (contract address key) -> Felt (leaf value)
-    TrieContractLeaves: (Felt) => Felt,
-    /// Leaf values for storage tries: Felt (composite key of address + storage key) -> Felt (value)
-    TrieStorageLeaves: (Felt) => Felt
 }
 
 #[cfg(test)]
@@ -306,9 +296,6 @@ mod tests {
         assert_eq!(Tables::ALL[27].name(), TrieStorageNodes::NAME);
         assert_eq!(Tables::ALL[28].name(), TrieRoots::NAME);
         assert_eq!(Tables::ALL[29].name(), TrieBlockLog::NAME);
-        assert_eq!(Tables::ALL[30].name(), TrieClassLeaves::NAME);
-        assert_eq!(Tables::ALL[31].name(), TrieContractLeaves::NAME);
-        assert_eq!(Tables::ALL[32].name(), TrieStorageLeaves::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::ContractStorage.table_type(), TableType::DupSort);
@@ -317,9 +304,6 @@ mod tests {
         assert_eq!(Tables::TrieStorageNodes.table_type(), TableType::Table);
         assert_eq!(Tables::TrieRoots.table_type(), TableType::Table);
         assert_eq!(Tables::TrieBlockLog.table_type(), TableType::Table);
-        assert_eq!(Tables::TrieClassLeaves.table_type(), TableType::Table);
-        assert_eq!(Tables::TrieContractLeaves.table_type(), TableType::Table);
-        assert_eq!(Tables::TrieStorageLeaves.table_type(), TableType::Table);
     }
 
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};

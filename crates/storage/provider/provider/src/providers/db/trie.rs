@@ -43,7 +43,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
         let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&self.0)
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        persist_trie_update::<tables::TrieClassNodes, tables::TrieClassLeaves, _>(
+        persist_trie_update::<tables::TrieClassNodes, _>(
             &self.0,
             &update,
             block_number,
@@ -148,7 +148,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
         let mut next_idx = next_node_index::<tables::TrieContractNodes, _>(&self.0)
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        persist_trie_update::<tables::TrieContractNodes, tables::TrieContractLeaves, _>(
+        persist_trie_update::<tables::TrieContractNodes, _>(
             &self.0,
             &update,
             block_number,
