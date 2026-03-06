@@ -28,8 +28,13 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
 
         // Get previous block's root, or start with empty trie
         let prev_block = if block_number > 0 { block_number - 1 } else { block_number };
-        let mut trie = factory.classes_trie(prev_block);
 
+        // (1) Load existing trie state into memory
+        let mut trie = factory
+            .classes_trie_in_memory(prev_block)
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        // (2) Compute new root in memory
         for (class_hash, compiled_hash) in updates {
             trie.insert(class_hash, compiled_hash)
                 .map_err(|e| ProviderError::Other(e.to_string()))?;
@@ -39,7 +44,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
 
         let root_commitment = update.root_commitment;
 
-        // Persist the update
+        // (3) Persist updates to DB
         let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&self.0)
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
@@ -71,8 +76,12 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
         for (address, storage_entries) in &state_updates.storage_updates {
-            let mut storage_trie = factory.storages_trie(*address, prev_block);
+            // (1) Load existing storage trie into memory
+            let mut storage_trie = factory
+                .storages_trie_in_memory(*address, prev_block)
+                .map_err(|e| ProviderError::Other(e.to_string()))?;
 
+            // (2) Compute new root in memory
             for (key, value) in storage_entries {
                 storage_trie
                     .insert(*key, *value)
@@ -83,6 +92,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
 
             contract_leafs.entry(*address).or_default().storage_root = Some(update.root_commitment);
 
+            // (3) Persist updates to DB
             persist_storage_trie_update(
                 &self.0,
                 &update,
@@ -132,9 +142,12 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
             })
             .collect::<Result<Vec<_>, ProviderError>>()?;
 
-        // Insert leaf hashes into contracts trie
-        let mut contract_trie = factory.contracts_trie(prev_block);
+        // (1) Load existing contracts trie into memory
+        let mut contract_trie = factory
+            .contracts_trie_in_memory(prev_block)
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
 
+        // (2) Compute new root in memory
         for (address, leaf_hash) in leaf_hashes {
             contract_trie
                 .insert(address, leaf_hash)
@@ -145,6 +158,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
 
         let root_commitment = update.root_commitment;
 
+        // (3) Persist updates to DB
         let mut next_idx = next_node_index::<tables::TrieContractNodes, _>(&self.0)
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 

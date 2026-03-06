@@ -1,7 +1,9 @@
+use std::collections::VecDeque;
+
 use katana_primitives::block::BlockNumber;
 use katana_primitives::{ContractAddress, Felt};
 use katana_trie::node::{Node, NodeRef, StoredNode, TrieNodeIndex, TrieUpdate};
-use katana_trie::{ClassesTrie, ContractsTrie, StoragesTrie};
+use katana_trie::{ClassesTrie, ContractsTrie, MemStorage, StoragesTrie};
 
 use crate::abstraction::{DbTx, DbTxMut};
 use crate::models::list::BlockList;
@@ -95,6 +97,85 @@ impl<Tx: DbTx> TrieDbFactory<Tx> {
         let storage_root_key = storage_trie_root_key(address, block);
         self.tx.get::<tables::TrieRoots>(storage_root_key).ok().flatten().map(TrieNodeIndex)
     }
+
+    /// Returns the classes trie at the given block, loaded entirely into memory.
+    pub fn classes_trie_in_memory(
+        &self,
+        block: BlockNumber,
+    ) -> anyhow::Result<ClassesTrie<MemStorage>> {
+        match self.get_root(TrieType::Classes, block) {
+            Some(root) => {
+                let mem = load_trie_to_memory::<tables::TrieClassNodes, _>(&self.tx, root)?;
+                Ok(ClassesTrie::new(mem, root))
+            }
+            None => Ok(ClassesTrie::empty(MemStorage::new())),
+        }
+    }
+
+    /// Returns the contracts trie at the given block, loaded entirely into memory.
+    pub fn contracts_trie_in_memory(
+        &self,
+        block: BlockNumber,
+    ) -> anyhow::Result<ContractsTrie<MemStorage>> {
+        match self.get_root(TrieType::Contracts, block) {
+            Some(root) => {
+                let mem = load_trie_to_memory::<tables::TrieContractNodes, _>(&self.tx, root)?;
+                Ok(ContractsTrie::new(mem, root))
+            }
+            None => Ok(ContractsTrie::empty(MemStorage::new())),
+        }
+    }
+
+    /// Returns the storage trie for a contract at the given block, loaded entirely into memory.
+    pub fn storages_trie_in_memory(
+        &self,
+        address: ContractAddress,
+        block: BlockNumber,
+    ) -> anyhow::Result<StoragesTrie<MemStorage>> {
+        match self.get_storage_root(address, block) {
+            Some(root) => {
+                let mem = load_trie_to_memory::<tables::TrieStorageNodes, _>(&self.tx, root)?;
+                Ok(StoragesTrie::new(mem, address, root))
+            }
+            None => Ok(StoragesTrie::empty(MemStorage::new(), address)),
+        }
+    }
+}
+
+/// Loads all reachable nodes from a trie root into a [`MemStorage`] via BFS.
+pub fn load_trie_to_memory<Tb, Tx>(tx: &Tx, root: TrieNodeIndex) -> anyhow::Result<MemStorage>
+where
+    Tb: tables::Table<Key = u64, Value = TrieNodeEntry>,
+    Tx: DbTx,
+{
+    let mut mem = MemStorage::new();
+    let mut queue = VecDeque::new();
+    queue.push_back(root);
+
+    while let Some(index) = queue.pop_front() {
+        let entry = tx
+            .get::<Tb>(index.0)
+            .map_err(|e| anyhow::anyhow!("DB error reading trie node {}: {e}", index.0))?
+            .ok_or_else(|| anyhow::anyhow!("Trie node {} is missing from DB", index.0))?;
+
+        // Enqueue children for non-leaf nodes
+        match &entry.node {
+            StoredNode::Binary { left, right } => {
+                queue.push_back(*left);
+                queue.push_back(*right);
+            }
+            StoredNode::Edge { child, .. } => {
+                queue.push_back(*child);
+            }
+            StoredNode::LeafBinary { .. } | StoredNode::LeafEdge { .. } => {
+                // Terminal nodes — no children to follow
+            }
+        }
+
+        mem.insert_node(index.0, entry.hash, entry.node);
+    }
+
+    Ok(mem)
 }
 
 /// Generates a deterministic key for storage trie roots.
@@ -611,6 +692,143 @@ mod tests {
             )
             .unwrap();
         }
+
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn test_in_memory_trie_matches_db_trie() {
+        // Verify that loading a trie into memory and committing produces the same root
+        // as using the DB-backed trie directly.
+        let db = test_utils::create_test_db();
+
+        // Block 0: insert some classes via DB-backed trie
+        let root0;
+        {
+            let tx = db.tx_mut().unwrap();
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
+
+            trie.insert(Felt::from(1u64), Felt::from(100u64)).unwrap();
+            trie.insert(Felt::from(2u64), Felt::from(200u64)).unwrap();
+            trie.insert(Felt::from(3u64), Felt::from(300u64)).unwrap();
+
+            let update = trie.commit().unwrap();
+            root0 = update.root_commitment;
+
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                0,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+
+            tx.commit().unwrap();
+        }
+
+        // Block 1: insert more classes via in-memory trie loaded from DB
+        let root1_in_memory;
+        {
+            let tx = db.tx_mut().unwrap();
+            let factory = TrieDbFactory::new(tx.clone());
+
+            let mut trie = factory.classes_trie_in_memory(0).unwrap();
+            trie.insert(Felt::from(4u64), Felt::from(400u64)).unwrap();
+            trie.insert(Felt::from(5u64), Felt::from(500u64)).unwrap();
+
+            let update = trie.commit().unwrap();
+            root1_in_memory = update.root_commitment;
+            assert_ne!(root1_in_memory, Felt::ZERO);
+            assert_ne!(root1_in_memory, root0);
+
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                1,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+
+            tx.commit().unwrap();
+        }
+
+        // Verify: do the same operation via DB-backed trie and compare roots
+        let root1_db;
+        {
+            let db2 = test_utils::create_test_db();
+            let tx = db2.tx_mut().unwrap();
+            let factory = TrieDbFactory::new(tx.clone());
+
+            // Recreate block 0
+            let mut trie = factory.classes_trie(0);
+            trie.insert(Felt::from(1u64), Felt::from(100u64)).unwrap();
+            trie.insert(Felt::from(2u64), Felt::from(200u64)).unwrap();
+            trie.insert(Felt::from(3u64), Felt::from(300u64)).unwrap();
+
+            let update = trie.commit().unwrap();
+            let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+            persist_trie_update::<tables::TrieClassNodes, _>(
+                &tx,
+                &update,
+                0,
+                TrieType::Classes,
+                &mut next_idx,
+            )
+            .unwrap();
+
+            // Block 1 via DB-backed trie
+            let factory = TrieDbFactory::new(tx.clone());
+            let mut trie = factory.classes_trie(0);
+            trie.insert(Felt::from(4u64), Felt::from(400u64)).unwrap();
+            trie.insert(Felt::from(5u64), Felt::from(500u64)).unwrap();
+
+            let update = trie.commit().unwrap();
+            root1_db = update.root_commitment;
+
+            tx.commit().unwrap();
+        }
+
+        assert_eq!(
+            root1_in_memory, root1_db,
+            "In-memory and DB-backed trie should produce identical roots"
+        );
+    }
+
+    #[test]
+    fn test_load_trie_to_memory() {
+        // Verify that load_trie_to_memory correctly loads all nodes
+        let db = test_utils::create_test_db();
+        let tx = db.tx_mut().unwrap();
+
+        let factory = TrieDbFactory::new(tx.clone());
+        let mut trie = factory.classes_trie(0);
+
+        trie.insert(Felt::from(1u64), Felt::from(100u64)).unwrap();
+        trie.insert(Felt::from(2u64), Felt::from(200u64)).unwrap();
+
+        let update = trie.commit().unwrap();
+        let original_root = update.root_commitment;
+
+        let mut next_idx = next_node_index::<tables::TrieClassNodes, _>(&tx).unwrap();
+        persist_trie_update::<tables::TrieClassNodes, _>(
+            &tx,
+            &update,
+            0,
+            TrieType::Classes,
+            &mut next_idx,
+        )
+        .unwrap();
+
+        // Load into memory and verify root hash matches
+        let factory = TrieDbFactory::new(tx.clone());
+        let mem_trie = factory.classes_trie_in_memory(0).unwrap();
+        let root = mem_trie.root_hash().unwrap();
+        assert_eq!(root, original_root);
 
         tx.commit().unwrap();
     }

@@ -1,12 +1,19 @@
+use std::collections::HashMap;
+
 use katana_primitives::Felt;
 
 use crate::node::{StoredNode, TrieNodeIndex};
 use crate::storage::Storage;
 
 /// In-memory storage implementation for testing and ephemeral use (e.g., genesis).
+///
+/// Uses a HashMap so it can hold nodes at arbitrary indices — both sequentially
+/// allocated (from `apply_update`) and at existing DB indices (when loading an
+/// existing trie into memory).
 #[derive(Debug, Default)]
 pub struct MemStorage {
-    nodes: Vec<(Felt, StoredNode)>,
+    nodes: HashMap<u64, (Felt, StoredNode)>,
+    next_index: u64,
 }
 
 impl MemStorage {
@@ -16,7 +23,16 @@ impl MemStorage {
 
     /// Returns the next available index.
     pub fn next_index(&self) -> TrieNodeIndex {
-        TrieNodeIndex(self.nodes.len() as u64)
+        TrieNodeIndex(self.next_index)
+    }
+
+    /// Inserts a node at a specific index. Used for bulk-loading from DB.
+    pub fn insert_node(&mut self, index: u64, hash: Felt, node: StoredNode) {
+        self.nodes.insert(index, (hash, node));
+        // Keep next_index past any inserted index
+        if index >= self.next_index {
+            self.next_index = index + 1;
+        }
     }
 
     /// Applies a [`TrieUpdate`](crate::node::TrieUpdate) to this storage, returning the root
@@ -26,23 +42,26 @@ impl MemStorage {
             return None;
         }
 
-        let base = self.nodes.len() as u64;
-        for (hash, node) in &update.nodes_added {
+        let base = self.next_index;
+        for (i, (hash, node)) in update.nodes_added.iter().enumerate() {
+            let index = base + i as u64;
             let stored = resolve_node(node, base);
-            self.nodes.push((*hash, stored));
+            self.nodes.insert(index, (*hash, stored));
         }
 
-        Some(TrieNodeIndex(base + update.nodes_added.len() as u64 - 1))
+        self.next_index = base + update.nodes_added.len() as u64;
+
+        Some(TrieNodeIndex(self.next_index - 1))
     }
 }
 
 impl Storage for MemStorage {
     fn get(&self, index: TrieNodeIndex) -> anyhow::Result<Option<StoredNode>> {
-        Ok(self.nodes.get(index.0 as usize).map(|(_, n)| n.clone()))
+        Ok(self.nodes.get(&index.0).map(|(_, n)| n.clone()))
     }
 
     fn hash(&self, index: TrieNodeIndex) -> anyhow::Result<Option<Felt>> {
-        Ok(self.nodes.get(index.0 as usize).map(|(h, _)| *h))
+        Ok(self.nodes.get(&index.0).map(|(h, _)| *h))
     }
 }
 
