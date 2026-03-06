@@ -9,12 +9,15 @@ use katana_provider::api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
 };
 use katana_provider::api::env::BlockEnvProvider;
-use katana_provider::api::state::{StateFactoryProvider, StateRootProvider};
+use katana_provider::api::stage::StageCheckpointProvider;
+use katana_provider::api::state::{
+    HistoricalStateRetentionProvider, StateFactoryProvider, StateRootProvider,
+};
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
 };
-use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use rstest_reuse::{self, *};
 
 mod fixtures;
@@ -267,6 +270,30 @@ where
         assert_eq!(actual_block_hash, Some(expected_block_hash));
         assert_eq!(actual_block, Some(expected_block));
     }
+
+    Ok(())
+}
+
+#[test]
+fn historical_state_retention_is_provider_owned() -> Result<()> {
+    let provider_factory = fixtures::provider_with_states(DbProviderFactory::new_in_memory());
+
+    // Stage prune checkpoints should not control provider historical availability.
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut.set_prune_checkpoint("Blocks", 4)?;
+    provider_mut.commit()?;
+    assert!(provider_factory.provider().historical(4.into())?.is_some());
+
+    // Provider-owned retention watermark controls historical availability.
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut.set_earliest_available_state_block(5)?;
+    provider_mut.commit()?;
+
+    assert!(matches!(
+        provider_factory.provider().historical(4.into()),
+        Err(ProviderError::HistoricalStatePruned { requested: 4, earliest_available: 5 })
+    ));
+    assert!(provider_factory.provider().historical(5.into())?.is_some());
 
     Ok(())
 }

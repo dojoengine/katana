@@ -14,6 +14,7 @@ use katana_db::models::contract::{
 };
 use katana_db::models::list::BlockList;
 use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
+use katana_db::models::state::HistoricalStateRetention;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::models::{VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
@@ -37,6 +38,7 @@ use katana_provider_api::block::{
 };
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
 use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
@@ -46,6 +48,8 @@ use katana_provider_api::ProviderError;
 use tracing::warn;
 
 use crate::{MutableProvider, ProviderResult};
+
+const STATE_HISTORY_RETENTION_KEY: u64 = 0;
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
@@ -876,6 +880,19 @@ impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
         let key = id.to_string();
         let value = PruningCheckpoint { block: block_number };
         self.0.put::<tables::StagePruningCheckpoints>(key, value)?;
+        Ok(())
+    }
+}
+
+impl<Tx: DbTxMut> HistoricalStateRetentionProvider for DbProvider<Tx> {
+    fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        let result = self.0.get::<tables::StateHistoryRetention>(STATE_HISTORY_RETENTION_KEY)?;
+        Ok(result.map(|retention| retention.earliest_available_block))
+    }
+
+    fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()> {
+        let value = HistoricalStateRetention { earliest_available_block: block_number };
+        self.0.put::<tables::StateHistoryRetention>(STATE_HISTORY_RETENTION_KEY, value)?;
         Ok(())
     }
 }

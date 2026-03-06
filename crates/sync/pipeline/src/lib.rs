@@ -80,7 +80,10 @@ use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::ProviderError;
+use katana_stage::blocks::BLOCKS_STAGE_ID;
+use katana_stage::trie::STATE_TRIE_STAGE_ID;
 use katana_stage::{PruneInput, PruneOutput, Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch::{self};
 use tokio::task::yield_now;
@@ -94,6 +97,8 @@ pub type PipelineResult<T> = Result<T, Error>;
 
 /// The future type for [Pipeline]'s implementation of [IntoFuture].
 pub type PipelineFut = BoxFuture<'static, PipelineResult<()>>;
+
+const STATE_RETENTION_STAGE_IDS: [&str; 2] = [BLOCKS_STAGE_ID, STATE_TRIE_STAGE_ID];
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -505,6 +510,33 @@ impl Pipeline {
 
             let _enter = span_inner.enter();
             info!(target: "pipeline", %pruned_count, "Stage pruning completed.");
+        }
+
+        self.update_historical_state_retention()?;
+
+        Ok(())
+    }
+
+    fn update_historical_state_retention(&self) -> PipelineResult<()> {
+        let provider_mut = self.storage_provider.provider_mut();
+        let mut pruned_to: Option<BlockNumber> = None;
+
+        let active_state_stages = self
+            .stages
+            .iter()
+            .map(|stage| stage.id())
+            .filter(|id| STATE_RETENTION_STAGE_IDS.contains(id));
+
+        for stage_id in active_state_stages {
+            if let Some(stage_pruned_to) = provider_mut.prune_checkpoint(stage_id)? {
+                pruned_to =
+                    Some(pruned_to.map_or(stage_pruned_to, |current| current.max(stage_pruned_to)));
+            }
+        }
+
+        if let Some(pruned_to) = pruned_to {
+            provider_mut.set_earliest_available_state_block(pruned_to.saturating_add(1))?;
+            provider_mut.commit()?;
         }
 
         Ok(())

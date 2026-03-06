@@ -3,6 +3,7 @@ pub mod class;
 pub mod contract;
 pub mod list;
 pub mod stage;
+pub mod state;
 pub mod storage;
 pub mod trie;
 

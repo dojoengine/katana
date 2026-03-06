@@ -128,6 +128,14 @@ pub enum ProviderError {
     #[error("State root not found")]
     StateRootNotFound,
 
+    /// Error when historical state exists at the requested block, but has been pruned according
+    /// to the configured state retention policy.
+    #[error(
+        "Historical state at block {requested} has been pruned; earliest available block is \
+         {earliest_available}"
+    )]
+    HistoricalStatePruned { requested: BlockNumber, earliest_available: BlockNumber },
+
     #[error(transparent)]
     ContractClassCompilation(#[from] ContractClassCompilationError),
 

@@ -72,12 +72,10 @@ mod tests {
     use katana_primitives::state::StateUpdatesWithClasses;
     use katana_primitives::{ContractAddress, Felt};
     use katana_provider::api::block::BlockWriter;
-    use katana_provider::api::stage::StageCheckpointProvider;
-    use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
+    use katana_provider::api::state::HistoricalStateRetentionProvider;
+    use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 
     use super::StateUpdateBuilder;
-
-    const BLOCKS_STAGE_ID: &str = "Blocks";
 
     fn create_stored_block(block_number: u64) -> SealedBlockWithStatus {
         let header = Header {
@@ -126,24 +124,27 @@ mod tests {
     }
 
     #[test]
-    fn state_update_builder_returns_none_for_pruned_block() {
+    fn state_update_builder_errors_for_pruned_block() {
         let provider_factory = create_provider_with_blocks(3);
         let provider_mut = provider_factory.provider_mut();
-        provider_mut.set_prune_checkpoint(BLOCKS_STAGE_ID, 1).unwrap();
+        provider_mut.set_earliest_available_state_block(2).unwrap();
         provider_mut.commit().unwrap();
 
         let provider = provider_factory.provider();
         let block_id = 1u64.into();
 
-        let state_update = StateUpdateBuilder::new(block_id, provider).build().unwrap();
-        assert!(state_update.is_none());
+        let error = StateUpdateBuilder::new(block_id, provider).build().unwrap_err();
+        assert!(matches!(
+            error,
+            ProviderError::HistoricalStatePruned { requested: 1, earliest_available: 2 }
+        ));
     }
 
     #[test]
     fn state_update_builder_still_builds_at_prune_boundary() {
         let provider_factory = create_provider_with_blocks(5);
         let provider_mut = provider_factory.provider_mut();
-        provider_mut.set_prune_checkpoint(BLOCKS_STAGE_ID, 1).unwrap();
+        provider_mut.set_earliest_available_state_block(2).unwrap();
         provider_mut.commit().unwrap();
 
         let provider = provider_factory.provider();

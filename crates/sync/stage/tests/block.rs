@@ -16,10 +16,11 @@ use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
-use katana_provider::api::stage::StageCheckpointProvider;
-use katana_provider::api::state::{StateFactoryProvider, StateProvider};
-use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
-use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks, BLOCKS_STAGE_ID};
+use katana_provider::api::state::{
+    HistoricalStateRetentionProvider, StateFactoryProvider, StateProvider,
+};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
+use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
 use katana_stage::{PruneInput, Stage, StageExecutionInput};
 use rstest::rstest;
 use starknet::core::types::ResourcePrice;
@@ -479,15 +480,21 @@ async fn prune_compacts_state_history_at_boundary() {
 }
 
 #[tokio::test]
-async fn historical_returns_none_below_blocks_prune_checkpoint() {
+async fn historical_returns_pruned_error_below_retention_boundary() {
     let provider = create_provider_with_blocks(0..=8, BTreeMap::new());
 
     let provider_mut = provider.provider_mut();
-    provider_mut.set_prune_checkpoint(BLOCKS_STAGE_ID, 4).unwrap();
+    provider_mut.set_earliest_available_state_block(5).unwrap();
     provider_mut.commit().unwrap();
 
-    assert!(provider.provider().historical(4.into()).unwrap().is_none());
-    assert!(provider.provider().historical(3.into()).unwrap().is_none());
+    assert!(matches!(
+        provider.provider().historical(4.into()),
+        Err(ProviderError::HistoricalStatePruned { requested: 4, earliest_available: 5 })
+    ));
+    assert!(matches!(
+        provider.provider().historical(3.into()),
+        Err(ProviderError::HistoricalStatePruned { requested: 3, earliest_available: 5 })
+    ));
     assert!(provider.provider().historical(5.into()).unwrap().is_some());
     assert!(provider.provider().historical(8.into()).unwrap().is_some());
 }
