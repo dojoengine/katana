@@ -695,4 +695,15 @@ impl<Tx1: DbTxMut> HistoricalStateRetentionProvider for ForkedProvider<Tx1> {
     fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()> {
         self.local_db.set_earliest_available_state_block(block_number)
     }
+
+    fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        self.local_db.earliest_available_state_trie_block()
+    }
+
+    fn set_earliest_available_state_trie_block(
+        &self,
+        block_number: BlockNumber,
+    ) -> ProviderResult<()> {
+        self.local_db.set_earliest_available_state_trie_block(block_number)
+    }
 }

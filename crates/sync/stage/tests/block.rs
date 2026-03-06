@@ -510,6 +510,7 @@ async fn blocks_prune_does_not_decrease_existing_retention_boundary() {
     provider_mut.commit().unwrap();
 
     // keep_from=5
-    let _output = stage.prune(&PruneInput::new(8, Some(3), None)).await.expect("prune must succeed");
+    let _output =
+        stage.prune(&PruneInput::new(8, Some(3), None)).await.expect("prune must succeed");
     assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), Some(10));
 }

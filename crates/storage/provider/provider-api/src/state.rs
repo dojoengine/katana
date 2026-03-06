@@ -80,6 +80,16 @@ pub trait HistoricalStateRetentionProvider: Send + Sync {
 
     /// Sets the first block number for which historical state is still available.
     fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()>;
+
+    /// Returns the first block number for which historical state trie snapshots are still
+    /// available.
+    fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>>;
+
+    /// Sets the first block number for which historical state trie snapshots are still available.
+    fn set_earliest_available_state_trie_block(
+        &self,
+        block_number: BlockNumber,
+    ) -> ProviderResult<()>;
 }
 
 // TEMP: added mainly for compatibility reason. it might be removed in the future.
