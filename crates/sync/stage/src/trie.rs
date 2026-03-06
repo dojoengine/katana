@@ -187,10 +187,10 @@ impl Stage for StateTrie {
                 .map_err(Error::StateComputationTaskJoinError)??;
 
             let provider_mut = self.storage_provider.provider_mut();
-            let current = provider_mut.earliest_available_state_block()?;
+            let current = provider_mut.earliest_available_state_trie_block()?;
             let next = current.map_or(keep_from, |current| current.max(keep_from));
             if current != Some(next) {
-                provider_mut.set_earliest_available_state_block(next)?;
+                provider_mut.set_earliest_available_state_trie_block(next)?;
                 provider_mut.commit()?;
             }
 

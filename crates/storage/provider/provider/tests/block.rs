@@ -298,6 +298,26 @@ fn historical_state_retention_is_provider_owned() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn state_trie_retention_is_independent_from_state_retention() -> Result<()> {
+    let provider_factory = fixtures::provider_with_states(DbProviderFactory::new_in_memory());
+
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut.set_earliest_available_state_trie_block(10)?;
+    provider_mut.commit()?;
+
+    // State and trie retention are tracked independently.
+    let provider = provider_factory.provider_mut();
+    assert_eq!(provider.earliest_available_state_block()?, None);
+    assert_eq!(provider.earliest_available_state_trie_block()?, Some(10));
+    provider.commit()?;
+
+    // Historical provider is still available because state retention index is independent.
+    assert!(provider_factory.provider().historical(5.into())?.is_some());
+
+    Ok(())
+}
+
 #[apply(test_read_state_update)]
 fn test_read_state_update_with_db_provider(
     #[from(db_provider_with_states)] provider_factory: DbProviderFactory,

@@ -209,7 +209,7 @@ async fn prune_removes_snapshots_in_range() {
     assert!(result.is_ok());
     let output = result.unwrap();
     assert_eq!(output.pruned_count, 4); // blocks 0, 1, 2, 3
-    assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), Some(4));
+    assert_eq!(provider.provider_mut().earliest_available_state_trie_block().unwrap(), Some(4));
 
     // Verify blocks 0-3 snapshots are removed
     for block in 0..=3 {
@@ -473,7 +473,7 @@ async fn prune_does_not_decrease_existing_retention_boundary() {
 
     // Existing retention boundary from another state stage.
     let provider_mut = provider.provider_mut();
-    provider_mut.set_earliest_available_state_block(10).unwrap();
+    provider_mut.set_earliest_available_state_trie_block(10).unwrap();
     provider_mut.commit().unwrap();
 
     // Current prune would compute keep_from=4, which must not decrease retention.
@@ -481,5 +481,5 @@ async fn prune_does_not_decrease_existing_retention_boundary() {
     let result = stage.prune(&PruneInput::new(9, Some(5), None)).await;
     assert!(result.is_ok());
 
-    assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), Some(10));
+    assert_eq!(provider.provider_mut().earliest_available_state_trie_block().unwrap(), Some(10));
 }
