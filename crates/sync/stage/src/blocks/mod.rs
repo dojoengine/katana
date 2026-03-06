@@ -242,14 +242,14 @@ fn update_historical_state_retention(
     Ok(())
 }
 
+type TouchedHistoryKeys =
+    (BTreeSet<(ContractAddress, StorageKey)>, BTreeSet<ContractAddress>, BTreeSet<ContractAddress>);
+
 fn collect_touched_history_keys<Tx: DbTx>(
     tx: &Tx,
     start: BlockNumber,
     keep_from: BlockNumber,
-) -> Result<
-    (BTreeSet<(ContractAddress, StorageKey)>, BTreeSet<ContractAddress>, BTreeSet<ContractAddress>),
-    Error,
-> {
+) -> Result<TouchedHistoryKeys, Error> {
     let mut storage_keys = BTreeSet::new();
     let mut nonce_addrs = BTreeSet::new();
     let mut class_addrs = BTreeSet::new();
