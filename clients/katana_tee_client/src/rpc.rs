@@ -41,14 +41,14 @@ impl KatanaRpcClient {
     }
 
     /// Fetch a TEE attestation quote from the Katana node.
-    pub async fn fetch_attestation(&self, prev_block_number: u64, block_number: u64) -> Result<TeeQuoteResponse, Error> {
+    pub async fn fetch_attestation(&self, prev_block_number: Option<u64>, block_number: u64) -> Result<TeeQuoteResponse, Error> {
         info!("Fetching TEE attestation from {}", self.url);
 
         #[derive(Serialize)]
         struct Request<'a> {
             jsonrpc: &'a str,
             method: &'a str,
-            params: [u64; 2],
+            params: Vec<u64>,
             id: u64,
         }
 
@@ -64,10 +64,16 @@ impl KatanaRpcClient {
             message: String,
         }
 
+        let mut params = Vec::new();
+        if let Some(prev) = prev_block_number {
+            params.push(prev);
+        }
+        params.push(block_number);
+
         let request = Request {
             jsonrpc: "2.0",
             method: "tee_generateQuote",
-            params: [prev_block_number, block_number],
+            params,
             id: 1,
         };
 
@@ -118,14 +124,14 @@ impl KatanaRpcClient {
     }
 
     /// Fetch attestation (blocking version for non-async contexts).
-    pub fn fetch_attestation_blocking(&self, prev_block_number: u64, block_number: u64) -> Result<TeeQuoteResponse, Error> {
+    pub fn fetch_attestation_blocking(&self, prev_block_number: Option<u64>, block_number: u64) -> Result<TeeQuoteResponse, Error> {
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| Error::Rpc(format!("Failed to create runtime: {}", e)))?;
         rt.block_on(self.fetch_attestation(prev_block_number, block_number))
     }
 
     /// Alias for `fetch_attestation` for consistency with RPC method name.
-    pub async fn generate_quote(&self, prev_block_number: u64, block_number: u64) -> Result<TeeQuoteResponse, Error> {
+    pub async fn generate_quote(&self, prev_block_number: Option<u64>, block_number: u64) -> Result<TeeQuoteResponse, Error> {
         self.fetch_attestation(prev_block_number, block_number).await
     }
 }
