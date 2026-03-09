@@ -51,6 +51,8 @@ impl IntegerSet {
     /// # Examples
     ///
     /// ```rust
+    /// use katana_db::models::list::IntegerSet;
+    ///
     /// let mut is = IntegerSet::new();
     /// assert_eq!(is.max(), None);
     ///
@@ -67,6 +69,8 @@ impl IntegerSet {
     /// # Examples
     ///
     /// ```rust
+    /// use katana_db::models::list::IntegerSet;
+    ///
     /// let mut is = IntegerSet::new();
     /// assert_eq!(is.min(), None);
     ///
@@ -87,6 +91,8 @@ impl IntegerSet {
     /// # Examples
     ///
     /// ```rust
+    /// use katana_db::models::list::IntegerSet;
+    ///
     /// let mut is = IntegerSet::new();
     /// is.insert(2);
     /// is.insert(3);
@@ -107,6 +113,8 @@ impl IntegerSet {
     /// # Examples
     ///
     /// ```rust
+    /// use katana_db::models::list::IntegerSet;
+    ///
     /// let mut is = IntegerSet::new();
     /// assert_eq!(is.len(), 0);
     ///
