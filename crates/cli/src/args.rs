@@ -14,7 +14,7 @@ use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_messaging::MessagingConfig;
-use katana_sequencer_node::config::db::{DbConfig, DbOpenMode};
+use katana_sequencer_node::config::db::DbConfig;
 use katana_sequencer_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
 use katana_sequencer_node::config::execution::ExecutionConfig;
 use katana_sequencer_node::config::fork::ForkingConfig;
@@ -70,9 +70,6 @@ pub struct SequencerNodeArgs {
     #[arg(value_name = "TOTAL")]
     pub block_cairo_steps_limit: Option<u64>,
 
-    #[command(flatten)]
-    pub db: DbOptions,
-
     /// Configuration file
     #[arg(long)]
     pub config: Option<PathBuf>,
@@ -91,6 +88,9 @@ pub struct SequencerNodeArgs {
     #[arg(help = "The Ethereum RPC provider to sample the gas prices from to enable the gas \
                   price oracle.")]
     pub l1_provider_url: Option<Url>,
+
+    #[command(flatten)]
+    pub db: DbOptions,
 
     #[command(flatten)]
     pub logging: LoggingOptions,

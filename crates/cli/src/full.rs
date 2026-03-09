@@ -1,8 +1,6 @@
-use std::path::PathBuf;
-
 use anyhow::{Context, Result};
 pub use clap::Parser;
-use katana_full_node::config::db::{DbConfig, DbOpenMode};
+use katana_full_node::config::db::DbConfig;
 use katana_full_node::config::metrics::MetricsConfig;
 use katana_full_node::config::rpc::RpcConfig;
 use katana_full_node::config::trie::TrieConfig;
@@ -21,9 +19,6 @@ pub struct FullNodeArgs {
     #[arg(long)]
     pub silent: bool,
 
-    #[command(flatten)]
-    pub db: DbOptions,
-
     #[arg(long)]
     pub network: Network,
 
@@ -31,6 +26,9 @@ pub struct FullNodeArgs {
     #[arg(long)]
     #[arg(value_name = "KEY")]
     pub gateway_api_key: Option<String>,
+
+    #[command(flatten)]
+    pub db: DbOptions,
 
     #[command(flatten)]
     pub logging: LoggingOptions,
@@ -130,8 +128,7 @@ impl FullNodeArgs {
     }
 
     fn db_config(&self) -> Result<DbConfig> {
-        let dir = self.db.dir.clone().context("database path must be provided")?;
-        Ok(DbConfig { dir: Some(dir), open_mode: self.db.open_mode })
+        Ok(DbConfig { dir: self.db.dir.clone(), open_mode: self.db.open_mode })
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {
