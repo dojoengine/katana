@@ -155,3 +155,7 @@ ClassDeclarationBlock ||--|| ClassDeclarations : "has"
 BlockNumbers ||--|| ClassDeclarations : ""
 StorageChangeSet }|--|{ StorageChangeHistory : "has"
 ```
+
+New receipt rows are stored as a receipt-specific envelope plus `zstd(postcard(receipt))`.
+Legacy rows without that envelope remain readable and are decoded as raw postcard bytes for
+backward compatibility.
