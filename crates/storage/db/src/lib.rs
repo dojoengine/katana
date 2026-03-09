@@ -35,7 +35,7 @@ const TERABYTE: usize = GIGABYTE * 1024;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum AccessMode {
     ReadOnly,
-    ReadWrite,
+    Writable,
 }
 
 impl AccessMode {
@@ -67,7 +67,7 @@ impl Db {
         let env = DbEnvBuilder::new().write().build(path)?;
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::ReadWrite)?;
+        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::Writable)?;
 
         Ok(Self { env, version })
     }
@@ -101,7 +101,7 @@ impl Db {
 
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::ReadWrite)?;
+        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::Writable)?;
 
         Ok(Self { env, version })
     }
@@ -132,7 +132,7 @@ impl Db {
 
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::ReadWrite)?;
+        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::Writable)?;
 
         Ok(Self { env, version })
     }
@@ -144,10 +144,10 @@ impl Db {
 
     // Open the database at the given `path` in read-write mode with an explicit open mode.
     pub fn open_with_mode<P: AsRef<Path>>(path: P, open_mode: DbOpenMode) -> anyhow::Result<Self> {
-        Self::open_inner(path, AccessMode::ReadWrite, open_mode)
+        Self::open_inner(path, AccessMode::Writable, open_mode)
     }
 
-    // Open the database at the given `path` in read-write mode.
+    // Open the database at the given `path` in read-only mode.
     pub fn open_ro<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         Self::open_ro_with_mode(path, DbOpenMode::Compat)
     }

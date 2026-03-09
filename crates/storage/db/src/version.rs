@@ -3,6 +3,8 @@ use std::fmt::Display;
 use std::fs::{self};
 use std::io::{Read, Write};
 use std::mem;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -105,7 +107,7 @@ pub(super) fn write_db_version_file(
     if path.exists() {
         let mut permissions = fs::metadata(&path)?.permissions();
         if permissions.readonly() {
-            permissions.set_readonly(false);
+            set_permissions_writable(&mut permissions);
             fs::set_permissions(&path, permissions)?;
         }
     }
@@ -114,7 +116,7 @@ pub(super) fn write_db_version_file(
     file.write_all(&version.0.to_be_bytes()).map_err(DatabaseVersionError::Io)?;
 
     let mut permissions = file.metadata()?.permissions();
-    permissions.set_readonly(true);
+    set_permissions_readonly(&mut permissions);
     file.set_permissions(permissions)?;
 
     Ok(version)
@@ -175,6 +177,26 @@ fn version_file_path(path: &Path) -> PathBuf {
     } else {
         path.to_path_buf()
     }
+}
+
+#[cfg(unix)]
+fn set_permissions_writable(permissions: &mut fs::Permissions) {
+    permissions.set_mode(permissions.mode() | 0o200);
+}
+
+#[cfg(not(unix))]
+fn set_permissions_writable(permissions: &mut fs::Permissions) {
+    permissions.set_readonly(false);
+}
+
+#[cfg(unix)]
+fn set_permissions_readonly(permissions: &mut fs::Permissions) {
+    permissions.set_mode(permissions.mode() & !0o222);
+}
+
+#[cfg(not(unix))]
+fn set_permissions_readonly(permissions: &mut fs::Permissions) {
+    permissions.set_readonly(true);
 }
 
 #[cfg(test)]
