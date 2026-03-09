@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use config::db::DbConfig;
+use config::gateway::GatewayConfig;
 use config::metrics::MetricsConfig;
 use config::rpc::{RpcConfig, RpcModuleKind};
 use config::trie::TrieConfig;
@@ -19,6 +20,7 @@ use katana_chain_spec::ChainSpec;
 use katana_executor::ExecutionFlags;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
+use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -75,6 +77,7 @@ pub struct Config {
     pub gateway_api_key: Option<String>,
     pub network: Network,
     pub trie: TrieConfig,
+    pub gateway: Option<GatewayConfig>,
 }
 
 #[derive(Debug)]
@@ -86,6 +89,7 @@ pub struct Node {
     pub task_manager: TaskManager,
     pub pipeline: Pipeline,
     pub rpc_server: RpcServer,
+    pub gateway_server: Option<GatewayServer<FullNodePool, PreconfStateFactory, DbProviderFactory>>,
     pub gateway_client: SequencerGateway,
     pub metrics_server: Option<MetricsServer<Prometheus>>,
     pub chain_tip_watcher: ChainTipWatcher<SequencerGateway>,
@@ -243,6 +247,22 @@ impl Node {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        // --- build feeder gateway server (optional)
+
+        let gateway_server = if let Some(gw_config) = &config.gateway {
+            let mut server = GatewayServer::new(starknet_api)
+                .health_check(true)
+                .metered(config.metrics.is_some());
+
+            if let Some(timeout) = gw_config.timeout {
+                server = server.timeout(timeout);
+            }
+
+            Some(server)
+        } else {
+            None
+        };
+
         // --- build metrics server (optional)
 
         let metrics_server = if config.metrics.is_some() {
@@ -264,6 +284,7 @@ impl Node {
             pool,
             pipeline,
             rpc_server,
+            gateway_server,
             task_manager,
             gateway_client,
             metrics_server,
@@ -333,6 +354,16 @@ impl Node {
 
         let rpc = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
 
+        // --- start the feeder gateway server (if configured)
+
+        let gateway_handle = match &self.gateway_server {
+            Some(server) => {
+                let config = self.config.gateway.as_ref().expect("qed; must exist");
+                Some(server.start(config.socket_addr()).await?)
+            }
+            None => None,
+        };
+
         Ok(LaunchedNode {
             db: self.db,
             config: self.config,
@@ -340,6 +371,7 @@ impl Node {
             pipeline: pipeline_handle,
             metrics: metrics_handle,
             rpc,
+            gateway: gateway_handle,
         })
     }
 }
@@ -351,6 +383,8 @@ pub struct LaunchedNode {
     pub config: Arc<Config>,
     pub rpc: RpcServerHandle,
     pub pipeline: PipelineHandle,
+    /// Handle to the gateway server (if enabled).
+    pub gateway: Option<GatewayServerHandle>,
     /// Handle to the metrics server (if enabled).
     pub metrics: Option<MetricsServerHandle>,
 }
@@ -358,6 +392,12 @@ pub struct LaunchedNode {
 impl LaunchedNode {
     pub async fn stop(&self) -> Result<()> {
         self.rpc.stop()?;
+
+        // Stop feeder gateway server if it's running
+        if let Some(handle) = &self.gateway {
+            handle.stop()?;
+        }
+
         self.pipeline.stop();
 
         self.pipeline.stopped().await;

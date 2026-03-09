@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 pub use clap::Parser;
 use katana_full_node::config::db::DbConfig;
+use katana_full_node::config::gateway::GatewayConfig;
 use katana_full_node::config::metrics::MetricsConfig;
 use katana_full_node::config::rpc::RpcConfig;
 use katana_full_node::config::trie::TrieConfig;
@@ -54,6 +55,10 @@ pub struct FullNodeArgs {
     #[cfg(feature = "explorer")]
     #[command(flatten)]
     pub explorer: ExplorerOptions,
+
+    #[cfg(feature = "server")]
+    #[command(flatten)]
+    pub gateway: GatewayOptions,
 
     #[command(flatten)]
     pub trie: TrieOptions,
@@ -110,12 +115,14 @@ impl FullNodeArgs {
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
         let pruning = self.pruning_config();
+        let gateway = self.gateway_config();
 
         Ok(katana_full_node::Config {
             db,
             rpc,
             metrics,
             pruning,
+            gateway,
             network: self.network,
             gateway_api_key: self.gateway_api_key.clone(),
             trie: TrieConfig { compute: !self.trie.disable },
@@ -132,6 +139,19 @@ impl FullNodeArgs {
         };
 
         katana_full_node::PruningConfig { distance }
+    }
+
+    fn gateway_config(&self) -> Option<GatewayConfig> {
+        #[cfg(feature = "server")]
+        if self.gateway.enable {
+            return Some(GatewayConfig {
+                addr: self.gateway.gateway_addr,
+                port: self.gateway.gateway_port,
+                timeout: Some(std::time::Duration::from_secs(self.gateway.gateway_timeout)),
+            });
+        }
+
+        None
     }
 
     fn db_config(&self) -> DbConfig {

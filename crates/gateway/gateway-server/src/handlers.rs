@@ -1,7 +1,6 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use katana_core::service::block_producer::BlockProducer;
 use katana_gateway_types::{
     Block, ConfirmedReceipt, ConfirmedTransaction, ContractClass, ErrorCode, GatewayError,
     ReceiptBody, StateUpdate, StateUpdateWithBlock,
@@ -13,25 +12,27 @@ use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
 use katana_provider_api::transaction::ReceiptProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_server::starknet::StarknetApi;
+use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use starknet::core::types::ResourcePrice;
 
 /// Shared application state containing the backend
-pub struct AppState<Pool, PF>
+pub struct AppState<Pool, PP, PF>
 where
     Pool: TransactionPool,
+    PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
-    pub api: StarknetApi<Pool, BlockProducer<PF>, PF>,
+    pub api: StarknetApi<Pool, PP, PF>,
 }
 
-impl<Pool, PF> Clone for AppState<Pool, PF>
+impl<Pool, PP, PF> Clone for AppState<Pool, PP, PF>
 where
     Pool: TransactionPool,
+    PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
@@ -41,9 +42,10 @@ where
     }
 }
 
-impl<P, PF> AppState<P, PF>
+impl<P, PP, PF> AppState<P, PP, PF>
 where
     P: TransactionPool + Send + Sync + 'static,
+    PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
@@ -178,12 +180,13 @@ pub async fn health() -> Json<serde_json::Value> {
 /// Handler for `/feeder_gateway/get_block` endpoint
 ///
 /// Returns block information for the specified block.
-pub async fn get_block<P, PF>(
-    State(state): State<AppState<P, PF>>,
+pub async fn get_block<P, PP, PF>(
+    State(state): State<AppState<P, PP, PF>>,
     Query(params): Query<BlockIdQuery>,
 ) -> Result<Json<Block>, ApiError>
 where
     P: TransactionPool + Send + Sync + 'static,
+    PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
@@ -205,12 +208,13 @@ pub enum GetStateUpdateResponse {
 /// Handler for `/feeder_gateway/get_state_update` endpoint
 ///
 /// Returns state update information for the specified block.
-pub async fn get_state_update<P, PF>(
-    State(state): State<AppState<P, PF>>,
+pub async fn get_state_update<P, PP, PF>(
+    State(state): State<AppState<P, PP, PF>>,
     Query(params): Query<StateUpdateQuery>,
 ) -> Result<Json<GetStateUpdateResponse>, ApiError>
 where
     P: TransactionPool + Send + Sync + 'static,
+    PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
@@ -233,12 +237,13 @@ where
 /// Handler for `/feeder_gateway/get_class_by_hash` endpoint
 ///
 /// Returns the contract class definition for a given class hash.
-pub async fn get_class_by_hash<P, PF>(
-    State(state): State<AppState<P, PF>>,
+pub async fn get_class_by_hash<P, PP, PF>(
+    State(state): State<AppState<P, PP, PF>>,
     Query(params): Query<ClassQuery>,
 ) -> Result<Json<ContractClass>, ApiError>
 where
     P: TransactionPool + Send + Sync + 'static,
+    PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
@@ -252,12 +257,13 @@ where
 /// Handler for `/feeder_gateway/get_compiled_class_by_class_hash` endpoint
 ///
 /// Returns the compiled (CASM) contract class for a given class hash.
-pub async fn get_compiled_class_by_class_hash<P, PF>(
-    State(state): State<AppState<P, PF>>,
+pub async fn get_compiled_class_by_class_hash<P, PP, PF>(
+    State(state): State<AppState<P, PP, PF>>,
     Query(params): Query<ClassQuery>,
 ) -> Result<Json<CompiledClass>, ApiError>
 where
     P: TransactionPool + Send + Sync + 'static,
+    PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,

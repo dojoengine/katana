@@ -543,7 +543,7 @@ impl SequencerNodeArgs {
 
     fn gateway_config(&self) -> Option<GatewayConfig> {
         #[cfg(feature = "server")]
-        if self.gateway.gateway_enable {
+        if self.gateway.enable {
             use std::time::Duration;
 
             Some(GatewayConfig {
