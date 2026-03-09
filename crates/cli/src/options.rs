@@ -20,6 +20,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::ContractAddress;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
+use katana_sequencer_node::config::db::DbOpenMode;
 use katana_sequencer_node::config::execution::{
     DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
 };
@@ -47,6 +48,45 @@ use crate::utils::{parse_block_hash_or_number, parse_genesis};
 const DEFAULT_DEV_SEED: &str = "0";
 const DEFAULT_DEV_ACCOUNTS: u16 = 10;
 const DEFAULT_LOG_FILE_MAX_FILES: usize = 7;
+
+/// Shared database-related node options.
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[command(next_help_heading = "Database options")]
+pub struct DbOptions {
+    /// Directory path of the database to initialize from.
+    ///
+    /// The path must either be an empty directory or a directory which already contains a
+    /// previously initialized Katana database.
+    #[arg(long = "data-dir", alias = "db-dir")]
+    #[arg(value_name = "PATH")]
+    #[serde(default, alias = "db_dir")]
+    pub dir: Option<PathBuf>,
+
+    /// How Katana should open supported older database versions.
+    #[arg(long = "db-open-mode")]
+    #[arg(default_value_t = DbOpenMode::Compat)]
+    #[arg(value_name = "MODE")]
+    #[serde(default)]
+    pub open_mode: DbOpenMode,
+}
+
+impl DbOptions {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.dir.is_none() {
+                self.dir = other.dir.clone();
+            }
+
+            if self.open_mode == DbOpenMode::Compat {
+                self.open_mode = other.open_mode;
+            }
+        }
+    }
+}
 
 #[cfg(feature = "server")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]

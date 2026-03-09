@@ -70,19 +70,8 @@ pub struct SequencerNodeArgs {
     #[arg(value_name = "TOTAL")]
     pub block_cairo_steps_limit: Option<u64>,
 
-    /// Directory path of the database to initialize from.
-    ///
-    /// The path must either be an empty directory or a directory which already contains a
-    /// previously initialized Katana database.
-    #[arg(long, alias = "db-dir")]
-    #[arg(value_name = "PATH")]
-    pub data_dir: Option<PathBuf>,
-
-    /// How Katana should open supported older database versions.
-    #[arg(long = "db-open-mode")]
-    #[arg(default_value_t = DbOpenMode::Compat)]
-    #[arg(value_name = "MODE")]
-    pub db_open_mode: DbOpenMode,
+    #[command(flatten)]
+    pub db: DbOptions,
 
     /// Configuration file
     #[arg(long)]
@@ -532,7 +521,7 @@ impl SequencerNodeArgs {
     }
 
     fn db_config(&self) -> DbConfig {
-        DbConfig { dir: self.data_dir.clone(), open_mode: self.db_open_mode }
+        DbConfig { dir: self.db.dir.clone(), open_mode: self.db.open_mode }
     }
 
     fn metrics_config(&self) -> Option<MetricsConfig> {
@@ -705,15 +694,7 @@ impl SequencerNodeArgs {
             self.block_time = config.block_time;
         }
 
-        if self.data_dir.is_none() {
-            self.data_dir = config.data_dir;
-        }
-
-        if self.db_open_mode == DbOpenMode::Compat {
-            if let Some(open_mode) = config.db_open_mode {
-                self.db_open_mode = open_mode;
-            }
-        }
+        self.db.merge(config.db.as_ref());
 
         if self.logging == LoggingOptions::default() {
             if let Some(logging) = config.logging {

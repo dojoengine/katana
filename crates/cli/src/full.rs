@@ -21,19 +21,8 @@ pub struct FullNodeArgs {
     #[arg(long)]
     pub silent: bool,
 
-    /// Directory path of the database to initialize from.
-    ///
-    /// The path must either be an empty directory or a directory which already contains a
-    /// previously initialized Katana database.
-    #[arg(long)]
-    #[arg(value_name = "PATH")]
-    pub db_dir: PathBuf,
-
-    /// How Katana should open supported older database versions.
-    #[arg(long = "db-open-mode")]
-    #[arg(default_value_t = DbOpenMode::Compat)]
-    #[arg(value_name = "MODE")]
-    pub db_open_mode: DbOpenMode,
+    #[command(flatten)]
+    pub db: DbOptions,
 
     #[arg(long)]
     pub network: Network,
@@ -112,7 +101,7 @@ impl FullNodeArgs {
     }
 
     fn config(&self) -> Result<katana_full_node::Config> {
-        let db = self.db_config();
+        let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
         let pruning = self.pruning_config();
@@ -140,8 +129,9 @@ impl FullNodeArgs {
         katana_full_node::PruningConfig { distance }
     }
 
-    fn db_config(&self) -> DbConfig {
-        DbConfig { dir: Some(self.db_dir.clone()), open_mode: self.db_open_mode }
+    fn db_config(&self) -> Result<DbConfig> {
+        let dir = self.db.dir.clone().context("database path must be provided")?;
+        Ok(DbConfig { dir: Some(dir), open_mode: self.db.open_mode })
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {
