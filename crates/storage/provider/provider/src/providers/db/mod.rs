@@ -15,7 +15,7 @@ use katana_db::models::contract::{
 use katana_db::models::list::BlockList;
 use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
-use katana_db::models::{VersionedHeader, VersionedTx};
+use katana_db::models::{ReceiptEnvelope, VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
 use katana_db::utils::KeyValue;
 use katana_primitives::block::{
@@ -605,8 +605,11 @@ impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
 impl<Tx: DbTx> ReceiptProvider for DbProvider<Tx> {
     fn receipt_by_hash(&self, hash: TxHash) -> ProviderResult<Option<Receipt>> {
         if let Some(num) = self.0.get::<tables::TxNumbers>(hash)? {
-            let receipt =
-                self.0.get::<tables::Receipts>(num)?.ok_or(ProviderError::MissingTxReceipt(num))?;
+            let receipt = self
+                .0
+                .get::<tables::Receipts>(num)?
+                .ok_or(ProviderError::MissingTxReceipt(num))
+                .map(Receipt::from)?;
 
             Ok(Some(receipt))
         } else {
@@ -624,7 +627,7 @@ impl<Tx: DbTx> ReceiptProvider for DbProvider<Tx> {
             let range = indices.tx_offset..indices.tx_offset + indices.tx_count;
             for i in range {
                 if let Some(receipt) = self.0.get::<tables::Receipts>(i)? {
-                    receipts.push(receipt);
+                    receipts.push(receipt.into());
                 }
             }
 
@@ -693,7 +696,9 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
         // Store transaction receipts
         for (i, receipt) in receipts.into_iter().enumerate() {
             let tx_number = tx_offset + i as u64;
-            self.0.put::<tables::Receipts>(tx_number, receipt)?;
+            // `Receipts` table stores a dedicated envelope so storage format can evolve without
+            // changing the in-memory `Receipt` type codec.
+            self.0.put::<tables::Receipts>(tx_number, ReceiptEnvelope::from(receipt))?;
         }
 
         // Store execution traces
