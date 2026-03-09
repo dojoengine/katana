@@ -13,11 +13,12 @@ pub struct DbConfig {
     /// the latest format version supported by the current Katana binary.
     ///
     /// [`DbOpenMode::Compat`] accepts any database version in Katana's supported compatibility
-    /// window. When opening an older supported database read-only, Katana leaves the stored
-    /// `db.version` unchanged. When opening the same database with write access, Katana
-    /// immediately rewrites `db.version` to the latest version before continuing. That preserves
-    /// the current binary's forward-compatibility guarantee, but older Katana binaries are no
-    /// longer guaranteed to read the database afterward.
+    /// window, which currently starts at version 5 (`1.6.0`) and ends at the latest version
+    /// supported by the current binary. When opening an older supported database read-only,
+    /// Katana leaves the stored `db.version` unchanged. When opening the same database with write
+    /// access, Katana immediately rewrites `db.version` to the latest version before continuing.
+    /// That preserves the current binary's forward-compatibility guarantee, but older Katana
+    /// binaries are no longer guaranteed to read the database afterward.
     ///
     /// [`DbOpenMode::Strict`] disables that compatibility window and only accepts the latest
     /// database version. Any older or newer version is rejected during startup.
