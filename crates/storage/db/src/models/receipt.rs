@@ -10,6 +10,15 @@ use crate::error::CodecError;
 ///
 /// New rows are written as `envelope + zstd(postcard(receipt))`.
 /// Rows without the envelope are treated as legacy postcard-only bytes.
+///
+/// ```text
+/// +---------+-----------+------------+--------------------------+
+/// | magic   | version   | encoding   | payload                  |
+/// | 4 bytes | 1 byte    | 1 byte     | variable length          |
+/// +---------+-----------+------------+--------------------------+
+/// | "KRCP"  | 0x01      | 0x01       | zstd(postcard(receipt))  |
+/// +---------+-----------+------------+--------------------------+
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiptEnvelope {
     pub receipt: Receipt,
