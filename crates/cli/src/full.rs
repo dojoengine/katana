@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 pub use clap::Parser;
-use katana_full_node::config::db::DbConfig;
+use katana_full_node::config::db::{DbConfig, DbOpenMode};
 use katana_full_node::config::metrics::MetricsConfig;
 use katana_full_node::config::rpc::RpcConfig;
 use katana_full_node::config::trie::TrieConfig;
@@ -28,6 +28,12 @@ pub struct FullNodeArgs {
     #[arg(long)]
     #[arg(value_name = "PATH")]
     pub db_dir: PathBuf,
+
+    /// How Katana should open supported older database versions.
+    #[arg(long = "db-open-mode")]
+    #[arg(default_value_t = DbOpenMode::Compat)]
+    #[arg(value_name = "MODE")]
+    pub db_open_mode: DbOpenMode,
 
     #[arg(long)]
     pub network: Network,
@@ -135,7 +141,7 @@ impl FullNodeArgs {
     }
 
     fn db_config(&self) -> DbConfig {
-        DbConfig { dir: Some(self.db_dir.clone()) }
+        DbConfig { dir: Some(self.db_dir.clone()), open_mode: self.db_open_mode }
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {
@@ -183,5 +189,41 @@ impl FullNodeArgs {
 
     fn tracer_config(&self) -> Option<katana_tracing::TracerConfig> {
         self.tracer.config()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_node_defaults_to_compat_db_open_mode() {
+        let args = FullNodeArgs::parse_from([
+            "katana",
+            "--db-dir",
+            "/tmp/katana-db",
+            "--network",
+            "mainnet",
+        ]);
+        let config = args.config().unwrap();
+
+        assert_eq!(config.db.dir, Some(PathBuf::from("/tmp/katana-db")));
+        assert_eq!(config.db.open_mode, DbOpenMode::Compat);
+    }
+
+    #[test]
+    fn full_node_accepts_strict_db_open_mode() {
+        let args = FullNodeArgs::parse_from([
+            "katana",
+            "--db-dir",
+            "/tmp/katana-db",
+            "--network",
+            "mainnet",
+            "--db-open-mode",
+            "strict",
+        ]);
+        let config = args.config().unwrap();
+
+        assert_eq!(config.db.open_mode, DbOpenMode::Strict);
     }
 }

@@ -9,6 +9,7 @@ use katana_db::error::DatabaseError;
 use katana_db::models::list::BlockList;
 use katana_db::models::trie::TrieDatabaseKey;
 use katana_db::tables::{self, Tables};
+use katana_db::version::DbOpenMode;
 use katana_primitives::block::BlockNumber;
 
 use super::open_db_ro;
@@ -20,6 +21,12 @@ pub struct PruneArgs {
     /// Path to the database directory.
     #[arg(short, long)]
     pub path: String,
+
+    /// How Katana should open supported older database versions.
+    #[arg(long = "db-open-mode")]
+    #[arg(default_value_t = DbOpenMode::Compat)]
+    #[arg(value_name = "MODE")]
+    pub open_mode: DbOpenMode,
 
     /// Keep only the latest trie state (remove all historical data).
     #[arg(long, conflicts_with = "keep_last_n")]
@@ -56,7 +63,7 @@ impl PruneArgs {
             return Ok(());
         }
 
-        prune_database(&self.path, mode)
+        prune_database(&self.path, self.open_mode, mode)
     }
 
     fn mode(&self) -> PruneMode {
@@ -78,7 +85,9 @@ impl PruneArgs {
     /// Collect statistics about what will be pruned
     fn collect_pruning_stats(&self) -> Result<PruningStats> {
         let mode = self.mode();
-        let tx = open_db_ro(&self.path)?.tx().context("Failed to create read transaction")?;
+        let tx = open_db_ro(&self.path, self.open_mode)?
+            .tx()
+            .context("Failed to create read transaction")?;
 
         match mode {
             PruneMode::Latest => count_all_historical_deletions(&tx),
@@ -89,8 +98,8 @@ impl PruneArgs {
 
 // If prune mode is KeepLastN and the value is more than the available blocks,
 // the operation will be a no-op (no data will be pruned).
-fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
-    let db = open_db_rw(db_path)?;
+fn prune_database(db_path: &str, open_mode: DbOpenMode, mode: PruneMode) -> Result<()> {
+    let db = open_db_rw(db_path, open_mode)?;
     let tx = db.tx_mut().context("Failed to create write transaction")?;
 
     let latest_block = get_latest_block_number(&tx)?;

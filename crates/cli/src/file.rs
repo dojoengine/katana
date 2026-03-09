@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use katana_messaging::MessagingConfig;
+use katana_sequencer_node::config::db::DbOpenMode;
 use serde::{Deserialize, Serialize};
 
 use crate::options::*;
@@ -15,6 +16,7 @@ pub struct NodeArgsConfig {
     pub block_cairo_steps_limit: Option<u64>,
     #[serde(alias = "db_dir")]
     pub data_dir: Option<PathBuf>,
+    pub db_open_mode: Option<DbOpenMode>,
     pub messaging: Option<MessagingConfig>,
     pub logging: Option<LoggingOptions>,
     pub starknet: Option<StarknetOptions>,
@@ -55,6 +57,7 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
             block_time: args.block_time,
             block_cairo_steps_limit: args.block_cairo_steps_limit,
             data_dir: args.data_dir,
+            db_open_mode: (args.db_open_mode != DbOpenMode::Compat).then_some(args.db_open_mode),
             messaging: args.messaging,
             ..Default::default()
         };

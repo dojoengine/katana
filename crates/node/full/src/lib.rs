@@ -58,6 +58,7 @@ use crate::pool::{FullNodePool, GatewayProxyValidator};
     strum::Display,
     strum::EnumString,
 )]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum Network {
     #[default]
     Mainnet,
@@ -110,7 +111,7 @@ impl Node {
 
         info!(target: "node", path = %path.display(), "Initializing database.");
 
-        let db = katana_db::Db::new(path)?;
+        let db = katana_db::Db::new_with_mode(path, config.db.open_mode)?;
         let storage_provider = DbProviderFactory::new(db.clone());
 
         // --- build gateway client

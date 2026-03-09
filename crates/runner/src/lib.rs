@@ -9,7 +9,7 @@ use std::thread;
 use anyhow::{Context, Result};
 use assert_fs::TempDir;
 pub use dev::KatanaDevClient;
-use katana_node_bindings::{Katana, KatanaInstance};
+use katana_node_bindings::{DbOpenMode, Katana, KatanaInstance};
 pub use katana_runner_macro::test;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, Felt};
@@ -69,6 +69,8 @@ pub struct KatanaRunnerConfig {
     pub messaging: Option<String>,
     /// The path to the database dir.
     pub db_dir: Option<PathBuf>,
+    /// How Katana should open supported older database versions.
+    pub db_open_mode: DbOpenMode,
     /// Whether to run the katana runner with the `dev` rpc endpoints.
     pub dev: bool,
     /// The chain id to use.
@@ -89,6 +91,7 @@ impl Default for KatanaRunnerConfig {
             log_path: None,
             messaging: None,
             db_dir: None,
+            db_open_mode: DbOpenMode::Compat,
             dev: false,
             chain_id: None,
             no_mining: false,
@@ -99,6 +102,11 @@ impl Default for KatanaRunnerConfig {
 impl KatanaRunnerConfig {
     pub fn with_db_dir(mut self, db_dir: &str) -> Self {
         self.db_dir = Some(PathBuf::from(db_dir));
+        self
+    }
+
+    pub fn with_db_open_mode(mut self, db_open_mode: DbOpenMode) -> Self {
+        self.db_open_mode = db_open_mode;
         self
     }
 }
@@ -151,6 +159,10 @@ impl KatanaRunner {
 
         if let Some(path) = config.db_dir {
             builder = builder.data_dir(path);
+        }
+
+        if config.db_open_mode != DbOpenMode::Compat {
+            builder = builder.db_open_mode(config.db_open_mode);
         }
 
         builder = builder.no_mining(config.no_mining);

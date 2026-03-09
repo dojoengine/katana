@@ -16,4 +16,5 @@ katana-provider.workspace = true
 
 anyhow.workspace = true
 starknet.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = [ "full" ] }

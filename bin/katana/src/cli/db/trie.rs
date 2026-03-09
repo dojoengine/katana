@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Subcommand};
+use katana_db::version::DbOpenMode;
 use katana_primitives::block::BlockHashOrNumber;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::Felt;
@@ -17,6 +18,12 @@ pub struct TrieArgs {
     /// Path to the database directory.
     #[arg(short, long)]
     pub path: String,
+
+    /// How Katana should open supported older database versions.
+    #[arg(long = "db-open-mode")]
+    #[arg(default_value_t = DbOpenMode::Compat)]
+    #[arg(value_name = "MODE")]
+    pub open_mode: DbOpenMode,
 
     /// Block number to inspect. Defaults to the latest state when omitted.
     #[arg(short, long)]
@@ -66,7 +73,7 @@ impl TrieArgs {
     }
 
     fn state_provider(&self) -> Result<Box<dyn StateProvider>> {
-        let pf = DbProviderFactory::new(open_db_ro(&self.path)?);
+        let pf = DbProviderFactory::new(open_db_ro(&self.path, self.open_mode)?);
         let provider = pf.provider();
 
         match self.block {
