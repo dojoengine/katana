@@ -23,7 +23,7 @@ use self::tx::Tx;
 
 /// MDBX allows up to 32767 readers (`MDBX_READERS_LIMIT`), but we limit it to slightly below that
 const DEFAULT_MAX_READERS: u64 = 32_000;
-const DEFAULT_MAX_SIZE: usize = TERABYTE;
+const DEFAULT_MAX_SIZE: usize = TERABYTE * 2; // 2TB
 const DEFAULT_GROWTH_STEP: isize = 4 * GIGABYTE as isize;
 
 /// Builder for configuring and creating a [`DbEnv`].
