@@ -15,6 +15,9 @@ pub struct ReceiptEnvelope {
     pub receipt: Receipt,
 }
 
+// 4-byte ASCII magic used to identify a Katana receipt envelope.
+// Convention: `K` + 3-byte payload identifier, so future table envelopes can follow the same
+// recognizable, debuggable namespace pattern.
 const RECEIPT_MAGIC: &[u8; 4] = b"KRCP";
 const RECEIPT_FORMAT_VERSION: u8 = 1;
 const RECEIPT_ENCODING_ZSTD: u8 = 1;
