@@ -91,7 +91,7 @@ impl Default for MetricsOptions {
 #[command(next_help_heading = "Gateway options")]
 pub struct GatewayOptions {
     /// Enable the gateway server.
-    #[arg(long = "gateway", id = "gateway_enabled")]
+    #[arg(long = "gateway", id = "gateway_enable")]
     #[serde(default)]
     pub enable: bool,
 
