@@ -6840,6 +6840,7 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",
+ "katana-starknet",
  "katana-tasks",
  "katana-trie",
  "num-traits",

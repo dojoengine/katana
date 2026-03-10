@@ -15,7 +15,7 @@ use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
-use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
+use katana_stage::blocks::{BatchBlockDownloader, BlockData, BlockDownloader, Blocks};
 use katana_stage::{Stage, StageExecutionInput};
 use rstest::rstest;
 use starknet::core::types::ResourcePrice;
@@ -80,8 +80,7 @@ impl BlockDownloader for MockBlockDownloader {
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
-    {
+    ) -> impl Future<Output = anyhow::Result<Vec<BlockData>>> + Send {
         async move {
             let block_numbers: Vec<BlockNumber> = (from..=to).collect();
 
@@ -93,20 +92,15 @@ impl BlockDownloader for MockBlockDownloader {
 
             for block_num in block_numbers {
                 match responses.get(&block_num) {
-                    Some(Ok(block_data)) => results.push(block_data.clone()),
+                    Some(Ok(block_data)) => results.push(BlockData::from(block_data.clone())),
                     Some(Err(error)) => {
-                        return Err(katana_gateway_client::Error::Sequencer(GatewayError {
-                            code: ErrorCode::BlockNotFound,
-                            message: error.clone(),
-                            problems: None,
-                        }))
+                        anyhow::bail!("{error}");
                     }
                     None => {
-                        return Err(katana_gateway_client::Error::Sequencer(GatewayError {
-                            code: ErrorCode::BlockNotFound,
-                            message: format!("No response configured for block {}", block_num),
-                            problems: None,
-                        }))
+                        anyhow::bail!(
+                            "No response configured for block {}",
+                            block_num
+                        );
                     }
                 }
             }

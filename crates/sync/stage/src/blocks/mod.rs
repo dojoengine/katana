@@ -1,24 +1,16 @@
 use anyhow::Result;
 use futures::future::BoxFuture;
-use katana_gateway_types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::{
     FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::chain::ChainId;
-use katana_primitives::fee::{FeeInfo, PriceUnit};
-use katana_primitives::receipt::{
-    DeclareTxReceipt, DeployAccountTxReceipt, DeployTxReceipt, InvokeTxReceipt, L1HandlerTxReceipt,
-    Receipt, ReceiptWithTxHash,
-};
-use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::transaction::{Tx, TxWithHash};
+use katana_primitives::receipt::{Receipt, ReceiptWithTxHash};
+use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use katana_trie::compute_merkle_root;
-use num_traits::ToPrimitive;
-use starknet::core::types::ResourcePrice;
 use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 use tracing::{error, info_span, warn, Instrument};
 
@@ -30,7 +22,255 @@ use crate::{
 mod downloader;
 pub mod hash;
 
+pub use downloader::json_rpc::JsonRpcBlockDownloader;
 pub use downloader::{BatchBlockDownloader, BlockDownloader};
+
+/// The block data produced by a [`BlockDownloader`].
+///
+/// This is a source-agnostic representation of downloaded block data containing
+/// everything needed by the [`Blocks`] stage.
+pub struct BlockData {
+    pub block: SealedBlockWithStatus,
+    pub receipts: Vec<Receipt>,
+    pub state_updates: StateUpdatesWithClasses,
+}
+
+impl BlockData {
+    /// Converts a JSON-RPC block-with-receipts response and state update into [`BlockData`].
+    pub fn from_rpc(
+        block_resp: katana_rpc_types::GetBlockWithReceiptsResponse,
+        state_update: katana_rpc_types::StateUpdate,
+    ) -> Result<Self> {
+        use katana_primitives::state::StateUpdates;
+        use katana_primitives::transaction::TxWithHash;
+        use katana_rpc_types::block::{BlockWithReceipts, GetBlockWithReceiptsResponse};
+        use num_traits::ToPrimitive;
+        use starknet::core::types::ResourcePrice;
+
+        fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
+            let eth = prices.price_in_wei.to_u128().expect("valid u128");
+            let strk = prices.price_in_fri.to_u128().expect("valid u128");
+            let eth = if eth == 0 { 1 } else { eth };
+            let strk = if strk == 0 { 1 } else { strk };
+            unsafe { GasPrices::new_unchecked(eth, strk) }
+        }
+
+        let BlockWithReceipts {
+            status,
+            block_hash,
+            parent_hash,
+            block_number,
+            new_root,
+            timestamp,
+            sequencer_address,
+            l1_gas_price,
+            l2_gas_price,
+            l1_data_gas_price,
+            l1_da_mode,
+            starknet_version,
+            transactions: tx_with_receipts,
+        } = match block_resp {
+            GetBlockWithReceiptsResponse::Block(b) => b,
+            GetBlockWithReceiptsResponse::PreConfirmed(_) => {
+                anyhow::bail!("pre-confirmed blocks are not supported for syncing");
+            }
+        };
+
+        let mut transactions = Vec::with_capacity(tx_with_receipts.len());
+        let mut receipts = Vec::with_capacity(tx_with_receipts.len());
+
+        for tx_receipt in tx_with_receipts {
+            let tx_with_hash = katana_rpc_types::RpcTxWithHash {
+                transaction_hash: tx_receipt.receipt.transaction_hash,
+                transaction: tx_receipt.transaction,
+            };
+            let tx: TxWithHash = tx_with_hash.into();
+            let receipt: Receipt = tx_receipt.receipt.receipt.into();
+            transactions.push(tx);
+            receipts.push(receipt);
+        }
+
+        let transaction_count = transactions.len() as u32;
+        let events_count = receipts.iter().map(|r| r.events().len() as u32).sum::<u32>();
+
+        let block = SealedBlock {
+            body: transactions,
+            hash: block_hash,
+            header: Header {
+                transaction_count,
+                events_count,
+                timestamp,
+                l1_da_mode,
+                parent_hash,
+                number: block_number,
+                state_root: new_root,
+                sequencer_address,
+                l1_gas_prices: to_gas_prices(l1_gas_price),
+                l2_gas_prices: to_gas_prices(l2_gas_price),
+                l1_data_gas_prices: to_gas_prices(l1_data_gas_price),
+                starknet_version: starknet_version.try_into().unwrap(),
+                // RPC doesn't return commitments; they'll be computed by
+                // `compute_missing_commitments`
+                events_commitment: Felt::ZERO,
+                receipts_commitment: Felt::ZERO,
+                transactions_commitment: Felt::ZERO,
+                state_diff_length: Default::default(),
+                state_diff_commitment: Default::default(),
+            },
+        };
+
+        let state_updates: StateUpdates = match state_update {
+            katana_rpc_types::StateUpdate::Confirmed(update) => update.state_diff.into(),
+            katana_rpc_types::StateUpdate::PreConfirmed(update) => update.state_diff.into(),
+        };
+
+        let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
+
+        Ok(BlockData { block: SealedBlockWithStatus { block, status }, receipts, state_updates })
+    }
+}
+
+/// Converts gateway [`StateUpdateWithBlock`] into [`BlockData`].
+impl From<katana_gateway_types::StateUpdateWithBlock> for BlockData {
+    fn from(data: katana_gateway_types::StateUpdateWithBlock) -> Self {
+        use katana_gateway_types::{BlockStatus, StateUpdate as GatewayStateUpdate};
+        use katana_primitives::fee::{FeeInfo, PriceUnit};
+        use katana_primitives::receipt::{
+            DeclareTxReceipt, DeployAccountTxReceipt, DeployTxReceipt, InvokeTxReceipt,
+            L1HandlerTxReceipt,
+        };
+        use katana_primitives::state::StateUpdates;
+        use katana_primitives::transaction::{Tx, TxWithHash};
+        use num_traits::ToPrimitive;
+        use starknet::core::types::ResourcePrice;
+
+        fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
+            let eth = prices.price_in_wei.to_u128().expect("valid u128");
+            let strk = prices.price_in_fri.to_u128().expect("valid u128");
+            let eth = if eth == 0 { 1 } else { eth };
+            let strk = if strk == 0 { 1 } else { strk };
+            unsafe { GasPrices::new_unchecked(eth, strk) }
+        }
+
+        let status = match data.block.status {
+            BlockStatus::AcceptedOnL2 => FinalityStatus::AcceptedOnL2,
+            BlockStatus::AcceptedOnL1 => FinalityStatus::AcceptedOnL1,
+            status => panic!("unsupported block status: {status:?}"),
+        };
+
+        let transactions = data
+            .block
+            .transactions
+            .into_iter()
+            .map(|tx| tx.try_into())
+            .collect::<std::result::Result<Vec<TxWithHash>, _>>()
+            .expect("valid transaction conversion");
+
+        let receipts = data
+            .block
+            .transaction_receipts
+            .into_iter()
+            .zip(transactions.iter())
+            .map(|(receipt, tx)| {
+                let events = receipt.body.events;
+                let revert_error = receipt.body.revert_error;
+                let messages_sent = receipt.body.l2_to_l1_messages;
+                let overall_fee = receipt.body.actual_fee.to_u128().expect("valid u128");
+                let execution_resources = receipt.body.execution_resources.unwrap_or_default();
+
+                let unit = if tx.transaction.version() >= Felt::THREE {
+                    PriceUnit::Fri
+                } else {
+                    PriceUnit::Wei
+                };
+
+                let fee = FeeInfo { unit, overall_fee, ..Default::default() };
+
+                match &tx.transaction {
+                    Tx::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
+                        fee,
+                        events,
+                        revert_error,
+                        messages_sent,
+                        execution_resources: execution_resources.into(),
+                    }),
+                    Tx::Declare(_) => Receipt::Declare(DeclareTxReceipt {
+                        fee,
+                        events,
+                        revert_error,
+                        messages_sent,
+                        execution_resources: execution_resources.into(),
+                    }),
+                    Tx::L1Handler(_) => Receipt::L1Handler(L1HandlerTxReceipt {
+                        fee,
+                        events,
+                        messages_sent,
+                        revert_error,
+                        message_hash: Default::default(),
+                        execution_resources: execution_resources.into(),
+                    }),
+                    Tx::DeployAccount(tx) => Receipt::DeployAccount(DeployAccountTxReceipt {
+                        fee,
+                        events,
+                        revert_error,
+                        messages_sent,
+                        contract_address: tx.contract_address(),
+                        execution_resources: execution_resources.into(),
+                    }),
+                    Tx::Deploy(tx) => Receipt::Deploy(DeployTxReceipt {
+                        fee,
+                        events,
+                        revert_error,
+                        messages_sent,
+                        contract_address: tx.contract_address.into(),
+                        execution_resources: execution_resources.into(),
+                    }),
+                }
+            })
+            .collect::<Vec<Receipt>>();
+
+        let transaction_count = transactions.len() as u32;
+        let events_count = receipts.iter().map(|r| r.events().len() as u32).sum::<u32>();
+
+        let block = SealedBlock {
+            body: transactions,
+            hash: data.block.block_hash.unwrap_or_default(),
+            header: Header {
+                transaction_count,
+                events_count,
+                timestamp: data.block.timestamp,
+                l1_da_mode: data.block.l1_da_mode,
+                parent_hash: data.block.parent_block_hash,
+                state_diff_length: Default::default(),
+                state_diff_commitment: Default::default(),
+                number: data.block.block_number.unwrap_or_default(),
+                l1_gas_prices: to_gas_prices(data.block.l1_gas_price),
+                l2_gas_prices: to_gas_prices(data.block.l2_gas_price),
+                state_root: data.block.state_root.unwrap_or_default(),
+                l1_data_gas_prices: to_gas_prices(data.block.l1_data_gas_price),
+                starknet_version: data
+                    .block
+                    .starknet_version
+                    .unwrap_or_default()
+                    .try_into()
+                    .unwrap(),
+                events_commitment: data.block.event_commitment.unwrap_or_default(),
+                receipts_commitment: data.block.receipt_commitment.unwrap_or_default(),
+                sequencer_address: data.block.sequencer_address.unwrap_or_default(),
+                transactions_commitment: data.block.transaction_commitment.unwrap_or_default(),
+            },
+        };
+
+        let state_updates: StateUpdates = match data.state_update {
+            GatewayStateUpdate::Confirmed(update) => update.state_diff.into(),
+            GatewayStateUpdate::PreConfirmed(update) => update.state_diff.into(),
+        };
+
+        let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
+
+        BlockData { block: SealedBlockWithStatus { block, status }, receipts, state_updates }
+    }
+}
 
 /// A stage for syncing blocks.
 #[derive(Debug)]
@@ -50,15 +290,13 @@ impl<B> Blocks<B> {
     ///
     /// This method checks the chain invariant: block N's parent hash must be block N-1's hash.
     /// For the first block in the list (if not block 0), it fetches the parent hash from storage.
-    fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error> {
+    fn validate_chain_invariant(&self, blocks: &[BlockData]) -> Result<(), Error> {
         if blocks.is_empty() {
             return Ok(());
         }
 
-        // Validate the first block against its parent in storage (if not block 0)
-        let first_block = &blocks[0].block;
-        let first_block_num =
-            first_block.block_number.expect("only confirmed blocks are synced atm");
+        let first_block = &blocks[0].block.block;
+        let first_block_num = first_block.header.number;
 
         if first_block_num > 0 {
             let parent_block_num = first_block_num - 1;
@@ -68,27 +306,26 @@ impl<B> Blocks<B> {
                 .block_hash_by_num(parent_block_num)?
                 .ok_or(ProviderError::MissingBlockHash(parent_block_num))?;
 
-            if first_block.parent_block_hash != expected_parent_hash {
+            if first_block.header.parent_hash != expected_parent_hash {
                 return Err(Error::ChainInvariantViolation {
                     block_num: first_block_num,
-                    parent_hash: first_block.parent_block_hash,
+                    parent_hash: first_block.header.parent_hash,
                     expected_hash: expected_parent_hash,
                 });
             }
         }
 
-        // Validate the rest of the blocks in the list
         for window in blocks.windows(2) {
-            let prev_block = &window[0].block;
-            let curr_block = &window[1].block;
+            let prev_block = &window[0].block.block;
+            let curr_block = &window[1].block.block;
 
-            let prev_hash = prev_block.block_hash.unwrap_or_default();
-            let curr_block_num = curr_block.block_number.unwrap_or_default();
+            let prev_hash = prev_block.hash;
+            let curr_block_num = curr_block.header.number;
 
-            if curr_block.parent_block_hash != prev_hash {
+            if curr_block.header.parent_hash != prev_hash {
                 return Err(Error::ChainInvariantViolation {
                     block_num: curr_block_num,
-                    parent_hash: curr_block.parent_block_hash,
+                    parent_hash: curr_block.header.parent_hash,
                     expected_hash: prev_hash,
                 });
             }
@@ -113,7 +350,7 @@ where
                 .download_blocks(input.from(), input.to())
                 .instrument(info_span!(target: "stage", "blocks.download", from = %input.from(), to = %input.to()))
                 .await
-                .map_err(Error::Gateway)?;
+                .map_err(Error::Download)?;
 
             let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
             let _enter = span.enter();
@@ -123,11 +360,11 @@ where
 
             let provider_mut = self.provider.provider_mut();
 
-            for block in blocks {
-                let (mut block, receipts, state_updates) = extract_block_data(block)?;
+            for block_data in blocks {
+                let BlockData { mut block, receipts, state_updates } = block_data;
                 let block_number = block.block.header.number;
 
-                // Compute missing commitments for older blocks where the gateway
+                // Compute missing commitments for older blocks where the source
                 // doesn't include them in the block header.
                 compute_missing_commitments(&mut block.block, &receipts);
 
@@ -169,9 +406,9 @@ where
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Error returnd by the client used to download the classes from.
+    /// Error returned by the block downloader.
     #[error(transparent)]
-    Gateway(#[from] katana_gateway_client::Error),
+    Download(anyhow::Error),
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
@@ -189,137 +426,10 @@ pub enum Error {
     BlockHashMismatch { block_num: u64, expected: Felt, computed: Felt },
 }
 
-fn extract_block_data(
-    data: StateUpdateWithBlock,
-) -> Result<(SealedBlockWithStatus, Vec<Receipt>, StateUpdatesWithClasses)> {
-    fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
-        let eth = prices.price_in_wei.to_u128().expect("valid u128");
-        let strk = prices.price_in_fri.to_u128().expect("valid u128");
-        // older blocks might have zero gas prices (recent Starknet upgrade has made the minimum gas
-        // prices to 1) we may need to handle this case if we want to be able to compute the
-        // block hash correctly
-        let eth = if eth == 0 { 1 } else { eth };
-        let strk = if strk == 0 { 1 } else { strk };
-        unsafe { GasPrices::new_unchecked(eth, strk) }
-    }
-
-    let status = match data.block.status {
-        BlockStatus::AcceptedOnL2 => FinalityStatus::AcceptedOnL2,
-        BlockStatus::AcceptedOnL1 => FinalityStatus::AcceptedOnL1,
-        status => panic!("unsupported block status: {status:?}"),
-    };
-
-    let transactions = data
-        .block
-        .transactions
-        .into_iter()
-        .map(|tx| tx.try_into())
-        .collect::<Result<Vec<TxWithHash>, _>>()?;
-
-    let receipts = data
-        .block
-        .transaction_receipts
-        .into_iter()
-        .zip(transactions.iter())
-        .map(|(receipt, tx)| {
-            let events = receipt.body.events;
-            let revert_error = receipt.body.revert_error;
-            let messages_sent = receipt.body.l2_to_l1_messages;
-            let overall_fee = receipt.body.actual_fee.to_u128().expect("valid u128");
-            let execution_resources = receipt.body.execution_resources.unwrap_or_default();
-
-            let unit = if tx.transaction.version() >= Felt::THREE {
-                PriceUnit::Fri
-            } else {
-                PriceUnit::Wei
-            };
-
-            let fee = FeeInfo { unit, overall_fee, ..Default::default() };
-
-            match &tx.transaction {
-                Tx::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
-                    fee,
-                    events,
-                    revert_error,
-                    messages_sent,
-                    execution_resources: execution_resources.into(),
-                }),
-                Tx::Declare(_) => Receipt::Declare(DeclareTxReceipt {
-                    fee,
-                    events,
-                    revert_error,
-                    messages_sent,
-                    execution_resources: execution_resources.into(),
-                }),
-                Tx::L1Handler(_) => Receipt::L1Handler(L1HandlerTxReceipt {
-                    fee,
-                    events,
-                    messages_sent,
-                    revert_error,
-                    message_hash: Default::default(),
-                    execution_resources: execution_resources.into(),
-                }),
-                Tx::DeployAccount(tx) => Receipt::DeployAccount(DeployAccountTxReceipt {
-                    fee,
-                    events,
-                    revert_error,
-                    messages_sent,
-                    contract_address: tx.contract_address(),
-                    execution_resources: execution_resources.into(),
-                }),
-                Tx::Deploy(tx) => Receipt::Deploy(DeployTxReceipt {
-                    fee,
-                    events,
-                    revert_error,
-                    messages_sent,
-                    contract_address: tx.contract_address.into(),
-                    execution_resources: execution_resources.into(),
-                }),
-            }
-        })
-        .collect::<Vec<Receipt>>();
-
-    let transaction_count = transactions.len() as u32;
-    let events_count = receipts.iter().map(|r| r.events().len() as u32).sum::<u32>();
-
-    let block = SealedBlock {
-        body: transactions,
-        hash: data.block.block_hash.unwrap_or_default(),
-        header: Header {
-            transaction_count,
-            events_count,
-            timestamp: data.block.timestamp,
-            l1_da_mode: data.block.l1_da_mode,
-            parent_hash: data.block.parent_block_hash,
-            state_diff_length: Default::default(),
-            state_diff_commitment: Default::default(),
-            number: data.block.block_number.unwrap_or_default(),
-            l1_gas_prices: to_gas_prices(data.block.l1_gas_price),
-            l2_gas_prices: to_gas_prices(data.block.l2_gas_price),
-            state_root: data.block.state_root.unwrap_or_default(),
-            l1_data_gas_prices: to_gas_prices(data.block.l1_data_gas_price),
-            starknet_version: data.block.starknet_version.unwrap_or_default().try_into().unwrap(),
-            events_commitment: data.block.event_commitment.unwrap_or_default(),
-            receipts_commitment: data.block.receipt_commitment.unwrap_or_default(),
-            sequencer_address: data.block.sequencer_address.unwrap_or_default(),
-            transactions_commitment: data.block.transaction_commitment.unwrap_or_default(),
-        },
-    };
-
-    let state_updates: StateUpdates = match data.state_update {
-        GatewayStateUpdate::Confirmed(update) => update.state_diff.into(),
-        GatewayStateUpdate::PreConfirmed(update) => update.state_diff.into(),
-    };
-
-    let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
-
-    Ok((SealedBlockWithStatus { block, status }, receipts, state_updates))
-}
-
-/// Computes missing block commitments that older gateway blocks don't include.
+/// Computes missing block commitments that older blocks don't include.
 ///
-/// For blocks before 0.13.2, the gateway may return zero for transaction and event
-/// commitments. For receipt commitment, the gateway may not include it at all for
+/// For blocks before 0.13.2, the source may return zero for transaction and event
+/// commitments. For receipt commitment, the source may not include it at all for
 /// older blocks. This function computes them locally so that block hash verification
 /// can succeed.
 fn compute_missing_commitments(block: &mut SealedBlock, receipts: &[Receipt]) {
@@ -376,7 +486,7 @@ fn compute_missing_commitments(block: &mut SealedBlock, receipts: &[Receipt]) {
         };
     }
 
-    // Receipt commitment: only used in post-0.13.2 block hashes. The gateway may not
+    // Receipt commitment: only used in post-0.13.2 block hashes. The source may not
     // include it, so we compute it when missing.
     if block.header.receipts_commitment == Felt::ZERO && version >= StarknetVersion::V0_13_2 {
         let receipt_hashes: Vec<Felt> = receipts

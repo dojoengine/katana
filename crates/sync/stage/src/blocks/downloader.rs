@@ -3,7 +3,7 @@
 //! This module defines the [`BlockDownloader`] trait, which provides a stage-specific
 //! interface for downloading block data. The trait is designed to be flexible and can
 //! be implemented in various ways depending on the download strategy and data source
-//! (e.g., gateway-based, P2P-based, or custom implementations).
+//! (e.g., gateway-based, JSON-RPC-based, P2P-based, or custom implementations).
 //!
 //! [`BatchBlockDownloader`] is one such implementation that leverages the generic
 //! [`BatchDownloader`](crate::downloader::BatchDownloader) utility for concurrent
@@ -13,31 +13,26 @@
 use std::future::Future;
 
 use anyhow::Result;
-use katana_gateway_client::Client as GatewayClient;
-use katana_gateway_types::StateUpdateWithBlock;
 use katana_primitives::block::BlockNumber;
 
+use super::BlockData;
 use crate::downloader::{BatchDownloader, Downloader};
 
 /// Trait for downloading block data.
 ///
 /// This trait provides a stage-specific abstraction for downloading blocks, allowing different
-/// implementations (e.g., gateway-based, P2P-based, custom strategies) to be used with the
+/// implementations (e.g., gateway-based, JSON-RPC-based, custom strategies) to be used with the
 /// [`Blocks`](crate::blocks::Blocks) stage.
 ///
 /// Implementors can use any download strategy they choose, including but not limited to the
 /// [`BatchDownloader`](crate::downloader::BatchDownloader) utility provided by this crate.
-///
-/// Currently, it's still coupled with the gateway (as seen by the types used in the trait method)
-/// but this level of abstraction will allow for easier testing and preparation for future
-/// flexibility.
 pub trait BlockDownloader: Send + Sync {
-    /// Downloads blocks for the given block numbers.
+    /// Downloads blocks for the given block number range and returns them as [`BlockData`].
     fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<BlockData>>> + Send;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -61,49 +56,47 @@ impl<D> BatchBlockDownloader<D> {
     }
 }
 
-impl BatchBlockDownloader<impls::GatewayDownloader> {
-    /// Create a new [`BatchBlockDownloader`] using the Starknet gateway for downloading blocks.
-    pub fn new_gateway(
-        client: GatewayClient,
-        batch_size: usize,
-    ) -> BatchBlockDownloader<impls::GatewayDownloader> {
-        Self::new(impls::GatewayDownloader::new(client), batch_size)
-    }
-}
-
-impl<D> BlockDownloader for BatchBlockDownloader<D>
+impl<D, V> BlockDownloader for BatchBlockDownloader<D>
 where
-    D: Downloader<
-        Key = BlockNumber,
-        Value = StateUpdateWithBlock,
-        Error = katana_gateway_client::Error,
-    >,
+    D: Downloader<Key = BlockNumber, Value = V>,
     D: Send + Sync,
+    D::Error: Send + Sync + 'static,
+    V: Into<BlockData> + Send + Sync,
 {
     fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
-    {
-        // convert the range to a list of block keys
-        let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
-        self.inner.download(block_keys)
+    ) -> impl Future<Output = Result<Vec<BlockData>>> + Send {
+        async move {
+            let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
+            let results = self.inner.download(block_keys).await?;
+            Ok(results.into_iter().map(Into::into).collect())
+        }
     }
 }
 
-mod impls {
-    use std::future::Future;
-
-    use katana_gateway_client::{Client as GatewayClient, Error as GatewayClientError};
+pub mod gateway {
+    use katana_gateway_client::Client as GatewayClient;
     use katana_gateway_types::StateUpdateWithBlock;
     use katana_primitives::block::BlockNumber;
-    use tracing::error;
 
+    use super::BatchBlockDownloader;
     use crate::downloader::{Downloader, DownloaderResult};
 
+    impl BatchBlockDownloader<GatewayDownloader> {
+        /// Create a new [`BatchBlockDownloader`] using the Starknet gateway for downloading
+        /// blocks.
+        pub fn new_gateway(
+            client: GatewayClient,
+            batch_size: usize,
+        ) -> BatchBlockDownloader<GatewayDownloader> {
+            Self::new(GatewayDownloader::new(client), batch_size)
+        }
+    }
+
     /// Internal [`Downloader`] implementation that uses the sequencer gateway for downloading a
-    /// block. This is used by [`GatewayBlockDownloader`].
+    /// block.
     #[derive(Debug)]
     pub struct GatewayDownloader {
         gateway: GatewayClient,
@@ -124,7 +117,10 @@ mod impls {
         fn download(
             &self,
             key: &Self::Key,
-        ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+        ) -> impl std::future::Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+            use katana_gateway_client::Error as GatewayClientError;
+            use tracing::error;
+
             async {
                 match self.gateway.get_state_update_with_block((*key).into()).await.inspect_err(
                     |error| error!(block = %*key, ?error, "Error downloading block from gateway."),
@@ -136,6 +132,80 @@ mod impls {
                         _ => DownloaderResult::Err(err),
                     },
                 }
+            }
+        }
+    }
+}
+
+pub mod json_rpc {
+    use anyhow::Result;
+    use katana_primitives::block::{BlockIdOrTag, BlockNumber};
+    use katana_starknet::rpc::Client as JsonRpcClient;
+    use tracing::error;
+
+    use super::{BlockDownloader, BlockData};
+
+    /// A [`BlockDownloader`] that fetches blocks via JSON-RPC.
+    ///
+    /// This downloads blocks one at a time sequentially using
+    /// `starknet_getBlockWithReceipts` and `starknet_getStateUpdate`.
+    #[derive(Debug)]
+    pub struct JsonRpcBlockDownloader {
+        client: JsonRpcClient,
+    }
+
+    impl JsonRpcBlockDownloader {
+        pub fn new(client: JsonRpcClient) -> Self {
+            Self { client }
+        }
+    }
+
+    impl BlockDownloader for JsonRpcBlockDownloader {
+        fn download_blocks(
+            &self,
+            from: BlockNumber,
+            to: BlockNumber,
+        ) -> impl std::future::Future<Output = Result<Vec<BlockData>>> + Send {
+            async move {
+                let mut blocks = Vec::with_capacity((to - from + 1) as usize);
+
+                for block_num in from..=to {
+                    let block_id = BlockIdOrTag::Number(block_num);
+
+                    let (block_resp, state_update) = tokio::try_join!(
+                        async {
+                            self.client
+                                .get_block_with_receipts(block_id)
+                                .await
+                                .inspect_err(|e| {
+                                    error!(
+                                        block = %block_num,
+                                        error = %e,
+                                        "Error downloading block via JSON-RPC."
+                                    )
+                                })
+                                .map_err(|e| anyhow::anyhow!(e))
+                        },
+                        async {
+                            self.client
+                                .get_state_update(block_id)
+                                .await
+                                .inspect_err(|e| {
+                                    error!(
+                                        block = %block_num,
+                                        error = %e,
+                                        "Error downloading state update via JSON-RPC."
+                                    )
+                                })
+                                .map_err(|e| anyhow::anyhow!(e))
+                        },
+                    )?;
+
+                    let block_data = BlockData::from_rpc(block_resp, state_update)?;
+                    blocks.push(block_data);
+                }
+
+                Ok(blocks)
             }
         }
     }

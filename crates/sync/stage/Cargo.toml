@@ -15,6 +15,7 @@ katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-types.workspace = true
+katana-starknet.workspace = true
 katana-tasks.workspace = true
 katana-trie.workspace = true
 
