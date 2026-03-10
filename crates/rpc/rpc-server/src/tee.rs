@@ -90,7 +90,7 @@ where
 {
     async fn generate_quote(
         &self,
-        prev_block_id: BlockNumber,
+        prev_block_id: Option<BlockNumber>,
         block_id: BlockNumber,
     ) -> RpcResult<TeeQuoteResponse> {
         debug!(target: "rpc::tee", "Generating TEE attestation quote");
@@ -99,23 +99,31 @@ where
         let provider = self.provider_factory.provider();
 
         // Get latest block information
+        let (prev_block_number, prev_block_hash, prev_state_root) = match prev_block_id {
+            Some(num) => {
+                let hash = provider
+                    .block_hash_by_num(num)
+                    .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+                    .ok_or_else(|| {
+                        TeeApiError::ProviderError(format!("Block hash not found for block {num}"))
+                    })?;
+                let header = provider
+                    .header_by_number(num)
+                    .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+                    .ok_or_else(|| {
+                        TeeApiError::ProviderError(format!("Header not found for block {num}"))
+                    })?;
+                (Felt::from(num), hash, header.state_root)
+            }
+            None => {
+                (Felt::MAX, Felt::ZERO, Felt::ZERO)
+            }
+        };
 
-        let prev_block_hash = provider
-            .block_hash_by_num(prev_block_id)
-            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
-            .unwrap();
         let block_hash = provider
             .block_hash_by_num(block_id)
             .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
             .unwrap();
-
-        let prev_header = provider
-            .header_by_number(prev_block_id)
-            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
-            .ok_or_else(|| {
-                TeeApiError::ProviderError(format!("Header not found for block {prev_block_id}"))
-            })?;
-        let prev_state_root = prev_header.state_root;
 
         // Get the header to retrieve state_root
         let header = provider
@@ -133,7 +141,7 @@ where
             state_root,
             prev_block_hash,
             block_hash,
-            Felt::from(prev_block_id),
+            prev_block_number,
             Felt::from(block_id),
         );
 
@@ -157,8 +165,8 @@ where
             state_root,
             prev_block_hash,
             block_hash,
-            prev_block_number: prev_block_id,
-            block_number: block_id,
+            prev_block_number: prev_block_number,
+            block_number: Felt::from(block_id),
         })
     }
 }
