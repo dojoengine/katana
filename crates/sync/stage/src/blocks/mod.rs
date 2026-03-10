@@ -429,9 +429,9 @@ pub enum Error {
 /// Computes missing block commitments that older blocks don't include.
 ///
 /// For blocks before 0.13.2, the source may return zero for transaction and event
-/// commitments. For receipt commitment, the source may not include it at all for
-/// older blocks. This function computes them locally so that block hash verification
-/// can succeed.
+/// commitments - which is the case for the Starknet feeder gateway. For receipt commitment, the
+/// source may not include it at all for older blocks. This function computes them locally so that
+/// block hash verification can succeed.
 fn compute_missing_commitments(block: &mut SealedBlock, receipts: &[Receipt]) {
     let version = block.header.starknet_version;
 
