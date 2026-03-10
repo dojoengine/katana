@@ -28,6 +28,7 @@ pub use downloader::{BatchBlockDownloader, BlockDownloader};
 ///
 /// This is a source-agnostic representation of downloaded block data containing
 /// everything needed by the [`Blocks`] stage.
+#[derive(Debug)]
 pub struct BlockData {
     pub block: SealedBlockWithStatus,
     pub receipts: Vec<Receipt>,

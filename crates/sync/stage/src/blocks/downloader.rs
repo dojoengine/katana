@@ -66,16 +66,14 @@ where
 {
     type Error = D::Error;
 
-    fn download_blocks(
+    async fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<BlockData>, Self::Error>> + Send {
-        async move {
-            let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
-            let results = self.inner.download(block_keys).await?;
-            Ok(results.into_iter().map(Into::into).collect())
-        }
+    ) -> Result<Vec<BlockData>, Self::Error> {
+        let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
+        let results = self.inner.download(block_keys).await?;
+        Ok(results.into_iter().map(Into::into).collect())
     }
 }
 
@@ -174,52 +172,50 @@ pub mod json_rpc {
     impl BlockDownloader for JsonRpcBlockDownloader {
         type Error = Error;
 
-        fn download_blocks(
+        async fn download_blocks(
             &self,
             from: BlockNumber,
             to: BlockNumber,
-        ) -> impl std::future::Future<Output = Result<Vec<BlockData>, Self::Error>> + Send {
-            async move {
-                let mut blocks = Vec::with_capacity((to - from + 1) as usize);
+        ) -> Result<Vec<BlockData>, Self::Error> {
+            let mut blocks = Vec::with_capacity((to - from + 1) as usize);
 
-                for block_num in from..=to {
-                    let block_id = BlockIdOrTag::Number(block_num);
+            for block_num in from..=to {
+                let block_id = BlockIdOrTag::Number(block_num);
 
-                    let (block_resp, state_update) = tokio::try_join!(
-                        async {
-                            self.client
-                                .get_block_with_receipts(block_id)
-                                .await
-                                .inspect_err(|e| {
-                                    error!(
-                                        block = %block_num,
-                                        error = %e,
-                                        "Error downloading block via JSON-RPC."
-                                    )
-                                })
-                                .map_err(Error::from)
-                        },
-                        async {
-                            self.client
-                                .get_state_update(block_id)
-                                .await
-                                .inspect_err(|e| {
-                                    error!(
-                                        block = %block_num,
-                                        error = %e,
-                                        "Error downloading state update via JSON-RPC."
-                                    )
-                                })
-                                .map_err(Error::from)
-                        },
-                    )?;
+                let (block_resp, state_update) = tokio::try_join!(
+                    async {
+                        self.client
+                            .get_block_with_receipts(block_id)
+                            .await
+                            .inspect_err(|e| {
+                                error!(
+                                    block = %block_num,
+                                    error = %e,
+                                    "Error downloading block via JSON-RPC."
+                                )
+                            })
+                            .map_err(Error::from)
+                    },
+                    async {
+                        self.client
+                            .get_state_update(block_id)
+                            .await
+                            .inspect_err(|e| {
+                                error!(
+                                    block = %block_num,
+                                    error = %e,
+                                    "Error downloading state update via JSON-RPC."
+                                )
+                            })
+                            .map_err(Error::from)
+                    },
+                )?;
 
-                    let block_data = BlockData::from_rpc(block_resp, state_update)?;
-                    blocks.push(block_data);
-                }
-
-                Ok(blocks)
+                let block_data = BlockData::from_rpc(block_resp, state_update)?;
+                blocks.push(block_data);
             }
+
+            Ok(blocks)
         }
     }
 }
