@@ -95,9 +95,9 @@ impl Decompress for ReceiptEnvelope {
             Ok(Self { receipt })
         } else {
             // Databases created before receipt compression stored raw postcard bytes.
-            let receipt =
-                postcard::from_bytes(bytes).map_err(|e| CodecError::Decompress(e.to_string()))?;
-            Ok(Self { receipt })
+            postcard::from_bytes::<Receipt>(bytes)
+                .map(|receipt| Self { receipt })
+                .map_err(|e| CodecError::Decompress(e.to_string()))
         }
     }
 }
