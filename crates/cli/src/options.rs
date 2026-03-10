@@ -66,7 +66,7 @@ pub struct DbOptions {
     #[arg(long = "db-open-mode")]
     #[arg(default_value_t = DbOpenMode::Compat)]
     #[arg(value_name = "MODE")]
-    #[serde(default)]
+    #[serde(default, rename = "db_open_mode")]
     pub open_mode: DbOpenMode,
 }
 
