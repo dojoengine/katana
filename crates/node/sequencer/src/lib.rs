@@ -87,7 +87,7 @@ where
     task_manager: TaskManager,
     backend: Arc<Backend<P>>,
     block_producer: BlockProducer<P>,
-    gateway_server: Option<GatewayServer<TxPool, P>>,
+    gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
 }
 

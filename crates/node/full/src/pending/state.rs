@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use katana_gateway_types::{ErrorCode, GatewayError};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
@@ -124,3 +126,13 @@ impl ContractClassProvider for PreconfStateProvider {
 
 impl StateRootProvider for PreconfStateProvider {}
 impl StateProofProvider for PreconfStateProvider {}
+
+impl Debug for PreconfStateProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreconfStateProvider")
+            .field("preconf_block_id", &self.preconf_block_id)
+            .field("preconf_state_updates", &self.preconf_state_updates)
+            .field("gateway", &self.gateway)
+            .finish_non_exhaustive()
+    }
+}

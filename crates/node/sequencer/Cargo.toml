@@ -32,7 +32,6 @@ num-traits.workspace = true
 futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
-serde.workspace = true
 tracing.workspace = true
 url.workspace = true
 

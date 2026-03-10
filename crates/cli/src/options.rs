@@ -14,6 +14,10 @@ use std::path::PathBuf;
 
 use clap::Args;
 use katana_genesis::Genesis;
+#[cfg(feature = "server")]
+use katana_node_config::gateway::{
+    DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
+};
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
 #[cfg(feature = "vrf")]
@@ -23,10 +27,6 @@ use katana_rpc_server::cors::HeaderValue;
 use katana_sequencer_node::config::db::DbOpenMode;
 use katana_sequencer_node::config::execution::{
     DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
-};
-#[cfg(feature = "server")]
-use katana_sequencer_node::config::gateway::{
-    DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
 };
 #[cfg(feature = "server")]
 use katana_sequencer_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
@@ -131,9 +131,9 @@ impl Default for MetricsOptions {
 #[command(next_help_heading = "Gateway options")]
 pub struct GatewayOptions {
     /// Enable the gateway server.
-    #[arg(long = "gateway")]
+    #[arg(long = "gateway", id = "gateway_enable")]
     #[serde(default)]
-    pub gateway_enable: bool,
+    pub enable: bool,
 
     /// Gateway server listening interface.
     #[arg(requires = "gateway_enable")]
@@ -161,7 +161,7 @@ pub struct GatewayOptions {
 impl Default for GatewayOptions {
     fn default() -> Self {
         GatewayOptions {
-            gateway_enable: false,
+            enable: false,
             gateway_addr: DEFAULT_GATEWAY_ADDR,
             gateway_port: DEFAULT_GATEWAY_PORT,
             gateway_timeout: DEFAULT_GATEWAY_TIMEOUT_SECS,
