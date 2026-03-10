@@ -25,7 +25,7 @@ pub struct TeeQuoteResponse {
     pub block_hash: BlockHash,
 
     /// The number of the previous block.
-    pub prev_block_number: BlockNumber,
+    pub prev_block_number: Option<BlockNumber>,
 
     /// The number of the attested block.
     pub block_number: BlockNumber,
@@ -93,7 +93,7 @@ pub trait TeeApi {
     #[method(name = "generateQuote")]
     async fn generate_quote(
         &self,
-        prev_block_id: BlockNumber,
+        prev_block_id: Option<BlockNumber>,
         block_id: BlockNumber,
     ) -> RpcResult<TeeQuoteResponse>;
 

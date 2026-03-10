@@ -63,13 +63,13 @@ where
 {
     async fn generate_quote(
         &self,
-        prev_block_id: BlockNumber,
-        block_id: BlockNumber,
+        prev_block: Option<BlockNumber>,
+        block: BlockNumber,
     ) -> RpcResult<TeeQuoteResponse> {
         debug!(
             target: "rpc::tee",
-            ?prev_block_id,
-            block_id,
+            ?prev_block,
+            block,
             "Generating TEE attestation quote"
         );
 
@@ -77,30 +77,39 @@ where
         let provider = self.provider_factory.provider();
 
         // Get latest block information
+        let (prev_block_id, prev_block_hash, prev_state_root) = match prev_block {
+            None => (Felt::MAX, Felt::ZERO, Felt::ZERO),
 
-        let prev_block_hash = provider
-            .block_hash_by_num(prev_block_id)
-            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
-            .unwrap();
+            Some(num) => {
+                let hash = provider
+                    .block_hash_by_num(num)
+                    .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+                    .ok_or_else(|| {
+                        TeeApiError::ProviderError(format!("Block hash not found for block {num}"))
+                    })?;
+
+                let header = provider
+                    .header_by_number(num)
+                    .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+                    .ok_or_else(|| {
+                        TeeApiError::ProviderError(format!("Header not found for block {num}"))
+                    })?;
+
+                (Felt::from(num), hash, header.state_root)
+            }
+        };
+
         let block_hash = provider
-            .block_hash_by_num(block_id)
+            .block_hash_by_num(block)
             .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
             .unwrap();
-
-        let prev_header = provider
-            .header_by_number(prev_block_id)
-            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
-            .ok_or_else(|| {
-                TeeApiError::ProviderError(format!("Header not found for block {prev_block_id}"))
-            })?;
-        let prev_state_root = prev_header.state_root;
 
         // Get the header to retrieve state_root
         let header = provider
-            .header_by_number(block_id)
+            .header_by_number(block)
             .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
             .ok_or_else(|| {
-                TeeApiError::ProviderError(format!("Header not found for block {block_id}"))
+                TeeApiError::ProviderError(format!("Header not found for block {block}"))
             })?;
 
         let state_root = header.state_root;
@@ -113,8 +122,8 @@ where
             prev_block_hash,
             block_hash,
             prev_block_id,
-            block_id,
-            fork_block_id,
+            block.into(),
+            fork_block_id.into(),
             events_commitment,
         );
 
@@ -127,7 +136,7 @@ where
         info!(
             target: "rpc::tee",
             ?prev_block_id,
-            block_number = block_id,
+            block_number = block,
             %prev_block_hash,
             %block_hash,
             quote_size = quote.len(),
@@ -140,8 +149,8 @@ where
             state_root,
             prev_block_hash,
             block_hash,
-            prev_block_number: prev_block_id,
-            block_number: block_id,
+            prev_block_number: prev_block,
+            block_number: block,
             fork_block_number: self.fork_block_number,
             events_commitment,
         })
@@ -272,11 +281,11 @@ where
 fn compute_report_data(
     prev_state_root: Felt,
     state_root: Felt,
-    prev_block_hash: BlockHash,
-    block_hash: BlockHash,
-    prev_block_number: BlockNumber,
-    block_number: BlockNumber,
-    fork_block_number: BlockNumber,
+    prev_block_hash: Felt,
+    block_hash: Felt,
+    prev_block_number: Felt,
+    block_number: Felt,
+    fork_block_number: Felt,
     events_commitment: Felt,
 ) -> [u8; 64] {
     // Compute Poseidon hash of state_root and block_hash
