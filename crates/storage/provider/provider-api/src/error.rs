@@ -137,7 +137,12 @@ pub enum ProviderError {
         "Historical state at block {requested} has been pruned; earliest available block is \
          {earliest_available}"
     )]
-    HistoricalStatePruned { requested: BlockNumber, earliest_available: BlockNumber },
+    HistoricalStatePruned {
+        /// The block number whose historical state was requested.
+        requested: BlockNumber,
+        /// The first block number for which historical state is still available.
+        earliest_available: BlockNumber,
+    },
 
     #[error(transparent)]
     ContractClassCompilation(#[from] ContractClassCompilationError),

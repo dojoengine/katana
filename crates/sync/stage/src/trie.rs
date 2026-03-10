@@ -186,12 +186,17 @@ impl Stage for StateTrie {
                 .await
                 .map_err(Error::StateComputationTaskJoinError)??;
 
-            let provider_mut = self.storage_provider.provider_mut();
-            let current = provider_mut.earliest_available_state_trie_block()?;
-            let next = current.map_or(keep_from, |current| current.max(keep_from));
-            if current != Some(next) {
-                provider_mut.set_earliest_available_state_trie_block(next)?;
-                provider_mut.commit()?;
+            // set historical retention marker
+            {
+                let provider_mut = self.storage_provider.provider_mut();
+
+                let current = provider_mut.earliest_available_state_trie_block()?;
+                let next = current.map_or(keep_from, |current| current.max(keep_from));
+
+                if current != Some(next) {
+                    provider_mut.set_earliest_available_state_trie_block(next)?;
+                    provider_mut.commit()?;
+                }
             }
 
             debug!(target: "stage", %pruned_count, "Pruned trie snapshots");

@@ -38,7 +38,9 @@ use katana_provider_api::block::{
 };
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
-use katana_provider_api::state::HistoricalStateRetentionProvider;
+use katana_provider_api::state::{
+    HistoricalStateRetentionProvider, STATE_HISTORY_RETENTION_KEY, STATE_TRIE_HISTORY_RETENTION_KEY,
+};
 use katana_provider_api::state_update::StateUpdateProvider;
 use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
@@ -48,9 +50,6 @@ use katana_provider_api::ProviderError;
 use tracing::warn;
 
 use crate::{MutableProvider, ProviderResult};
-
-const STATE_HISTORY_RETENTION_KEY: u64 = 0;
-const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
@@ -892,19 +891,21 @@ impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
 
 impl<Tx: DbTxMut> HistoricalStateRetentionProvider for DbProvider<Tx> {
     fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>> {
-        let result = self.0.get::<tables::StateHistoryRetention>(STATE_HISTORY_RETENTION_KEY)?;
+        let key = HistoricalStateRetentionProvider::STATE_HISTORY_RETENTION_KEY;
+        let result = self.0.get::<tables::StateHistoryRetention>(key)?;
         Ok(result.map(|retention| retention.earliest_available_block))
     }
 
     fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()> {
+        let key = HistoricalStateRetentionProvider::STATE_HISTORY_RETENTION_KEY;
         let value = HistoricalStateRetention { earliest_available_block: block_number };
-        self.0.put::<tables::StateHistoryRetention>(STATE_HISTORY_RETENTION_KEY, value)?;
+        self.0.put::<tables::StateHistoryRetention>(key, value)?;
         Ok(())
     }
 
     fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>> {
-        let result =
-            self.0.get::<tables::StateHistoryRetention>(STATE_TRIE_HISTORY_RETENTION_KEY)?;
+        let key = HistoricalStateRetentionProvider::STATE_TRIE_HISTORY_RETENTION_KEY;
+        let result = self.0.get::<tables::StateHistoryRetention>(key)?;
         Ok(result.map(|retention| retention.earliest_available_block))
     }
 
@@ -912,8 +913,9 @@ impl<Tx: DbTxMut> HistoricalStateRetentionProvider for DbProvider<Tx> {
         &self,
         block_number: BlockNumber,
     ) -> ProviderResult<()> {
+        let key = HistoricalStateRetentionProvider::STATE_TRIE_HISTORY_RETENTION_KEY;
         let value = HistoricalStateRetention { earliest_available_block: block_number };
-        self.0.put::<tables::StateHistoryRetention>(STATE_TRIE_HISTORY_RETENTION_KEY, value)?;
+        self.0.put::<tables::StateHistoryRetention>(key, value)?;
         Ok(())
     }
 }

@@ -73,8 +73,18 @@ pub trait StateFactoryProvider: Send + Sync {
 }
 
 /// A type that manages retention metadata for historical state availability.
+///
+/// Implementations persist these watermarks in the `StateHistoryRetention` table using fixed
+/// keys:-
+///
+/// - `STATE_HISTORY_RETENTION_KEY` - historical contract state retention (ie
+///   contract/class/storage).
+/// - `STATE_TRIE_HISTORY_RETENTION_KEY` -historical trie snapshot retention.
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait HistoricalStateRetentionProvider: Send + Sync {
+    pub const STATE_HISTORY_RETENTION_KEY: u64 = 0;
+    pub const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
+
     /// Returns the first block number for which historical state is still available.
     fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>>;
 

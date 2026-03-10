@@ -409,6 +409,9 @@ fn storage_history_entry<Tx: DbTx>(
             storage_key: key.key,
         })?;
 
+    // cursor.seek_by_key_subkey(block_number, key) will return the first item whose `key` is >= or
+    // equal to the specified `key`. so we have to check if the returned entry matches the key we're
+    // looking for.
     if entry.key.contract_address == key.contract_address && entry.key.key == key.key {
         Ok(entry)
     } else {

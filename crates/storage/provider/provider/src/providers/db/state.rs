@@ -14,14 +14,12 @@ use katana_provider_api::block::BlockNumberProvider;
 use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
 use katana_provider_api::state::{
     StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
+    STATE_HISTORY_RETENTION_KEY, STATE_TRIE_HISTORY_RETENTION_KEY,
 };
 use katana_provider_api::ProviderError;
 
 use super::DbProvider;
 use crate::ProviderResult;
-
-const STATE_HISTORY_RETENTION_KEY: u64 = 0;
-const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
 
 impl<Tx: DbTxMut> StateWriter for DbProvider<Tx> {
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
