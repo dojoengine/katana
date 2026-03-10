@@ -181,6 +181,10 @@ impl FullNodeArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use katana_full_node::config::db::DbOpenMode;
+
     use super::*;
 
     #[test]

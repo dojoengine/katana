@@ -775,6 +775,7 @@ mod test {
     };
     use katana_primitives::chain::ChainId;
     use katana_primitives::{address, felt, Felt};
+    use katana_sequencer_node::config::db::DbOpenMode;
     use katana_sequencer_node::config::execution::{
         DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
     };
