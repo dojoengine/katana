@@ -11,7 +11,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 /// Latest on-disk database version written by current Katana.
-pub const LATEST_DB_VERSION: Version = Version::new(8);
+pub const LATEST_DB_VERSION: Version = Version::new(9);
 /// Oldest database version current Katana guarantees it can still open in compatibility mode.
 pub const MIN_OPENABLE_DB_VERSION: Version = Version::new(5);
 

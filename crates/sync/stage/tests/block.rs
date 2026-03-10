@@ -18,6 +18,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockW
 use katana_provider::api::state::{
     HistoricalStateRetentionProvider, StateFactoryProvider, StateProvider,
 };
+use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use katana_stage::blocks::{BatchBlockDownloader, BlockData, BlockDownloader, Blocks};
 use katana_stage::{PruneInput, Stage, StageExecutionInput};
@@ -478,6 +479,22 @@ async fn prune_compacts_state_history_at_boundary() {
         provider.provider().historical(2.into()),
         Err(ProviderError::HistoricalStatePruned { requested: 2, earliest_available: 5 })
     ));
+
+    // Canonical per-block diffs remain exact even after history compaction.
+    assert_eq!(
+        provider.provider().state_update(1.into()).unwrap(),
+        Some(
+            state_updates_with_contract_changes(
+                contract_address,
+                class_hash,
+                nonce,
+                storage_key,
+                storage_value,
+            )
+            .state_updates
+        )
+    );
+    assert_eq!(provider.provider().state_update(5.into()).unwrap(), Some(StateUpdates::default()));
 }
 
 #[tokio::test]

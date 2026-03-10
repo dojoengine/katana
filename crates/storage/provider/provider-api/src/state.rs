@@ -10,6 +10,11 @@ use super::contract::ContractClassProvider;
 use crate::error::ProviderError;
 use crate::ProviderResult;
 
+/// Fixed key for historical contract state retention in `StateHistoryRetention`.
+pub const STATE_HISTORY_RETENTION_KEY: u64 = 0;
+/// Fixed key for historical state trie snapshot retention in `StateHistoryRetention`.
+pub const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
+
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait StateRootProvider: Send + Sync {
     /// Retrieves the root of the global state trie.
@@ -75,11 +80,11 @@ pub trait StateFactoryProvider: Send + Sync {
 /// A type that manages retention metadata for historical state availability.
 ///
 /// Implementations persist these watermarks in the `StateHistoryRetention` table using fixed
-/// keys:-
+/// keys:
 ///
-/// - `STATE_HISTORY_RETENTION_KEY` - historical contract state retention (ie
+/// - `STATE_HISTORY_RETENTION_KEY = 0` - historical contract state retention (ie
 ///   contract/class/storage).
-/// - `STATE_TRIE_HISTORY_RETENTION_KEY` -historical trie snapshot retention.
+/// - `STATE_TRIE_HISTORY_RETENTION_KEY = 1` - historical trie snapshot retention.
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait HistoricalStateRetentionProvider: Send + Sync {
     /// Returns the first block number for which historical state is still available.

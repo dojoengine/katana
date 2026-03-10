@@ -1,7 +1,6 @@
 use katana_primitives::block::BlockHashOrNumber;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, HeaderProvider};
-use katana_provider::api::state::{StateFactoryProvider, StateRootProvider};
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::ProviderResult;
 use katana_rpc_types::state_update::{ConfirmedStateUpdate, StateDiff};
@@ -21,11 +20,7 @@ impl<P> StateUpdateBuilder<P> {
 
 impl<P> StateUpdateBuilder<P>
 where
-    P: BlockHashProvider
-        + BlockNumberProvider
-        + HeaderProvider
-        + StateFactoryProvider
-        + StateUpdateProvider,
+    P: BlockHashProvider + BlockNumberProvider + HeaderProvider + StateUpdateProvider,
 {
     /// Builds a state update for the given block.
     pub fn build(self) -> ProviderResult<Option<ConfirmedStateUpdate>> {
@@ -33,17 +28,16 @@ where
             return Ok(None);
         };
 
-        let Some(state) = self.provider.historical(self.block_id)? else {
+        let Some(block_num) = self.provider.block_number_by_hash(block_hash)? else {
             return Ok(None);
         };
 
-        let new_root = state.state_root()?;
+        let Some(new_root) = self.provider.header_by_number(block_num)?.map(|h| h.state_root)
+        else {
+            return Ok(None);
+        };
 
         let old_root = {
-            let Some(block_num) = self.provider.block_number_by_hash(block_hash)? else {
-                return Ok(None);
-            };
-
             match block_num {
                 0 => Felt::ZERO,
                 _ => match self.provider.header_by_number(block_num - 1)? {
@@ -70,7 +64,7 @@ mod tests {
     use katana_primitives::{ContractAddress, Felt};
     use katana_provider::api::block::BlockWriter;
     use katana_provider::api::state::HistoricalStateRetentionProvider;
-    use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
+    use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 
     use super::StateUpdateBuilder;
 
@@ -121,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn state_update_builder_errors_for_pruned_block() {
+    fn state_update_builder_uses_block_headers_when_historical_state_is_pruned() {
         let provider_factory = create_provider_with_blocks(3);
         let provider_mut = provider_factory.provider_mut();
         provider_mut.set_earliest_available_state_block(2).unwrap();
@@ -130,11 +124,11 @@ mod tests {
         let provider = provider_factory.provider();
         let block_id = 1u64.into();
 
-        let error = StateUpdateBuilder::new(block_id, provider).build().unwrap_err();
-        assert!(matches!(
-            error,
-            ProviderError::HistoricalStatePruned { requested: 1, earliest_available: 2 }
-        ));
+        let state_update = StateUpdateBuilder::new(block_id, provider).build().unwrap();
+        let state_update = state_update.expect("state update should be available");
+
+        assert_eq!(state_update.new_root, Felt::from(1001u64));
+        assert_eq!(state_update.old_root, Felt::from(1000u64));
     }
 
     #[test]

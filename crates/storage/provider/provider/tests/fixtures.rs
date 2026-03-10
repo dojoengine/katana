@@ -39,7 +39,7 @@ pub mod fork {
         #[default(2888618)] block_num: u64,
     ) -> ForkProviderFactory {
         let provider = StarknetClient::new(rpc.try_into().unwrap());
-        ForkProviderFactory::new(katana_db::Db::in_memory().unwrap(), block_num.into(), provider)
+        ForkProviderFactory::new(katana_db::Db::in_memory().unwrap(), block_num, provider)
     }
 
     #[rstest::fixture]
@@ -48,7 +48,7 @@ pub mod fork {
     ) -> ForkProviderFactory {
         ForkProviderFactory::new(
             katana_db::Db::in_memory().unwrap(),
-            block_num.into(),
+            block_num,
             FORKED_PROVIDER.1.clone(),
         )
     }
