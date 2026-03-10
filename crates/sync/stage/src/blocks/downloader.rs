@@ -12,7 +12,6 @@
 
 use std::future::Future;
 
-use anyhow::Result;
 use katana_primitives::block::BlockNumber;
 
 use super::BlockData;
@@ -27,12 +26,14 @@ use crate::downloader::{BatchDownloader, Downloader};
 /// Implementors can use any download strategy they choose, including but not limited to the
 /// [`BatchDownloader`](crate::downloader::BatchDownloader) utility provided by this crate.
 pub trait BlockDownloader: Send + Sync {
+    type Error: std::error::Error + Send + Sync + 'static;
+
     /// Downloads blocks for the given block number range and returns them as [`BlockData`].
     fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<BlockData>>> + Send;
+    ) -> impl Future<Output = Result<Vec<BlockData>, Self::Error>> + Send;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -63,11 +64,13 @@ where
     D::Error: Send + Sync + 'static,
     V: Into<BlockData> + Send + Sync,
 {
+    type Error = D::Error;
+
     fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<BlockData>>> + Send {
+    ) -> impl Future<Output = Result<Vec<BlockData>, Self::Error>> + Send {
         async move {
             let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
             let results = self.inner.download(block_keys).await?;
@@ -138,12 +141,11 @@ pub mod gateway {
 }
 
 pub mod json_rpc {
-    use anyhow::Result;
     use katana_primitives::block::{BlockIdOrTag, BlockNumber};
     use katana_starknet::rpc::Client as JsonRpcClient;
     use tracing::error;
 
-    use super::{BlockDownloader, BlockData};
+    use super::{BlockData, BlockDownloader};
 
     /// A [`BlockDownloader`] that fetches blocks via JSON-RPC.
     ///
@@ -160,12 +162,23 @@ pub mod json_rpc {
         }
     }
 
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        #[error(transparent)]
+        Rpc(#[from] katana_starknet::rpc::Error),
+
+        #[error(transparent)]
+        Other(#[from] anyhow::Error),
+    }
+
     impl BlockDownloader for JsonRpcBlockDownloader {
+        type Error = Error;
+
         fn download_blocks(
             &self,
             from: BlockNumber,
             to: BlockNumber,
-        ) -> impl std::future::Future<Output = Result<Vec<BlockData>>> + Send {
+        ) -> impl std::future::Future<Output = Result<Vec<BlockData>, Self::Error>> + Send {
             async move {
                 let mut blocks = Vec::with_capacity((to - from + 1) as usize);
 
@@ -184,7 +197,7 @@ pub mod json_rpc {
                                         "Error downloading block via JSON-RPC."
                                     )
                                 })
-                                .map_err(|e| anyhow::anyhow!(e))
+                                .map_err(Error::from)
                         },
                         async {
                             self.client
@@ -197,7 +210,7 @@ pub mod json_rpc {
                                         "Error downloading state update via JSON-RPC."
                                     )
                                 })
-                                .map_err(|e| anyhow::anyhow!(e))
+                                .map_err(Error::from)
                         },
                     )?;
 

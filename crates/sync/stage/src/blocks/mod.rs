@@ -1,4 +1,3 @@
-use anyhow::Result;
 use futures::future::BoxFuture;
 use katana_primitives::block::{
     FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
@@ -40,7 +39,7 @@ impl BlockData {
     pub fn from_rpc(
         block_resp: katana_rpc_types::GetBlockWithReceiptsResponse,
         state_update: katana_rpc_types::StateUpdate,
-    ) -> Result<Self> {
+    ) -> anyhow::Result<Self> {
         use katana_primitives::state::StateUpdates;
         use katana_primitives::transaction::TxWithHash;
         use katana_rpc_types::block::{BlockWithReceipts, GetBlockWithReceiptsResponse};
@@ -350,7 +349,7 @@ where
                 .download_blocks(input.from(), input.to())
                 .instrument(info_span!(target: "stage", "blocks.download", from = %input.from(), to = %input.to()))
                 .await
-                .map_err(Error::Download)?;
+                .map_err(|e| Error::Download(Box::new(e)))?;
 
             let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
             let _enter = span.enter();
@@ -408,7 +407,7 @@ where
 pub enum Error {
     /// Error returned by the block downloader.
     #[error(transparent)]
-    Download(anyhow::Error),
+    Download(Box<dyn std::error::Error + Send + Sync>),
 
     #[error(transparent)]
     Provider(#[from] ProviderError),

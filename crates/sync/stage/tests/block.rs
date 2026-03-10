@@ -73,14 +73,20 @@ impl MockBlockDownloader {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct MockError(String);
+
 // We're only testing the stage business logic so we don't really care about using the
 // BatchDownloader/Downloader combination.
 impl BlockDownloader for MockBlockDownloader {
+    type Error = MockError;
+
     fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = anyhow::Result<Vec<BlockData>>> + Send {
+    ) -> impl Future<Output = Result<Vec<BlockData>, Self::Error>> + Send {
         async move {
             let block_numbers: Vec<BlockNumber> = (from..=to).collect();
 
@@ -94,13 +100,13 @@ impl BlockDownloader for MockBlockDownloader {
                 match responses.get(&block_num) {
                     Some(Ok(block_data)) => results.push(BlockData::from(block_data.clone())),
                     Some(Err(error)) => {
-                        anyhow::bail!("{error}");
+                        return Err(MockError(error.clone()));
                     }
                     None => {
-                        anyhow::bail!(
+                        return Err(MockError(format!(
                             "No response configured for block {}",
                             block_num
-                        );
+                        )));
                     }
                 }
             }
