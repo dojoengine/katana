@@ -12,7 +12,7 @@ use crate::models::list::BlockList;
 use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint, StageId};
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-use crate::models::{ReceiptEnvelope, VersionedContractClass, VersionedHeader, VersionedTx};
+use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedContractClass, VersionedHeader};
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -213,7 +213,7 @@ tables! {
     /// Transaction hash based on its number
     TxHashes: (TxNumber) => TxHash,
     /// Store canonical transactions
-    Transactions: (TxNumber) => VersionedTx,
+    Transactions: (TxNumber) => TxEnvelope,
     /// Stores the block number of a transaction.
     TxBlocks: (TxNumber) => BlockNumber,
     /// Stores the transaction's traces.
@@ -386,7 +386,7 @@ mod tests {
     use crate::models::trie::{
         TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
     };
-    use crate::models::{ReceiptEnvelope, VersionedHeader, VersionedTx};
+    use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedTx};
 
     macro_rules! assert_key_encode_decode {
 	    { $( ($name:ty, $key:expr) ),* } => {
@@ -441,7 +441,7 @@ mod tests {
             (StoredBlockBodyIndices, StoredBlockBodyIndices::default()),
             (TxNumber, 77),
             (TxHash, felt!("0x123456789")),
-            (VersionedTx, VersionedTx::from(Tx::Invoke(InvokeTx::V1(Default::default())))),
+            (TxEnvelope, TxEnvelope::from(VersionedTx::from(Tx::Invoke(InvokeTx::V1(Default::default()))))),
             (BlockNumber, 99),
             (TypedTransactionExecutionInfo, TypedTransactionExecutionInfo::default()),
             (CompiledClassHash, felt!("211")),

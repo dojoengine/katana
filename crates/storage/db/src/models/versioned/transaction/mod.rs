@@ -1,8 +1,8 @@
 use katana_primitives::transaction::Tx;
 use serde::{Deserialize, Serialize};
 
-use crate::codecs::{Compress, Decompress};
 use crate::error::CodecError;
+use crate::models::envelope::EnvelopePayload;
 
 mod v6;
 
@@ -19,22 +19,15 @@ impl From<Tx> for VersionedTx {
     }
 }
 
-impl Compress for VersionedTx {
-    type Compressed = Vec<u8>;
-    fn compress(self) -> Result<Self::Compressed, CodecError> {
-        postcard::to_stdvec(&self).map_err(|e| CodecError::Compress(e.to_string()))
-    }
-}
+impl EnvelopePayload for VersionedTx {
+    const MAGIC: &[u8; 4] = b"KTXN";
+    const NAME: &str = "transaction";
 
-impl Decompress for VersionedTx {
-    fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, CodecError> {
-        let bytes = bytes.as_ref();
-
+    fn from_legacy_bytes(bytes: &[u8]) -> Result<Self, CodecError> {
         if let Ok(tx) = postcard::from_bytes::<Self>(bytes) {
             return Ok(tx);
         }
 
-        // Try deserializing as V7 first, then fall back to V6
         if let Ok(transaction) = postcard::from_bytes::<Tx>(bytes) {
             return Ok(Self::V7(transaction));
         }

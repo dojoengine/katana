@@ -15,7 +15,7 @@ use katana_db::models::contract::{
 use katana_db::models::list::BlockList;
 use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
-use katana_db::models::{ReceiptEnvelope, VersionedHeader, VersionedTx};
+use katana_db::models::{ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
 use katana_db::utils::KeyValue;
 use katana_primitives::block::{
@@ -417,8 +417,8 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
     fn transaction_by_hash(&self, hash: TxHash) -> ProviderResult<Option<TxWithHash>> {
         if let Some(num) = self.0.get::<tables::TxNumbers>(hash)? {
             let res = self.0.get::<tables::Transactions>(num)?;
-            let transaction = res.ok_or(ProviderError::MissingTx(num))?;
-            Ok(Some(TxWithHash { hash, transaction: transaction.into() }))
+            let envelope = res.ok_or(ProviderError::MissingTx(num))?;
+            Ok(Some(TxWithHash { hash, transaction: envelope.inner.into() }))
         } else {
             Ok(None)
         }
@@ -440,10 +440,10 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
         let mut transactions = Vec::with_capacity(total as usize);
 
         for i in range {
-            if let Some(transaction) = self.0.get::<tables::Transactions>(i)? {
+            if let Some(envelope) = self.0.get::<tables::Transactions>(i)? {
                 let res = self.0.get::<tables::TxHashes>(i)?;
                 let hash = res.ok_or(ProviderError::MissingTxHash(i))?;
-                transactions.push(TxWithHash { hash, transaction: transaction.into() });
+                transactions.push(TxWithHash { hash, transaction: envelope.inner.into() });
             };
         }
 
@@ -481,9 +481,9 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
                 let hash = res.ok_or(ProviderError::MissingTxHash(num))?;
 
                 let res = self.0.get::<tables::Transactions>(num)?;
-                let transaction = res.ok_or(ProviderError::MissingTx(num))?;
+                let envelope = res.ok_or(ProviderError::MissingTx(num))?;
 
-                Ok(Some(TxWithHash { hash, transaction: transaction.into() }))
+                Ok(Some(TxWithHash { hash, transaction: envelope.inner.into() }))
             }
 
             _ => Ok(None),
@@ -689,7 +689,7 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
             self.0.put::<tables::TxBlocks>(tx_number, block_number)?;
             self.0.put::<tables::Transactions>(
                 tx_number,
-                VersionedTx::from(transaction.transaction),
+                TxEnvelope::from(VersionedTx::from(transaction.transaction)),
             )?;
         }
 
