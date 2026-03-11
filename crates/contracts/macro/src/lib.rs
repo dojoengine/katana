@@ -133,7 +133,9 @@ fn generate_contract_impl(input: &ContractInput) -> Result<proc_macro2::TokenStr
         pub struct #contract_name;
 
         impl #contract_name {
+            #[doc = #class_hash_str]
             pub const HASH: ::katana_primitives::class::ClassHash = ::katana_primitives::felt!(#class_hash_str);
+            #[doc = #compiled_class_hash_str]
             pub const CASM_HASH: ::katana_primitives::class::CompiledClassHash = ::katana_primitives::felt!(#compiled_class_hash_str);
             pub const CLASS: #static_class_name = #static_class_name { __private_field: () };
         }

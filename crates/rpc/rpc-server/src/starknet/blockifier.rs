@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_executor::implementation::blockifier::cache::ClassCache;
-use katana_executor::implementation::blockifier::call::execute_call;
-use katana_executor::implementation::blockifier::state::CachedState;
-use katana_executor::implementation::blockifier::utils::{self, block_context_from_envs};
-use katana_executor::{ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates};
+use katana_executor::blockifier::cache::ClassCache;
+use katana_executor::blockifier::call::execute_call;
+use katana_executor::blockifier::state::CachedState;
+use katana_executor::blockifier::utils::{self, block_context_from_envs};
+use katana_executor::error::ExecutionError;
+use katana_executor::{ExecutionFlags, ExecutionResult, ResultAndStates};
 use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::Felt;
@@ -18,7 +19,7 @@ use crate::starknet::StarknetApiResult;
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
     chain_spec: &ChainSpec,
-    state: impl StateProvider,
+    state: impl StateProvider + 'static,
     block_env: BlockEnv,
     overrides: Option<&VersionedConstantsOverrides>,
     transactions: Vec<ExecutableTxWithHash>,
@@ -57,7 +58,7 @@ pub fn simulate(
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn estimate_fees(
     chain_spec: &ChainSpec,
-    state: impl StateProvider,
+    state: impl StateProvider + 'static,
     block_env: BlockEnv,
     overrides: Option<&VersionedConstantsOverrides>,
     transactions: Vec<ExecutableTxWithHash>,
@@ -112,7 +113,7 @@ pub fn estimate_fees(
 }
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all)]
-pub fn call<P: StateProvider>(
+pub fn call<P: StateProvider + 'static>(
     chain_spec: &ChainSpec,
     state: P,
     block_env: BlockEnv,

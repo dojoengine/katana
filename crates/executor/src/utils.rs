@@ -1,32 +1,11 @@
 use blockifier::fee::receipt::TransactionReceipt;
-use katana_primitives::execution::{CallInfo, TransactionExecutionInfo, TransactionResources};
+use katana_primitives::execution::{CallInfo, TransactionExecutionInfo};
 use katana_primitives::fee::FeeInfo;
 use katana_primitives::receipt::{
     self, DataAvailabilityResources, DeclareTxReceipt, DeployAccountTxReceipt, Event, GasUsed,
     InvokeTxReceipt, L1HandlerTxReceipt, MessageToL1, Receipt,
 };
 use katana_primitives::transaction::ExecutableTx;
-use tracing::trace;
-
-pub(crate) const LOG_TARGET: &str = "executor";
-
-pub fn log_resources(resources: &TransactionResources) {
-    let mut mapped_strings = Vec::new();
-
-    for (builtin, count) in &resources.computation.tx_vm_resources.builtin_instance_counter {
-        mapped_strings.push(format!("{builtin}: {count}"));
-    }
-
-    // Sort the strings alphabetically
-    mapped_strings.sort();
-    mapped_strings.insert(0, format!("steps: {}", resources.computation.tx_vm_resources.n_steps));
-    mapped_strings.insert(
-        1,
-        format!("memory holes: {}", resources.computation.tx_vm_resources.n_memory_holes),
-    );
-
-    trace!(target: LOG_TARGET, usage = mapped_strings.join(" | "), "Transaction resource usage.");
-}
 
 pub(crate) fn build_receipt(
     tx: &ExecutableTx,

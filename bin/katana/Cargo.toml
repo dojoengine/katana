@@ -13,7 +13,7 @@ katana-provider.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-genesis.workspace = true
 katana-primitives.workspace = true
-katana-rpc-client.workspace = true
+katana-starknet.workspace = true
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 

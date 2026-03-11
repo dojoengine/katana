@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Args;
 use katana_db::abstraction::Database;
 use katana_db::tables::NUM_TABLES;
+use katana_db::version::DbOpenMode;
 
 use crate::cli::db::{open_db_ro, table};
 
@@ -23,17 +24,23 @@ pub struct StatsArgs {
     #[arg(short, long)]
     #[arg(default_value = "~/.katana/db")]
     pub path: String,
+
+    /// How Katana should open supported older database versions.
+    #[arg(long = "db-open-mode")]
+    #[arg(default_value_t = DbOpenMode::Compat)]
+    #[arg(value_name = "MODE")]
+    pub open_mode: DbOpenMode,
 }
 
 impl StatsArgs {
     /// Display database statistics in a formatted table.
     pub fn execute(self) -> Result<()> {
-        display_stats(&self.path)
+        display_stats(&self.path, self.open_mode)
     }
 }
 
-fn display_stats(db_path: &str) -> Result<()> {
-    let db = open_db_ro(db_path)?;
+fn display_stats(db_path: &str, open_mode: DbOpenMode) -> Result<()> {
+    let db = open_db_ro(db_path, open_mode)?;
     let stats = db.stats()?;
 
     let mut table = table();

@@ -1,0 +1,102 @@
+name: amdsev-initrd-test
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "misc/AMDSEV/**"
+            - "scripts/build-musl.sh"
+            - ".github/workflows/amdsev-initrd-test.yml"
+
+    pull_request:
+        types: [opened, synchronize, ready_for_review]
+        paths:
+            - "misc/AMDSEV/**"
+            - "scripts/build-musl.sh"
+            - ".github/workflows/amdsev-initrd-test.yml"
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    amdsev-initrd-test:
+        runs-on: ubuntu-latest
+        timeout-minutes: 90
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+
+            # Workaround for https://github.com/actions/runner-images/issues/6775
+            - run: git config --global --add safe.directory "*"
+
+            - name: Install dependencies
+              run: |
+                  export DEBIAN_FRONTEND=noninteractive
+                  apt-get update
+                  apt-get install -y \
+                      qemu-system-x86 \
+                      cpio \
+                      zstd \
+                      e2fsprogs \
+                      curl \
+                      socat \
+                      musl-tools \
+                      clang \
+                      file
+
+            - name: Add Ubuntu package repo for AMDSEV artifacts
+              run: |
+                  cat >/etc/apt/sources.list.d/ubuntu-noble.list <<'EOF'
+                  deb [trusted=yes] http://archive.ubuntu.com/ubuntu noble main universe
+                  deb [trusted=yes] http://archive.ubuntu.com/ubuntu noble-updates main universe
+                  deb [trusted=yes] http://security.ubuntu.com/ubuntu noble-security main universe
+                  EOF
+                  apt-get update
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache-musl
+
+            - name: Build contract artifacts
+              run: make contracts
+
+            - name: Build required VM components
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  set -a
+                  source misc/AMDSEV/build-config
+                  set +a
+                  export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+
+                  ./scripts/build-musl.sh
+                  KATANA_BINARY="./target/x86_64-unknown-linux-musl/performance/katana"
+
+                  ./misc/AMDSEV/build-kernel.sh ./misc/AMDSEV/output/qemu
+                  ./misc/AMDSEV/build-initrd.sh "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/initrd.img "$KERNEL_VERSION"
+
+                  cp "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/katana
+
+            - name: Run isolated initrd tests
+              run: |
+                  ./misc/AMDSEV/test-initrd.sh --output-dir ./misc/AMDSEV/output/qemu --timeout 300
+
+            - name: Upload AMDSEV build output on failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: amdsev-initrd-output-${{ github.run_id }}
+                  if-no-files-found: ignore
+                  path: |
+                      misc/AMDSEV/output/qemu

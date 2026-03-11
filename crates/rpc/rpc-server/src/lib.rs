@@ -17,6 +17,8 @@ use tracing::info;
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
+#[cfg(feature = "paymaster")]
+pub mod paymaster;
 
 #[cfg(feature = "tee")]
 pub mod tee;
@@ -27,6 +29,7 @@ pub mod health;
 pub mod metrics;
 pub mod permit;
 pub mod starknet;
+pub mod txpool;
 
 mod logger;
 mod utils;

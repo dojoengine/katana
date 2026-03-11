@@ -219,7 +219,8 @@ impl GenesisAccount {
 
     /// Returns the address of this account.
     pub fn address(&self) -> ContractAddress {
-        get_contract_address(self.salt, self.class_hash, &[self.public_key], Felt::ZERO).into()
+        get_contract_address(self.salt, self.class_hash, &[self.public_key], ContractAddress::ZERO)
+            .into()
     }
 }
 

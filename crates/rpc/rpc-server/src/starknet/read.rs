@@ -1,13 +1,8 @@
 #[cfg(feature = "cartridge")]
 use std::sync::Arc;
 
-#[cfg(feature = "cartridge")]
-use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-use katana_core::backend::storage::ProviderRO;
-#[cfg(feature = "cartridge")]
-use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_pool::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
@@ -16,7 +11,7 @@ use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash}
 use katana_primitives::{ContractAddress, Felt};
 #[cfg(feature = "cartridge")]
 use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
@@ -82,7 +77,7 @@ where
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
-        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await?
+        Ok(self.block_hash_and_number().await?)
     }
 
     async fn get_block_with_tx_hashes(
@@ -147,24 +142,7 @@ where
     }
 
     async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse> {
-        self.on_io_blocking_task(move |this| {
-            // get the state and block env at the specified block for function call execution
-            let state = this.state(&block_id)?;
-            let env = this.block_env_at(&block_id)?;
-            let cfg_env = this.inner.config.versioned_constant_overrides.as_ref();
-            let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
-
-            let result = super::blockifier::call(
-                this.inner.chain_spec.as_ref(),
-                state,
-                env,
-                cfg_env,
-                request,
-                max_call_gas,
-            )?;
-            Ok(CallResponse { result })
-        })
-        .await?
+        Ok(self.call_contract(request, block_id).await?)
     }
 
     async fn get_storage_at(
@@ -173,11 +151,7 @@ where
         key: StorageKey,
         block_id: BlockIdOrTag,
     ) -> RpcResult<StorageValue> {
-        self.on_io_blocking_task(move |this| {
-            let value = this.storage_at(contract_address, key, block_id)?;
-            Ok(value)
-        })
-        .await?
+        Ok(self.storage_at(contract_address, key, block_id).await?)
     }
 
     async fn estimate_fee(
@@ -219,22 +193,8 @@ where
         // for more details.
         #[cfg(feature = "cartridge")]
         let transactions = if let Some(paymaster) = &self.inner.config.paymaster {
-            // Paymaster is the first dev account in the genesis.
-            let (paymaster_address, paymaster_alloc) = self
-                .inner
-                .chain_spec
-                .genesis()
-                .accounts()
-                .nth(0)
-                .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))
-                .map_err(StarknetApiError::from)?;
-
-            let paymaster_private_key = if let GenesisAccountAlloc::DevAccount(pm) = paymaster_alloc
-            {
-                pm.private_key
-            } else {
-                return Err(StarknetApiError::unexpected("Paymaster is not a dev account").into());
-            };
+            let paymaster_address = paymaster.paymaster_address;
+            let paymaster_private_key = paymaster.paymaster_private_key;
 
             let state =
                 self.storage().provider().latest().map(Arc::new).map_err(StarknetApiError::from)?;
@@ -247,14 +207,14 @@ where
             // transaction list so that all the requested transactions are executed against a state
             // with the Controller accounts deployed.
 
-            let paymaster_nonce = match self.nonce_at(block_id, *paymaster_address).await {
+            let paymaster_nonce = match self.nonce_at(block_id, paymaster_address).await {
                 Ok(nonce) => nonce,
                 Err(err) => match err {
-                    // this should be unreachable bcs we already checked for the paymaster account
-                    // existence earlier
                     StarknetApiError::ContractNotFound => {
-                        let error = anyhow!("Cartridge paymaster account doesn't exist");
-                        return Err(ErrorObjectOwned::from(StarknetApiError::from(error)))?;
+                        return Err(StarknetApiError::unexpected(
+                            "Cartridge paymaster account doesn't exist",
+                        )
+                        .into());
                     }
                     _ => return Err(ErrorObjectOwned::from(err)),
                 },
@@ -265,7 +225,7 @@ where
 
                 let deploy_controller_tx =
                     cartridge::get_controller_deploy_tx_if_controller_address(
-                        *paymaster_address,
+                        paymaster_address,
                         paymaster_private_key,
                         paymaster_nonce,
                         tx,

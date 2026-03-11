@@ -12,9 +12,12 @@
 	path = crates/explorer/ui
 	url = https://github.com/cartridge-gg/explorer
 	branch = main
-[submodule "contracts/vrf"]
-	path = contracts/vrf
-	url = https://github.com/cartridge-gg/vrf
 [submodule "crates/cartridge/controller"]
 	path = crates/cartridge/controller
 	url = https://github.com/cartridge-gg/controller-rs.git
+[submodule "crates/contracts/contracts/vrf"]
+	path = crates/contracts/contracts/vrf
+	url = https://github.com/cartridge-gg/vrf.git
+[submodule "crates/contracts/contracts/avnu"]
+	path = crates/contracts/contracts/avnu
+	url = https://github.com/avnu-labs/paymaster

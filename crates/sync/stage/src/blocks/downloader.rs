@@ -3,7 +3,7 @@
 //! This module defines the [`BlockDownloader`] trait, which provides a stage-specific
 //! interface for downloading block data. The trait is designed to be flexible and can
 //! be implemented in various ways depending on the download strategy and data source
-//! (e.g., gateway-based, P2P-based, or custom implementations).
+//! (e.g., gateway-based, JSON-RPC-based, P2P-based, or custom implementations).
 //!
 //! [`BatchBlockDownloader`] is one such implementation that leverages the generic
 //! [`BatchDownloader`](crate::downloader::BatchDownloader) utility for concurrent
@@ -12,32 +12,40 @@
 
 use std::future::Future;
 
-use anyhow::Result;
-use katana_gateway_client::Client as GatewayClient;
-use katana_gateway_types::StateUpdateWithBlock;
-use katana_primitives::block::BlockNumber;
+use katana_primitives::block::{BlockNumber, SealedBlockWithStatus};
+use katana_primitives::receipt::Receipt;
+use katana_primitives::state::StateUpdatesWithClasses;
 
 use crate::downloader::{BatchDownloader, Downloader};
+
+/// The block data produced by a [`BlockDownloader`].
+///
+/// This is a source-agnostic representation of downloaded block data containing
+/// everything needed by the [`Blocks`] stage.
+#[derive(Debug)]
+pub struct BlockData {
+    pub block: SealedBlockWithStatus,
+    pub receipts: Vec<Receipt>,
+    pub state_updates: StateUpdatesWithClasses,
+}
 
 /// Trait for downloading block data.
 ///
 /// This trait provides a stage-specific abstraction for downloading blocks, allowing different
-/// implementations (e.g., gateway-based, P2P-based, custom strategies) to be used with the
+/// implementations (e.g., gateway-based, JSON-RPC-based, custom strategies) to be used with the
 /// [`Blocks`](crate::blocks::Blocks) stage.
 ///
 /// Implementors can use any download strategy they choose, including but not limited to the
 /// [`BatchDownloader`](crate::downloader::BatchDownloader) utility provided by this crate.
-///
-/// Currently, it's still coupled with the gateway (as seen by the types used in the trait method)
-/// but this level of abstraction will allow for easier testing and preparation for future
-/// flexibility.
 pub trait BlockDownloader: Send + Sync {
-    /// Downloads blocks for the given block numbers.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Downloads blocks for the given block number range and returns them as [`BlockData`].
     fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<BlockData>, Self::Error>> + Send;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -61,49 +69,62 @@ impl<D> BatchBlockDownloader<D> {
     }
 }
 
-impl BatchBlockDownloader<impls::GatewayDownloader> {
-    /// Create a new [`BatchBlockDownloader`] using the Starknet gateway for downloading blocks.
-    pub fn new_gateway(
-        client: GatewayClient,
-        batch_size: usize,
-    ) -> BatchBlockDownloader<impls::GatewayDownloader> {
-        Self::new(impls::GatewayDownloader::new(client), batch_size)
-    }
-}
-
-impl<D> BlockDownloader for BatchBlockDownloader<D>
+impl<D, V> BlockDownloader for BatchBlockDownloader<D>
 where
-    D: Downloader<
-        Key = BlockNumber,
-        Value = StateUpdateWithBlock,
-        Error = katana_gateway_client::Error,
-    >,
+    D: Downloader<Key = BlockNumber, Value = V>,
     D: Send + Sync,
+    D::Error: Send + Sync + 'static,
+    V: Into<BlockData> + Send + Sync,
 {
-    fn download_blocks(
+    type Error = D::Error;
+
+    async fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
-    {
-        // convert the range to a list of block keys
+    ) -> Result<Vec<BlockData>, Self::Error> {
         let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
-        self.inner.download(block_keys)
+        let results = self.inner.download(block_keys).await?;
+        Ok(results.into_iter().map(Into::into).collect())
     }
 }
 
-mod impls {
-    use std::future::Future;
+pub mod gateway {
+    use katana_gateway_client::Client as GatewayClient;
+    use katana_gateway_types::{
+        BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock,
+    };
+    use katana_primitives::block::{
+        BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
+    };
+    use katana_primitives::fee::{FeeInfo, PriceUnit};
+    use katana_primitives::receipt::{
+        DeclareTxReceipt, DeployAccountTxReceipt, DeployTxReceipt, InvokeTxReceipt,
+        L1HandlerTxReceipt, Receipt,
+    };
+    use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
+    use katana_primitives::transaction::{Tx, TxWithHash};
+    use katana_primitives::Felt;
+    use num_traits::ToPrimitive;
+    use starknet::core::types::ResourcePrice;
 
-    use katana_gateway_client::{Client as GatewayClient, Error as GatewayClientError};
-    use katana_gateway_types::StateUpdateWithBlock;
-    use katana_primitives::block::BlockNumber;
-    use tracing::error;
-
+    use super::BatchBlockDownloader;
+    use crate::blocks::BlockData;
     use crate::downloader::{Downloader, DownloaderResult};
 
+    impl BatchBlockDownloader<GatewayDownloader> {
+        /// Create a new [`BatchBlockDownloader`] using the Starknet gateway for downloading
+        /// blocks.
+        pub fn new_gateway(
+            client: GatewayClient,
+            batch_size: usize,
+        ) -> BatchBlockDownloader<GatewayDownloader> {
+            Self::new(GatewayDownloader::new(client), batch_size)
+        }
+    }
+
     /// Internal [`Downloader`] implementation that uses the sequencer gateway for downloading a
-    /// block. This is used by [`GatewayBlockDownloader`].
+    /// block.
     #[derive(Debug)]
     pub struct GatewayDownloader {
         gateway: GatewayClient,
@@ -124,7 +145,10 @@ mod impls {
         fn download(
             &self,
             key: &Self::Key,
-        ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+        ) -> impl std::future::Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+            use katana_gateway_client::Error as GatewayClientError;
+            use tracing::error;
+
             async {
                 match self.gateway.get_state_update_with_block((*key).into()).await.inspect_err(
                     |error| error!(block = %*key, ?error, "Error downloading block from gateway."),
@@ -137,6 +161,321 @@ mod impls {
                     },
                 }
             }
+        }
+    }
+
+    /// Converts gateway [`StateUpdateWithBlock`] into [`BlockData`].
+    impl From<katana_gateway_types::StateUpdateWithBlock> for BlockData {
+        fn from(data: katana_gateway_types::StateUpdateWithBlock) -> Self {
+            fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
+                let eth = prices.price_in_wei.to_u128().expect("valid u128");
+                let strk = prices.price_in_fri.to_u128().expect("valid u128");
+                let eth = if eth == 0 { 1 } else { eth };
+                let strk = if strk == 0 { 1 } else { strk };
+                unsafe { GasPrices::new_unchecked(eth, strk) }
+            }
+
+            let status = match data.block.status {
+                BlockStatus::AcceptedOnL2 => FinalityStatus::AcceptedOnL2,
+                BlockStatus::AcceptedOnL1 => FinalityStatus::AcceptedOnL1,
+                status => panic!("unsupported block status: {status:?}"),
+            };
+
+            let transactions = data
+                .block
+                .transactions
+                .into_iter()
+                .map(|tx| tx.try_into())
+                .collect::<std::result::Result<Vec<TxWithHash>, _>>()
+                .expect("valid transaction conversion");
+
+            let receipts = data
+                .block
+                .transaction_receipts
+                .into_iter()
+                .zip(transactions.iter())
+                .map(|(receipt, tx)| {
+                    let events = receipt.body.events;
+                    let revert_error = receipt.body.revert_error;
+                    let messages_sent = receipt.body.l2_to_l1_messages;
+                    let overall_fee = receipt.body.actual_fee.to_u128().expect("valid u128");
+                    let execution_resources = receipt.body.execution_resources.unwrap_or_default();
+
+                    let unit = if tx.transaction.version() >= Felt::THREE {
+                        PriceUnit::Fri
+                    } else {
+                        PriceUnit::Wei
+                    };
+
+                    let fee = FeeInfo { unit, overall_fee, ..Default::default() };
+
+                    match &tx.transaction {
+                        Tx::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
+                            fee,
+                            events,
+                            revert_error,
+                            messages_sent,
+                            execution_resources: execution_resources.into(),
+                        }),
+                        Tx::Declare(_) => Receipt::Declare(DeclareTxReceipt {
+                            fee,
+                            events,
+                            revert_error,
+                            messages_sent,
+                            execution_resources: execution_resources.into(),
+                        }),
+                        Tx::L1Handler(_) => Receipt::L1Handler(L1HandlerTxReceipt {
+                            fee,
+                            events,
+                            messages_sent,
+                            revert_error,
+                            message_hash: Default::default(),
+                            execution_resources: execution_resources.into(),
+                        }),
+                        Tx::DeployAccount(tx) => Receipt::DeployAccount(DeployAccountTxReceipt {
+                            fee,
+                            events,
+                            revert_error,
+                            messages_sent,
+                            contract_address: tx.contract_address(),
+                            execution_resources: execution_resources.into(),
+                        }),
+                        Tx::Deploy(tx) => Receipt::Deploy(DeployTxReceipt {
+                            fee,
+                            events,
+                            revert_error,
+                            messages_sent,
+                            contract_address: tx.contract_address.into(),
+                            execution_resources: execution_resources.into(),
+                        }),
+                    }
+                })
+                .collect::<Vec<Receipt>>();
+
+            let transaction_count = transactions.len() as u32;
+            let events_count = receipts.iter().map(|r| r.events().len() as u32).sum::<u32>();
+
+            let block = SealedBlock {
+                body: transactions,
+                hash: data.block.block_hash.unwrap_or_default(),
+                header: Header {
+                    transaction_count,
+                    events_count,
+                    timestamp: data.block.timestamp,
+                    l1_da_mode: data.block.l1_da_mode,
+                    parent_hash: data.block.parent_block_hash,
+                    state_diff_length: Default::default(),
+                    state_diff_commitment: Default::default(),
+                    number: data.block.block_number.unwrap_or_default(),
+                    l1_gas_prices: to_gas_prices(data.block.l1_gas_price),
+                    l2_gas_prices: to_gas_prices(data.block.l2_gas_price),
+                    state_root: data.block.state_root.unwrap_or_default(),
+                    l1_data_gas_prices: to_gas_prices(data.block.l1_data_gas_price),
+                    starknet_version: data
+                        .block
+                        .starknet_version
+                        .unwrap_or_default()
+                        .try_into()
+                        .unwrap(),
+                    events_commitment: data.block.event_commitment.unwrap_or_default(),
+                    receipts_commitment: data.block.receipt_commitment.unwrap_or_default(),
+                    sequencer_address: data.block.sequencer_address.unwrap_or_default(),
+                    transactions_commitment: data.block.transaction_commitment.unwrap_or_default(),
+                },
+            };
+
+            let state_updates: StateUpdates = match data.state_update {
+                GatewayStateUpdate::Confirmed(update) => update.state_diff.into(),
+                GatewayStateUpdate::PreConfirmed(update) => update.state_diff.into(),
+            };
+
+            let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
+
+            BlockData { block: SealedBlockWithStatus { block, status }, receipts, state_updates }
+        }
+    }
+}
+
+pub mod json_rpc {
+    use katana_primitives::block::{
+        BlockIdOrTag, BlockNumber, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
+    };
+    use katana_primitives::receipt::Receipt;
+    use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
+    use katana_primitives::transaction::TxWithHash;
+    use katana_primitives::Felt;
+    use katana_rpc_types::block::{BlockWithReceipts, GetBlockWithReceiptsResponse};
+    use katana_starknet::rpc::Client as JsonRpcClient;
+    use num_traits::ToPrimitive;
+    use starknet::core::types::ResourcePrice;
+    use tracing::error;
+
+    use super::{BlockData, BlockDownloader};
+
+    /// A [`BlockDownloader`] that fetches blocks via JSON-RPC.
+    ///
+    /// This downloads blocks one at a time sequentially using
+    /// `starknet_getBlockWithReceipts` and `starknet_getStateUpdate`.
+    #[derive(Debug)]
+    pub struct JsonRpcBlockDownloader {
+        client: JsonRpcClient,
+    }
+
+    impl JsonRpcBlockDownloader {
+        pub fn new(client: JsonRpcClient) -> Self {
+            Self { client }
+        }
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        #[error(transparent)]
+        Rpc(#[from] katana_starknet::rpc::Error),
+
+        #[error(transparent)]
+        Other(#[from] anyhow::Error),
+    }
+
+    impl BlockDownloader for JsonRpcBlockDownloader {
+        type Error = Error;
+
+        async fn download_blocks(
+            &self,
+            from: BlockNumber,
+            to: BlockNumber,
+        ) -> Result<Vec<BlockData>, Self::Error> {
+            let mut blocks = Vec::with_capacity((to - from + 1) as usize);
+
+            for block_num in from..=to {
+                let block_id = BlockIdOrTag::Number(block_num);
+
+                let (block_resp, state_update) = tokio::try_join!(
+                    async {
+                        self.client
+                            .get_block_with_receipts(block_id)
+                            .await
+                            .inspect_err(|e| {
+                                error!(
+                                    block = %block_num,
+                                    error = %e,
+                                    "Error downloading block via JSON-RPC."
+                                )
+                            })
+                            .map_err(Error::from)
+                    },
+                    async {
+                        self.client
+                            .get_state_update(block_id)
+                            .await
+                            .inspect_err(|e| {
+                                error!(
+                                    block = %block_num,
+                                    error = %e,
+                                    "Error downloading state update via JSON-RPC."
+                                )
+                            })
+                            .map_err(Error::from)
+                    },
+                )?;
+
+                let block_data = BlockData::from_rpc(block_resp, state_update)?;
+                blocks.push(block_data);
+            }
+
+            Ok(blocks)
+        }
+    }
+
+    impl BlockData {
+        /// Converts a JSON-RPC block-with-receipts response and state update into [`BlockData`].
+        pub fn from_rpc(
+            block_resp: katana_rpc_types::GetBlockWithReceiptsResponse,
+            state_update: katana_rpc_types::StateUpdate,
+        ) -> anyhow::Result<Self> {
+            fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
+                let eth = prices.price_in_wei.to_u128().expect("valid u128");
+                let strk = prices.price_in_fri.to_u128().expect("valid u128");
+                let eth = if eth == 0 { 1 } else { eth };
+                let strk = if strk == 0 { 1 } else { strk };
+                unsafe { GasPrices::new_unchecked(eth, strk) }
+            }
+
+            let BlockWithReceipts {
+                status,
+                block_hash,
+                parent_hash,
+                block_number,
+                new_root,
+                timestamp,
+                sequencer_address,
+                l1_gas_price,
+                l2_gas_price,
+                l1_data_gas_price,
+                l1_da_mode,
+                starknet_version,
+                transactions: tx_with_receipts,
+            } = match block_resp {
+                GetBlockWithReceiptsResponse::Block(b) => b,
+                GetBlockWithReceiptsResponse::PreConfirmed(_) => {
+                    anyhow::bail!("pre-confirmed blocks are not supported for syncing");
+                }
+            };
+
+            let mut transactions = Vec::with_capacity(tx_with_receipts.len());
+            let mut receipts = Vec::with_capacity(tx_with_receipts.len());
+
+            for tx_receipt in tx_with_receipts {
+                let tx_with_hash = katana_rpc_types::RpcTxWithHash {
+                    transaction_hash: tx_receipt.receipt.transaction_hash,
+                    transaction: tx_receipt.transaction,
+                };
+                let tx: TxWithHash = tx_with_hash.into();
+                let receipt: Receipt = tx_receipt.receipt.receipt.into();
+                transactions.push(tx);
+                receipts.push(receipt);
+            }
+
+            let transaction_count = transactions.len() as u32;
+            let events_count = receipts.iter().map(|r| r.events().len() as u32).sum::<u32>();
+
+            let block = SealedBlock {
+                body: transactions,
+                hash: block_hash,
+                header: Header {
+                    transaction_count,
+                    events_count,
+                    timestamp,
+                    l1_da_mode,
+                    parent_hash,
+                    number: block_number,
+                    state_root: new_root,
+                    sequencer_address,
+                    l1_gas_prices: to_gas_prices(l1_gas_price),
+                    l2_gas_prices: to_gas_prices(l2_gas_price),
+                    l1_data_gas_prices: to_gas_prices(l1_data_gas_price),
+                    starknet_version: starknet_version.try_into().unwrap(),
+                    // RPC doesn't return commitments; they'll be computed by
+                    // `compute_missing_commitments`
+                    events_commitment: Felt::ZERO,
+                    receipts_commitment: Felt::ZERO,
+                    transactions_commitment: Felt::ZERO,
+                    state_diff_length: Default::default(),
+                    state_diff_commitment: Default::default(),
+                },
+            };
+
+            let state_updates: StateUpdates = match state_update {
+                katana_rpc_types::StateUpdate::Confirmed(update) => update.state_diff.into(),
+                katana_rpc_types::StateUpdate::PreConfirmed(update) => update.state_diff.into(),
+            };
+
+            let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
+
+            Ok(BlockData {
+                block: SealedBlockWithStatus { block, status },
+                receipts,
+                state_updates,
+            })
         }
     }
 }

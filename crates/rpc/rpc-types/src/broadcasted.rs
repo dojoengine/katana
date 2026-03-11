@@ -574,7 +574,7 @@ impl BroadcastedDeployAccountTx {
             self.contract_address_salt,
             self.class_hash,
             &self.constructor_calldata,
-            Felt::ZERO,
+            ContractAddress::ZERO,
         )
         .into()
     }

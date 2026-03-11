@@ -3,6 +3,7 @@ use clap::{Args, Subcommand};
 use katana_db::abstraction::{Database, DbTx, DbTxMut};
 use katana_db::models::stage::ExecutionCheckpoint;
 use katana_db::tables;
+use katana_db::version::DbOpenMode;
 use katana_primitives::block::BlockNumber;
 
 use crate::cli::db;
@@ -34,6 +35,12 @@ struct GetArgs {
     /// Path to the database directory.
     #[arg(short, long)]
     path: String,
+
+    /// How Katana should open supported older database versions.
+    #[arg(long = "db-open-mode")]
+    #[arg(default_value_t = DbOpenMode::Compat)]
+    #[arg(value_name = "MODE")]
+    open_mode: DbOpenMode,
 }
 
 #[derive(Debug, Args)]
@@ -50,6 +57,12 @@ struct SetArgs {
     /// Path to the database directory.
     #[arg(short, long)]
     path: String,
+
+    /// How Katana should open supported older database versions.
+    #[arg(long = "db-open-mode")]
+    #[arg(default_value_t = DbOpenMode::Compat)]
+    #[arg(value_name = "MODE")]
+    open_mode: DbOpenMode,
 }
 
 impl CheckpointArgs {
@@ -63,7 +76,7 @@ impl CheckpointArgs {
 
 impl GetArgs {
     fn execute(self) -> Result<()> {
-        let result = db::open_db_ro(&self.path)?
+        let result = db::open_db_ro(&self.path, self.open_mode)?
             .view(|tx| tx.get::<tables::StageExecutionCheckpoints>(self.stage_id.clone()))??;
 
         match result {
@@ -81,7 +94,7 @@ impl GetArgs {
 
 impl SetArgs {
     fn execute(self) -> Result<()> {
-        db::open_db_rw(&self.path)?.update(|tx| {
+        db::open_db_rw(&self.path, self.open_mode)?.update(|tx| {
             let checkpoint = ExecutionCheckpoint { block: self.block_number };
             tx.put::<tables::StageExecutionCheckpoints>(self.stage_id.clone(), checkpoint)
         })??;

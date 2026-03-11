@@ -1,16 +1,42 @@
+use std::path::{Path, PathBuf};
+
 use anyhow::Result;
-use katana_db::version::CURRENT_DB_VERSION;
+use katana_db::version::{DbOpenMode, LATEST_DB_VERSION};
 use katana_node_bindings::Katana;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::{address, felt};
-use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_starknet::rpc::{Client as StarknetClient, Error as RpcError, StarknetApiError};
+
+fn copy_db_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let dst_path = dst.join(entry.file_name());
+
+        if entry.file_type()?.is_dir() {
+            copy_db_dir(&entry.path(), &dst_path)?;
+        } else if entry.file_name() != "mdbx.lck" {
+            std::fs::copy(entry.path(), dst_path)?;
+        }
+    }
+
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     println!("Testing database compatibility from version 1.6.0");
-    println!("Current Katana database version: {CURRENT_DB_VERSION}");
+    println!("Current Katana database version: {LATEST_DB_VERSION}");
 
     const TEST_DB_DIR: &str = "tests/fixtures/db/1_6_0";
+    let temp_dir = tempfile::tempdir()?;
+    let fixture_path = PathBuf::from(TEST_DB_DIR);
+    copy_db_dir(&fixture_path, temp_dir.path())?;
+
+    let err = katana_db::Db::open_ro_with_mode(temp_dir.path(), DbOpenMode::Strict).unwrap_err();
+    assert!(err.to_string().contains("strict mode"));
+    println!("Strict mode correctly rejects the v1.6.0 fixture.");
 
     // Get the katana binary path from the environment variable if provided (for CI)
     // Otherwise, assume it's in PATH
@@ -20,7 +46,7 @@ async fn main() -> Result<()> {
         Katana::new()
     };
 
-    let instance = katana.db_dir(TEST_DB_DIR).spawn();
+    let instance = katana.data_dir(temp_dir.path()).spawn();
 
     // Create HTTP client for Katana's RPC
     let url = format!("http://{}", instance.rpc_addr());
@@ -60,7 +86,30 @@ async fn test_rpc_queries(client: &StarknetClient) {
     let _ = client.get_transaction_by_block_id_and_index(BlockIdOrTag::Number(1), 0).await.unwrap();
 
     let tx_hash = felt!("0x722b80b0fd8e4cd177bb565ee73843ce5ffb8cc07114207cd4399cb4e00c9ac");
-    let _ = client.trace_transaction(tx_hash).await.unwrap();
+    // The v1.6.0 database contains TransactionExecutionInfo serialized with an older blockifier
+    // format. Since #392 (https://github.com/dojoengine/katana/pull/392), the new blockifier
+    // format is incompatible so deserialization fails and the provider returns None, which
+    // surfaces as TxnHashNotFound.
+    //
+    // See the backward-compat handling in DbProvider::transaction_execution():
+    //
+    // ```
+    // match self.0.get::<tables::TxTraces>(num) {
+    //     Ok(Some(execution)) => Ok(Some(execution)),
+    //     Ok(None) => Ok(None),
+    //     // Treat decompress errors as non-existent for backward compatibility
+    //     Err(DatabaseError::Codec(CodecError::Decompress(err))) => {
+    //         warn!(tx_num = %num, %err, "Failed to deserialize transaction trace");
+    //         Ok(None)
+    //     }
+    //     Err(e) => Err(e.into()),
+    // }
+    // ```
+    match client.trace_transaction(tx_hash).await {
+        Ok(_) => {}
+        Err(RpcError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
+        Err(e) => panic!("unexpected error from trace_transaction: {e}"),
+    }
     let _ = client.trace_block_transactions(ConfirmedBlockIdOrTag::Number(1)).await.unwrap();
 
     let class_hash = felt!("0x685ed02eefa98fe7e208aa295042e9bbad8029b0d3d6f0ba2b32546efe0a1f9");

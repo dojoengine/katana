@@ -12,6 +12,7 @@ use std::process::{Child, Command};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+pub use katana_db::version::DbOpenMode;
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::short_string;
 use starknet::providers::jsonrpc::HttpTransport;
@@ -177,7 +178,8 @@ pub struct Katana {
     no_mining: bool,
     json_log: bool,
     block_time: Option<u64>,
-    db_dir: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+    db_open_mode: Option<DbOpenMode>,
     l1_provider: Option<String>,
     fork_block_number: Option<u64>,
     messaging: Option<PathBuf>,
@@ -228,7 +230,7 @@ impl Katana {
     /// fn a() {
     ///  let katana = Katana::default().spawn();
     ///
-    ///  println!("Katana running at `{}`", katana.endpoint());
+    ///  println!("Katana running at `http://{}`", katana.rpc_addr());
     /// # }
     /// ```
     pub fn new() -> Self {
@@ -244,7 +246,7 @@ impl Katana {
     /// fn a() {
     ///  let katana = Katana::at("~/.katana/bin/katana").spawn();
     ///
-    ///  println!("Katana running at `{}`", katana.endpoint());
+    ///  println!("Katana running at `http://{}`", katana.rpc_addr());
     /// # }
     /// ```
     pub fn at(path: impl Into<PathBuf>) -> Self {
@@ -273,10 +275,22 @@ impl Katana {
         self
     }
 
-    /// Sets the database directory path which will be used when the `katana` instance is launched.
-    pub fn db_dir<T: Into<PathBuf>>(mut self, db_dir: T) -> Self {
-        self.db_dir = Some(db_dir.into());
+    /// Sets the data directory path which will be used when the `katana` instance is launched.
+    pub fn data_dir<T: Into<PathBuf>>(mut self, data_dir: T) -> Self {
+        self.data_dir = Some(data_dir.into());
         self
+    }
+
+    /// Sets the DB open mode which will be used when the `katana` instance is launched.
+    pub fn db_open_mode(mut self, db_open_mode: DbOpenMode) -> Self {
+        self.db_open_mode = Some(db_open_mode);
+        self
+    }
+
+    /// Sets the data directory path which will be used when the `katana` instance is launched.
+    #[deprecated(note = "Use `data_dir` instead")]
+    pub fn db_dir<T: Into<PathBuf>>(self, db_dir: T) -> Self {
+        self.data_dir(db_dir)
     }
 
     /// Sets the RPC URL to fork the network from.
@@ -458,8 +472,12 @@ impl Katana {
             cmd.arg("-b").arg(block_time.to_string());
         }
 
-        if let Some(db_dir) = self.db_dir {
-            cmd.arg("--db-dir").arg(db_dir);
+        if let Some(data_dir) = self.data_dir {
+            cmd.arg("--data-dir").arg(data_dir);
+        }
+
+        if let Some(db_open_mode) = self.db_open_mode {
+            cmd.arg("--db-open-mode").arg(db_open_mode.to_string());
         }
 
         if let Some(url) = self.l1_provider {
@@ -817,16 +835,16 @@ mod tests {
     }
 
     #[test]
-    fn can_launch_katana_with_db_dir() {
+    fn can_launch_katana_with_data_dir() {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("test-db");
-        assert!(!db_path.exists());
+        let data_path = temp_dir.path().join("test-data");
+        assert!(!data_path.exists());
 
-        let _katana = Katana::new().db_dir(db_path.clone()).spawn();
+        let _katana = Katana::new().data_dir(data_path.clone()).spawn();
 
-        // Check that the db directory is created
-        assert!(db_path.exists());
-        assert!(db_path.is_dir());
+        // Check that the data directory is created
+        assert!(data_path.exists());
+        assert!(data_path.is_dir());
     }
 
     #[test]

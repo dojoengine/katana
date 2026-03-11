@@ -10,11 +10,12 @@ use katana_gateway_types::{
 use katana_primitives::block::{
     BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
 };
+use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
-use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
+use katana_stage::blocks::{BatchBlockDownloader, BlockData, BlockDownloader, Blocks};
 use katana_stage::{Stage, StageExecutionInput};
 use rstest::rstest;
 use starknet::core::types::ResourcePrice;
@@ -72,15 +73,20 @@ impl MockBlockDownloader {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct MockError(String);
+
 // We're only testing the stage business logic so we don't really care about using the
 // BatchDownloader/Downloader combination.
 impl BlockDownloader for MockBlockDownloader {
+    type Error = MockError;
+
     fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
-    {
+    ) -> impl Future<Output = Result<Vec<BlockData>, Self::Error>> + Send {
         async move {
             let block_numbers: Vec<BlockNumber> = (from..=to).collect();
 
@@ -92,20 +98,15 @@ impl BlockDownloader for MockBlockDownloader {
 
             for block_num in block_numbers {
                 match responses.get(&block_num) {
-                    Some(Ok(block_data)) => results.push(block_data.clone()),
+                    Some(Ok(block_data)) => results.push(BlockData::from(block_data.clone())),
                     Some(Err(error)) => {
-                        return Err(katana_gateway_client::Error::Sequencer(GatewayError {
-                            code: ErrorCode::BlockNotFound,
-                            message: error.clone(),
-                            problems: None,
-                        }))
+                        return Err(MockError(error.clone()));
                     }
                     None => {
-                        return Err(katana_gateway_client::Error::Sequencer(GatewayError {
-                            code: ErrorCode::BlockNotFound,
-                            message: format!("No response configured for block {}", block_num),
-                            problems: None,
-                        }))
+                        return Err(MockError(format!(
+                            "No response configured for block {}",
+                            block_num
+                        )));
                     }
                 }
             }
@@ -193,6 +194,7 @@ fn create_downloaded_block_with_parent(
             transaction_receipts: Vec::new(),
             starknet_version: Some("0.13.0".to_string()),
             transaction_commitment: Some(Felt::ZERO),
+            receipt_commitment: Some(Felt::ZERO),
             event_commitment: Some(Felt::ZERO),
             state_diff_commitment: Some(Felt::ZERO),
             state_root: Some(Felt::ZERO),
@@ -223,7 +225,7 @@ async fn download_and_store_blocks(
         downloader = downloader.with_block(block_num, create_downloaded_block(block_num));
     }
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
     let input = StageExecutionInput::new(from_block, to_block);
 
     let result = stage.execute(&input).await;
@@ -246,7 +248,7 @@ async fn download_failure_returns_error() {
     // Create provider with initial block at block_number - 1
     let provider = create_provider_with_block(create_stored_block(block_number - 1));
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
     let input = StageExecutionInput::new(block_number, block_number);
 
     let result = stage.execute(&input).await;
@@ -281,7 +283,7 @@ async fn partial_download_failure_stops_execution() {
     downloader = downloader.with_error(103, "Block not found".to_string());
 
     let provider = create_provider_with_block(create_stored_block(from_block - 1));
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
 
     let input = StageExecutionInput::new(from_block, to_block);
     let result = stage.execute(&input).await;
@@ -306,7 +308,7 @@ async fn fetch_blocks_from_gateway() {
     let feeder_gateway = SequencerGateway::sepolia();
     let downloader = BatchBlockDownloader::new_gateway(feeder_gateway, 10);
 
-    let mut stage = Blocks::new(provider.clone(), downloader);
+    let mut stage = Blocks::new(provider.clone(), downloader, ChainId::SEPOLIA);
 
     let input = StageExecutionInput::new(from_block, to_block);
     stage.execute(&input).await.expect("failed to execute stage");
@@ -325,7 +327,7 @@ async fn downloaded_blocks_do_not_form_valid_chain_with_stored_blocks() {
     let downloader = MockBlockDownloader::new()
         .with_block(100, create_downloaded_block_with_parent(100, felt!("0x1337")));
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
     let input = StageExecutionInput::new(100, 100);
 
     let result = stage.execute(&input).await;
@@ -364,7 +366,7 @@ async fn downloaded_blocks_do_not_form_valid_chain() {
         // Block 102 with incorrect parent hash (should be 101)
         .with_block(102, create_downloaded_block_with_parent(102, Felt::from(999)));
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
     let input = StageExecutionInput::new(100, 102);
 
     let result = stage.execute(&input).await;

@@ -26,13 +26,13 @@ use katana_primitives::class::{
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
-use katana_rpc_client::starknet::{
-    Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
-};
 use katana_rpc_types::class::Class;
 use katana_rpc_types::{
     ConfirmedBlockIdOrTag, ContractStorageKeys, GetBlockWithReceiptsResponse,
     GetStorageProofResponse, StateUpdate, TraceBlockTransactionsResponse, TxReceiptWithBlockInfo,
+};
+use katana_starknet::rpc::{
+    Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use parking_lot::Mutex;
 use tracing::{error, trace};
@@ -412,7 +412,7 @@ pub enum BackendError {
     #[error("failed to spawn backend thread: {0}")]
     BackendThreadInit(#[from] Arc<io::Error>),
     #[error("rpc provider error: {0}")]
-    StarknetProvider(#[from] Arc<katana_rpc_client::starknet::Error>),
+    StarknetProvider(#[from] Arc<katana_starknet::rpc::Error>),
     #[error("unexpected received result: {0}")]
     UnexpectedReceiveResult(Arc<anyhow::Error>),
 }

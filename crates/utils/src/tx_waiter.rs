@@ -8,11 +8,11 @@ use futures::FutureExt;
 pub use katana_primitives::block::FinalityStatus;
 use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_client::starknet::{Client as StarknetClient, Error as StarknetClientError};
 use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
 use katana_rpc_types::TxStatus;
+use katana_starknet::rpc::{Client as StarknetClient, Error as StarknetClientError};
 use tokio::time::{Instant, Interval};
 
 type GetTxStatusResult = Result<TxStatus, StarknetClientError>;
@@ -316,10 +316,11 @@ mod tests {
     use katana_rpc_types::{ExecutionResources, FeePayment};
 
     use super::{Duration, TxWaiter};
-    use crate::{TestNode, TxWaitingError};
+    use crate::TxWaitingError;
 
-    async fn create_test_sequencer() -> TestNode {
-        TestNode::new().await
+    #[cfg(feature = "node")]
+    async fn create_test_sequencer() -> crate::TestNode {
+        crate::TestNode::new().await
     }
 
     const EXECUTION_RESOURCES: ExecutionResources =
@@ -365,6 +366,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "node")]
     #[tokio::test]
     async fn should_timeout_on_nonexistant_transaction() {
         let sequencer = create_test_sequencer().await;

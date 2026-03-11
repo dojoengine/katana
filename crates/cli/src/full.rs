@@ -1,12 +1,11 @@
-use std::path::PathBuf;
-
 use anyhow::{Context, Result};
 pub use clap::Parser;
-use katana_node::config::db::DbConfig;
-use katana_node::config::metrics::MetricsConfig;
-use katana_node::config::rpc::RpcConfig;
-use katana_node::full;
-use katana_node::full::Network;
+use katana_full_node::config::db::DbConfig;
+use katana_full_node::config::gateway::GatewayConfig;
+use katana_full_node::config::metrics::MetricsConfig;
+use katana_full_node::config::rpc::RpcConfig;
+use katana_full_node::config::trie::TrieConfig;
+use katana_full_node::Network;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -21,14 +20,6 @@ pub struct FullNodeArgs {
     #[arg(long)]
     pub silent: bool,
 
-    /// Directory path of the database to initialize from.
-    ///
-    /// The path must either be an empty directory or a directory which already contains a
-    /// previously initialized Katana database.
-    #[arg(long)]
-    #[arg(value_name = "PATH")]
-    pub db_dir: PathBuf,
-
     #[arg(long)]
     pub network: Network,
 
@@ -36,6 +27,9 @@ pub struct FullNodeArgs {
     #[arg(long)]
     #[arg(value_name = "KEY")]
     pub gateway_api_key: Option<String>,
+
+    #[command(flatten)]
+    pub db: DbOptions,
 
     #[command(flatten)]
     pub logging: LoggingOptions,
@@ -55,8 +49,21 @@ pub struct FullNodeArgs {
     #[command(flatten)]
     pub explorer: ExplorerOptions,
 
+    #[cfg(feature = "server")]
+    #[command(flatten)]
+    pub gateway: GatewayOptions,
+
+    #[command(flatten)]
+    pub trie: TrieOptions,
+
     #[command(flatten)]
     pub pruning: PruningOptions,
+
+    /// The maximum block number to sync to. Once reached, the pipeline stops
+    /// syncing but the node and RPC server remain running.
+    #[arg(long = "sync.tip")]
+    #[arg(value_name = "BLOCK_NUMBER")]
+    pub max_sync_tip: Option<u64>,
 }
 
 impl FullNodeArgs {
@@ -78,7 +85,7 @@ impl FullNodeArgs {
     async fn start_node(&self) -> Result<()> {
         // Build the node
         let config = self.config()?;
-        let node = full::Node::build(config).context("failed to build full node")?;
+        let node = katana_full_node::Node::build(config).context("failed to build full node")?;
 
         if !self.silent {
             info!(target: LOG_TARGET, "Starting full node");
@@ -102,23 +109,27 @@ impl FullNodeArgs {
         Ok(())
     }
 
-    fn config(&self) -> Result<full::Config> {
+    fn config(&self) -> Result<katana_full_node::Config> {
         let db = self.db_config();
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
         let pruning = self.pruning_config();
+        let gateway = self.gateway_config();
 
-        Ok(full::Config {
+        Ok(katana_full_node::Config {
             db,
             rpc,
             metrics,
             pruning,
+            gateway,
             network: self.network,
             gateway_api_key: self.gateway_api_key.clone(),
+            trie: TrieConfig { compute: !self.trie.disable },
+            max_sync_tip: self.max_sync_tip,
         })
     }
 
-    fn pruning_config(&self) -> full::PruningConfig {
+    fn pruning_config(&self) -> katana_full_node::PruningConfig {
         use crate::options::PruningMode;
 
         // Translate CLI pruning mode to distance from tip
@@ -127,11 +138,24 @@ impl FullNodeArgs {
             PruningMode::Full(n) => Some(n),
         };
 
-        full::PruningConfig { distance }
+        katana_full_node::PruningConfig { distance }
+    }
+
+    fn gateway_config(&self) -> Option<GatewayConfig> {
+        #[cfg(feature = "server")]
+        if self.gateway.enable {
+            return Some(GatewayConfig {
+                addr: self.gateway.gateway_addr,
+                port: self.gateway.gateway_port,
+                timeout: Some(std::time::Duration::from_secs(self.gateway.gateway_timeout)),
+            });
+        }
+
+        None
     }
 
     fn db_config(&self) -> DbConfig {
-        DbConfig { dir: Some(self.db_dir.clone()) }
+        DbConfig { dir: self.db.dir.clone(), open_mode: self.db.open_mode }
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {
@@ -179,5 +203,45 @@ impl FullNodeArgs {
 
     fn tracer_config(&self) -> Option<katana_tracing::TracerConfig> {
         self.tracer.config()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use katana_full_node::config::db::DbOpenMode;
+
+    use super::*;
+
+    #[test]
+    fn full_node_defaults_to_compat_db_open_mode() {
+        let args = FullNodeArgs::parse_from([
+            "katana",
+            "--db-dir",
+            "/tmp/katana-db",
+            "--network",
+            "mainnet",
+        ]);
+        let config = args.config().unwrap();
+
+        assert_eq!(config.db.dir, Some(PathBuf::from("/tmp/katana-db")));
+        assert_eq!(config.db.open_mode, DbOpenMode::Compat);
+    }
+
+    #[test]
+    fn full_node_accepts_strict_db_open_mode() {
+        let args = FullNodeArgs::parse_from([
+            "katana",
+            "--db-dir",
+            "/tmp/katana-db",
+            "--network",
+            "mainnet",
+            "--db-open-mode",
+            "strict",
+        ]);
+        let config = args.config().unwrap();
+
+        assert_eq!(config.db.open_mode, DbOpenMode::Strict);
     }
 }

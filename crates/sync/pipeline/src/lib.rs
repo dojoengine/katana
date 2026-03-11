@@ -229,6 +229,17 @@ impl PruningConfig {
     }
 }
 
+/// Configuration for the pipeline.
+#[derive(Debug, Clone, Default)]
+pub struct PipelineConfig {
+    /// The maximum block number the pipeline will sync to. When set, any tip updates beyond
+    /// this value are capped to it. Once the pipeline reaches this block, it will idle without
+    /// processing further blocks, while the node and RPC server remain running.
+    pub max_sync_tip: Option<BlockNumber>,
+    /// Pruning configuration.
+    pub pruning: PruningConfig,
+}
+
 /// Syncing pipeline.
 ///
 /// The pipeline drives the execution of stages, running each stage to completion in the order they
@@ -252,7 +263,7 @@ pub struct Pipeline {
     block_tx: watch::Sender<Option<BlockNumber>>,
     tip: Option<BlockNumber>,
     metrics: PipelineMetrics,
-    pruning_config: PruningConfig,
+    config: PipelineConfig,
 }
 
 impl Pipeline {
@@ -279,21 +290,24 @@ impl Pipeline {
             chunk_size,
             tip: None,
             metrics: PipelineMetrics::new(),
-            pruning_config: PruningConfig::default(),
+            config: PipelineConfig::default(),
         };
         (pipeline, handle)
     }
 
-    /// Sets the pruning configuration for the pipeline.
-    ///
-    /// This controls how and when historical state is pruned during synchronization.
-    pub fn set_pruning_config(&mut self, config: PruningConfig) {
-        self.pruning_config = config;
+    /// Sets the pipeline configuration.
+    pub fn set_config(&mut self, config: PipelineConfig) {
+        self.config = config;
     }
 
-    /// Returns the current pruning configuration.
-    pub fn pruning_config(&self) -> &PruningConfig {
-        &self.pruning_config
+    /// Returns the current pipeline configuration.
+    pub fn config(&self) -> &PipelineConfig {
+        &self.config
+    }
+
+    /// Sets the pruning configuration for the pipeline.
+    pub fn set_pruning_config(&mut self, config: PruningConfig) {
+        self.config.pruning = config;
     }
 
     /// Adds a new stage to the end of the pipeline.
@@ -479,14 +493,14 @@ impl Pipeline {
                 continue;
             };
 
-            let prune_input = PruneInput::new(tip, self.pruning_config.distance, prune_checkpoint);
+            let prune_input = PruneInput::new(tip, self.config.pruning.distance, prune_checkpoint);
 
             let Some(range) = prune_input.prune_range() else {
                 info!(target: "pipeline", "Skipping stage - nothing to prune (already caught up).");
                 continue;
             };
 
-            info!(target: "pipeline", distance = ?self.pruning_config.distance, from = range.start, to = range.end, "Pruning stage.");
+            info!(target: "pipeline", distance = ?self.config.pruning.distance, from = range.start, to = range.end, "Pruning stage.");
 
             let span_inner = enter.exit();
             let PruneOutput { pruned_count } = stage
@@ -530,7 +544,7 @@ impl Pipeline {
                 let _ = self.block_tx.send(Some(last_block_processed));
 
                 // Run pruning if enabled
-                if self.pruning_config.is_enabled() {
+                if self.config.pruning.is_enabled() {
                     self.prune().await?;
                 }
 
@@ -547,9 +561,16 @@ impl Pipeline {
 
                 match *self.cmd_rx.borrow_and_update() {
                     Some(PipelineCommand::SetTip(new_tip)) => {
-                        info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
-                        self.tip = Some(new_tip);
-                        self.metrics.set_sync_target(new_tip);
+                        let effective_tip = match self.config.max_sync_tip {
+                            Some(max) if new_tip > max => {
+                                info!(target: "pipeline", tip = %new_tip, max = %max, "Capping tip to configured sync tip.");
+                                max
+                            }
+                            _ => new_tip,
+                        };
+                        info!(target: "pipeline", tip = %effective_tip, "A new tip has been set.");
+                        self.tip = Some(effective_tip);
+                        self.metrics.set_sync_target(effective_tip);
                     }
 
                     Some(PipelineCommand::Stop) => break,
@@ -584,7 +605,7 @@ impl core::fmt::Debug for Pipeline {
             .field("command", &self.cmd_rx)
             .field("provider", &self.storage_provider)
             .field("chunk_size", &self.chunk_size)
-            .field("pruning_config", &self.pruning_config)
+            .field("config", &self.config)
             .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
             .finish_non_exhaustive()
     }

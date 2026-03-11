@@ -200,13 +200,32 @@ pub fn deserialize_cors_origins<'de, D>(deserializer: D) -> Result<Vec<HeaderVal
 where
     D: Deserializer<'de>,
 {
-    String::deserialize(deserializer)?
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(HeaderValue::from_str)
-        .collect::<Result<Vec<HeaderValue>, _>>()
-        .map_err(serde::de::Error::custom)
+    use serde::de;
+
+    // Accept both a comma-separated string and an array of strings.
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrArray {
+        String(String),
+        Array(Vec<String>),
+    }
+
+    let origins = match StringOrArray::deserialize(deserializer)? {
+        StringOrArray::String(s) => s
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(HeaderValue::from_str)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(de::Error::custom)?,
+        StringOrArray::Array(arr) => arr
+            .iter()
+            .map(|s| HeaderValue::from_str(s.trim()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(de::Error::custom)?,
+    };
+
+    Ok(origins)
 }
 
 // Chain IDs can be arbitrary ASCII strings, making them indistinguishable from filesystem paths.
@@ -280,5 +299,50 @@ mod tests {
     fn parse_genesis_file() {
         let path = "./test-data/genesis.json";
         parse_genesis(path).unwrap();
+    }
+
+    #[test]
+    fn deserialize_cors_origins_from_string() {
+        #[derive(Deserialize)]
+        struct Test {
+            #[serde(deserialize_with = "deserialize_cors_origins")]
+            origins: Vec<HeaderValue>,
+        }
+
+        let toml_str = r#"origins = "http://localhost, http://example.com""#;
+        let test: Test = toml::from_str(toml_str).unwrap();
+        assert_eq!(test.origins.len(), 2);
+        assert_eq!(test.origins[0], "http://localhost");
+        assert_eq!(test.origins[1], "http://example.com");
+    }
+
+    #[test]
+    fn deserialize_cors_origins_from_array() {
+        #[derive(Deserialize)]
+        struct Test {
+            #[serde(deserialize_with = "deserialize_cors_origins")]
+            origins: Vec<HeaderValue>,
+        }
+
+        let toml_str = r#"origins = ["http://localhost", "http://example.com"]"#;
+        let test: Test = toml::from_str(toml_str).unwrap();
+        assert_eq!(test.origins.len(), 2);
+        assert_eq!(test.origins[0], "http://localhost");
+        assert_eq!(test.origins[1], "http://example.com");
+    }
+
+    #[test]
+    fn deserialize_cors_origins_wildcard() {
+        #[derive(Deserialize)]
+        struct Test {
+            #[serde(deserialize_with = "deserialize_cors_origins")]
+            origins: Vec<HeaderValue>,
+        }
+
+        // Both formats should work with wildcard
+        let from_string: Test = toml::from_str(r#"origins = "*""#).unwrap();
+        let from_array: Test = toml::from_str(r#"origins = ["*"]"#).unwrap();
+        assert_eq!(from_string.origins, from_array.origins);
+        assert_eq!(from_string.origins[0], "*");
     }
 }

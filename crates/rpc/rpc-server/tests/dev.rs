@@ -1,3 +1,5 @@
+use common::{Erc20Contract, Uint256};
+use katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockNumberProvider, BlockProvider};
@@ -5,7 +7,10 @@ use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::ProviderFactory;
 use katana_rpc_server::api::dev::DevApiClient;
+use katana_rpc_server::api::txpool::TxPoolApiClient;
 use katana_utils::TestNode;
+
+mod common;
 
 #[tokio::test]
 async fn test_next_block_timestamp_in_past() {
@@ -190,4 +195,32 @@ async fn test_set_storage_at_with_pending_block() {
         let read_val = state.storage(contract_address, key).unwrap();
         assert_eq!(read_val, Some(value), "storage value should persist after block is mined");
     }
+}
+
+#[tokio::test]
+async fn test_generate_block_drains_pool_transactions() {
+    let mut config = katana_utils::node::test_config();
+    config.sequencing.no_mining = true;
+
+    let sequencer = TestNode::new_with_config(config).await;
+
+    let client = sequencer.rpc_http_client();
+    let provider = sequencer.starknet_rpc_client();
+    let account = sequencer.account();
+
+    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+    let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
+
+    let res = contract.transfer(&Felt::ONE, &amount).send().await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
+
+    let status = client.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 1, "pool should contain submitted tx before force mining");
+    assert_eq!(status.queued, 0, "queued pool is currently unsupported");
+
+    client.generate_block().await.unwrap();
+
+    let status = client.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 0, "pool should be drained after force mining");
+    assert_eq!(status.queued, 0, "queued pool is currently unsupported");
 }

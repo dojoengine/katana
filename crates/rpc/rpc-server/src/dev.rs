@@ -1,36 +1,34 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
-use katana_executor::ExecutorFactory;
+use katana_pool::TxPool;
 use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
 use katana_provider::api::state::StateWriter;
-use katana_provider::{MutableProvider, ProviderFactory};
+use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::error::dev::DevApiError;
 use katana_rpc_types::account::Account;
 
 #[allow(missing_debug_implementations)]
-pub struct DevApi<EF, PF>
+pub struct DevApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
 {
-    backend: Arc<Backend<EF, PF>>,
-    block_producer: BlockProducer<EF, PF>,
+    backend: Arc<Backend<PF>>,
+    block_producer: BlockProducer<PF>,
+    pool: TxPool,
 }
 
-impl<EF, PF> DevApi<EF, PF>
+impl<PF> DevApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
-    pub fn new(backend: Arc<Backend<EF, PF>>, block_producer: BlockProducer<EF, PF>) -> Self {
-        Self { backend, block_producer }
+    pub fn new(backend: Arc<Backend<PF>>, block_producer: BlockProducer<PF>, pool: TxPool) -> Self {
+        Self { backend, block_producer, pool }
     }
 
     /// Returns the pending state if the sequencer is running in _interval_ mode. Otherwise `None`.
@@ -102,15 +100,14 @@ where
 }
 
 #[async_trait]
-impl<EF, PF> DevApiServer for DevApi<EF, PF>
+impl<PF> DevApiServer for DevApi<PF>
 where
-    EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     async fn generate_block(&self) -> RpcResult<()> {
-        self.block_producer.force_mine();
+        self.block_producer.force_mine(&self.pool);
         Ok(())
     }
 
