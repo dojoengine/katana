@@ -303,6 +303,11 @@ impl Pipeline {
         &self.config
     }
 
+    /// Sets the pruning configuration for the pipeline.
+    pub fn set_pruning_config(&mut self, config: PruningConfig) {
+        self.config.pruning = config;
+    }
+
     /// Adds a new stage to the end of the pipeline.
     ///
     /// Stages are executed in the order they are added.
