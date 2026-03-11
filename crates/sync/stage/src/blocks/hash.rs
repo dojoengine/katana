@@ -720,6 +720,36 @@ mod tests {
     }
 
     #[test]
+    fn reconstructs_missing_commitments_for_unversioned_mainnet_770() {
+        let (mut block_data, ..) = block_data_from_split_fixtures(
+            include_str!(concat!(
+                "../../../../gateway/gateway-client/tests/fixtures",
+                "/pre_0.7.0/block/mainnet_770.json"
+            )),
+            include_str!(concat!(
+                "../../../../gateway/gateway-client/tests/fixtures",
+                "/pre_0.7.0/state_update/mainnet_770.json"
+            )),
+        );
+
+        block_data.block.block.header.transactions_commitment = Felt::ZERO;
+        block_data.block.block.header.events_commitment = Felt::ZERO;
+
+        compute_missing_commitments(
+            &mut block_data.block.block,
+            &block_data.receipts,
+            &block_data.state_updates.state_updates,
+        );
+
+        assert_eq!(
+            block_data.block.block.header.transactions_commitment,
+            Felt::from_hex("0x51aad3267df44940cbdf4054b5a4e32ed0ba5e9ef02d9f15010374e3649dcc4",)
+                .unwrap()
+        );
+        assert_eq!(block_data.block.block.header.events_commitment, Felt::ZERO);
+    }
+
+    #[test]
     fn reconstructs_missing_commitments_for_0_13_0_block() {
         let (mut block_data, block_fixture) = block_data_from_split_fixtures(
             include_str!(concat!(
