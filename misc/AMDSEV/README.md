@@ -223,7 +223,7 @@ Use `snp-report` to decode the `quote` field:
 # Or pipe from jq
 curl -s -X POST http://localhost:15051 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tee_generatQuote","params":[]}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tee_generateQuote","params":[0,1]}' \
   | jq -r '.result.quote' \
   | ./target/debug/snp-report
 ```
