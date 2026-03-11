@@ -3,7 +3,6 @@ use std::ops::{Range, RangeInclusive};
 
 use katana_db::abstraction::{DbTx, DbTxMut};
 use katana_db::models::block::StoredBlockBodyIndices;
-use katana_db::models::VersionedStateUpdates;
 use katana_db::tables;
 use katana_fork::Backend;
 use katana_primitives::block::{
@@ -378,7 +377,7 @@ impl<Tx1: DbTx> StateUpdateProvider for ForkedProvider<Tx1> {
                 let provider_mut = self.fork_db.db.provider_mut();
                 provider_mut.tx().put::<tables::BlockStateUpdates>(
                     block_number,
-                    VersionedStateUpdates::from(canonical_state_update.clone()),
+                    canonical_state_update.clone(),
                 )?;
                 provider_mut.commit()?;
 

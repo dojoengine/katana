@@ -16,9 +16,7 @@ use katana_db::models::list::BlockChangeList;
 use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use katana_db::models::state::HistoricalStateRetention;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
-use katana_db::models::{
-    ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedStateUpdates, VersionedTx,
-};
+use katana_db::models::{ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedTx};
 use katana_db::tables;
 use katana_primitives::block::{
     Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
@@ -87,7 +85,7 @@ impl<Tx: DbTx> DbProvider<Tx> {
             .get::<tables::BlockStateUpdates>(block_number)?
             .ok_or(ProviderError::MissingBlockStateUpdate(block_number))?;
 
-        Ok(state_update.into())
+        Ok(state_update)
     }
 }
 
@@ -544,10 +542,7 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
         self.0.put::<tables::BlockStatusses>(block_number, block.status)?;
 
         self.0.put::<tables::Headers>(block_number, VersionedHeader::from(block_header))?;
-        self.0.put::<tables::BlockStateUpdates>(
-            block_number,
-            VersionedStateUpdates::from(canonical_state_update),
-        )?;
+        self.0.put::<tables::BlockStateUpdates>(block_number, canonical_state_update)?;
         self.0.put::<tables::BlockBodyIndices>(block_number, block_body_indices)?;
 
         // Store base transaction details

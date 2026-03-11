@@ -2,6 +2,7 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
+use katana_primitives::state::StateUpdates;
 use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
@@ -13,9 +14,7 @@ use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint, StageId};
 use crate::models::state::HistoricalStateRetention;
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-use crate::models::{
-    ReceiptEnvelope, TxEnvelope, VersionedContractClass, VersionedHeader, VersionedStateUpdates,
-};
+use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedContractClass, VersionedHeader};
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -207,7 +206,7 @@ tables! {
     /// Store canonical block headers
     Headers: (BlockNumber) => VersionedHeader,
     /// Stores canonical state updates by block number.
-    BlockStateUpdates: (BlockNumber) => VersionedStateUpdates,
+    BlockStateUpdates: (BlockNumber) => StateUpdates,
     /// Stores block hashes according to its block number
     BlockHashes: (BlockNumber) => BlockHash,
     /// Stores block numbers according to its block hash
@@ -401,7 +400,8 @@ mod tests {
         TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
     };
     use crate::models::{
-        ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedStateUpdates, VersionedTx,
+        ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedHeader, VersionedStateUpdates,
+        VersionedTx, VersionedTx,
     };
 
     macro_rules! assert_key_encode_decode {
@@ -451,7 +451,7 @@ mod tests {
     fn test_value_compress_decompress() {
         assert_value_compress_decompress! {
             (VersionedHeader, VersionedHeader::default()),
-            (VersionedStateUpdates, VersionedStateUpdates::from(StateUpdates::default())),
+            (StateUpdates, StateUpdates::default()),
             (BlockHash, BlockHash::default()),
             (BlockNumber, BlockNumber::default()),
             (FinalityStatus, FinalityStatus::AcceptedOnL1),

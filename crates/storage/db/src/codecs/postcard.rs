@@ -1,6 +1,7 @@
 use katana_primitives::contract::GenericContractInfo;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
+use katana_primitives::state::StateUpdates;
 use katana_primitives::Felt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use {postcard, zstd};
@@ -104,7 +105,8 @@ impl_compress_and_decompress_for_table_values!(
     HistoricalStateRetention,
     GenericContractInfo,
     StoredBlockBodyIndices,
-    ContractInfoChangeList
+    ContractInfoChangeList,
+    StateUpdates
 );
 
 #[cfg(test)]

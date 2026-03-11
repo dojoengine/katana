@@ -15,5 +15,4 @@ pub use envelope::{EnvelopeError, TxEnvelope};
 pub use receipt::ReceiptEnvelope;
 pub use versioned::block::VersionedHeader;
 pub use versioned::class::VersionedContractClass;
-pub use versioned::state::VersionedStateUpdates;
 pub use versioned::transaction::VersionedTx;
