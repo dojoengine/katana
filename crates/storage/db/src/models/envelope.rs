@@ -21,16 +21,38 @@ pub trait EnvelopePayload: Serialize + DeserializeOwned + Debug + Clone + Partia
     fn from_legacy_bytes(bytes: &[u8]) -> Result<Self, CodecError>;
 }
 
-/// Generic compressed envelope.
+/// Generic compressed envelope for on-disk table values.
+///
+/// Wraps a payload `T` with a fixed 6-byte header so that encoding can evolve
+/// independently from the in-memory types. Rows written before the envelope
+/// existed (legacy rows) are detected by the absence of the magic prefix and
+/// decoded via [`EnvelopePayload::from_legacy_bytes`].
+///
+/// # Wire format
 ///
 /// ```text
 /// +---------+-----------+------------+-------------------------------+
 /// | magic   | version   | encoding   | payload                       |
 /// | 4 bytes | 1 byte    | 1 byte     | variable length               |
 /// +---------+-----------+------------+-------------------------------+
-/// | MAGIC   | 0x01      | 0x01       | zstd(postcard(T))             |
-/// +---------+-----------+------------+-------------------------------+
 /// ```
+///
+/// **Magic** (bytes 0–3): A 4-byte ASCII tag unique to each payload type
+/// (e.g. `KRCP` for receipts, `KTXN` for transactions). Used to distinguish
+/// envelope-encoded rows from legacy rows during decompression.
+///
+/// **Format version** (byte 4): Schema version of the envelope layout itself.
+/// Currently `0x01`. A reader that encounters a higher version will reject the
+/// row, ensuring forward-incompatible changes are caught early.
+///
+/// **Encoding** (byte 5): Identifies the compression algorithm applied to the
+/// serialized payload.
+///   - `0x01` — zstd (default level, no dictionary).
+///   - `0x02` — reserved for zstd with a shared dictionary.
+///
+/// **Payload** (bytes 6..): The inner value serialized with
+/// [postcard](https://docs.rs/postcard) and then compressed according to the
+/// encoding byte.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Envelope<T: EnvelopePayload> {
     pub inner: T,
