@@ -36,6 +36,7 @@ serde.workspace = true
 strum.workspace = true
 tracing.workspace = true
 tokio = { workspace = true, features = [ "time" ] }
+url.workspace = true
 
 [features]
 cartridge = ["katana-node-config/cartridge", "katana-rpc-api/cartridge", "katana-rpc-server/cartridge"]

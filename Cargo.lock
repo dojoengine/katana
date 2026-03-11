@@ -6261,6 +6261,7 @@ dependencies = [
  "strum 0.25.0",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]

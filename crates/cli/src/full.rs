@@ -8,6 +8,7 @@ use katana_full_node::config::trie::TrieConfig;
 use katana_full_node::Network;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use url::Url;
 
 use crate::options::*;
 
@@ -64,6 +65,13 @@ pub struct FullNodeArgs {
     #[arg(long = "sync.tip")]
     #[arg(value_name = "BLOCK_NUMBER")]
     pub max_sync_tip: Option<u64>,
+
+    /// Custom feeder gateway base URL to sync from instead of the default
+    /// network gateway. Useful for syncing from another katana node's
+    /// feeder gateway.
+    #[arg(long = "sync.gateway")]
+    #[arg(value_name = "URL")]
+    pub sync_gateway: Option<Url>,
 }
 
 impl FullNodeArgs {
@@ -126,6 +134,7 @@ impl FullNodeArgs {
             gateway_api_key: self.gateway_api_key.clone(),
             trie: TrieConfig { compute: !self.trie.disable },
             max_sync_tip: self.max_sync_tip,
+            sync_gateway: self.sync_gateway.clone(),
         })
     }
 
