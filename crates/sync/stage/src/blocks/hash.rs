@@ -309,7 +309,7 @@ fn compute_transaction_commitment(transactions: &[TxWithHash], version: Starknet
 /// Computes the versioned transaction-commitment leaf for a single transaction.
 fn calculate_transaction_commitment_leaf(tx: &TxWithHash, version: StarknetVersion) -> Felt {
     if version < STARKNET_VERSION_0_11_1 {
-        let tx_signature = transaction_signature(&tx.transaction);
+        let tx_signature = transaction_signature_pre_0_11_1(&tx.transaction);
         let signature_hash = Pedersen::hash_array(tx_signature);
 
         Pedersen::hash(&tx.hash, &signature_hash)
@@ -330,6 +330,15 @@ fn calculate_transaction_commitment_leaf(tx: &TxWithHash, version: StarknetVersi
         }
 
         Poseidon::hash_array(&elements)
+    }
+}
+
+fn transaction_signature_pre_0_11_1(transaction: &Tx) -> &[Felt] {
+    match transaction {
+        Tx::Invoke(InvokeTx::V0(tx)) => &tx.signature,
+        Tx::Invoke(InvokeTx::V1(tx)) => &tx.signature,
+        Tx::Invoke(InvokeTx::V3(tx)) => &tx.signature,
+        Tx::Declare(_) | Tx::Deploy(_) | Tx::DeployAccount(_) | Tx::L1Handler(_) => &[],
     }
 }
 
