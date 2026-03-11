@@ -67,7 +67,7 @@ pub enum Network {
     Sepolia,
 }
 
-pub use katana_pipeline::PruningConfig;
+pub use katana_pipeline::{PipelineConfig, PruningConfig};
 
 #[derive(Debug)]
 pub struct Config {
@@ -79,6 +79,8 @@ pub struct Config {
     pub network: Network,
     pub trie: TrieConfig,
     pub gateway: Option<GatewayConfig>,
+    /// If set, the pipeline will stop syncing after reaching this block number.
+    pub sync_tip: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -140,8 +142,11 @@ impl Node {
 
         let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 256);
 
-        // Configure pruning
-        pipeline.set_pruning_config(config.pruning.clone());
+        // Configure pipeline
+        pipeline.set_config(PipelineConfig {
+            sync_tip: config.sync_tip,
+            pruning: config.pruning.clone(),
+        });
 
         let chain_id = match config.network {
             Network::Mainnet => katana_primitives::chain::ChainId::MAINNET,

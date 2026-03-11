@@ -58,6 +58,12 @@ pub struct FullNodeArgs {
 
     #[command(flatten)]
     pub pruning: PruningOptions,
+
+    /// Sync up to this block number and then stop syncing.
+    /// The node will remain running with RPC available after reaching this block.
+    #[arg(long = "sync.tip")]
+    #[arg(value_name = "BLOCK_NUMBER")]
+    pub sync_tip: Option<u64>,
 }
 
 impl FullNodeArgs {
@@ -119,6 +125,7 @@ impl FullNodeArgs {
             network: self.network,
             gateway_api_key: self.gateway_api_key.clone(),
             trie: TrieConfig { compute: !self.trie.disable },
+            sync_tip: self.sync_tip,
         })
     }
 
