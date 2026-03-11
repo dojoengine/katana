@@ -6,6 +6,6 @@ mod spawner;
 mod task;
 
 pub use blocking::*;
-pub use manager::*;
+pub use manager::{TaskId, TaskManager};
 pub use spawner::*;
 pub use task::*;
