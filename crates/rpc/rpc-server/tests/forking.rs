@@ -20,13 +20,18 @@ use url::Url;
 
 mod common;
 
-const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_10";
+// Pathfinder supports storage proofs for blocks far in the past
+const SEPOLIA_URL: &str = "https://pathfinder-sepolia.d.karnot.xyz/";
 const FORK_BLOCK_NUMBER: BlockNumber = 268_471;
 const FORK_BLOCK_HASH: BlockHash =
     felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd");
 
 fn forking_cfg() -> ForkingConfig {
-    ForkingConfig { url: Url::parse(SEPOLIA_URL).unwrap(), block: Some(FORK_BLOCK_NUMBER.into()) }
+    ForkingConfig {
+        url: Url::parse(SEPOLIA_URL).unwrap(),
+        block: Some(FORK_BLOCK_NUMBER.into()),
+        init_dev_genesis: true,
+    }
 }
 
 type LocalTestVector = Vec<((BlockNumber, BlockHash), TxHash)>;
@@ -667,7 +672,7 @@ mod tests {
     use katana_chain_spec::{dev, ChainSpec};
     use katana_core::service::block_producer::IntervalBlockProducer;
     use katana_db::Db;
-    use katana_node::config::fork::ForkingConfig;
+    use katana_sequencer_node::config::fork::ForkingConfig;
     use katana_primitives::block::{
         BlockHash, BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
     };
@@ -1019,7 +1024,11 @@ mod tests {
 
         fork_config.chain = Arc::new(ChainSpec::Dev(fork_chain_spec));
         let fork_block = katana_primitives::block::BlockHashOrNumber::Num(fork_block_number);
-        fork_config.forking = Some(ForkingConfig { url: fork_url, block: Some(fork_block) });
+        fork_config.forking = Some(ForkingConfig {
+            url: fork_url,
+            block: Some(fork_block),
+            init_dev_genesis: false,
+        });
 
         let fork_node = ForkTestNode::new_forked_with_config(fork_config).await;
         let fork_backend = fork_node.backend();
@@ -1181,7 +1190,11 @@ mod tests {
         let fork_url: Url = Url::parse(&url).unwrap();
         let mut fork_config = katana_utils::node::test_config();
         let fork_block = katana_primitives::block::BlockHashOrNumber::Num(fork_block_number);
-        fork_config.forking = Some(ForkingConfig { url: fork_url, block: Some(fork_block) });
+        fork_config.forking = Some(ForkingConfig {
+            url: fork_url,
+            block: Some(fork_block),
+            init_dev_genesis: false,
+        });
 
         let fork_node = ForkTestNode::new_forked_with_config(fork_config).await;
         let fork_backend = fork_node.backend();

@@ -513,7 +513,11 @@ impl SequencerNodeArgs {
 
     fn forking_config(&self) -> Result<Option<ForkingConfig>> {
         if let Some(ref url) = self.forking.fork_provider {
-            let cfg = ForkingConfig { url: url.clone(), block: self.forking.fork_block };
+            let cfg = ForkingConfig {
+                url: url.clone(),
+                block: self.forking.fork_block,
+                init_dev_genesis: !self.forking.no_dev_genesis,
+            };
             return Ok(Some(cfg));
         }
 

@@ -201,7 +201,12 @@ where
             chain_spec: config.chain.clone(),
         });
 
-        backend.init_genesis(config.forking.is_some()).context("failed to initialize genesis")?;
+        let skip_dev_genesis = config
+            .forking
+            .as_ref()
+            .is_some_and(|forking| !forking.init_dev_genesis);
+
+        backend.init_genesis(skip_dev_genesis).context("failed to initialize genesis")?;
 
         // --- build block producer
 
