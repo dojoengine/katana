@@ -7,6 +7,7 @@ use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use katana_trie::compute_merkle_root;
+use rayon::prelude::*;
 use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 use tracing::{error, info_span, warn, Instrument};
 
@@ -107,26 +108,33 @@ where
             // TODO: spawn onto a blocking thread pool
             self.validate_chain_invariant(&blocks)?;
 
-            let provider_mut = self.provider.provider_mut();
+            // Phase 1: Compute commitments and verify hashes in parallel.
+            // These are CPU-bound hash computations with no inter-block dependencies.
+            let chain_id = self.chain_id;
+            let mut blocks = blocks;
 
-            for block_data in blocks {
-                let BlockData { mut block, receipts, state_updates } = block_data;
-                let block_number = block.block.header.number;
+            blocks.par_iter_mut().for_each(|block_data| {
+                let block_number = block_data.block.block.header.number;
 
-                // Compute missing commitments for older blocks where the source
-                // doesn't include them in the block header.
-                compute_missing_commitments(&mut block.block, &receipts);
+                compute_missing_commitments(&mut block_data.block.block, &block_data.receipts);
 
-                // Verify the block hash matches what we compute locally.
-                let computed_hash = hash::compute_hash(&block.block.header, &self.chain_id);
-                if computed_hash != block.block.hash {
+                let computed_hash = hash::compute_hash(&block_data.block.block.header, &chain_id);
+                if computed_hash != block_data.block.block.hash {
                     warn!(
                         block = %block_number,
-                        expected = %format!("{:#x}", block.block.hash),
+                        expected = %format!("{:#x}", block_data.block.block.hash),
                         computed = %format!("{:#x}", computed_hash),
                         "Block hash mismatch"
                     );
                 }
+            });
+
+            // Phase 2: Write blocks to the database sequentially.
+            let provider_mut = self.provider.provider_mut();
+
+            for block_data in blocks {
+                let BlockData { block, receipts, state_updates } = block_data;
+                let block_number = block.block.header.number;
 
                 provider_mut
                     .insert_block_with_states_and_receipts(
