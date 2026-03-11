@@ -444,9 +444,9 @@ impl<Tx1: DbTx> ContractClassProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if let class @ Some(..) =
-            self.fork_provider.backend.get_class_at(hash, self.fork_provider.block_id)?
-        {
+        let block_id = self.target_block();
+
+        if let class @ Some(..) = self.fork_provider.backend.get_class_at(hash, block_id)? {
             Ok(class)
         } else {
             Ok(None)
@@ -461,8 +461,10 @@ impl<Tx1: DbTx> ContractClassProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
+        let block_id = self.target_block();
+
         if let Some(compiled_hash) =
-            self.fork_provider.backend.get_compiled_class_hash(hash, self.fork_provider.block_id)?
+            self.fork_provider.backend.get_compiled_class_hash(hash, block_id)?
         {
             let provider_mut = self.fork_provider.db.provider_mut();
             provider_mut.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
