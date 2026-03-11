@@ -30,6 +30,8 @@ pub struct VersionedConstantsOverrides {
     pub validate_max_n_steps: Option<u32>,
     /// The maximum recursion depth allowed.
     pub max_recursion_depth: Option<usize>,
+    /// Whether the chain is a L3 chain.
+    pub is_l3: bool,
 }
 
 /// The contract addresses of the tokens used for the fees.
