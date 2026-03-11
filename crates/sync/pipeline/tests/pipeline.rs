@@ -1285,7 +1285,7 @@ async fn run_caps_tip_when_sync_tip_configured() {
     pipeline.add_stage(stage);
 
     // Configure the pipeline to stop syncing at block 50
-    pipeline.set_config(PipelineConfig { sync_tip: Some(50), ..Default::default() });
+    pipeline.set_config(PipelineConfig { max_sync_tip: Some(50), ..Default::default() });
 
     let mut blocks = handle.subscribe_blocks();
 
@@ -1332,7 +1332,7 @@ async fn run_ignores_tips_beyond_configured_sync_tip() {
     pipeline.add_stage(stage);
 
     // Configure sync tip at block 30
-    pipeline.set_config(PipelineConfig { sync_tip: Some(30), ..Default::default() });
+    pipeline.set_config(PipelineConfig { max_sync_tip: Some(30), ..Default::default() });
 
     let mut blocks = handle.subscribe_blocks();
 

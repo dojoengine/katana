@@ -79,8 +79,9 @@ pub struct Config {
     pub network: Network,
     pub trie: TrieConfig,
     pub gateway: Option<GatewayConfig>,
-    /// If set, the pipeline will stop syncing after reaching this block number.
-    pub sync_tip: Option<u64>,
+    /// The maximum block number the pipeline will sync to. When set, the pipeline
+    /// will stop syncing after reaching this block while the node remains running.
+    pub max_sync_tip: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -144,7 +145,7 @@ impl Node {
 
         // Configure pipeline
         pipeline.set_config(PipelineConfig {
-            sync_tip: config.sync_tip,
+            max_sync_tip: config.max_sync_tip,
             pruning: config.pruning.clone(),
         });
 

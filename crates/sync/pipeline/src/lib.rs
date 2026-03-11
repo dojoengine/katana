@@ -232,8 +232,10 @@ impl PruningConfig {
 /// Configuration for the pipeline.
 #[derive(Debug, Clone, Default)]
 pub struct PipelineConfig {
-    /// If set, the pipeline will stop syncing after reaching this block number.
-    pub sync_tip: Option<BlockNumber>,
+    /// The maximum block number the pipeline will sync to. When set, any tip updates beyond
+    /// this value are capped to it. Once the pipeline reaches this block, it will idle without
+    /// processing further blocks, while the node and RPC server remain running.
+    pub max_sync_tip: Option<BlockNumber>,
     /// Pruning configuration.
     pub pruning: PruningConfig,
 }
@@ -559,7 +561,7 @@ impl Pipeline {
 
                 match *self.cmd_rx.borrow_and_update() {
                     Some(PipelineCommand::SetTip(new_tip)) => {
-                        let effective_tip = match self.config.sync_tip {
+                        let effective_tip = match self.config.max_sync_tip {
                             Some(max) if new_tip > max => {
                                 info!(target: "pipeline", tip = %new_tip, max = %max, "Capping tip to configured sync tip.");
                                 max
