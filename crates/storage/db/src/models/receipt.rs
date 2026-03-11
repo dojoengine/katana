@@ -1,14 +1,14 @@
 use katana_primitives::receipt::Receipt;
 
-use crate::error::CodecError;
-use crate::models::envelope::{Envelope, EnvelopePayload};
+use crate::models::envelope::{Envelope, EnvelopeError, EnvelopePayload};
 
 impl EnvelopePayload for Receipt {
     const MAGIC: &[u8; 4] = b"KRCP";
     const NAME: &str = "receipt";
 
-    fn from_legacy_bytes(bytes: &[u8]) -> Result<Self, CodecError> {
-        postcard::from_bytes(bytes).map_err(|e| CodecError::Decompress(e.to_string()))
+    fn from_legacy_bytes(bytes: &[u8]) -> Result<Self, EnvelopeError> {
+        postcard::from_bytes(bytes)
+            .map_err(|e| EnvelopeError::LegacyDecode { name: Self::NAME, reason: e.to_string() })
     }
 }
 
@@ -28,7 +28,7 @@ mod tests {
     use super::ReceiptEnvelope;
     use crate::abstraction::{Database, DbTx, DbTxMut};
     use crate::codecs::{Compress, Decompress};
-    use crate::error::CodecError;
+    use crate::models::envelope::EnvelopeError;
     use crate::{tables, Db};
 
     fn sample_receipt() -> Receipt {
@@ -74,8 +74,8 @@ mod tests {
         encoded.push(2); // bad version
         encoded.push(1);
 
-        let error = ReceiptEnvelope::decompress(encoded).expect_err("must reject version");
-        assert!(matches!(error, CodecError::Decompress(_)));
+        let error = ReceiptEnvelope::do_decompress(&encoded).expect_err("must reject version");
+        assert!(matches!(error, EnvelopeError::UnsupportedVersion { version: 2, .. }));
     }
 
     #[test]
@@ -84,8 +84,8 @@ mod tests {
         encoded.push(1);
         encoded.push(2); // bad encoding
 
-        let error = ReceiptEnvelope::decompress(encoded).expect_err("must reject encoding");
-        assert!(matches!(error, CodecError::Decompress(_)));
+        let error = ReceiptEnvelope::do_decompress(&encoded).expect_err("must reject encoding");
+        assert!(matches!(error, EnvelopeError::UnsupportedEncoding { encoding: 2, .. }));
     }
 
     #[test]
@@ -95,8 +95,9 @@ mod tests {
         encoded.push(1);
         encoded.extend_from_slice(&[1, 2, 3, 4]);
 
-        let error = ReceiptEnvelope::decompress(encoded).expect_err("must reject corrupt payload");
-        assert!(matches!(error, CodecError::Decompress(_)));
+        let error =
+            ReceiptEnvelope::do_decompress(&encoded).expect_err("must reject corrupt payload");
+        assert!(matches!(error, EnvelopeError::ZstdDecompress { .. }));
     }
 
     #[test]

@@ -1,8 +1,7 @@
 use katana_primitives::transaction::Tx;
 use serde::{Deserialize, Serialize};
 
-use crate::error::CodecError;
-use crate::models::envelope::EnvelopePayload;
+use crate::models::envelope::{EnvelopeError, EnvelopePayload};
 
 mod v6;
 
@@ -23,7 +22,7 @@ impl EnvelopePayload for VersionedTx {
     const MAGIC: &[u8; 4] = b"KTXN";
     const NAME: &str = "transaction";
 
-    fn from_legacy_bytes(bytes: &[u8]) -> Result<Self, CodecError> {
+    fn from_legacy_bytes(bytes: &[u8]) -> Result<Self, EnvelopeError> {
         if let Ok(tx) = postcard::from_bytes::<Self>(bytes) {
             return Ok(tx);
         }
@@ -36,9 +35,10 @@ impl EnvelopePayload for VersionedTx {
             return Ok(Self::V6(transaction));
         }
 
-        Err(CodecError::Decompress(
-            "failed to deserialize versioned transaction: unknown format".to_string(),
-        ))
+        Err(EnvelopeError::LegacyDecode {
+            name: Self::NAME,
+            reason: "unknown transaction format".to_string(),
+        })
     }
 }
 
