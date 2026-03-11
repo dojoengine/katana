@@ -122,8 +122,8 @@ where
                 if computed_hash != block.block.hash {
                     warn!(
                         block = %block_number,
-                        expected = %block.block.hash,
-                        computed = %computed_hash,
+                        expected = %format!("{:#x}", block.block.hash),
+                        computed = %format!("{:#x}", computed_hash),
                         "Block hash mismatch"
                     );
                 }
