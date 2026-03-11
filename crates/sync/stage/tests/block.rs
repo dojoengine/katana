@@ -196,6 +196,7 @@ fn create_downloaded_block_with_parent(
             receipt_commitment: Some(Felt::ZERO),
             event_commitment: Some(Felt::ZERO),
             state_diff_commitment: Some(Felt::ZERO),
+            state_diff_length: None,
             state_root: Some(Felt::ZERO),
         },
         state_update: StateUpdate::Confirmed(ConfirmedStateUpdate {

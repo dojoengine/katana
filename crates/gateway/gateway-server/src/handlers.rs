@@ -95,6 +95,7 @@ where
                         state_root: Some(block.header.state_root),
                         timestamp: block.header.timestamp,
                         transaction_commitment: Some(block.header.transactions_commitment),
+                        state_diff_length: Some(block.header.state_diff_length),
                         state_diff_commitment: Some(block.header.state_diff_commitment),
                         parent_block_hash: block.header.parent_hash,
                         starknet_version: Some(block.header.starknet_version.to_string()),
