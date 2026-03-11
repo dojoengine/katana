@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, HeaderProvider};
 use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
@@ -94,25 +94,58 @@ where
         + Send
         + Sync,
 {
-    async fn generate_quote(&self) -> RpcResult<TeeQuoteResponse> {
-        debug!(target: "rpc::tee", "Generating TEE attestation quote");
+    async fn generate_quote(
+        &self,
+        prev_block_id: Option<BlockNumber>,
+        block_id: BlockNumber,
+    ) -> RpcResult<TeeQuoteResponse> {
+        debug!(
+            target: "rpc::tee",
+            ?prev_block_id,
+            block_id,
+            "Generating TEE attestation quote"
+        );
 
-        // Get the latest blockchain state
+        // Get blockchain state for the requested block(s)
         let provider = self.provider_factory.provider();
 
-        // Get latest block information
-        let block_number =
-            provider.latest_number().map_err(|e| TeeApiError::ProviderError(e.to_string()))?;
+        let (prev_block_number, prev_block_hash, prev_state_root) = match prev_block_id {
+            Some(prev_num) => {
+                let prev_hash = provider
+                    .block_hash_by_num(prev_num)
+                    .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+                    .ok_or_else(|| {
+                        TeeApiError::ProviderError(format!(
+                            "Block hash not found for block {prev_num}"
+                        ))
+                    })?;
+                let prev_header = provider
+                    .header_by_number(prev_num)
+                    .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+                    .ok_or_else(|| {
+                        TeeApiError::ProviderError(format!(
+                            "Header not found for block {prev_num}"
+                        ))
+                    })?;
+                (prev_num, prev_hash, prev_header.state_root)
+            }
+            None => (u64::MAX, Felt::ZERO, Felt::ZERO),
+        };
 
         let block_hash =
-            provider.latest_hash().map_err(|e| TeeApiError::ProviderError(e.to_string()))?;
+            provider
+                .block_hash_by_num(block_id)
+                .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+                .ok_or_else(|| {
+                    TeeApiError::ProviderError(format!("Block hash not found for block {block_id}"))
+                })?;
 
         // Get the header to retrieve state_root
         let header = provider
-            .header_by_number(block_number)
+            .header_by_number(block_id)
             .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
             .ok_or_else(|| {
-                TeeApiError::ProviderError(format!("Header not found for block {block_number}"))
+                TeeApiError::ProviderError(format!("Header not found for block {block_id}"))
             })?;
 
         let state_root = header.state_root;
@@ -130,7 +163,9 @@ where
 
         info!(
             target: "rpc::tee",
-            block_number,
+            prev_block_number,
+            block_number = block_id,
+            %prev_block_hash,
             %block_hash,
             quote_size = quote.len(),
             "Generated TEE attestation quote"
@@ -138,9 +173,12 @@ where
 
         Ok(TeeQuoteResponse {
             quote: format!("0x{}", hex::encode(&quote)),
+            prev_state_root,
             state_root,
+            prev_block_hash,
             block_hash,
-            block_number,
+            prev_block_number,
+            block_number: block_id,
             fork_block_number: self.fork_block_number,
             events_commitment,
         })

@@ -12,11 +12,20 @@ pub struct TeeQuoteResponse {
     /// The raw attestation quote bytes (hex-encoded).
     pub quote: String,
 
+    /// The state root at the previous block (or zero when not provided).
+    pub prev_state_root: Felt,
+
     /// The state root at the attested block.
     pub state_root: Felt,
 
+    /// The hash of the previous block (or zero when not provided).
+    pub prev_block_hash: BlockHash,
+
     /// The hash of the attested block.
     pub block_hash: BlockHash,
+
+    /// The number of the previous block (or u64::MAX when not provided).
+    pub prev_block_number: BlockNumber,
 
     /// The number of the attested block.
     pub block_number: BlockNumber,
@@ -74,13 +83,19 @@ pub struct EventProofResponse {
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "tee"))]
 #[cfg_attr(feature = "client", rpc(client, server, namespace = "tee"))]
 pub trait TeeApi {
-    /// Generate a TEE attestation quote for the current blockchain state.
+    /// Generate a TEE attestation quote for the requested block state.
     ///
-    /// The quote includes a commitment to the latest block's state root
+    /// The quote includes a commitment to the requested block's state root
     /// and block hash, allowing verifiers to cryptographically verify
     /// that the state was attested from within a trusted execution environment.
+    ///
+    /// `prev_block_id` is optional and included in the response for transition-style flows.
     #[method(name = "generateQuote")]
-    async fn generate_quote(&self) -> RpcResult<TeeQuoteResponse>;
+    async fn generate_quote(
+        &self,
+        prev_block_id: Option<BlockNumber>,
+        block_id: BlockNumber,
+    ) -> RpcResult<TeeQuoteResponse>;
 
     /// Get a Merkle inclusion proof for a specific event in a block.
     ///
