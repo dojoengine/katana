@@ -1,14 +1,9 @@
 use futures::future::BoxFuture;
-use katana_primitives::block::SealedBlock;
 use katana_primitives::chain::ChainId;
-use katana_primitives::receipt::{Receipt, ReceiptWithTxHash};
-use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
-use katana_trie::compute_merkle_root;
 use rayon::prelude::*;
-use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 use tracing::{error, info_span, warn, Instrument};
 
 use crate::{
@@ -110,15 +105,22 @@ where
 
             // Phase 1: Compute commitments and verify hashes in parallel.
             // These are CPU-bound hash computations with no inter-block dependencies.
-            let chain_id = self.chain_id;
             let mut blocks = blocks;
-
             blocks.par_iter_mut().for_each(|block_data| {
                 let block_number = block_data.block.block.header.number;
 
-                compute_missing_commitments(&mut block_data.block.block, &block_data.receipts);
+                // Compute missing commitments for older blocks where the source
+                // doesn't include them in the block header.
+                hash::compute_missing_commitments(
+                    &mut block_data.block.block,
+                    &block_data.receipts,
+                    &block_data.state_updates.state_updates,
+                );
 
-                let computed_hash = hash::compute_hash(&block_data.block.block.header, &chain_id);
+                // Verify the block hash matches what we compute locally.
+                let computed_hash =
+                    hash::compute_hash(&block_data.block.block.header, &self.chain_id);
+
                 if computed_hash != block_data.block.block.hash {
                     warn!(
                         block = %block_number,
@@ -181,77 +183,4 @@ pub enum Error {
          computed hash {computed:#x}"
     )]
     BlockHashMismatch { block_num: u64, expected: Felt, computed: Felt },
-}
-
-/// Computes missing block commitments that older blocks don't include.
-///
-/// For blocks before 0.13.2, the source may return zero for transaction and event
-/// commitments - which is the case for the Starknet feeder gateway. For receipt commitment, the
-/// source may not include it at all for older blocks. This function computes them locally so that
-/// block hash verification can succeed.
-fn compute_missing_commitments(block: &mut SealedBlock, receipts: &[Receipt]) {
-    let version = block.header.starknet_version;
-
-    // Transaction commitment: older blocks (pre-0.7 and 0.7.0) return zero from the gateway.
-    // Pre-0.13.2 uses Pedersen, post-0.13.2 uses Poseidon.
-    if block.header.transactions_commitment == Felt::ZERO {
-        let tx_hashes: Vec<Felt> = block.body.iter().map(|t| t.hash).collect();
-        block.header.transactions_commitment = if version < StarknetVersion::V0_13_2 {
-            compute_merkle_root::<Pedersen>(&tx_hashes).unwrap()
-        } else {
-            compute_merkle_root::<Poseidon>(&tx_hashes).unwrap()
-        };
-    }
-
-    // Event commitment: older blocks return zero from the gateway.
-    // Pre-0.13.2 uses Pedersen, post-0.13.2 uses Poseidon (and includes tx_hash in leaf).
-    if block.header.events_commitment == Felt::ZERO {
-        let event_hashes: Vec<Felt> = if version < StarknetVersion::V0_13_2 {
-            receipts
-                .iter()
-                .flat_map(|r| {
-                    r.events().iter().map(|event| {
-                        let keys_hash = Pedersen::hash_array(&event.keys);
-                        let data_hash = Pedersen::hash_array(&event.data);
-                        Pedersen::hash_array(&[event.from_address.into(), keys_hash, data_hash])
-                    })
-                })
-                .collect()
-        } else {
-            receipts
-                .iter()
-                .zip(block.body.iter())
-                .flat_map(|(receipt, tx)| {
-                    receipt.events().iter().map(move |event| {
-                        let keys_hash = Poseidon::hash_array(&event.keys);
-                        let data_hash = Poseidon::hash_array(&event.data);
-                        Poseidon::hash_array(&[
-                            tx.hash,
-                            event.from_address.into(),
-                            keys_hash,
-                            data_hash,
-                        ])
-                    })
-                })
-                .collect()
-        };
-
-        block.header.events_commitment = if version < StarknetVersion::V0_13_2 {
-            compute_merkle_root::<Pedersen>(&event_hashes).unwrap()
-        } else {
-            compute_merkle_root::<Poseidon>(&event_hashes).unwrap()
-        };
-    }
-
-    // Receipt commitment: only used in post-0.13.2 block hashes. The source may not
-    // include it, so we compute it when missing.
-    if block.header.receipts_commitment == Felt::ZERO && version >= StarknetVersion::V0_13_2 {
-        let receipt_hashes: Vec<Felt> = receipts
-            .iter()
-            .zip(block.body.iter())
-            .map(|(receipt, tx)| ReceiptWithTxHash::new(tx.hash, receipt.clone()).compute_hash())
-            .collect();
-        block.header.receipts_commitment =
-            compute_merkle_root::<Poseidon>(&receipt_hashes).unwrap();
-    }
 }
