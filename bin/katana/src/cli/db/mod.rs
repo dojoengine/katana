@@ -7,6 +7,7 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
 use katana_db::version::DbOpenMode;
 
+mod migrate;
 mod prune;
 mod stats;
 mod trie;
@@ -31,6 +32,9 @@ enum Commands {
     /// Prune historical trie data.
     Prune(prune::PruneArgs),
 
+    /// Rewrite Receipts rows with zstd compression envelope.
+    Migrate(migrate::MigrateArgs),
+
     /// Inspect trie roots stored in the database.
     Trie(trie::TrieArgs),
 }
@@ -39,6 +43,7 @@ impl DbArgs {
     pub fn execute(self) -> Result<()> {
         match self.commands {
             Commands::Prune(args) => args.execute(),
+            Commands::Migrate(args) => args.execute(),
             Commands::Stats(args) => args.execute(),
             Commands::Version(args) => args.execute(),
             Commands::Trie(args) => args.execute(),
