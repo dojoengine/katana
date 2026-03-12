@@ -44,25 +44,25 @@ jobs:
           name: bench-codec
           path: output.txt
 
-  bench-commit:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    steps:
-      - uses: actions/checkout@v3
-      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: bench-commit
-
-      - name: Run commit benchmarks
-        run: cargo bench -p katana-core --bench commit -- --output-format bencher | sed 1d | tee output.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bench-commit
-          path: output.txt
+  # bench-commit:
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+  #   container:
+  #     image: ghcr.io/dojoengine/katana-dev:latest
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+  #     - uses: Swatinem/rust-cache@v2
+  #       with:
+  #         key: bench-commit
+  #
+  #     - name: Run commit benchmarks
+  #       run: cargo bench -p katana-core --bench commit -- --output-format bencher | sed 1d | tee output.txt
+  #
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: bench-commit
+  #         path: output.txt
 
   bench-startup:
     runs-on: ubuntu-latest
@@ -85,7 +85,7 @@ jobs:
           path: output.txt
 
   report:
-    needs: [bench-codec, bench-commit, bench-startup]
+    needs: [bench-codec, bench-startup]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
