@@ -81,7 +81,17 @@ jobs:
           echo "ram_total=$(free -h | awk '/Mem:/ {print $2}')" >> hw-specs.txt
 
       - name: Run codec benchmarks
-        run: cargo bench -p katana-db --features arbitrary --bench codec -- --output-format bencher | tee output.txt
+        run: |
+          cargo bench -p katana-db --features arbitrary --bench codec -- --output-format bencher 2>&1 | tee raw.txt
+          grep '^test ' raw.txt > output.txt || true
+          echo "::group::Codec benchmark output"
+          cat output.txt
+          echo "::endgroup::"
+          if [ ! -s output.txt ]; then
+            echo "::error::Codec benchmark produced no results. Raw output:"
+            cat raw.txt
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -130,7 +140,17 @@ jobs:
           path: crates/contracts/build
 
       - name: Run startup benchmarks
-        run: cargo bench -p katana-node-bindings --bench startup -- --output-format bencher | tee output.txt
+        run: |
+          cargo bench -p katana-node-bindings --bench startup -- --output-format bencher 2>&1 | tee raw.txt
+          grep '^test ' raw.txt > output.txt || true
+          echo "::group::Startup benchmark output"
+          cat output.txt
+          echo "::endgroup::"
+          if [ ! -s output.txt ]; then
+            echo "::error::Startup benchmark produced no results. Raw output:"
+            cat raw.txt
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
