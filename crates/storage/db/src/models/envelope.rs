@@ -121,6 +121,12 @@ pub trait EnvelopePayload: Compress + Decompress + Debug + Clone + PartialEq + E
 ///
 /// The inner value serialized by the payload's own `to_bytes` method, then optionally compressed
 /// according to the encoding byte.
+///
+/// ## Backward Compatibility
+///
+/// Envelope will fallback to decode the payload as the inner type directly if the magic bytes
+/// do not match the expected value. This allows newer clients to read older pre-envelope data
+/// without requiring a database migration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Envelope<T: EnvelopePayload> {
     pub inner: T,
