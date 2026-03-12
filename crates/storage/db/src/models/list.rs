@@ -4,12 +4,6 @@ use roaring::RoaringTreemap;
 use serde::{Deserialize, Serialize};
 
 /// Stores a list of block numbers where a change occurred.
-///
-/// Wraps an [`IntegerSet`] and provides block-change-specific query methods such as
-/// [`last_change_before`](Self::last_change_before) and
-/// [`last_change_at_or_before`](Self::last_change_at_or_before).
-///
-/// All [`IntegerSet`] methods are available via [`Deref`].
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(transparent)]
 pub struct BlockChangeList(IntegerSet);
