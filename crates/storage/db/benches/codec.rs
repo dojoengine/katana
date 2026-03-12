@@ -10,8 +10,9 @@ use katana_db::models::list::BlockList;
 use katana_db::models::receipt::ReceiptEnvelope;
 use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use katana_db::models::storage::{ContractStorageEntry, StorageEntry};
-use katana_db::models::trie::{TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue};
-use katana_db::models::trie::TrieHistoryEntry;
+use katana_db::models::trie::{
+    TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
+};
 use katana_db::models::versioned::block::VersionedHeader;
 use katana_db::models::versioned::class::VersionedContractClass;
 use katana_db::models::versioned::transaction::VersionedTx;
@@ -69,10 +70,10 @@ macro_rules! bench_type {
         $c.bench_function(&format!("{}/decompress", $name), |b| {
             let mut i = 0usize;
             b.iter(|| {
-                black_box(<$ty as Decompress>::decompress(
-                    compressed[i % SAMPLE_COUNT].as_slice(),
-                )
-                .unwrap());
+                black_box(
+                    <$ty as Decompress>::decompress(compressed[i % SAMPLE_COUNT].as_slice())
+                        .unwrap(),
+                );
                 i += 1;
             })
         });
@@ -99,9 +100,9 @@ fn decompress_compiled_class(c: &mut Criterion) {
 
     c.bench_function("CompiledClass(fixture)/decompress", |b| {
         b.iter_with_large_drop(|| {
-            <katana_primitives::class::CompiledClass as Decompress>::decompress(
-                black_box(&compressed),
-            )
+            <katana_primitives::class::CompiledClass as Decompress>::decompress(black_box(
+                &compressed,
+            ))
             .unwrap()
         })
     });
@@ -137,18 +138,26 @@ fn bench_all_value_types(c: &mut Criterion) {
 
     // FinalityStatus
     bench_type!(c, "FinalityStatus", FinalityStatus, {
-        if rng.gen::<bool>() { FinalityStatus::AcceptedOnL1 } else { FinalityStatus::AcceptedOnL2 }
+        if rng.gen::<bool>() {
+            FinalityStatus::AcceptedOnL1
+        } else {
+            FinalityStatus::AcceptedOnL2
+        }
     });
 
     // TypedTransactionExecutionInfo — blockifier type, no Arbitrary
     bench_type!(
-        c, "TypedTransactionExecutionInfo", TypedTransactionExecutionInfo,
+        c,
+        "TypedTransactionExecutionInfo",
+        TypedTransactionExecutionInfo,
         TypedTransactionExecutionInfo::default()
     );
 
     // VersionedContractClass — serde_json codec
     bench_type!(
-        c, "VersionedContractClass", VersionedContractClass,
+        c,
+        "VersionedContractClass",
+        VersionedContractClass,
         VersionedContractClass::default()
     );
 
@@ -168,10 +177,7 @@ fn bench_all_value_types(c: &mut Criterion) {
             class_list.insert(rng.gen::<u64>().wrapping_add(j));
             nonce_list.insert(rng.gen::<u64>().wrapping_add(j));
         }
-        ContractInfoChangeList {
-            class_change_list: class_list,
-            nonce_change_list: nonce_list,
-        }
+        ContractInfoChangeList { class_change_list: class_list, nonce_change_list: nonce_list }
     });
 
     // BlockList
@@ -208,10 +214,6 @@ fn bench_all_value_types(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    compiled_class,
-    compress_compiled_class,
-    decompress_compiled_class
-);
+criterion_group!(compiled_class, compress_compiled_class, decompress_compiled_class);
 criterion_group!(all_value_types, bench_all_value_types);
 criterion_main!(compiled_class, all_value_types);
