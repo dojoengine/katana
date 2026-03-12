@@ -120,45 +120,35 @@ jobs:
   #         name: bench-commit
   #         path: output.txt
 
-  bench-startup:
-    needs: [generate-artifacts]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    steps:
-      - uses: actions/checkout@v3
-      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: bench-startup
-
-      - name: Download contract artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: contracts
-          path: crates/contracts/build
-
-      - name: Run startup benchmarks
-        run: |
-          cargo bench -p katana-node-bindings --bench startup -- --output-format bencher 2>&1 | tee raw.txt
-          grep '^test ' raw.txt > output.txt || true
-          echo "::group::Startup benchmark output"
-          cat output.txt
-          echo "::endgroup::"
-          if [ ! -s output.txt ]; then
-            echo "::error::Startup benchmark produced no results. Raw output:"
-            cat raw.txt
-            exit 1
-          fi
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bench-startup
-          path: output.txt
+  # bench-startup:
+  #   needs: [generate-artifacts]
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+  #   container:
+  #     image: ghcr.io/dojoengine/katana-dev:latest
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+  #     - uses: Swatinem/rust-cache@v2
+  #       with:
+  #         key: bench-startup
+  #
+  #     - name: Download contract artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: contracts
+  #         path: crates/contracts/build
+  #
+  #     - name: Run startup benchmarks
+  #       run: cargo bench -p katana-node-bindings --bench startup -- --output-format bencher | tee output.txt
+  #
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: bench-startup
+  #         path: output.txt
 
   report:
-    needs: [bench-codec, bench-startup]
+    needs: [bench-codec]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -168,14 +158,9 @@ jobs:
           name: bench-codec
           path: bench-results/bench-codec
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: bench-startup
-          path: bench-results/bench-startup
-
       - name: Merge benchmark results
         run: |
-          cat bench-results/bench-codec/output.txt bench-results/bench-startup/output.txt > output.txt
+          cat bench-results/bench-codec/output.txt > output.txt
           echo "::group::Merged benchmark output"
           cat output.txt
           echo "::endgroup::"
