@@ -33,10 +33,11 @@ where
             return Ok(None);
         };
 
-        let Some(new_root) = self.provider.historical(self.block_id)?.map(|p| p.state_root()?)
-        else {
+        let Some(state) = self.provider.historical(self.block_id)? else {
             return Ok(None);
         };
+
+        let new_root = state.state_root()?;
 
         let old_root = {
             let Some(block_num) = self.provider.block_number_by_hash(block_hash)? else {

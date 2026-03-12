@@ -6,7 +6,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use inquire::Confirm;
 use katana_db::abstraction::{Database, DbCursor, DbDupSortCursorMut, DbTx, DbTxMut};
 use katana_db::error::DatabaseError;
-use katana_db::models::list::BlockList;
+use katana_db::models::list::BlockChangeList;
 use katana_db::models::trie::TrieDatabaseKey;
 use katana_db::tables::{self, Tables};
 use katana_db::version::DbOpenMode;
@@ -287,7 +287,7 @@ fn prune_changeset_table<T: tables::Trie>(
     //
     // If the block list is empty after pruning, delete the key. Otherwise, update the key with the
     // new block list
-    let mut keys: Vec<(TrieDatabaseKey, Option<BlockList>)> = Vec::with_capacity(BATCH_SIZE);
+    let mut keys: Vec<(TrieDatabaseKey, Option<BlockChangeList>)> = Vec::with_capacity(BATCH_SIZE);
     let mut cursor = tx.cursor_mut::<T::Changeset>()?;
 
     for entry in cursor.walk(None)? {
@@ -483,7 +483,7 @@ fn show_confirmation_prompt(stats: &PruningStats, mode: &PruneMode) -> Result<bo
 mod tests {
     use katana_db::abstraction::DbTxMut;
     use katana_db::mdbx::{test_utils, DbEnv};
-    use katana_db::models::list::BlockList;
+    use katana_db::models::list::BlockChangeList;
     use katana_db::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
     use katana_db::models::VersionedHeader;
     use katana_db::tables::{self, Tables};
@@ -525,7 +525,7 @@ mod tests {
         // Insert test data into changeset tables
         // Each changeset entry contains multiple blocks
         for i in 0..5 {
-            let mut block_list = BlockList::default();
+            let mut block_list = BlockChangeList::default();
             // Add blocks from the range
             for block in block_range.clone().step_by(2) {
                 if block % 5 == i {
@@ -538,8 +538,8 @@ mod tests {
                 let key2 = arbitrary!(TrieDatabaseKey);
                 let key3 = arbitrary!(TrieDatabaseKey);
 
-                let mut block_list2 = BlockList::default();
-                let mut block_list3 = BlockList::default();
+                let mut block_list2 = BlockChangeList::default();
+                let mut block_list3 = BlockChangeList::default();
 
                 for block in block_range.clone().step_by(2) {
                     if block % 5 == i {
@@ -738,17 +738,17 @@ mod tests {
         let tx = db.tx_mut()?;
 
         // Insert changesets with specific block ranges
-        let mut block_list1 = BlockList::default();
+        let mut block_list1 = BlockChangeList::default();
         block_list1.insert(5);
         block_list1.insert(10);
         block_list1.insert(15);
 
-        let mut block_list2 = BlockList::default();
+        let mut block_list2 = BlockChangeList::default();
         block_list2.insert(0);
         block_list2.insert(5);
         block_list2.insert(8);
 
-        let mut block_list3 = BlockList::default();
+        let mut block_list3 = BlockChangeList::default();
         block_list3.insert(15);
         block_list3.insert(18);
         block_list3.insert(19);

@@ -4,14 +4,12 @@ use anyhow::Result;
 use futures::future::BoxFuture;
 use katana_db::abstraction::{Database, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
-use katana_db::models::list::BlockList;
+use katana_db::models::list::BlockChangeList;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey};
 use katana_db::tables;
-use katana_primitives::block::{BlockNumber, SealedBlock};
+use katana_primitives::block::BlockNumber;
 use katana_primitives::chain::ChainId;
-use katana_primitives::contract::{ContractAddress, StorageKey};
-use katana_primitives::receipt::{Receipt, ReceiptWithTxHash};
-use katana_primitives::version::StarknetVersion;
+use katana_primitives::contract::ContractAddress;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::api::state::HistoricalStateRetentionProvider;
@@ -179,6 +177,7 @@ where
 
             let pruned_count = prune_state_history(&self.provider, range.start, range.end)?;
             update_historical_state_retention(&self.provider, range.end)?;
+
             Ok(PruneOutput { pruned_count })
         })
     }
@@ -194,8 +193,8 @@ fn prune_state_history(
     let (storage_keys, nonce_addrs, class_addrs) =
         collect_touched_history_keys(&tx, start, keep_from)?;
 
-    for (contract_address, key) in storage_keys {
-        compact_storage_changeset(&tx, ContractStorageKey { contract_address, key }, keep_from)?;
+    for storage_key in storage_keys {
+        compact_storage_changeset(&tx, storage_key, keep_from)?;
     }
 
     for contract_address in nonce_addrs {
@@ -210,12 +209,16 @@ fn prune_state_history(
     for block_number in start..keep_from {
         pruned_count +=
             delete_block_history_entries::<tables::StorageChangeHistory, _>(&tx, block_number)?;
+
         pruned_count +=
             delete_block_history_entries::<tables::NonceChangeHistory, _>(&tx, block_number)?;
+
         pruned_count +=
             delete_block_history_entries::<tables::ClassChangeHistory, _>(&tx, block_number)?;
+
         pruned_count +=
             delete_block_history_entries::<tables::ClassDeclarations, _>(&tx, block_number)?;
+
         pruned_count += delete_block_history_entries::<tables::MigratedCompiledClassHashes, _>(
             &tx,
             block_number,
@@ -243,8 +246,10 @@ fn update_historical_state_retention(
 }
 
 type TouchedHistoryKeys =
-    (BTreeSet<(ContractAddress, StorageKey)>, BTreeSet<ContractAddress>, BTreeSet<ContractAddress>);
+    (BTreeSet<ContractStorageKey>, BTreeSet<ContractAddress>, BTreeSet<ContractAddress>);
 
+// Collects all the keys that were updated in the historical state between `start` and `keep_from`
+// blocks.
 fn collect_touched_history_keys<Tx: DbTx>(
     tx: &Tx,
     start: BlockNumber,
@@ -254,34 +259,57 @@ fn collect_touched_history_keys<Tx: DbTx>(
     let mut nonce_addrs = BTreeSet::new();
     let mut class_addrs = BTreeSet::new();
 
-    for block_number in start..keep_from {
-        // Storage keys affected in this prune window.
-        let mut cursor =
-            tx.cursor_dup::<tables::StorageChangeHistory>().map_err(Error::Database)?;
-        if let Some(walker) = cursor.walk_dup(Some(block_number), None).map_err(Error::Database)? {
-            for entry in walker {
-                let (_, entry) = entry.map_err(Error::Database)?;
-                storage_keys.insert((entry.key.contract_address, entry.key.key));
-            }
-        }
+    for block in start..keep_from {
+        let get_storage_keys = || -> Result<Vec<ContractStorageKey>, Error> {
+            let mut keys = Vec::new();
+            let mut cursor = tx.cursor_dup::<tables::StorageChangeHistory>()?;
 
-        // Contract nonce changes in this prune window.
-        let mut cursor = tx.cursor_dup::<tables::NonceChangeHistory>().map_err(Error::Database)?;
-        if let Some(walker) = cursor.walk_dup(Some(block_number), None).map_err(Error::Database)? {
-            for entry in walker {
-                let (_, entry) = entry.map_err(Error::Database)?;
-                nonce_addrs.insert(entry.contract_address);
+            if let Some(walker) = cursor.walk_dup(Some(block), None)? {
+                for entry in walker {
+                    let (_, entry) = entry?;
+                    keys.push(entry.key.clone());
+                }
             }
-        }
 
-        // Contract class changes in this prune window.
-        let mut cursor = tx.cursor_dup::<tables::ClassChangeHistory>().map_err(Error::Database)?;
-        if let Some(walker) = cursor.walk_dup(Some(block_number), None).map_err(Error::Database)? {
-            for entry in walker {
-                let (_, entry) = entry.map_err(Error::Database)?;
-                class_addrs.insert(entry.contract_address);
+            Ok(keys)
+        };
+
+        let get_nonce_addrs = || -> Result<Vec<ContractAddress>, Error> {
+            let mut addrs = Vec::new();
+            let mut cursor = tx.cursor_dup::<tables::NonceChangeHistory>()?;
+
+            if let Some(walker) = cursor.walk_dup(Some(block), None)? {
+                for entry in walker {
+                    let (_, entry) = entry?;
+                    addrs.push(entry.contract_address);
+                }
             }
-        }
+
+            Ok(addrs)
+        };
+
+        let get_class_addrs = || -> Result<Vec<ContractAddress>, Error> {
+            let mut addrs = Vec::new();
+            let mut cursor = tx.cursor_dup::<tables::ClassChangeHistory>()?;
+
+            if let Some(walker) = cursor.walk_dup(Some(block), None)? {
+                for entry in walker {
+                    let (_, entry) = entry?;
+                    addrs.push(entry.contract_address);
+                }
+            }
+
+            Ok(addrs)
+        };
+
+        // Run the three independent table scans in parallel since they access
+        // different tables and DbTx is Send + Sync.
+        let (storage_res, (nonce_res, class_res)) =
+            rayon::join(get_storage_keys, || rayon::join(get_nonce_addrs, get_class_addrs));
+
+        storage_keys.extend(storage_res?);
+        nonce_addrs.extend(nonce_res?);
+        class_addrs.extend(class_res?);
     }
 
     Ok((storage_keys, nonce_addrs, class_addrs))
@@ -292,25 +320,24 @@ fn compact_storage_changeset<Tx: DbTxMut>(
     key: ContractStorageKey,
     keep_from: BlockNumber,
 ) -> Result<(), Error> {
-    let Some(mut block_list) =
-        tx.get::<tables::StorageChangeSet>(key.clone()).map_err(Error::Database)?
-    else {
+    let Some(mut block_list) = tx.get::<tables::StorageChangeSet>(key.clone())? else {
         return Ok(());
     };
 
-    if let Some(anchor_block) = last_change_before(&block_list, keep_from) {
+    if let Some(anchor_block) = block_list.last_change_before(keep_from) {
         if !block_list.contains(keep_from) {
             let entry = storage_history_entry(tx, anchor_block, &key)?;
-            tx.put::<tables::StorageChangeHistory>(keep_from, entry).map_err(Error::Database)?;
+            tx.put::<tables::StorageChangeHistory>(keep_from, entry)?;
             block_list.insert(keep_from);
         }
     }
 
     block_list.remove_range(..keep_from);
+
     if block_list.is_empty() {
-        tx.delete::<tables::StorageChangeSet>(key, None).map_err(Error::Database)?;
+        tx.delete::<tables::StorageChangeSet>(key, None)?;
     } else {
-        tx.put::<tables::StorageChangeSet>(key, block_list).map_err(Error::Database)?;
+        tx.put::<tables::StorageChangeSet>(key, block_list)?;
     }
 
     Ok(())
@@ -318,41 +345,27 @@ fn compact_storage_changeset<Tx: DbTxMut>(
 
 fn compact_contract_info_changeset<Tx: DbTxMut>(
     tx: &Tx,
-    contract_address: ContractAddress,
+    address: ContractAddress,
     keep_from: BlockNumber,
     compact_nonce_history: bool,
     compact_class_history: bool,
 ) -> Result<(), Error> {
-    let Some(mut changes) =
-        tx.get::<tables::ContractInfoChangeSet>(contract_address).map_err(Error::Database)?
-    else {
+    let Some(mut changes) = tx.get::<tables::ContractInfoChangeSet>(address)? else {
         return Ok(());
     };
 
     if compact_nonce_history {
-        compact_nonce_history_list(
-            tx,
-            contract_address,
-            &mut changes.nonce_change_list,
-            keep_from,
-        )?;
+        compact_nonce_history_list(tx, address, &mut changes.nonce_change_list, keep_from)?;
     }
 
     if compact_class_history {
-        compact_class_history_list(
-            tx,
-            contract_address,
-            &mut changes.class_change_list,
-            keep_from,
-        )?;
+        compact_class_history_list(tx, address, &mut changes.class_change_list, keep_from)?;
     }
 
     if changes.class_change_list.is_empty() && changes.nonce_change_list.is_empty() {
-        tx.delete::<tables::ContractInfoChangeSet>(contract_address, None)
-            .map_err(Error::Database)?;
+        tx.delete::<tables::ContractInfoChangeSet>(address, None)?;
     } else {
-        tx.put::<tables::ContractInfoChangeSet>(contract_address, changes)
-            .map_err(Error::Database)?;
+        tx.put::<tables::ContractInfoChangeSet>(address, changes)?;
     }
 
     Ok(())
@@ -361,13 +374,13 @@ fn compact_contract_info_changeset<Tx: DbTxMut>(
 fn compact_nonce_history_list<Tx: DbTxMut>(
     tx: &Tx,
     contract_address: ContractAddress,
-    block_list: &mut BlockList,
+    block_list: &mut BlockChangeList,
     keep_from: BlockNumber,
 ) -> Result<(), Error> {
-    if let Some(anchor_block) = last_change_before(block_list, keep_from) {
+    if let Some(anchor_block) = block_list.last_change_before(keep_from) {
         if !block_list.contains(keep_from) {
             let entry = nonce_history_entry(tx, anchor_block, contract_address)?;
-            tx.put::<tables::NonceChangeHistory>(keep_from, entry).map_err(Error::Database)?;
+            tx.put::<tables::NonceChangeHistory>(keep_from, entry)?;
             block_list.insert(keep_from);
         }
     }
@@ -379,13 +392,13 @@ fn compact_nonce_history_list<Tx: DbTxMut>(
 fn compact_class_history_list<Tx: DbTxMut>(
     tx: &Tx,
     contract_address: ContractAddress,
-    block_list: &mut BlockList,
+    block_list: &mut BlockChangeList,
     keep_from: BlockNumber,
 ) -> Result<(), Error> {
-    if let Some(anchor_block) = last_change_before(block_list, keep_from) {
+    if let Some(anchor_block) = block_list.last_change_before(keep_from) {
         if !block_list.contains(keep_from) {
             let entry = class_history_entry(tx, anchor_block, contract_address)?;
-            tx.put::<tables::ClassChangeHistory>(keep_from, entry).map_err(Error::Database)?;
+            tx.put::<tables::ClassChangeHistory>(keep_from, entry)?;
             block_list.insert(keep_from);
         }
     }
@@ -438,6 +451,9 @@ fn nonce_history_entry<Tx: DbTx>(
             contract_address,
         })?;
 
+    // cursor.seek_by_key_subkey(block_number, key) will return the first item whose `key` is >= or
+    // equal to the specified `key`. so we have to check if the returned entry matches the key we're
+    // looking for.
     if entry.contract_address == contract_address {
         Ok(entry)
     } else {
@@ -463,6 +479,9 @@ fn class_history_entry<Tx: DbTx>(
             contract_address,
         })?;
 
+    // cursor.seek_by_key_subkey(block_number, key) will return the first item whose `key` is >= or
+    // equal to the specified `key`. so we have to check if the returned entry matches the key we're
+    // looking for.
     if entry.contract_address == contract_address {
         Ok(entry)
     } else {
@@ -480,32 +499,18 @@ where
     Tx: DbTxMut,
 {
     let mut deleted = 0u64;
-    let mut cursor = tx.cursor_dup_mut::<Tb>().map_err(Error::Database)?;
-    let Some(mut walker) = cursor.walk_dup(Some(block_number), None).map_err(Error::Database)?
-    else {
+    let mut cursor = tx.cursor_dup_mut::<Tb>()?;
+    let Some(mut walker) = cursor.walk_dup(Some(block_number), None)? else {
         return Ok(0);
     };
 
     while let Some(entry) = walker.next() {
-        let _ = entry.map_err(Error::Database)?;
-        walker.delete_current().map_err(Error::Database)?;
+        let _ = entry?;
+        walker.delete_current()?;
         deleted += 1;
     }
 
     Ok(deleted)
-}
-
-fn last_change_before(block_list: &BlockList, boundary: BlockNumber) -> Option<BlockNumber> {
-    if boundary == 0 {
-        return None;
-    }
-
-    let rank = block_list.rank(boundary - 1);
-    if rank == 0 {
-        None
-    } else {
-        block_list.select(rank - 1)
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

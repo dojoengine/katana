@@ -2,13 +2,11 @@ use core::fmt;
 use std::marker::PhantomData;
 
 use anyhow::Result;
-use katana_primitives::block::BlockNumber;
 use katana_trie::bonsai::{BonsaiDatabase, ByteVec, DatabaseKey};
 use katana_trie::CommitId;
 
 use super::Error;
 use crate::abstraction::{DbDupSortCursor, DbTx};
-use crate::models::list::BlockList;
 use crate::tables::Trie;
 use crate::trie::to_db_key;
 
@@ -29,24 +27,6 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SnapshotTrieDb").field("tx", &"..").finish()
-    }
-}
-
-/// This is a helper function for getting the block number of the most
-/// recent change that occurred relative to the given block number.
-///
-/// ## Arguments
-///
-/// * `block_list`: A list of block numbers where a change in value occur.
-fn recent_change_from_block(target: BlockNumber, block_list: &BlockList) -> Option<BlockNumber> {
-    // if the rank is 0, then it's either;
-    // 1. the list is empty
-    // 2. there are no prior changes occured before/at `block_number`
-    let rank = block_list.rank(target);
-    if rank == 0 {
-        None
-    } else {
-        block_list.select(rank - 1)
     }
 }
 
@@ -79,7 +59,7 @@ where
         let block_number = self.snapshot_id.into();
 
         let change_set = self.tx.get::<Tb::Changeset>(key.clone())?;
-        if let Some(num) = change_set.and_then(|set| recent_change_from_block(block_number, &set)) {
+        if let Some(num) = change_set.and_then(|set| set.last_change_at_or_before(block_number)) {
             let mut cursor = self.tx.cursor_dup::<Tb::History>()?;
             let entry = cursor
                 .seek_by_key_subkey(num, key.clone())?
@@ -130,6 +110,7 @@ where
 mod tests {
     use std::collections::HashMap;
 
+    use katana_primitives::block::BlockNumber;
     use katana_primitives::felt;
     use katana_trie::bonsai::DatabaseKey;
     use katana_trie::{BonsaiPersistentDatabase, CommitId};

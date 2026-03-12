@@ -1,6 +1,5 @@
 use katana_db::abstraction::{DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::ContractInfoChangeList;
-use katana_db::models::list::BlockList;
 use katana_db::models::storage::{ContractStorageKey, StorageEntry};
 use katana_db::tables;
 use katana_db::trie::TrieDbFactory;
@@ -14,11 +13,11 @@ use katana_provider_api::block::BlockNumberProvider;
 use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
 use katana_provider_api::state::{
     StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
-    STATE_HISTORY_RETENTION_KEY, STATE_TRIE_HISTORY_RETENTION_KEY,
 };
 use katana_provider_api::ProviderError;
 
 use super::DbProvider;
+use crate::providers::db::{STATE_HISTORY_RETENTION_KEY, STATE_TRIE_HISTORY_RETENTION_KEY};
 use crate::ProviderResult;
 
 impl<Tx: DbTxMut> StateWriter for DbProvider<Tx> {
@@ -297,7 +296,7 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
         let change_list = self.tx.get::<tables::ContractInfoChangeSet>(address)?;
 
         if let Some(num) = change_list
-            .and_then(|entry| recent_change_from_block(self.block_number, &entry.nonce_change_list))
+            .and_then(|entry| entry.nonce_change_list.last_change_at_or_before(self.block_number))
         {
             let mut cursor = self.tx.cursor_dup::<tables::NonceChangeHistory>()?;
             let entry = cursor.seek_by_key_subkey(num, address)?.ok_or(
@@ -323,7 +322,7 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
             self.tx.get::<tables::ContractInfoChangeSet>(address)?;
 
         if let Some(num) = change_list
-            .and_then(|entry| recent_change_from_block(self.block_number, &entry.class_change_list))
+            .and_then(|entry| entry.class_change_list.last_change_at_or_before(self.block_number))
         {
             let mut cursor = self.tx.cursor_dup::<tables::ClassChangeHistory>()?;
             let entry = cursor.seek_by_key_subkey(num, address)?.ok_or(
@@ -350,7 +349,7 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
         let block_list = self.tx.get::<tables::StorageChangeSet>(key.clone())?;
 
         if let Some(num) =
-            block_list.and_then(|list| recent_change_from_block(self.block_number, &list))
+            block_list.and_then(|list| list.last_change_at_or_before(self.block_number))
         {
             let mut cursor = self.tx.cursor_dup::<tables::StorageChangeHistory>()?;
             let entry = cursor.seek_by_key_subkey(num, key)?.ok_or(
@@ -442,48 +441,5 @@ impl<Tx: DbTx> StateRootProvider for HistoricalStateProvider<Tx> {
             .ok_or(ProviderError::MissingBlockHeader(self.block_number))?;
         let header: katana_primitives::block::Header = header.into();
         Ok(header.state_root)
-    }
-}
-
-/// This is a helper function for getting the block number of the most
-/// recent change that occurred relative to the given block number.
-///
-/// ## Arguments
-///
-/// * `block_list`: A list of block numbers where a change in value occur.
-fn recent_change_from_block(
-    block_number: BlockNumber,
-    block_list: &BlockList,
-) -> Option<BlockNumber> {
-    // if the rank is 0, then it's either;
-    // 1. the list is empty
-    // 2. there are no prior changes occured before/at `block_number`
-    let rank = block_list.rank(block_number);
-    if rank == 0 {
-        None
-    } else {
-        block_list.select(rank - 1)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use katana_db::models::list::BlockList;
-
-    #[rstest::rstest]
-    #[case(0, None)]
-    #[case(1, Some(1))]
-    #[case(3, Some(2))]
-    #[case(5, Some(5))]
-    #[case(9, Some(6))]
-    #[case(10, Some(10))]
-    #[case(11, Some(10))]
-    fn position_of_most_recent_block_in_block_list(
-        #[case] block_num: u64,
-        #[case] expected_block_num: Option<u64>,
-    ) {
-        let list = BlockList::from([1, 2, 5, 6, 10]);
-        let actual_block_num = super::recent_change_from_block(block_num, &list);
-        assert_eq!(actual_block_num, expected_block_num);
     }
 }

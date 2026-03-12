@@ -50,7 +50,7 @@ impl Decompress for Felt {
 
 use crate::models::block::StoredBlockBodyIndices;
 use crate::models::contract::ContractInfoChangeList;
-use crate::models::list::BlockList;
+use crate::models::list::BlockChangeList;
 use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use crate::models::state::HistoricalStateRetention;
 use crate::models::trie::TrieDatabaseValue;
@@ -98,7 +98,7 @@ impl_compress_and_decompress_for_table_values!(
     u64,
     Receipt,
     TrieDatabaseValue,
-    BlockList,
+    BlockChangeList,
     ExecutionCheckpoint,
     PruningCheckpoint,
     HistoricalStateRetention,

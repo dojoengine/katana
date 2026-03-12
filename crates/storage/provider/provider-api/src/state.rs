@@ -82,9 +82,6 @@ pub trait StateFactoryProvider: Send + Sync {
 /// - `STATE_TRIE_HISTORY_RETENTION_KEY` -historical trie snapshot retention.
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait HistoricalStateRetentionProvider: Send + Sync {
-    pub const STATE_HISTORY_RETENTION_KEY: u64 = 0;
-    pub const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
-
     /// Returns the first block number for which historical state is still available.
     fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>>;
 
