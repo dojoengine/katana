@@ -81,7 +81,7 @@ jobs:
           echo "ram_total=$(free -h | awk '/Mem:/ {print $2}')" >> hw-specs.txt
 
       - name: Run codec benchmarks
-        run: cargo bench -p katana-db --features arbitrary --bench codec -- --output-format bencher | sed 1d | tee output.txt
+        run: cargo bench -p katana-db --features arbitrary --bench codec -- --output-format bencher | tee output.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -103,7 +103,7 @@ jobs:
   #         key: bench-commit
   #
   #     - name: Run commit benchmarks
-  #       run: cargo bench -p katana-core --bench commit -- --output-format bencher | sed 1d | tee output.txt
+  #       run: cargo bench -p katana-core --bench commit -- --output-format bencher | tee output.txt
   #
   #     - uses: actions/upload-artifact@v4
   #       with:
@@ -130,7 +130,7 @@ jobs:
           path: crates/contracts/build
 
       - name: Run startup benchmarks
-        run: cargo bench -p katana-node-bindings --bench startup -- --output-format bencher | sed 1d | tee output.txt
+        run: cargo bench -p katana-node-bindings --bench startup -- --output-format bencher | tee output.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -145,10 +145,24 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          path: bench-results
+          name: bench-codec
+          path: bench-results/bench-codec
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-startup
+          path: bench-results/bench-startup
 
       - name: Merge benchmark results
-        run: cat bench-results/bench-*/output.txt > output.txt
+        run: |
+          cat bench-results/bench-codec/output.txt bench-results/bench-startup/output.txt > output.txt
+          echo "::group::Merged benchmark output"
+          cat output.txt
+          echo "::endgroup::"
+          if [ ! -s output.txt ]; then
+            echo "::error::Benchmark output is empty"
+            exit 1
+          fi
 
       - name: Parse hardware specs
         id: hw
