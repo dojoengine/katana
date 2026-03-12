@@ -21,6 +21,17 @@ impl From<Tx> for VersionedTx {
 impl EnvelopePayload for VersionedTx {
     const MAGIC: &[u8; 4] = b"KTXN";
     const NAME: &str = "transaction";
+    const COMPRESS_THRESHOLD: usize = 0;
+
+    fn to_bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
+        postcard::to_stdvec(self)
+            .map_err(|e| EnvelopeError::Encode { name: Self::NAME, reason: e.to_string() })
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, EnvelopeError> {
+        postcard::from_bytes(bytes)
+            .map_err(|e| EnvelopeError::Decode { name: Self::NAME, reason: e.to_string() })
+    }
 
     fn from_legacy_bytes(bytes: &[u8]) -> Result<Self, EnvelopeError> {
         if let Ok(tx) = postcard::from_bytes::<Self>(bytes) {
