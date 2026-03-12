@@ -2,6 +2,7 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
+use katana_primitives::state::StateUpdates;
 use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
@@ -55,7 +56,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 35;
+pub const NUM_TABLES: usize = 36;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -157,6 +158,7 @@ macro_rules! dupsort {
 
 define_tables_enum! {[
     (Headers, TableType::Table),
+    (BlockStateUpdates, TableType::Table),
     (BlockHashes, TableType::Table),
     (BlockNumbers, TableType::Table),
     (BlockBodyIndices, TableType::Table),
@@ -203,6 +205,8 @@ tables! {
 
     /// Store canonical block headers
     Headers: (BlockNumber) => VersionedHeader,
+    /// Stores canonical state updates by block number.
+    BlockStateUpdates: (BlockNumber) => StateUpdates,
     /// Stores block hashes according to its block number
     BlockHashes: (BlockNumber) => BlockHash,
     /// Stores block numbers according to its block hash
@@ -301,42 +305,44 @@ mod tests {
 
         assert_eq!(Tables::ALL.len(), NUM_TABLES);
         assert_eq!(Tables::ALL[0].name(), Headers::NAME);
-        assert_eq!(Tables::ALL[1].name(), BlockHashes::NAME);
-        assert_eq!(Tables::ALL[2].name(), BlockNumbers::NAME);
-        assert_eq!(Tables::ALL[3].name(), BlockBodyIndices::NAME);
-        assert_eq!(Tables::ALL[4].name(), BlockStatusses::NAME);
-        assert_eq!(Tables::ALL[5].name(), TxNumbers::NAME);
-        assert_eq!(Tables::ALL[6].name(), TxBlocks::NAME);
-        assert_eq!(Tables::ALL[7].name(), TxHashes::NAME);
-        assert_eq!(Tables::ALL[8].name(), TxTraces::NAME);
-        assert_eq!(Tables::ALL[9].name(), Transactions::NAME);
-        assert_eq!(Tables::ALL[10].name(), Receipts::NAME);
-        assert_eq!(Tables::ALL[11].name(), CompiledClassHashes::NAME);
-        assert_eq!(Tables::ALL[12].name(), Classes::NAME);
-        assert_eq!(Tables::ALL[13].name(), ContractInfo::NAME);
-        assert_eq!(Tables::ALL[14].name(), ContractStorage::NAME);
-        assert_eq!(Tables::ALL[15].name(), ClassDeclarationBlock::NAME);
-        assert_eq!(Tables::ALL[16].name(), ClassDeclarations::NAME);
-        assert_eq!(Tables::ALL[17].name(), MigratedCompiledClassHashes::NAME);
-        assert_eq!(Tables::ALL[18].name(), ContractInfoChangeSet::NAME);
-        assert_eq!(Tables::ALL[19].name(), NonceChangeHistory::NAME);
-        assert_eq!(Tables::ALL[20].name(), ClassChangeHistory::NAME);
-        assert_eq!(Tables::ALL[21].name(), StorageChangeHistory::NAME);
-        assert_eq!(Tables::ALL[22].name(), StorageChangeSet::NAME);
-        assert_eq!(Tables::ALL[23].name(), StageExecutionCheckpoints::NAME);
-        assert_eq!(Tables::ALL[24].name(), StagePruningCheckpoints::NAME);
-        assert_eq!(Tables::ALL[25].name(), StateHistoryRetention::NAME);
-        assert_eq!(Tables::ALL[26].name(), ClassesTrie::NAME);
-        assert_eq!(Tables::ALL[27].name(), ContractsTrie::NAME);
-        assert_eq!(Tables::ALL[28].name(), StoragesTrie::NAME);
-        assert_eq!(Tables::ALL[29].name(), ClassesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[30].name(), ContractsTrieHistory::NAME);
-        assert_eq!(Tables::ALL[31].name(), StoragesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[32].name(), ClassesTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[33].name(), ContractsTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[34].name(), StoragesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[1].name(), BlockStateUpdates::NAME);
+        assert_eq!(Tables::ALL[2].name(), BlockHashes::NAME);
+        assert_eq!(Tables::ALL[3].name(), BlockNumbers::NAME);
+        assert_eq!(Tables::ALL[4].name(), BlockBodyIndices::NAME);
+        assert_eq!(Tables::ALL[5].name(), BlockStatusses::NAME);
+        assert_eq!(Tables::ALL[6].name(), TxNumbers::NAME);
+        assert_eq!(Tables::ALL[7].name(), TxBlocks::NAME);
+        assert_eq!(Tables::ALL[8].name(), TxHashes::NAME);
+        assert_eq!(Tables::ALL[9].name(), TxTraces::NAME);
+        assert_eq!(Tables::ALL[10].name(), Transactions::NAME);
+        assert_eq!(Tables::ALL[11].name(), Receipts::NAME);
+        assert_eq!(Tables::ALL[12].name(), CompiledClassHashes::NAME);
+        assert_eq!(Tables::ALL[13].name(), Classes::NAME);
+        assert_eq!(Tables::ALL[14].name(), ContractInfo::NAME);
+        assert_eq!(Tables::ALL[15].name(), ContractStorage::NAME);
+        assert_eq!(Tables::ALL[16].name(), ClassDeclarationBlock::NAME);
+        assert_eq!(Tables::ALL[17].name(), ClassDeclarations::NAME);
+        assert_eq!(Tables::ALL[18].name(), MigratedCompiledClassHashes::NAME);
+        assert_eq!(Tables::ALL[19].name(), ContractInfoChangeSet::NAME);
+        assert_eq!(Tables::ALL[20].name(), NonceChangeHistory::NAME);
+        assert_eq!(Tables::ALL[21].name(), ClassChangeHistory::NAME);
+        assert_eq!(Tables::ALL[22].name(), StorageChangeHistory::NAME);
+        assert_eq!(Tables::ALL[23].name(), StorageChangeSet::NAME);
+        assert_eq!(Tables::ALL[24].name(), StageExecutionCheckpoints::NAME);
+        assert_eq!(Tables::ALL[25].name(), StagePruningCheckpoints::NAME);
+        assert_eq!(Tables::ALL[26].name(), StateHistoryRetention::NAME);
+        assert_eq!(Tables::ALL[27].name(), ClassesTrie::NAME);
+        assert_eq!(Tables::ALL[28].name(), ContractsTrie::NAME);
+        assert_eq!(Tables::ALL[29].name(), StoragesTrie::NAME);
+        assert_eq!(Tables::ALL[30].name(), ClassesTrieHistory::NAME);
+        assert_eq!(Tables::ALL[31].name(), ContractsTrieHistory::NAME);
+        assert_eq!(Tables::ALL[32].name(), StoragesTrieHistory::NAME);
+        assert_eq!(Tables::ALL[33].name(), ClassesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[34].name(), ContractsTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[35].name(), StoragesTrieChangeSet::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
+        assert_eq!(Tables::BlockStateUpdates.table_type(), TableType::Table);
         assert_eq!(Tables::BlockHashes.table_type(), TableType::Table);
         assert_eq!(Tables::BlockNumbers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockBodyIndices.table_type(), TableType::Table);
@@ -378,6 +384,7 @@ mod tests {
     use katana_primitives::contract::{ContractAddress, GenericContractInfo};
     use katana_primitives::execution::TypedTransactionExecutionInfo;
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
+    use katana_primitives::state::StateUpdates;
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxNumber};
     use katana_primitives::{address, felt};
 
@@ -441,6 +448,7 @@ mod tests {
     fn test_value_compress_decompress() {
         assert_value_compress_decompress! {
             (VersionedHeader, VersionedHeader::default()),
+            (StateUpdates, StateUpdates::default()),
             (BlockHash, BlockHash::default()),
             (BlockNumber, BlockNumber::default()),
             (FinalityStatus, FinalityStatus::AcceptedOnL1),

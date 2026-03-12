@@ -299,6 +299,31 @@ fn historical_state_retention_is_provider_owned() -> Result<()> {
 }
 
 #[test]
+fn state_updates_are_independent_from_historical_state_retention() -> Result<()> {
+    let provider_factory = fixtures::provider_with_states(DbProviderFactory::new_in_memory());
+
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut.set_earliest_available_state_block(5)?;
+    provider_mut.commit()?;
+
+    let provider = provider_factory.provider();
+    assert_eq!(
+        provider.state_update(1u64.into())?,
+        Some(mock_state_updates()[0].state_updates.clone())
+    );
+    assert_eq!(
+        provider.declared_classes(1u64.into())?,
+        Some(mock_state_updates()[0].state_updates.declared_classes.clone())
+    );
+    assert_eq!(
+        provider.deployed_contracts(1u64.into())?,
+        Some(mock_state_updates()[0].state_updates.deployed_contracts.clone())
+    );
+
+    Ok(())
+}
+
+#[test]
 fn state_trie_retention_is_independent_from_state_retention() -> Result<()> {
     let provider_factory = fixtures::provider_with_states(DbProviderFactory::new_in_memory());
 

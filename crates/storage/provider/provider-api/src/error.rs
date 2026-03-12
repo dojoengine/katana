@@ -37,6 +37,10 @@ pub enum ProviderError {
     #[error("Missing block status for block number {0}")]
     MissingBlockStatus(BlockNumber),
 
+    /// Error when the canonical state update is not found but the block exists.
+    #[error("Missing canonical state update for block number {0}")]
+    MissingBlockStateUpdate(BlockNumber),
+
     /// Error when a full transaction data is not found but its hash/number exists.
     #[error("Missing transaction for tx number {0}")]
     MissingTx(TxNumber),
