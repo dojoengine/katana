@@ -24,7 +24,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  bench:
+  bench-codec:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
@@ -32,17 +32,70 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
       - uses: Swatinem/rust-cache@v2
         with:
-          key: bench
+          key: bench-codec
 
-      - name: Running benchmarks
-        run: |
-          {
-            cargo bench -p katana-db --features arbitrary --bench codec -- --output-format bencher
-            cargo bench --bench execution --bench commit --bench startup -- --output-format bencher
-          } | sed 1d | tee output.txt
+      - name: Run codec benchmarks
+        run: cargo bench -p katana-db --features arbitrary --bench codec -- --output-format bencher | sed 1d | tee output.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-codec
+          path: output.txt
+
+  bench-commit:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bench-commit
+
+      - name: Run commit benchmarks
+        run: cargo bench -p katana-core --bench commit -- --output-format bencher | sed 1d | tee output.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-commit
+          path: output.txt
+
+  bench-startup:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bench-startup
+
+      - name: Run startup benchmarks
+        run: cargo bench -p katana-node-bindings --bench startup -- --output-format bencher | sed 1d | tee output.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-startup
+          path: output.txt
+
+  report:
+    needs: [bench-codec, bench-commit, bench-startup]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: bench-results
+
+      - name: Merge benchmark results
+        run: cat bench-results/bench-*/output.txt > output.txt
 
       # On push to main: update GitHub Pages with historical benchmark data
       - name: Store benchmark result (main)
