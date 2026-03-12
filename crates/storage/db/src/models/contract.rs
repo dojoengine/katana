@@ -2,14 +2,14 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use serde::{Deserialize, Serialize};
 
-use super::list::BlockList;
+use super::list::BlockChangeList;
 use crate::codecs::{Compress, Decode, Decompress, Encode};
 use crate::error::CodecError;
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct ContractInfoChangeList {
-    pub class_change_list: BlockList,
-    pub nonce_change_list: BlockList,
+    pub class_change_list: BlockChangeList,
+    pub nonce_change_list: BlockChangeList,
 }
 
 /// The type of event that triggered the class change.

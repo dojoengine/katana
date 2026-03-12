@@ -1,11 +1,65 @@
-use std::ops::RangeBounds;
+use std::ops::{Deref, DerefMut, RangeBounds};
 
 use roaring::RoaringTreemap;
 use serde::{Deserialize, Serialize};
 
-/// Stores a list of block numbers.
-/// Mainly used for changeset tables to store the list of block numbers where a change occurred.
-pub type BlockList = IntegerSet;
+/// Stores a list of block numbers where a change occurred.
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(transparent)]
+pub struct BlockChangeList(IntegerSet);
+
+impl BlockChangeList {
+    pub fn new() -> Self {
+        Self(IntegerSet::new())
+    }
+
+    /// Returns the block number of the last change that occurred **strictly before** `boundary`.
+    ///
+    /// Returns `None` if `boundary` is 0 or no changes exist before `boundary`.
+    pub fn last_change_before(&self, boundary: u64) -> Option<u64> {
+        boundary.checked_sub(1).and_then(|b| self.last_change_at_or_before(b))
+    }
+
+    /// Returns the block number of the most recent change **at or before** `block_number`.
+    ///
+    /// Returns `None` if the set is empty or no changes exist at or before `block_number`.
+    pub fn last_change_at_or_before(&self, block_number: u64) -> Option<u64> {
+        let rank = self.0.rank(block_number);
+        if rank == 0 {
+            return None;
+        }
+
+        self.0.select(rank - 1)
+    }
+}
+
+impl Deref for BlockChangeList {
+    type Target = IntegerSet;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for BlockChangeList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<const N: usize> From<[u64; N]> for BlockChangeList {
+    fn from(arr: [u64; N]) -> Self {
+        Self(IntegerSet::from(arr))
+    }
+}
+
+impl<'a> IntoIterator for &'a BlockChangeList {
+    type Item = u64;
+    type IntoIter = Iter<'a>;
+
+    fn into_iter(self) -> Iter<'a> {
+        self.iter()
+    }
+}
 
 /// A set for storing integer values.
 ///
@@ -174,5 +228,126 @@ impl Iterator for Iter<'_> {
         F: FnMut(B, Self::Item) -> B,
     {
         self.inner.fold(init, f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlockChangeList;
+
+    #[test]
+    fn empty_list_returns_none() {
+        let list = BlockChangeList::new();
+        assert_eq!(list.last_change_before(5), None);
+    }
+
+    #[test]
+    fn boundary_zero_returns_none() {
+        let list = BlockChangeList::from([0]);
+        assert_eq!(list.last_change_before(0), None);
+    }
+
+    #[test]
+    fn single_element_before_boundary() {
+        let list = BlockChangeList::from([3]);
+        assert_eq!(list.last_change_before(5), Some(3));
+    }
+
+    #[test]
+    fn single_element_at_boundary() {
+        let list = BlockChangeList::from([5]);
+        assert_eq!(list.last_change_before(5), None);
+    }
+
+    #[test]
+    fn single_element_after_boundary() {
+        let list = BlockChangeList::from([10]);
+        assert_eq!(list.last_change_before(5), None);
+    }
+
+    #[test]
+    fn returns_closest_element_before_boundary() {
+        let list = BlockChangeList::from([1, 3, 7, 10]);
+        assert_eq!(list.last_change_before(5), Some(3));
+    }
+
+    #[test]
+    fn element_immediately_before_boundary() {
+        let list = BlockChangeList::from([4, 5]);
+        assert_eq!(list.last_change_before(5), Some(4));
+    }
+
+    #[test]
+    fn boundary_one_with_element_at_zero() {
+        let list = BlockChangeList::from([0]);
+        assert_eq!(list.last_change_before(1), Some(0));
+    }
+
+    #[test]
+    fn boundary_one_no_element_at_zero() {
+        let list = BlockChangeList::from([5]);
+        assert_eq!(list.last_change_before(1), None);
+    }
+
+    #[test]
+    fn all_elements_before_boundary() {
+        let list = BlockChangeList::from([1, 2, 3]);
+        assert_eq!(list.last_change_before(10), Some(3));
+    }
+
+    // --- last_change_at_or_before tests ---
+
+    #[test]
+    fn at_or_before_empty_list() {
+        let list = BlockChangeList::new();
+        assert_eq!(list.last_change_at_or_before(5), None);
+    }
+
+    #[test]
+    fn at_or_before_exact_match() {
+        let list = BlockChangeList::from([3, 5, 8]);
+        assert_eq!(list.last_change_at_or_before(5), Some(5));
+    }
+
+    #[test]
+    fn at_or_before_between_elements() {
+        let list = BlockChangeList::from([3, 5, 8]);
+        assert_eq!(list.last_change_at_or_before(6), Some(5));
+    }
+
+    #[test]
+    fn at_or_before_less_than_all() {
+        let list = BlockChangeList::from([5, 10]);
+        assert_eq!(list.last_change_at_or_before(2), None);
+    }
+
+    #[test]
+    fn at_or_before_greater_than_all() {
+        let list = BlockChangeList::from([1, 3, 5]);
+        assert_eq!(list.last_change_at_or_before(100), Some(5));
+    }
+
+    #[test]
+    fn at_or_before_zero_with_element_at_zero() {
+        let list = BlockChangeList::from([0, 5]);
+        assert_eq!(list.last_change_at_or_before(0), Some(0));
+    }
+
+    #[test]
+    fn at_or_before_zero_without_element_at_zero() {
+        let list = BlockChangeList::from([1, 5]);
+        assert_eq!(list.last_change_at_or_before(0), None);
+    }
+
+    #[test]
+    fn at_or_before_last_element() {
+        let list = BlockChangeList::from([1, 2, 5, 6, 10]);
+        assert_eq!(list.last_change_at_or_before(10), Some(10));
+    }
+
+    #[test]
+    fn at_or_before_first_element() {
+        let list = BlockChangeList::from([1, 2, 5, 6, 10]);
+        assert_eq!(list.last_change_at_or_before(1), Some(1));
     }
 }

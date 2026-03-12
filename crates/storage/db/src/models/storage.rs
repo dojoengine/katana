@@ -34,7 +34,7 @@ impl Decompress for StorageEntry {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
 pub struct ContractStorageKey {
     pub contract_address: ContractAddress,

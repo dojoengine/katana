@@ -6,6 +6,7 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
+use katana_provider::api::state::HistoricalStateRetentionProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
@@ -17,6 +18,8 @@ use crate::{
     PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
     StageResult,
 };
+
+pub const STATE_TRIE_STAGE_ID: &str = "StateTrie";
 
 /// A stage for computing and validating state tries.
 ///
@@ -41,7 +44,7 @@ impl StateTrie {
 
 impl Stage for StateTrie {
     fn id(&self) -> &'static str {
-        "StateTrie"
+        STATE_TRIE_STAGE_ID
     }
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
@@ -141,6 +144,8 @@ impl Stage for StateTrie {
                 return Ok(PruneOutput::default());
             };
 
+            let keep_from = range.end;
+
             let tx = self.storage_provider.db().tx_mut().map_err(Error::Database)?;
 
             let pruned_count = self
@@ -180,6 +185,19 @@ impl Stage for StateTrie {
                 })
                 .await
                 .map_err(Error::StateComputationTaskJoinError)??;
+
+            // set historical retention marker
+            {
+                let provider_mut = self.storage_provider.provider_mut();
+
+                let current = provider_mut.earliest_available_state_trie_block()?;
+                let next = current.map_or(keep_from, |current| current.max(keep_from));
+
+                if current != Some(next) {
+                    provider_mut.set_earliest_available_state_trie_block(next)?;
+                    provider_mut.commit()?;
+                }
+            }
 
             debug!(target: "stage", %pruned_count, "Pruned trie snapshots");
 
