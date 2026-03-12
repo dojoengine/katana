@@ -1,9 +1,13 @@
 use katana_primitives::transaction::Tx;
 use serde::{Deserialize, Serialize};
 
-use crate::models::envelope::{EnvelopeError, EnvelopePayload};
+use crate::codecs::{Compress, Decompress};
+use crate::error::CodecError;
+use crate::models::envelope::{Envelope, EnvelopePayload};
 
 mod v6;
+
+pub type TxEnvelope = Envelope<VersionedTx>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
@@ -18,25 +22,22 @@ impl From<Tx> for VersionedTx {
     }
 }
 
-impl EnvelopePayload for VersionedTx {
-    const MAGIC: &[u8; 4] = b"KTXN";
-    const NAME: &str = "transaction";
-
-    fn to_bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
-        postcard::to_stdvec(self)
-            .map_err(|e| EnvelopeError::Encode { name: Self::NAME, reason: e.to_string() })
+impl Compress for VersionedTx {
+    type Compressed = Vec<u8>;
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
+        postcard::to_stdvec(&self).map_err(|e| CodecError::Compress(e.to_string()))
     }
+}
 
-    fn from_bytes(bytes: &[u8]) -> Result<Self, EnvelopeError> {
-        postcard::from_bytes(bytes)
-            .map_err(|e| EnvelopeError::Decode { name: Self::NAME, reason: e.to_string() })
-    }
+impl Decompress for VersionedTx {
+    fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, CodecError> {
+        let bytes = bytes.as_ref();
 
-    fn from_legacy_bytes(bytes: &[u8]) -> Result<Self, EnvelopeError> {
         if let Ok(tx) = postcard::from_bytes::<Self>(bytes) {
             return Ok(tx);
         }
 
+        // Try deserializing as V7 first, then fall back to V6
         if let Ok(transaction) = postcard::from_bytes::<Tx>(bytes) {
             return Ok(Self::V7(transaction));
         }
@@ -45,11 +46,15 @@ impl EnvelopePayload for VersionedTx {
             return Ok(Self::V6(transaction));
         }
 
-        Err(EnvelopeError::LegacyDecode {
-            name: Self::NAME,
-            reason: "unknown transaction format".to_string(),
-        })
+        Err(CodecError::Decompress(
+            "failed to deserialize versioned transaction: unknown format".to_string(),
+        ))
     }
+}
+
+impl EnvelopePayload for VersionedTx {
+    const MAGIC: &[u8; 4] = b"KTXN";
+    const NAME: &str = "transaction";
 }
 
 impl From<VersionedTx> for Tx {

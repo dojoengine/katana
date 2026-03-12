@@ -10,8 +10,8 @@ pub mod trie;
 
 pub mod versioned;
 
-pub use envelope::{EnvelopeError, TxEnvelope};
+pub use envelope::EnvelopeError;
 pub use receipt::ReceiptEnvelope;
 pub use versioned::block::VersionedHeader;
 pub use versioned::class::VersionedContractClass;
-pub use versioned::transaction::VersionedTx;
+pub use versioned::transaction::{TxEnvelope, VersionedTx};
