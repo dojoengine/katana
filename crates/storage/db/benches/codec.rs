@@ -31,8 +31,6 @@ use katana_trie::bonsai::ByteVec;
 use katana_utils::arbitrary;
 use rand::Rng;
 
-const SAMPLE_COUNT: usize = 100;
-
 /// Like `arbitrary!` but with a generous buffer to handle complex nested types
 /// whose `size_hint` minimum is insufficient.
 macro_rules! arb {
@@ -47,19 +45,10 @@ macro_rules! arb {
 
 /// Benchmark compress and decompress for a type.
 ///
-/// Uses `iter_batched` for both compress and decompress so that setup
-/// (value generation / sample selection) is excluded from measurement.
+/// Uses `iter_batched` for both compress and decompress so that value
+/// generation and compression setup are excluded from measurement.
 macro_rules! bench_type {
     ($c:expr, $name:expr, $ty:ty, $make:expr) => {{
-        // Pre-generate compressed bytes for decompress bench
-        let compressed: Vec<Vec<u8>> = (0..SAMPLE_COUNT)
-            .map(|_| {
-                let val: $ty = $make;
-                let comp: <$ty as Compress>::Compressed = val.compress().expect("compress failed");
-                AsRef::<[u8]>::as_ref(&comp).to_vec()
-            })
-            .collect();
-
         $c.bench_function(&format!("{}/compress", $name), |b| {
             b.iter_batched(
                 || -> $ty { $make },
@@ -69,12 +58,11 @@ macro_rules! bench_type {
         });
 
         $c.bench_function(&format!("{}/decompress", $name), |b| {
-            let i = std::cell::Cell::new(0usize);
             b.iter_batched(
                 || {
-                    let idx = i.get();
-                    i.set(idx + 1);
-                    compressed[idx % SAMPLE_COUNT].clone()
+                    let comp: <$ty as Compress>::Compressed =
+                        $make.compress().expect("compress failed");
+                    AsRef::<[u8]>::as_ref(&comp).to_vec()
                 },
                 |bytes| black_box(<$ty as Decompress>::decompress(bytes.as_slice()).unwrap()),
                 BatchSize::SmallInput,
