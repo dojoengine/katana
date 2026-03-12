@@ -29,20 +29,17 @@ where
 {
     /// Builds a state update for the given block.
     pub fn build(self) -> ProviderResult<Option<ConfirmedStateUpdate>> {
-        let Some(block_hash) = BlockHashProvider::block_hash_by_id(&self.provider, self.block_id)?
+        let Some(block_hash) = self.provider.block_hash_by_id(self.block_id)? else {
+            return Ok(None);
+        };
+
+        let Some(new_root) = self.provider.historical(self.block_id)?.map(|p| p.state_root()?)
         else {
             return Ok(None);
         };
 
-        let Some(new_root_provider) = self.provider.historical(self.block_id)? else {
-            return Ok(None);
-        };
-        let new_root = new_root_provider.state_root()?;
-
         let old_root = {
-            let Some(block_num) =
-                BlockNumberProvider::block_number_by_hash(&self.provider, block_hash)?
-            else {
+            let Some(block_num) = self.provider.block_number_by_hash(block_hash)? else {
                 return Ok(None);
             };
 
@@ -55,11 +52,10 @@ where
             }
         };
 
-        let state_diff: StateDiff =
-            match StateUpdateProvider::state_update(&self.provider, self.block_id)? {
-                Some(diff) => diff.into(),
-                None => return Ok(None),
-            };
+        let state_diff: StateDiff = match self.provider.state_update(self.block_id)? {
+            Some(diff) => diff.into(),
+            None => return Ok(None),
+        };
 
         Ok(Some(ConfirmedStateUpdate { block_hash, new_root, old_root, state_diff }))
     }
