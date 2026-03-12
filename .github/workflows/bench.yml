@@ -7,15 +7,26 @@ on:
       - "bin/katana/**"
       - "crates/**"
 
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - "bin/katana/**"
+      - "crates/**"
+      - ".github/workflows/bench.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  # deployments permission to deploy GitHub pages website
   deployments: write
-  # contents permission to update benchmark contents in gh-pages branch
   contents: write
+  pull-requests: write
 
 jobs:
   bench:
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
@@ -27,17 +38,37 @@ jobs:
           key: bench
 
       - name: Running benchmarks
-        run: cargo bench --bench codec --bench execution --bench commit --bench startup -- --output-format bencher | sed 1d | tee output.txt
+        run: |
+          {
+            cargo bench -p katana-db --features arbitrary --bench codec -- --output-format bencher
+            cargo bench --bench execution --bench commit --bench startup -- --output-format bencher
+          } | sed 1d | tee output.txt
 
-      - uses: benchmark-action/github-action-benchmark@v1
+      # On push to main: update GitHub Pages with historical benchmark data
+      - name: Store benchmark result (main)
+        if: github.event_name == 'push'
+        uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: "cargo"
           output-file-path: output.txt
           benchmark-data-dir-path: "."
-          # Access token to deploy GitHub Pages branch
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          # Push and deploy GitHub pages branch automatically
           auto-push: true
           alert-threshold: "130%"
           comment-on-alert: true
+          alert-comment-cc-users: "@kariy"
+
+      # On PR: compare against main baseline and post a comment
+      - name: Compare benchmark result (PR)
+        if: github.event_name == 'pull_request'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: "cargo"
+          output-file-path: output.txt
+          benchmark-data-dir-path: "."
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          alert-threshold: "130%"
+          comment-on-alert: true
+          comment-always: true
           alert-comment-cc-users: "@kariy"
