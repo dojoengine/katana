@@ -82,7 +82,7 @@ jobs:
 
       - name: Run codec benchmarks
         run: |
-          cargo bench -p katana-db --features arbitrary,postcard --bench codec -- --output-format bencher 2>&1 | tee raw.txt
+          cargo bench -p katana-db --features arbitrary --bench codec -- --output-format bencher 2>&1 | tee raw.txt
           grep '^test ' raw.txt > output.txt || true
           echo "::group::Codec benchmark output"
           cat output.txt

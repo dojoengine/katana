@@ -14,7 +14,6 @@ use katana_db::models::trie::{
 };
 use katana_db::models::versioned::block::VersionedHeader;
 use katana_db::models::versioned::class::VersionedContractClass;
-use katana_db::models::versioned::transaction::VersionedTx;
 use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::GenericContractInfo;
@@ -185,7 +184,6 @@ fn bench_all_value_types(c: &mut Criterion) {
     bench_type!(c, "PruningCheckpoint", PruningCheckpoint, arb!(PruningCheckpoint));
     bench_type!(c, "VersionedHeader", VersionedHeader, arb!(VersionedHeader));
     bench_type!(c, "StoredBlockBodyIndices", StoredBlockBodyIndices, arb!(StoredBlockBodyIndices));
-    bench_type!(c, "VersionedTx", VersionedTx, arb!(VersionedTx));
     bench_type!(c, "StorageEntry", StorageEntry, arb!(StorageEntry));
     bench_type!(c, "ContractNonceChange", ContractNonceChange, arb!(ContractNonceChange));
     bench_type!(c, "ContractClassChange", ContractClassChange, arb!(ContractClassChange));
