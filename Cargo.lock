@@ -6133,6 +6133,7 @@ dependencies = [
  "katana-metrics",
  "katana-primitives",
  "katana-trie",
+ "katana-utils",
  "metrics 0.23.1",
  "page_size",
  "parking_lot",

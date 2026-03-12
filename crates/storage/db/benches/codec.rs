@@ -1,5 +1,4 @@
-use arbitrary::{Arbitrary, Unstructured};
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use katana_db::codecs::{Compress, Decompress};
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_db::models::class::MigratedCompiledClassHash;
@@ -25,46 +24,45 @@ use katana_primitives::transaction::{TxHash, TxNumber};
 use katana_primitives::utils::class::parse_compiled_class;
 use katana_primitives::Felt;
 use katana_trie::bonsai::ByteVec;
+use katana_utils::arbitrary;
 use rand::Rng;
 
 const SAMPLE_COUNT: usize = 100;
 
-/// Generate a random byte buffer.
-fn random_bytes(rng: &mut impl Rng, len: usize) -> Vec<u8> {
-    let mut buf = vec![0u8; len];
-    rng.fill(buf.as_mut_slice());
-    buf
-}
-
-/// Generate a single Arbitrary instance from random bytes.
-fn arb<'a, T: Arbitrary<'a>>(rng: &mut impl Rng) -> T {
-    let buf = random_bytes(rng, 4096);
-    let buf: &'static [u8] = Vec::leak(buf);
-    let mut u = Unstructured::new(buf);
-    T::arbitrary(&mut u).expect("failed to generate arbitrary value")
+/// Like `arbitrary!` but with a generous buffer to handle complex nested types
+/// whose `size_hint` minimum is insufficient.
+macro_rules! arb {
+    ($type:ty) => {{
+        let data = katana_utils::random_bytes(
+            <$type as katana_utils::Arbitrary>::size_hint(0).0.max(1024),
+        );
+        let mut u = katana_utils::Unstructured::new(&data);
+        arbitrary!($type, u)
+    }};
 }
 
 /// Benchmark compress and decompress for a type.
-/// `$make` is an expression producing a value of type `$ty`.
-/// It may use variables from the enclosing scope (e.g., `rng`).
+///
+/// Uses `iter_batched` for compress so that value generation is in the setup
+/// closure and excluded from the measurement. Decompress benchmarks use
+/// pre-generated compressed byte vectors.
 macro_rules! bench_type {
     ($c:expr, $name:expr, $ty:ty, $make:expr) => {{
         // Pre-generate compressed bytes for decompress bench
-        let compressed: Vec<Vec<u8>> = {
-            let mut v = Vec::with_capacity(SAMPLE_COUNT);
-            for _ in 0..SAMPLE_COUNT {
+        let compressed: Vec<Vec<u8>> = (0..SAMPLE_COUNT)
+            .map(|_| {
                 let val: $ty = $make;
                 let comp: <$ty as Compress>::Compressed = val.compress().expect("compress failed");
-                v.push(AsRef::<[u8]>::as_ref(&comp).to_vec());
-            }
-            v
-        };
+                AsRef::<[u8]>::as_ref(&comp).to_vec()
+            })
+            .collect();
 
         $c.bench_function(&format!("{}/compress", $name), |b| {
-            b.iter(|| {
-                let val: $ty = $make;
-                black_box(val.compress().unwrap());
-            })
+            b.iter_batched(
+                || -> $ty { $make },
+                |val| black_box(val.compress().unwrap()),
+                BatchSize::SmallInput,
+            )
         });
 
         $c.bench_function(&format!("{}/decompress", $name), |b| {
@@ -114,23 +112,23 @@ fn bench_all_value_types(c: &mut Criterion) {
     let mut rng = rand::thread_rng();
 
     // Types with Arbitrary derives
-    bench_type!(c, "ExecutionCheckpoint", ExecutionCheckpoint, arb(&mut rng));
-    bench_type!(c, "PruningCheckpoint", PruningCheckpoint, arb(&mut rng));
-    bench_type!(c, "VersionedHeader", VersionedHeader, arb(&mut rng));
-    bench_type!(c, "StoredBlockBodyIndices", StoredBlockBodyIndices, arb(&mut rng));
-    bench_type!(c, "VersionedTx", VersionedTx, arb(&mut rng));
-    bench_type!(c, "StorageEntry", StorageEntry, arb(&mut rng));
-    bench_type!(c, "ContractNonceChange", ContractNonceChange, arb(&mut rng));
-    bench_type!(c, "ContractClassChange", ContractClassChange, arb(&mut rng));
-    bench_type!(c, "ContractStorageEntry", ContractStorageEntry, arb(&mut rng));
-    bench_type!(c, "GenericContractInfo", GenericContractInfo, arb(&mut rng));
+    bench_type!(c, "ExecutionCheckpoint", ExecutionCheckpoint, arb!(ExecutionCheckpoint));
+    bench_type!(c, "PruningCheckpoint", PruningCheckpoint, arb!(PruningCheckpoint));
+    bench_type!(c, "VersionedHeader", VersionedHeader, arb!(VersionedHeader));
+    bench_type!(c, "StoredBlockBodyIndices", StoredBlockBodyIndices, arb!(StoredBlockBodyIndices));
+    bench_type!(c, "VersionedTx", VersionedTx, arb!(VersionedTx));
+    bench_type!(c, "StorageEntry", StorageEntry, arb!(StorageEntry));
+    bench_type!(c, "ContractNonceChange", ContractNonceChange, arb!(ContractNonceChange));
+    bench_type!(c, "ContractClassChange", ContractClassChange, arb!(ContractClassChange));
+    bench_type!(c, "ContractStorageEntry", ContractStorageEntry, arb!(ContractStorageEntry));
+    bench_type!(c, "GenericContractInfo", GenericContractInfo, arb!(GenericContractInfo));
 
     // Felt-based types
-    bench_type!(c, "Felt", Felt, arb(&mut rng));
-    bench_type!(c, "BlockHash", BlockHash, arb::<Felt>(&mut rng));
-    bench_type!(c, "TxHash", TxHash, arb::<Felt>(&mut rng));
-    bench_type!(c, "ClassHash", ClassHash, arb::<Felt>(&mut rng));
-    bench_type!(c, "CompiledClassHash", CompiledClassHash, arb::<Felt>(&mut rng));
+    bench_type!(c, "Felt", Felt, arb!(Felt));
+    bench_type!(c, "BlockHash", BlockHash, arb!(Felt));
+    bench_type!(c, "TxHash", TxHash, arb!(Felt));
+    bench_type!(c, "ClassHash", ClassHash, arb!(Felt));
+    bench_type!(c, "CompiledClassHash", CompiledClassHash, arb!(Felt));
 
     // u64 types
     bench_type!(c, "BlockNumber", BlockNumber, rng.gen::<u64>());
@@ -163,10 +161,7 @@ fn bench_all_value_types(c: &mut Criterion) {
 
     // MigratedCompiledClassHash
     bench_type!(c, "MigratedCompiledClassHash", MigratedCompiledClassHash, {
-        MigratedCompiledClassHash {
-            class_hash: arb::<Felt>(&mut rng),
-            compiled_class_hash: arb::<Felt>(&mut rng),
-        }
+        MigratedCompiledClassHash { class_hash: arb!(Felt), compiled_class_hash: arb!(Felt) }
     });
 
     // ContractInfoChangeList
@@ -199,7 +194,7 @@ fn bench_all_value_types(c: &mut Criterion) {
 
     // TrieDatabaseValue
     bench_type!(c, "TrieDatabaseValue", TrieDatabaseValue, {
-        ByteVec::from(random_bytes(&mut rng, 32))
+        ByteVec::from(katana_utils::random_bytes(32))
     });
 
     // TrieHistoryEntry
@@ -207,9 +202,9 @@ fn bench_all_value_types(c: &mut Criterion) {
         TrieHistoryEntry {
             key: TrieDatabaseKey {
                 r#type: TrieDatabaseKeyType::Flat,
-                key: random_bytes(&mut rng, 32),
+                key: katana_utils::random_bytes(32),
             },
-            value: ByteVec::from(random_bytes(&mut rng, 32)),
+            value: ByteVec::from(katana_utils::random_bytes(32)),
         }
     });
 }
