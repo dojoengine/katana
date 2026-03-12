@@ -60,8 +60,9 @@ macro_rules! bench_type {
         $c.bench_function(&format!("{}/decompress", $name), |b| {
             b.iter_batched(
                 || {
+                    let val: $ty = $make;
                     let comp: <$ty as Compress>::Compressed =
-                        $make.compress().expect("compress failed");
+                        val.compress().expect("compress failed");
                     AsRef::<[u8]>::as_ref(&comp).to_vec()
                 },
                 |bytes| black_box(<$ty as Decompress>::decompress(bytes.as_slice()).unwrap()),
