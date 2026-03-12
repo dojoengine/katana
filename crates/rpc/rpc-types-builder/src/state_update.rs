@@ -58,7 +58,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use katana_primitives::block::{FinalityStatus, Header, SealedBlock, SealedBlockWithStatus};
+    use katana_primitives::block::{
+        BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
+    };
     use katana_primitives::da::L1DataAvailabilityMode;
     use katana_primitives::state::StateUpdatesWithClasses;
     use katana_primitives::{ContractAddress, Felt};
@@ -115,14 +117,15 @@ mod tests {
     }
 
     #[test]
-    fn state_update_builder_uses_block_headers_when_historical_state_is_pruned() {
+    fn state_update_builder_should_exists_for_pruned_block_state() {
         let provider_factory = create_provider_with_blocks(3);
+
         let provider_mut = provider_factory.provider_mut();
         provider_mut.set_earliest_available_state_block(2).unwrap();
         provider_mut.commit().unwrap();
 
         let provider = provider_factory.provider();
-        let block_id = 1u64.into();
+        let block_id = 1u64.into(); // note: the earliest available block is 2
 
         let state_update = StateUpdateBuilder::new(block_id, provider).build().unwrap();
         let state_update = state_update.expect("state update should be available");
@@ -134,12 +137,15 @@ mod tests {
     #[test]
     fn state_update_builder_still_builds_at_prune_boundary() {
         let provider_factory = create_provider_with_blocks(5);
+
+        let block_id: BlockNumber = 2;
+
         let provider_mut = provider_factory.provider_mut();
-        provider_mut.set_earliest_available_state_block(2).unwrap();
+        provider_mut.set_earliest_available_state_block(block_id).unwrap();
         provider_mut.commit().unwrap();
 
         let provider = provider_factory.provider();
-        let state_update = StateUpdateBuilder::new(2u64.into(), provider).build().unwrap();
+        let state_update = StateUpdateBuilder::new(block_id.into(), provider).build().unwrap();
 
         assert!(state_update.is_some(), "state update at first retained block should be available");
     }

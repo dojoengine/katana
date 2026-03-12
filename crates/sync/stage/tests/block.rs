@@ -474,7 +474,7 @@ async fn prune_compacts_state_history_at_boundary() {
     assert_eq!(retained_state.nonce(contract_address).unwrap(), Some(nonce));
     assert_eq!(retained_state.storage(contract_address, storage_key).unwrap(), Some(storage_value));
 
-    // Pruned historical range should be unavailable.
+    // Pruned historical state provider range should be unavailable.
     assert!(matches!(
         provider.provider().historical(2.into()),
         Err(ProviderError::HistoricalStatePruned { requested: 2, earliest_available: 5 })
