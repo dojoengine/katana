@@ -1,6 +1,5 @@
 use katana_db::abstraction::{DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::ContractInfoChangeList;
-use katana_db::models::list::BlockList;
 use katana_db::models::storage::{ContractStorageKey, StorageEntry};
 use katana_db::tables;
 use katana_db::trie::TrieDbFactory;
@@ -18,6 +17,7 @@ use katana_provider_api::state::{
 use katana_provider_api::ProviderError;
 
 use super::DbProvider;
+use crate::providers::db::{STATE_HISTORY_RETENTION_KEY, STATE_TRIE_HISTORY_RETENTION_KEY};
 use crate::ProviderResult;
 
 impl<Tx: DbTxMut> StateWriter for DbProvider<Tx> {
@@ -108,6 +108,22 @@ impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
         };
 
         let Some(num) = block_number else { return Ok(None) };
+
+        let earliest_available = self
+            .0
+            .get::<tables::StateHistoryRetention>(STATE_HISTORY_RETENTION_KEY)?
+            .map(|retention| retention.earliest_available_block);
+
+        // If there's no history retention marker, then it is assumed that pruning has never
+        // been performed and all historical state is available.
+        if let Some(earliest_available) = earliest_available {
+            if num < earliest_available {
+                return Err(ProviderError::HistoricalStatePruned {
+                    requested: num,
+                    earliest_available,
+                });
+            }
+        }
 
         Ok(Some(Box::new(HistoricalStateProvider::new(self.0.clone(), num))))
     }
@@ -232,6 +248,26 @@ impl<Tx: DbTx> HistoricalStateProvider<Tx> {
         let is_declared = decl_block_num.is_some_and(|num| num <= self.block_number);
         Ok(is_declared)
     }
+
+    // If there's no trie history retention marker, then it is assumed that pruning has never
+    // been performed and all historical trie is available.
+    fn ensure_historical_state_trie_available(&self) -> ProviderResult<()> {
+        let earliest_available = self
+            .tx
+            .get::<tables::StateHistoryRetention>(STATE_TRIE_HISTORY_RETENTION_KEY)?
+            .map(|retention| retention.earliest_available_block);
+
+        if let Some(earliest_available) = earliest_available {
+            if self.block_number < earliest_available {
+                return Err(ProviderError::HistoricalStatePruned {
+                    requested: self.block_number,
+                    earliest_available,
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<Tx: DbTx> ContractClassProvider for HistoricalStateProvider<Tx> {
@@ -260,7 +296,7 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
         let change_list = self.tx.get::<tables::ContractInfoChangeSet>(address)?;
 
         if let Some(num) = change_list
-            .and_then(|entry| recent_change_from_block(self.block_number, &entry.nonce_change_list))
+            .and_then(|entry| entry.nonce_change_list.last_change_at_or_before(self.block_number))
         {
             let mut cursor = self.tx.cursor_dup::<tables::NonceChangeHistory>()?;
             let entry = cursor.seek_by_key_subkey(num, address)?.ok_or(
@@ -286,7 +322,7 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
             self.tx.get::<tables::ContractInfoChangeSet>(address)?;
 
         if let Some(num) = change_list
-            .and_then(|entry| recent_change_from_block(self.block_number, &entry.class_change_list))
+            .and_then(|entry| entry.class_change_list.last_change_at_or_before(self.block_number))
         {
             let mut cursor = self.tx.cursor_dup::<tables::ClassChangeHistory>()?;
             let entry = cursor.seek_by_key_subkey(num, address)?.ok_or(
@@ -313,7 +349,7 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
         let block_list = self.tx.get::<tables::StorageChangeSet>(key.clone())?;
 
         if let Some(num) =
-            block_list.and_then(|list| recent_change_from_block(self.block_number, &list))
+            block_list.and_then(|list| list.last_change_at_or_before(self.block_number))
         {
             let mut cursor = self.tx.cursor_dup::<tables::StorageChangeHistory>()?;
             let entry = cursor.seek_by_key_subkey(num, key)?.ok_or(
@@ -335,24 +371,24 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
 
 impl<Tx: DbTx> StateProofProvider for HistoricalStateProvider<Tx> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
-        let proofs = TrieDbFactory::new(self.tx().clone())
+        self.ensure_historical_state_trie_available()?;
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .expect("should exist")
-            .classes_trie()
-            .multiproof(classes);
-        Ok(proofs)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.classes_trie().multiproof(classes))
     }
 
     fn contract_multiproof(
         &self,
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
-        let proofs = TrieDbFactory::new(self.tx().clone())
+        self.ensure_historical_state_trie_available()?;
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .expect("should exist")
-            .contracts_trie()
-            .multiproof(addresses);
-        Ok(proofs)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.contracts_trie().multiproof(addresses))
     }
 
     fn storage_multiproof(
@@ -360,41 +396,42 @@ impl<Tx: DbTx> StateProofProvider for HistoricalStateProvider<Tx> {
         address: ContractAddress,
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
-        let proofs = TrieDbFactory::new(self.tx().clone())
+        self.ensure_historical_state_trie_available()?;
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .expect("should exist")
-            .storages_trie(address)
-            .multiproof(storage_keys);
-        Ok(proofs)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.storages_trie(address).multiproof(storage_keys))
     }
 }
 
 impl<Tx: DbTx> StateRootProvider for HistoricalStateProvider<Tx> {
     fn classes_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        let root = TrieDbFactory::new(self.tx().clone())
+        self.ensure_historical_state_trie_available()?;
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .expect("should exist")
-            .classes_trie()
-            .root();
-        Ok(root)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.classes_trie().root())
     }
 
     fn contracts_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        let root = TrieDbFactory::new(self.tx().clone())
+        self.ensure_historical_state_trie_available()?;
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .expect("should exist")
-            .contracts_trie()
-            .root();
-        Ok(root)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.contracts_trie().root())
     }
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
-        let root = TrieDbFactory::new(self.tx().clone())
+        self.ensure_historical_state_trie_available()?;
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .expect("should exist")
-            .storages_trie(contract)
-            .root();
-        Ok(Some(root))
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.storages_trie(contract).root())
+            .map(Some)
     }
 
     fn state_root(&self) -> ProviderResult<katana_primitives::Felt> {
@@ -404,48 +441,5 @@ impl<Tx: DbTx> StateRootProvider for HistoricalStateProvider<Tx> {
             .ok_or(ProviderError::MissingBlockHeader(self.block_number))?;
         let header: katana_primitives::block::Header = header.into();
         Ok(header.state_root)
-    }
-}
-
-/// This is a helper function for getting the block number of the most
-/// recent change that occurred relative to the given block number.
-///
-/// ## Arguments
-///
-/// * `block_list`: A list of block numbers where a change in value occur.
-fn recent_change_from_block(
-    block_number: BlockNumber,
-    block_list: &BlockList,
-) -> Option<BlockNumber> {
-    // if the rank is 0, then it's either;
-    // 1. the list is empty
-    // 2. there are no prior changes occured before/at `block_number`
-    let rank = block_list.rank(block_number);
-    if rank == 0 {
-        None
-    } else {
-        block_list.select(rank - 1)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use katana_db::models::list::BlockList;
-
-    #[rstest::rstest]
-    #[case(0, None)]
-    #[case(1, Some(1))]
-    #[case(3, Some(2))]
-    #[case(5, Some(5))]
-    #[case(9, Some(6))]
-    #[case(10, Some(10))]
-    #[case(11, Some(10))]
-    fn position_of_most_recent_block_in_block_list(
-        #[case] block_num: u64,
-        #[case] expected_block_num: Option<u64>,
-    ) {
-        let list = BlockList::from([1, 2, 5, 6, 10]);
-        let actual_block_num = super::recent_change_from_block(block_num, &list);
-        assert_eq!(actual_block_num, expected_block_num);
     }
 }

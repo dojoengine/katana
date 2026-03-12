@@ -12,8 +12,9 @@ use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::{
     ContractClassChange, ContractClassChangeType, ContractInfoChangeList, ContractNonceChange,
 };
-use katana_db::models::list::BlockList;
+use katana_db::models::list::BlockChangeList;
 use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
+use katana_db::models::state::HistoricalStateRetention;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::models::{ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
@@ -37,6 +38,7 @@ use katana_provider_api::block::{
 };
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
 use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
@@ -758,7 +760,7 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
                         }
                         // create a new block list if it doesn't yet exist, and insert the block
                         // number
-                        None => BlockList::from([block_number]),
+                        None => BlockChangeList::from([block_number]),
                     };
 
                     self.0.put::<tables::StorageChangeSet>(changeset_key, updated_list)?;
@@ -793,7 +795,7 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
                     change_set
                 } else {
                     ContractInfoChangeList {
-                        class_change_list: BlockList::from([block_number]),
+                        class_change_list: BlockChangeList::from([block_number]),
                         ..Default::default()
                     }
                 };
@@ -818,7 +820,7 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
                     change_set
                 } else {
                     ContractInfoChangeList {
-                        class_change_list: BlockList::from([block_number]),
+                        class_change_list: BlockChangeList::from([block_number]),
                         ..Default::default()
                     }
                 };
@@ -843,7 +845,7 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
                     change_set
                 } else {
                     ContractInfoChangeList {
-                        nonce_change_list: BlockList::from([block_number]),
+                        nonce_change_list: BlockChangeList::from([block_number]),
                         ..Default::default()
                     }
                 };
@@ -881,6 +883,40 @@ impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
         let key = id.to_string();
         let value = PruningCheckpoint { block: block_number };
         self.0.put::<tables::StagePruningCheckpoints>(key, value)?;
+        Ok(())
+    }
+}
+
+pub const STATE_HISTORY_RETENTION_KEY: u64 = 0;
+pub const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
+
+impl<Tx: DbTxMut> HistoricalStateRetentionProvider for DbProvider<Tx> {
+    fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        let key = STATE_HISTORY_RETENTION_KEY;
+        let result = self.0.get::<tables::StateHistoryRetention>(key)?;
+        Ok(result.map(|retention| retention.earliest_available_block))
+    }
+
+    fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()> {
+        let key = STATE_HISTORY_RETENTION_KEY;
+        let value = HistoricalStateRetention { earliest_available_block: block_number };
+        self.0.put::<tables::StateHistoryRetention>(key, value)?;
+        Ok(())
+    }
+
+    fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        let key = STATE_TRIE_HISTORY_RETENTION_KEY;
+        let result = self.0.get::<tables::StateHistoryRetention>(key)?;
+        Ok(result.map(|retention| retention.earliest_available_block))
+    }
+
+    fn set_earliest_available_state_trie_block(
+        &self,
+        block_number: BlockNumber,
+    ) -> ProviderResult<()> {
+        let key = STATE_TRIE_HISTORY_RETENTION_KEY;
+        let value = HistoricalStateRetention { earliest_available_block: block_number };
+        self.0.put::<tables::StateHistoryRetention>(key, value)?;
         Ok(())
     }
 }

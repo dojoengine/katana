@@ -5,6 +5,7 @@ pub mod envelope;
 pub mod list;
 pub mod receipt;
 pub mod stage;
+pub mod state;
 pub mod storage;
 pub mod trie;
 

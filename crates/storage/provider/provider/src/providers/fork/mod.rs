@@ -21,6 +21,7 @@ use katana_provider_api::block::{
 };
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
 use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
@@ -683,5 +684,26 @@ impl<Tx1: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1> {
 
     fn set_prune_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
         self.local_db.set_prune_checkpoint(id, block_number)
+    }
+}
+
+impl<Tx1: DbTxMut> HistoricalStateRetentionProvider for ForkedProvider<Tx1> {
+    fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        self.local_db.earliest_available_state_block()
+    }
+
+    fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()> {
+        self.local_db.set_earliest_available_state_block(block_number)
+    }
+
+    fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        self.local_db.earliest_available_state_trie_block()
+    }
+
+    fn set_earliest_available_state_trie_block(
+        &self,
+        block_number: BlockNumber,
+    ) -> ProviderResult<()> {
+        self.local_db.set_earliest_available_state_trie_block(block_number)
     }
 }
