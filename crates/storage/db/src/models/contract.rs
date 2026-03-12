@@ -14,7 +14,7 @@ pub struct ContractInfoChangeList {
 
 /// The type of event that triggered the class change.
 #[derive(Debug, Default, PartialEq, Eq)]
-#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
 pub enum ContractClassChangeType {
     /// The contract was deployed with the given class hash.
     #[default]
@@ -24,7 +24,7 @@ pub enum ContractClassChangeType {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
 pub struct ContractClassChange {
     /// The type of class change.
     pub r#type: ContractClassChangeType,
@@ -120,7 +120,7 @@ impl Decompress for ContractClassChange {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
 pub struct ContractNonceChange {
     pub contract_address: ContractAddress,
     /// The updated nonce value of `contract_address`.

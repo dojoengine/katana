@@ -6,7 +6,7 @@ use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
 pub struct Header {
     pub parent_hash: BlockHash,
     pub number: BlockNumber,

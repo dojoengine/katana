@@ -6138,6 +6138,7 @@ dependencies = [
  "parking_lot",
  "postcard",
  "proptest",
+ "rand 0.8.5",
  "reth-libmdbx",
  "roaring",
  "rstest 0.18.2",
