@@ -154,7 +154,9 @@ jobs:
         id: hw
         run: |
           if [ -f bench-results/bench-codec/hw-specs.txt ]; then
-            source bench-results/bench-codec/hw-specs.txt
+            cpu_model=$(grep '^cpu_model=' bench-results/bench-codec/hw-specs.txt | cut -d= -f2-)
+            cpu_cores=$(grep '^cpu_cores=' bench-results/bench-codec/hw-specs.txt | cut -d= -f2-)
+            ram_total=$(grep '^ram_total=' bench-results/bench-codec/hw-specs.txt | cut -d= -f2-)
             echo "summary=**Runner:** ${cpu_model} (${cpu_cores} cores) · ${ram_total} RAM" >> "$GITHUB_OUTPUT"
           else
             echo "summary=Hardware specs not available" >> "$GITHUB_OUTPUT"
