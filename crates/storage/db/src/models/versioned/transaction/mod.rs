@@ -6,7 +6,7 @@ use crate::models::envelope::{EnvelopeError, EnvelopePayload};
 mod v6;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
 pub enum VersionedTx {
     V6(v6::Tx),
     V7(Tx),
