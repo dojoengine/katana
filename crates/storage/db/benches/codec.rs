@@ -47,9 +47,8 @@ macro_rules! arb {
 
 /// Benchmark compress and decompress for a type.
 ///
-/// Uses `iter_batched` for compress so that value generation is in the setup
-/// closure and excluded from the measurement. Decompress benchmarks use
-/// pre-generated compressed byte vectors.
+/// Uses `iter_batched` for both compress and decompress so that setup
+/// (value generation / sample selection) is excluded from measurement.
 macro_rules! bench_type {
     ($c:expr, $name:expr, $ty:ty, $make:expr) => {{
         // Pre-generate compressed bytes for decompress bench
@@ -70,14 +69,16 @@ macro_rules! bench_type {
         });
 
         $c.bench_function(&format!("{}/decompress", $name), |b| {
-            let mut i = 0usize;
-            b.iter(|| {
-                black_box(
-                    <$ty as Decompress>::decompress(compressed[i % SAMPLE_COUNT].as_slice())
-                        .unwrap(),
-                );
-                i += 1;
-            })
+            let i = std::cell::Cell::new(0usize);
+            b.iter_batched(
+                || {
+                    let idx = i.get();
+                    i.set(idx + 1);
+                    compressed[idx % SAMPLE_COUNT].clone()
+                },
+                |bytes| black_box(<$ty as Decompress>::decompress(bytes.as_slice()).unwrap()),
+                BatchSize::SmallInput,
+            )
         });
     }};
 }
