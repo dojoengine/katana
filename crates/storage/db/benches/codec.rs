@@ -19,7 +19,11 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::GenericContractInfo;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
-use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
+use katana_primitives::fee::{FeeInfo, PriceUnit};
+use katana_primitives::receipt::{
+    DataAvailabilityResources, DeclareTxReceipt, DeployAccountTxReceipt, Event, ExecutionResources,
+    GasUsed, InvokeTxReceipt, L1HandlerTxReceipt, MessageToL1, Receipt,
+};
 use katana_primitives::transaction::{TxHash, TxNumber};
 use katana_primitives::utils::class::parse_compiled_class;
 use katana_primitives::Felt;
@@ -106,6 +110,81 @@ fn decompress_compiled_class(c: &mut Criterion) {
     });
 }
 
+/// Generate a realistic receipt with populated events, messages, fees, and execution
+/// resources. Cycles through all receipt variants across calls to give broad coverage.
+fn generate_receipt() -> Receipt {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let i = COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    let fee = FeeInfo {
+        l1_gas_price: 1_000_000_000 + i as u128,
+        l2_gas_price: 500_000 + i as u128,
+        l1_data_gas_price: 100_000 + i as u128,
+        overall_fee: 2_500_000_000 + i as u128,
+        unit: PriceUnit::Wei,
+    };
+
+    let events: Vec<Event> = (0..5)
+        .map(|j| Event {
+            from_address: arb!(Felt).into(),
+            keys: (0..3).map(|_| arb!(Felt)).collect(),
+            data: (0..4 + j).map(|_| arb!(Felt)).collect(),
+        })
+        .collect();
+
+    let messages: Vec<MessageToL1> = (0..2)
+        .map(|_| MessageToL1 {
+            from_address: arb!(Felt).into(),
+            to_address: arb!(Felt),
+            payload: (0..3).map(|_| arb!(Felt)).collect(),
+        })
+        .collect();
+
+    let execution_resources = ExecutionResources {
+        total_gas_consumed: GasUsed { l1_gas: 50000 + i, l2_gas: 120000 + i, l1_data_gas: 8000 },
+        vm_resources: Default::default(),
+        data_availability: DataAvailabilityResources { l1_gas: 3200, l1_data_gas: 1600 },
+    };
+
+    match i % 4 {
+        0 => Receipt::Invoke(InvokeTxReceipt {
+            fee: fee.clone(),
+            events: events.clone(),
+            messages_sent: messages.clone(),
+            revert_error: if i % 8 == 0 {
+                Some(format!("execution reverted: error at pc=0:{}", 42 + i))
+            } else {
+                None
+            },
+            execution_resources: execution_resources.clone(),
+        }),
+        1 => Receipt::Declare(DeclareTxReceipt {
+            fee: fee.clone(),
+            events,
+            messages_sent: messages,
+            revert_error: None,
+            execution_resources: execution_resources.clone(),
+        }),
+        2 => Receipt::DeployAccount(DeployAccountTxReceipt {
+            fee: fee.clone(),
+            events,
+            messages_sent: messages,
+            revert_error: None,
+            execution_resources: execution_resources.clone(),
+            contract_address: arb!(Felt).into(),
+        }),
+        _ => Receipt::L1Handler(L1HandlerTxReceipt {
+            fee,
+            events,
+            message_hash: Default::default(),
+            messages_sent: messages,
+            revert_error: None,
+            execution_resources,
+        }),
+    }
+}
+
 // --- All value type benchmarks ---
 
 fn bench_all_value_types(c: &mut Criterion) {
@@ -183,13 +262,7 @@ fn bench_all_value_types(c: &mut Criterion) {
 
     // ReceiptEnvelope
     bench_type!(c, "ReceiptEnvelope", ReceiptEnvelope, {
-        ReceiptEnvelope::from(Receipt::Invoke(InvokeTxReceipt {
-            revert_error: None,
-            events: Vec::new(),
-            fee: Default::default(),
-            messages_sent: Vec::new(),
-            execution_resources: Default::default(),
-        }))
+        ReceiptEnvelope::from(generate_receipt())
     });
 
     // TrieDatabaseValue
