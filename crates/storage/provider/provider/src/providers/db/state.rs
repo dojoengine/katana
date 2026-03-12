@@ -115,6 +115,8 @@ impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
             .get::<tables::StateHistoryRetention>(STATE_HISTORY_RETENTION_KEY)?
             .map(|retention| retention.earliest_available_block);
 
+        // If there's no history retention marker, then it is assumed that pruning has never
+        // been performed and all historical state is available.
         if let Some(earliest_available) = earliest_available {
             if num < earliest_available {
                 return Err(ProviderError::HistoricalStatePruned {
@@ -248,6 +250,8 @@ impl<Tx: DbTx> HistoricalStateProvider<Tx> {
         Ok(is_declared)
     }
 
+    // If there's no trie history retention marker, then it is assumed that pruning has never
+    // been performed and all historical trie is available.
     fn ensure_historical_state_trie_available(&self) -> ProviderResult<()> {
         let earliest_available = self
             .tx
@@ -369,11 +373,11 @@ impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
 impl<Tx: DbTx> StateProofProvider for HistoricalStateProvider<Tx> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         self.ensure_historical_state_trie_available()?;
-        let trie = TrieDbFactory::new(self.tx().clone())
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))?;
-        let proofs = trie.classes_trie().multiproof(classes);
-        Ok(proofs)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.classes_trie().multiproof(classes))
     }
 
     fn contract_multiproof(
@@ -381,11 +385,11 @@ impl<Tx: DbTx> StateProofProvider for HistoricalStateProvider<Tx> {
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         self.ensure_historical_state_trie_available()?;
-        let trie = TrieDbFactory::new(self.tx().clone())
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))?;
-        let proofs = trie.contracts_trie().multiproof(addresses);
-        Ok(proofs)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.contracts_trie().multiproof(addresses))
     }
 
     fn storage_multiproof(
@@ -394,40 +398,41 @@ impl<Tx: DbTx> StateProofProvider for HistoricalStateProvider<Tx> {
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         self.ensure_historical_state_trie_available()?;
-        let trie = TrieDbFactory::new(self.tx().clone())
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))?;
-        let proofs = trie.storages_trie(address).multiproof(storage_keys);
-        Ok(proofs)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.storages_trie(address).multiproof(storage_keys))
     }
 }
 
 impl<Tx: DbTx> StateRootProvider for HistoricalStateProvider<Tx> {
     fn classes_root(&self) -> ProviderResult<katana_primitives::Felt> {
         self.ensure_historical_state_trie_available()?;
-        let trie = TrieDbFactory::new(self.tx().clone())
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))?;
-        let root = trie.classes_trie().root();
-        Ok(root)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.classes_trie().root())
     }
 
     fn contracts_root(&self) -> ProviderResult<katana_primitives::Felt> {
         self.ensure_historical_state_trie_available()?;
-        let trie = TrieDbFactory::new(self.tx().clone())
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))?;
-        let root = trie.contracts_trie().root();
-        Ok(root)
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.contracts_trie().root())
     }
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
         self.ensure_historical_state_trie_available()?;
-        let trie = TrieDbFactory::new(self.tx().clone())
+
+        TrieDbFactory::new(self.tx().clone())
             .historical(self.block_number)
-            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))?;
-        let root = trie.storages_trie(contract).root();
-        Ok(Some(root))
+            .ok_or(ProviderError::MissingHistoricalStateTrieSnapshot(self.block_number))
+            .map(|trie| trie.storages_trie(contract).root())
+            .map(Some)
     }
 
     fn state_root(&self) -> ProviderResult<katana_primitives::Felt> {

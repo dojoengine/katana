@@ -128,6 +128,7 @@ pub enum ProviderError {
     #[error("State root not found")]
     StateRootNotFound,
 
+    /// Error when the historical state trie snapshot is unexpectedly missing.
     #[error("Missing historical state trie snapshot for block {0}")]
     MissingHistoricalStateTrieSnapshot(BlockNumber),
 
