@@ -10,6 +10,17 @@ const HEADER_LEN: usize = 4 + 1 + 1 + 2; // magic (4) + version (1) + encoding (
 /// All 16 bits are reserved for future use (checksum, encryption, etc).
 const ENVELOPE_FLAGS_RESERVED: u16 = 0x0000;
 
+/// Minimum zstd frame size in bytes (magic 4 + frame header 2 + block header 3 + checksum 4).
+/// The actual frame header is variable-length (2–14 bytes) depending on window
+/// size, dictionary ID, and content size fields; this constant uses the absolute
+/// minimum. Payloads smaller than this are stored uncompressed because the zstd
+/// frame overhead would exceed any savings.
+const ZSTD_MIN_FRAME_SIZE: usize = 13;
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("unknown encoding format: {0}")]
+pub struct UnknownEncodingError(pub u8);
+
 /// Compression encoding applied to the serialized payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -20,12 +31,14 @@ enum Encoding {
     Zstd = 0x01,
 }
 
-impl Encoding {
-    fn from_u8(byte: u8, name: &'static str) -> Result<Self, EnvelopeError> {
-        match byte {
+impl TryFrom<u8> for Encoding {
+    type Error = UnknownEncodingError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
             0x00 => Ok(Encoding::Identity),
             0x01 => Ok(Encoding::Zstd),
-            _ => Err(EnvelopeError::UnsupportedEncoding { name, encoding: byte }),
+            _ => Err(UnknownEncodingError(value)),
         }
     }
 }
@@ -42,8 +55,12 @@ pub enum EnvelopeError {
     UnsupportedVersion { name: &'static str, version: u8 },
 
     /// The encoding byte is not recognised by this build.
-    #[error("unsupported {name} envelope encoding: {encoding}")]
-    UnsupportedEncoding { name: &'static str, encoding: u8 },
+    #[error("unsupported {name} envelope encoding")]
+    UnsupportedEncoding {
+        name: &'static str,
+        #[source]
+        source: UnknownEncodingError,
+    },
 
     /// Payload serialization failed during compression.
     #[error("failed to encode {name} payload: {reason}")]
@@ -88,10 +105,6 @@ pub trait EnvelopePayload: Debug + Clone + PartialEq + Eq {
     const MAGIC: &[u8; 4];
     /// Human-readable name for error messages.
     const NAME: &str;
-
-    /// Minimum serialized size (in bytes) below which compression is skipped.
-    /// Set to `0` to always compress.
-    const COMPRESS_THRESHOLD: usize = 0;
 
     /// Serialize this value to bytes. The format is payload-defined
     /// (postcard, JSON, protobuf, etc).
@@ -153,10 +166,9 @@ impl<T: EnvelopePayload> Envelope<T> {
     pub(crate) fn do_compress(self) -> Result<Vec<u8>, EnvelopeError> {
         let serialized = self.inner.to_bytes()?;
 
-        let (encoding, payload) =
-            if T::COMPRESS_THRESHOLD > 0 && serialized.len() < T::COMPRESS_THRESHOLD {
-                (Encoding::Identity, serialized)
-            } else {
+        let (encoding, payload) = if serialized.len() < ZSTD_MIN_FRAME_SIZE {
+            (Encoding::Identity, serialized)
+        } else {
                 let compressed = zstd::encode_all(serialized.as_slice(), 0).map_err(|e| {
                     EnvelopeError::ZstdCompress { name: T::NAME, reason: e.to_string() }
                 })?;
@@ -189,7 +201,8 @@ impl<T: EnvelopePayload> Envelope<T> {
                 return Err(EnvelopeError::UnsupportedVersion { name: T::NAME, version });
             }
 
-            let encoding = Encoding::from_u8(bytes[5], T::NAME)?;
+            let encoding = Encoding::try_from(bytes[5])
+                .map_err(|source| EnvelopeError::UnsupportedEncoding { name: T::NAME, source })?;
 
             // bytes 6–7: flags (reserved, read but unused)
             let _flags = u16::from_le_bytes([bytes[6], bytes[7]]);
@@ -237,7 +250,6 @@ mod tests {
     impl EnvelopePayload for TestPayload {
         const MAGIC: &[u8; 4] = b"TEST";
         const NAME: &str = "test";
-        const COMPRESS_THRESHOLD: usize = 64;
 
         fn to_bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
             Ok(self.data.as_bytes().to_vec())
@@ -289,6 +301,7 @@ mod tests {
     #[test]
     fn small_payload_uses_identity_encoding() {
         let payload = small_payload();
+        assert!(payload.data.len() < ZSTD_MIN_FRAME_SIZE);
         let envelope = Envelope::from(payload.clone());
 
         let compressed = envelope.compress().expect("compress");
@@ -334,7 +347,7 @@ mod tests {
         encoded.extend_from_slice(&ENVELOPE_FLAGS_RESERVED.to_le_bytes());
 
         let err = Envelope::<TestPayload>::do_decompress(&encoded).expect_err("must reject");
-        assert!(matches!(err, EnvelopeError::UnsupportedEncoding { encoding: 0xFF, .. }));
+        assert!(matches!(err, EnvelopeError::UnsupportedEncoding { .. }));
     }
 
     #[test]

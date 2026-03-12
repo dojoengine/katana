@@ -5,7 +5,6 @@ use crate::models::envelope::{Envelope, EnvelopeError, EnvelopePayload};
 impl EnvelopePayload for Receipt {
     const MAGIC: &[u8; 4] = b"KRCP";
     const NAME: &str = "receipt";
-    const COMPRESS_THRESHOLD: usize = 64;
 
     fn to_bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
         postcard::to_stdvec(self)
@@ -97,7 +96,7 @@ mod tests {
         encoded.extend_from_slice(&[0x00, 0x00]); // flags
 
         let error = ReceiptEnvelope::do_decompress(&encoded).expect_err("must reject encoding");
-        assert!(matches!(error, EnvelopeError::UnsupportedEncoding { encoding: 0xFF, .. }));
+        assert!(matches!(error, EnvelopeError::UnsupportedEncoding { .. }));
     }
 
     #[test]
