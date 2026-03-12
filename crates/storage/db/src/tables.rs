@@ -399,10 +399,7 @@ mod tests {
     use crate::models::trie::{
         TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
     };
-    use crate::models::{
-        ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedHeader, VersionedStateUpdates,
-        VersionedTx, VersionedTx,
-    };
+    use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedTx};
 
     macro_rules! assert_key_encode_decode {
 	    { $( ($name:ty, $key:expr) ),* } => {
