@@ -24,7 +24,39 @@ permissions:
   pull-requests: write
 
 jobs:
+  generate-artifacts:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - run: git config --global --add safe.directory "*"
+
+      - name: Restore cached artifacts
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: crates/contracts/build
+          key: bench-contracts-${{ hashFiles('Makefile', 'crates/contracts/contracts/**') }}
+
+      - name: Build contracts
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: make contracts
+
+      - name: Upload contract artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts
+          overwrite: true
+          retention-days: 14
+          if-no-files-found: error
+          path: crates/contracts/build
+
   bench-codec:
+    needs: [generate-artifacts]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
@@ -35,6 +67,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: bench-codec
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts
+          path: crates/contracts/build
 
       - name: Collect hardware specs
         run: |
@@ -73,6 +111,7 @@ jobs:
   #         path: output.txt
 
   bench-startup:
+    needs: [generate-artifacts]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
@@ -83,6 +122,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: bench-startup
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts
+          path: crates/contracts/build
 
       - name: Run startup benchmarks
         run: cargo bench -p katana-node-bindings --bench startup -- --output-format bencher | sed 1d | tee output.txt
