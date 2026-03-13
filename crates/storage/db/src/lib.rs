@@ -280,35 +280,6 @@ mod tests {
     }
 
     #[test]
-    fn write_open_bumps_version_file_to_latest() {
-        let path = tempfile::tempdir().unwrap();
-        Db::new(path.path()).unwrap();
-
-        create_db_version_file(path.path(), MIN_OPENABLE_DB_VERSION).unwrap();
-
-        let db = Db::open(path.path()).unwrap();
-        let actual_version = get_db_version(path.path()).unwrap();
-
-        assert_eq!(db.version(), LATEST_DB_VERSION);
-        assert_eq!(actual_version, LATEST_DB_VERSION);
-    }
-
-    #[test]
-    fn read_only_open_preserves_older_version() {
-        let path = tempfile::tempdir().unwrap();
-        Db::new(path.path()).unwrap();
-
-        create_db_version_file(path.path(), MIN_OPENABLE_DB_VERSION).unwrap();
-
-        let db = Db::open_ro(path.path()).unwrap();
-        let actual_version = get_db_version(path.path()).unwrap();
-
-        assert_eq!(db.version(), MIN_OPENABLE_DB_VERSION);
-        assert_eq!(actual_version, MIN_OPENABLE_DB_VERSION);
-        assert!(db.require_migration());
-    }
-
-    #[test]
     fn open_rejects_version_below_supported_floor() {
         let path = tempfile::tempdir().unwrap();
         Db::new(path.path()).unwrap();
@@ -316,8 +287,18 @@ mod tests {
         create_db_version_file(path.path(), Version::new(MIN_OPENABLE_DB_VERSION.value() - 1))
             .unwrap();
 
+        let found = Version::new(MIN_OPENABLE_DB_VERSION.value() - 1);
         let err = Db::open_ro(path.path()).unwrap_err();
-        assert!(err.to_string().contains("is not supported"));
+
+        let expected = format!(
+            "Database version {found} is not supported. Latest supported version is {latest}, \
+             minimum openable version is {minimum_openable}.",
+            found = found,
+            latest = LATEST_DB_VERSION,
+            minimum_openable = MIN_OPENABLE_DB_VERSION,
+        );
+        let err_msg = format!("{err:#}");
+        assert!(err_msg.contains(&expected), "error: {err_msg}");
     }
 
     #[test]

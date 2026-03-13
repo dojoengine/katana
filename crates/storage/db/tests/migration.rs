@@ -1,13 +1,27 @@
 use katana_db::abstraction::{Database, DbTx, DbTxMut};
+use katana_db::codecs::Compress;
 use katana_db::migration::Migration;
 use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::ContractClassChange;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey};
 use katana_db::version::{create_db_version_file, get_db_version, Version, LATEST_DB_VERSION};
 use katana_db::{tables, Db};
+use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
 use katana_primitives::state::StateUpdates;
+use katana_primitives::transaction::TxNumber;
 use katana_primitives::{ContractAddress, Felt};
 use katana_utils::arbitrary;
+
+/// Shadow table that maps to the physical `Receipts` table but uses the legacy
+/// raw-postcard `Receipt` codec as the value type (instead of `ReceiptEnvelope`).
+#[derive(Debug)]
+struct LegacyReceipts;
+
+impl tables::Table for LegacyReceipts {
+    const NAME: &'static str = tables::Receipts::NAME;
+    type Key = TxNumber;
+    type Value = Receipt;
+}
 
 /// Creates a DB at version 8 (before BlockStateUpdates was introduced) so that
 /// `Migration::is_needed()` returns true.
@@ -310,4 +324,145 @@ fn migration_not_needed_after_successful_run() {
     // Reopen the DB — should no longer need migration
     let db2 = Db::open_no_sync(dir.path()).unwrap();
     assert!(!Migration::new(&db2).is_needed());
+}
+
+// ---------------------------------------------------------------------------
+// Receipt envelope migration tests
+// ---------------------------------------------------------------------------
+
+fn sample_receipt(id: u64) -> Receipt {
+    Receipt::Invoke(InvokeTxReceipt {
+        revert_error: if id % 2 == 0 { None } else { Some(format!("revert-{id}")) },
+        events: Vec::new(),
+        fee: Default::default(),
+        messages_sent: Vec::new(),
+        execution_resources: Default::default(),
+    })
+}
+
+/// Write receipts using the legacy raw-postcard codec, run migration, then verify
+/// they can be read back through the new `ReceiptEnvelope` codec.
+#[test]
+fn receipt_migration_converts_legacy_to_envelope() {
+    let (db, _dir) = create_old_version_db();
+
+    // Need at least one block hash so the state-update backfill doesn't skip entirely.
+    {
+        let tx = db.tx_mut().unwrap();
+        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
+        tx.commit().unwrap();
+    }
+
+    let receipts: Vec<Receipt> = (0..5).map(sample_receipt).collect();
+
+    // Write receipts using the legacy codec (raw postcard).
+    {
+        let tx = db.tx_mut().unwrap();
+        for (i, receipt) in receipts.iter().enumerate() {
+            tx.put::<LegacyReceipts>(i as u64, receipt.clone()).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    // Sanity: reading through the envelope codec should fail before migration
+    // because the raw postcard bytes don't start with the KRCP magic.
+    {
+        let tx = db.tx().unwrap();
+        let result = tx.get::<tables::Receipts>(0u64);
+        assert!(result.is_err(), "envelope codec should reject legacy postcard bytes");
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    // After migration, every receipt should be readable through the envelope codec.
+    {
+        let tx = db.tx().unwrap();
+        for (i, expected) in receipts.iter().enumerate() {
+            let envelope = tx
+                .get::<tables::Receipts>(i as u64)
+                .expect("read should succeed")
+                .expect("entry should exist");
+            assert_eq!(&envelope.inner, expected, "receipt {i} mismatch");
+        }
+        tx.commit().unwrap();
+    }
+}
+
+/// An empty Receipts table should not cause the migration to fail.
+#[test]
+fn receipt_migration_empty_table_is_noop() {
+    let (db, _dir) = create_old_version_db();
+
+    Migration::new(&db).run().unwrap();
+
+    let tx = db.tx().unwrap();
+    let count = tx.entries::<tables::Receipts>().unwrap();
+    tx.commit().unwrap();
+    assert_eq!(count, 0);
+}
+
+/// Verify that migrated receipts are stored in the envelope wire format
+/// (first 4 bytes == KRCP magic).
+#[test]
+fn receipt_migration_produces_envelope_wire_format() {
+    let (db, _dir) = create_old_version_db();
+
+    {
+        let tx = db.tx_mut().unwrap();
+        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
+        tx.put::<LegacyReceipts>(0u64, sample_receipt(0)).unwrap();
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    // Read the migrated value back through the envelope codec and re-compress
+    // to inspect the wire format.
+    let tx = db.tx().unwrap();
+    let envelope = tx.get::<tables::Receipts>(0u64).unwrap().unwrap();
+    tx.commit().unwrap();
+
+    let bytes = envelope.compress().expect("compress");
+    assert_eq!(&bytes[..4], b"KRCP", "migrated receipt should have KRCP magic prefix");
+}
+
+/// Migration with more receipts than a single batch (BATCH_SIZE = 1000) to exercise
+/// the batching loop.
+#[test]
+fn receipt_migration_handles_multiple_batches() {
+    let (db, _dir) = create_old_version_db();
+
+    let num_receipts: u64 = 1500;
+
+    {
+        let tx = db.tx_mut().unwrap();
+        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
+        for i in 0..num_receipts {
+            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    let tx = db.tx().unwrap();
+    let count = tx.entries::<tables::Receipts>().unwrap();
+    tx.commit().unwrap();
+    assert_eq!(count, num_receipts as usize);
+
+    // Spot check first, last, and a middle entry.
+    let tx = db.tx().unwrap();
+    for i in [0, 749, num_receipts - 1] {
+        let envelope = tx.get::<tables::Receipts>(i).unwrap().unwrap();
+        assert_eq!(envelope.inner, sample_receipt(i), "receipt {i} mismatch");
+    }
+    tx.commit().unwrap();
+}
+
+/// Migration should not be needed for a database already at the current version.
+#[test]
+fn receipt_migration_not_needed_at_current_version() {
+    let db = Db::in_memory().unwrap();
+    assert!(!Migration::new(&db).is_needed());
 }
