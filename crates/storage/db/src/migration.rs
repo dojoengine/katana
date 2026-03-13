@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::Context;
+use indicatif::{ProgressBar, ProgressStyle};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::state::StateUpdates;
 
@@ -56,11 +57,24 @@ pub fn migrate_state_updates(db: &Db) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let blocks_to_migrate = total_blocks - start_block;
+
     tracing::info!(
         target: "db::migration",
         start_block,
         latest_block_number,
         "Migrating BlockStateUpdates table..."
+    );
+
+    let pb = ProgressBar::new(blocks_to_migrate);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "Migrating BlockStateUpdates {bar:40.cyan/blue} {pos}/{len} blocks \
+                 [{elapsed_precise}] {per_sec}",
+            )
+            .unwrap()
+            .progress_chars("##-"),
     );
 
     // Process in batches
@@ -77,20 +91,16 @@ pub fn migrate_state_updates(db: &Db) -> anyhow::Result<()> {
 
         tx.commit()?;
 
-        tracing::info!(
-            target: "db::migration",
-            from = batch_start,
-            to = batch_end,
-            total = latest_block_number,
-            "Migrated blocks."
-        );
+        pb.set_position(batch_end - start_block + 1);
 
         batch_start = batch_end + 1;
     }
 
+    pb.finish_with_message(format!("Migrated {blocks_to_migrate} blocks"));
+
     tracing::info!(
         target: "db::migration",
-        total_blocks = latest_block_number + 1 - start_block,
+        total_blocks = blocks_to_migrate,
         "BlockStateUpdates migration complete."
     );
 

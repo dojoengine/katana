@@ -12,6 +12,7 @@ katana-trie.workspace = true
 katana-metrics.workspace = true
 
 anyhow.workspace = true
+indicatif = "0.17.8"
 cairo-lang-starknet-classes.workspace = true
 arbitrary = { workspace = true, optional = true }
 metrics.workspace = true
