@@ -116,7 +116,7 @@ pub(crate) fn write_db_version_file(
 }
 
 /// Insert a version file for newly-created databases.
-pub(super) fn create_db_version_file(
+pub fn create_db_version_file(
     path: impl AsRef<Path>,
     version: Version,
 ) -> Result<Version, DatabaseVersionError> {

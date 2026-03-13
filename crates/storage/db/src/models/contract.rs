@@ -51,8 +51,9 @@ impl ContractClassChange {
 
     fn decompress_current(bytes: &[u8]) -> Result<Self, CodecError> {
         let contract_address = ContractAddress::decode(&bytes[0..32])?;
-        let class_hash = ClassHash::decompress(&bytes[32..64])?;
-        let r#type = ContractClassChangeType::decompress(&bytes[64..])?;
+        // The type discriminator is always the last byte.
+        let class_hash = ClassHash::decompress(&bytes[32..bytes.len() - 1])?;
+        let r#type = ContractClassChangeType::decompress(&bytes[bytes.len() - 1..])?;
         Ok(Self { r#type, contract_address, class_hash })
     }
 

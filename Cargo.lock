@@ -6133,6 +6133,7 @@ dependencies = [
  "cairo-lang-starknet-classes",
  "criterion",
  "indicatif",
+ "katana-db",
  "katana-metrics",
  "katana-primitives",
  "katana-trie",

@@ -38,6 +38,7 @@ rev = "b34b0d3"
 [dev-dependencies]
 arbitrary.workspace = true
 criterion.workspace = true
+katana-db = { path = ".", features = ["arbitrary"] }
 proptest = "1.6.0"
 katana-utils.workspace = true
 rand.workspace = true
