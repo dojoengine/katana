@@ -136,9 +136,18 @@ impl<'a> Migration<'a> {
     pub fn run(&self) -> Result<(), MigrationError> {
         eprintln!("[Migrating] Starting migration");
 
+        // Compute the longest stage ID among applicable stages so progress bars align.
+        let label_width = self
+            .stages
+            .iter()
+            .filter(|s| self.stage_needed(s.as_ref()))
+            .map(|s| s.id().len())
+            .max()
+            .unwrap_or(0);
+
         for stage in &self.stages {
             if self.stage_needed(stage.as_ref()) {
-                self.run_stage(stage.as_ref())?;
+                self.run_stage(stage.as_ref(), label_width)?;
             }
         }
 
@@ -158,7 +167,11 @@ impl<'a> Migration<'a> {
     }
 
     /// Drives a single stage through its batch loop with checkpoint management.
-    fn run_stage(&self, stage: &dyn MigrationStage) -> Result<(), MigrationError> {
+    fn run_stage(
+        &self,
+        stage: &dyn MigrationStage,
+        label_width: usize,
+    ) -> Result<(), MigrationError> {
         let db = self.db;
         let id = stage.id();
 
@@ -184,12 +197,15 @@ impl<'a> Migration<'a> {
 
         let remaining = range_end - range_start + 1;
 
+        // Pad the label so all progress bars align vertically.
+        let padded_id = format!("{id:<label_width$}");
+
         let pb = ProgressBar::new(remaining);
         pb.set_style(
             ProgressStyle::default_bar()
                 .template(&format!(
-                    "[Migrating] \x1b[1;33m{id}\x1b[0m {{bar:40.cyan/blue}} {{pos}}/{{len}} \
-                     [{{elapsed_precise}}] {{per_sec}}"
+                    "[Migrating] \x1b[1;33m{padded_id}\x1b[0m {{bar:40.cyan/blue}} \
+                     {{pos}}/{{len}} [{{elapsed_precise}}] {{per_sec}}"
                 ))
                 .expect("valid format"),
         );
