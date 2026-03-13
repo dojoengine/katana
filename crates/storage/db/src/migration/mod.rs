@@ -1,6 +1,8 @@
 mod receipt_envelopes;
 mod state_updates;
 
+use std::ops::RangeInclusive;
+
 use indicatif::{ProgressBar, ProgressStyle};
 use katana_primitives::block::BlockNumber;
 
@@ -35,6 +37,9 @@ pub enum MigrationError {
     VersionUpdate(#[from] version::DatabaseVersionError),
 }
 
+/// Number of key-space units per batch. The pipeline partitions the stage's
+/// [`range`](MigrationStage::range) into chunks of this size and calls
+/// [`execute`](MigrationStage::execute) once per chunk.
 const BATCH_SIZE: u64 = 1000;
 
 /// A single, self-contained migration step executed by [`Migration`].
@@ -46,15 +51,16 @@ const BATCH_SIZE: u64 = 1000;
 ///
 /// ## How the pipeline drives a stage
 ///
-/// 1. Calls [`total_items`](MigrationStage::total_items) to determine work size and set up a
-///    progress bar. If 0, the stage is skipped.
-/// 2. Looks up the checkpoint for [`id`](MigrationStage::id) to find the resume position.
-/// 3. Enters a batch loop: opens a write transaction, calls
-///    [`process_batch`](MigrationStage::process_batch), writes the checkpoint (or deletes it on the
-///    final batch), and commits — all in one atomic transaction.
+/// 1. Calls [`range`](MigrationStage::range) to obtain the full key range that needs migration. If
+///    `None`, the stage is skipped.
+/// 2. Looks up the checkpoint for [`id`](MigrationStage::id) to adjust the start of the range.
+/// 3. Partitions the remaining range into batches of [`BATCH_SIZE`] and, for each batch: opens a
+///    write transaction, calls [`execute`](MigrationStage::execute) with the batch range, writes
+///    the checkpoint (or deletes it on the final batch), and commits — all in one atomic
+///    transaction.
 ///
 /// Stages never read or write checkpoints themselves. They only process data within a
-/// pipeline-provided write transaction.
+/// pipeline-provided write transaction and range.
 ///
 /// See [`StateUpdatesStage`] and [`ReceiptEnvelopeStage`] for reference implementations.
 pub trait MigrationStage {
@@ -75,21 +81,21 @@ pub trait MigrationStage {
     /// `Version::new(9)` so that databases already at version 9 or later are not migrated.
     fn threshold_version(&self) -> Version;
 
-    /// Returns the total number of items that need migration (for progress reporting).
+    /// Returns the inclusive key range that needs migration, or `None` if there is nothing to
+    /// migrate (e.g. empty table, no blocks).
     ///
-    /// The pipeline uses this value together with the current checkpoint position to compute
-    /// remaining work and size the progress bar. Return 0 if there is nothing to migrate.
-    fn total_items(&self, db: &Db) -> Result<u64, MigrationError>;
+    /// The keys are stage-specific — block numbers, transaction numbers, etc. The pipeline
+    /// treats them as opaque `u64` values and only uses them for batching and checkpoint
+    /// arithmetic.
+    fn range(&self, db: &Db) -> Result<Option<RangeInclusive<u64>>, MigrationError>;
 
-    /// Process one batch of up to [`BATCH_SIZE`] items starting from `start_key`.
+    /// Process all items in the given key `range` within the provided write transaction.
     ///
-    /// All reads and writes **must** go through the provided write transaction `tx`.
+    /// The pipeline guarantees that `range` is a sub-range of the value returned by
+    /// [`range()`](MigrationStage::range). All reads and writes **must** go through `tx`.
     /// Do **not** commit or abort the transaction — the pipeline handles that along with
     /// checkpoint management.
-    ///
-    /// Return `Some(next_key)` if more items remain after this batch, or `None` when the
-    /// stage is complete.
-    fn process_batch(&self, tx: &TxRW, start_key: u64) -> Result<Option<u64>, MigrationError>;
+    fn execute(&self, tx: &TxRW, range: RangeInclusive<u64>) -> Result<(), MigrationError>;
 }
 
 /// Runs all applicable database migrations based on the on-disk version at open time.
@@ -156,16 +162,18 @@ impl<'a> Migration<'a> {
         let db = self.db;
         let id = stage.id();
 
-        let total = stage.total_items(db)?;
-        if total == 0 {
-            return Ok(());
-        }
+        let full_range = match stage.range(db)? {
+            Some(r) => r,
+            None => return Ok(()),
+        };
+
+        let range_end = *full_range.end();
 
         // Resume from the last checkpoint if one exists.
         let checkpoint = db.view(|tx| tx.get::<tables::MigrationCheckpoints>(id.to_string()))?;
-        let start_key = checkpoint.map(|cp| cp.next_key).unwrap_or(0);
+        let range_start = checkpoint.map(|cp| cp.next_key).unwrap_or(*full_range.start());
 
-        if start_key >= total {
+        if range_start > range_end {
             // Already complete — clean up the stale checkpoint.
             db.update(|tx| {
                 tx.delete::<tables::MigrationCheckpoints>(id.to_string(), None)?;
@@ -174,7 +182,7 @@ impl<'a> Migration<'a> {
             return Ok(());
         }
 
-        let remaining = total - start_key;
+        let remaining = range_end - range_start + 1;
 
         let pb = ProgressBar::new(remaining);
         pb.set_style(
@@ -186,30 +194,30 @@ impl<'a> Migration<'a> {
                 .expect("valid format"),
         );
 
-        let mut current_key = start_key;
-        loop {
-            let tx = db.tx_mut()?;
-            let next = stage.process_batch(&tx, current_key)?;
+        // Partition the remaining range into batches.
+        let mut batch_start = range_start;
+        while batch_start <= range_end {
+            let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, range_end);
+            let is_last = batch_end == range_end;
 
-            match next {
-                Some(next_key) => {
-                    // Intermediate batch — persist checkpoint atomically with data.
-                    tx.put::<tables::MigrationCheckpoints>(
-                        id.to_string(),
-                        MigrationCheckpoint { next_key },
-                    )?;
-                    tx.commit()?;
-                    pb.set_position(next_key - start_key);
-                    current_key = next_key;
-                }
-                None => {
-                    // Final batch — remove the checkpoint.
-                    tx.delete::<tables::MigrationCheckpoints>(id.to_string(), None)?;
-                    tx.commit()?;
-                    pb.set_position(remaining);
-                    break;
-                }
+            let tx = db.tx_mut()?;
+            stage.execute(&tx, batch_start..=batch_end)?;
+
+            if is_last {
+                // Final batch — remove the checkpoint.
+                tx.delete::<tables::MigrationCheckpoints>(id.to_string(), None)?;
+            } else {
+                // Intermediate batch — persist checkpoint atomically with data.
+                tx.put::<tables::MigrationCheckpoints>(
+                    id.to_string(),
+                    MigrationCheckpoint { next_key: batch_end + 1 },
+                )?;
             }
+
+            tx.commit()?;
+            pb.set_position(batch_end - range_start + 1);
+
+            batch_start = batch_end + 1;
         }
 
         pb.finish();

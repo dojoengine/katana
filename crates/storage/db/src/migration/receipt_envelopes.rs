@@ -1,7 +1,9 @@
+use std::ops::RangeInclusive;
+
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::TxNumber;
 
-use super::{MigrationError, MigrationStage, BATCH_SIZE};
+use super::{MigrationError, MigrationStage};
 use crate::abstraction::{Database, DbCursor, DbTx, DbTxMut};
 use crate::mdbx::tx::TxRW;
 use crate::models::ReceiptEnvelope;
@@ -34,36 +36,37 @@ impl MigrationStage for ReceiptEnvelopeStage {
         RECEIPT_ENVELOPE_VERSION
     }
 
-    fn total_items(&self, db: &Db) -> Result<u64, MigrationError> {
-        Ok(db.view(|tx| tx.entries::<LegacyReceipts>())? as u64)
+    fn range(&self, db: &Db) -> Result<Option<RangeInclusive<u64>>, MigrationError> {
+        let total = db.view(|tx| tx.entries::<LegacyReceipts>())? as u64;
+        if total == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(0..=total - 1))
+        }
     }
 
-    fn process_batch(&self, tx: &TxRW, start_key: u64) -> Result<Option<u64>, MigrationError> {
-        // Read a batch using the legacy Receipt codec.
-        let batch = {
+    fn execute(&self, tx: &TxRW, range: RangeInclusive<u64>) -> Result<(), MigrationError> {
+        // Read the batch using the legacy Receipt codec via cursor walk.
+        let batch: Vec<(u64, Receipt)> = {
             let mut cursor = tx.cursor::<LegacyReceipts>()?;
-            let walker = cursor.walk(Some(start_key))?;
+            let walker = cursor.walk(Some(*range.start()))?;
 
             let mut entries = Vec::new();
             for result in walker {
                 let (tx_number, receipt) = result?;
-                entries.push((tx_number, receipt));
-                if entries.len() as u64 >= BATCH_SIZE {
+                if tx_number > *range.end() {
                     break;
                 }
+                entries.push((tx_number, receipt));
             }
             entries
         };
-
-        let count = batch.len() as u64;
-        let next_key =
-            if count < BATCH_SIZE { None } else { batch.last().map(|(last_key, _)| last_key + 1) };
 
         // Write back as ReceiptEnvelope.
         for (tx_number, receipt) in batch {
             tx.put::<tables::Receipts>(tx_number, ReceiptEnvelope::from(receipt))?;
         }
 
-        Ok(next_key)
+        Ok(())
     }
 }

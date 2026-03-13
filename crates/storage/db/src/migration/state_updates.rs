@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
 
 use katana_primitives::block::BlockNumber;
 use katana_primitives::contract::{StorageKey, StorageValue};
 use katana_primitives::state::StateUpdates;
 
-use super::{MigrationError, MigrationStage, BATCH_SIZE};
+use super::{MigrationError, MigrationStage};
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::error::DatabaseError;
 use crate::mdbx::tx::TxRW;
@@ -31,34 +32,22 @@ impl MigrationStage for StateUpdatesStage {
         STATE_UPDATES_TABLE_VERSION
     }
 
-    fn total_items(&self, db: &Db) -> Result<u64, MigrationError> {
+    fn range(&self, db: &Db) -> Result<Option<RangeInclusive<u64>>, MigrationError> {
         let last = db.view(|tx| tx.cursor::<tables::BlockHashes>()?.last())?;
         match last {
-            Some((block_num, _)) => Ok(block_num + 1),
-            None => Ok(0),
+            Some((block_num, _)) => Ok(Some(0..=block_num)),
+            None => Ok(None),
         }
     }
 
-    fn process_batch(&self, tx: &TxRW, start_key: u64) -> Result<Option<u64>, MigrationError> {
-        let latest_block_number = match tx.cursor::<tables::BlockHashes>()?.last()? {
-            Some((n, _)) => n,
-            None => return Ok(None),
-        };
-
-        let batch_end = std::cmp::min(start_key + BATCH_SIZE - 1, latest_block_number);
-
-        for block in start_key..=batch_end {
+    fn execute(&self, tx: &TxRW, range: RangeInclusive<u64>) -> Result<(), MigrationError> {
+        for block in range {
             let state_updates = reconstruct_state_update(tx, block).map_err(|source| {
                 MigrationError::FailedToReconstructStateUpdate { block, source }
             })?;
             tx.put::<tables::BlockStateUpdates>(block, state_updates)?;
         }
-
-        if batch_end >= latest_block_number {
-            Ok(None)
-        } else {
-            Ok(Some(batch_end + 1))
-        }
+        Ok(())
     }
 }
 
