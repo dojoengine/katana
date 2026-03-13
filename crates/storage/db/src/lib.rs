@@ -49,6 +49,8 @@ impl AccessMode {
 pub struct Db {
     env: DbEnv,
     version: Version,
+    /// The on-disk version at the time the database was opened, before any compat-mode bump.
+    opened_version: Version,
 }
 
 impl Db {
@@ -63,14 +65,15 @@ impl Db {
     /// Initialize the database with an explicit open mode.
     pub fn new_with_mode<P: AsRef<Path>>(path: P, open_mode: DbOpenMode) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        let version = Self::resolve_or_initialize_version(path, open_mode)?;
+        let opened_version = Self::resolve_or_initialize_version(path, open_mode)?;
 
         let env = DbEnvBuilder::new().write().build(path)?;
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::Writable)?;
+        let version =
+            Self::finalize_open_version(path, opened_version, open_mode, AccessMode::Writable)?;
 
-        Ok(Self { env, version })
+        Ok(Self { env, version, opened_version })
     }
 
     /// Similar to [`init_db`] but will initialize a temporary database.
@@ -92,7 +95,7 @@ impl Db {
         let dir = tempfile::Builder::new().disable_cleanup(true).tempdir()?;
         let path = dir.path();
 
-        let version = Self::resolve_or_initialize_version(path, open_mode)?;
+        let opened_version = Self::resolve_or_initialize_version(path, open_mode)?;
 
         let env = mdbx::DbEnvBuilder::new()
             .max_size(GIGABYTE * 10)  // 10gb
@@ -102,9 +105,10 @@ impl Db {
 
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::Writable)?;
+        let version =
+            Self::finalize_open_version(path, opened_version, open_mode, AccessMode::Writable)?;
 
-        Ok(Self { env, version })
+        Ok(Self { env, version, opened_version })
     }
 
     /// Opens an existing database at the given `path` with [`SyncMode::UtterlyNoSync`] for
@@ -122,7 +126,7 @@ impl Db {
         open_mode: DbOpenMode,
     ) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        let version = Self::resolve_existing_version(path, open_mode)?;
+        let opened_version = Self::resolve_existing_version(path, open_mode)?;
 
         let env = mdbx::DbEnvBuilder::new()
             .max_size(GIGABYTE * 10)
@@ -133,9 +137,10 @@ impl Db {
 
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, version, open_mode, AccessMode::Writable)?;
+        let version =
+            Self::finalize_open_version(path, opened_version, open_mode, AccessMode::Writable)?;
 
-        Ok(Self { env, version })
+        Ok(Self { env, version, opened_version })
     }
 
     // Open the database at the given `path` in read-write mode.
@@ -167,7 +172,7 @@ impl Db {
         open_mode: DbOpenMode,
     ) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        let version = Self::resolve_existing_version(path, open_mode)?;
+        let opened_version = Self::resolve_existing_version(path, open_mode)?;
         let builder = DbEnvBuilder::new();
 
         let env = if access_mode.is_read_only() {
@@ -180,9 +185,9 @@ impl Db {
             })?
         };
 
-        let version = Self::finalize_open_version(path, version, open_mode, access_mode)?;
+        let version = Self::finalize_open_version(path, opened_version, open_mode, access_mode)?;
 
-        Ok(Self { env, version })
+        Ok(Self { env, version, opened_version })
     }
 
     pub fn require_migration(&self) -> bool {
@@ -192,6 +197,12 @@ impl Db {
     /// Returns the version of the database.
     pub fn version(&self) -> Version {
         self.version
+    }
+
+    /// Returns the on-disk version at the time the database was first opened,
+    /// before any compat-mode bump.
+    pub fn opened_version(&self) -> Version {
+        self.opened_version
     }
 
     /// Returns the path to the directory where the database is located.

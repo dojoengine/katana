@@ -7,19 +7,21 @@ use katana_primitives::state::StateUpdates;
 
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::models::contract::ContractClassChangeType;
+use crate::version::Version;
 use crate::{tables, Db};
 
 const BATCH_SIZE: u64 = 1000;
 
+/// The database version that introduced the `BlockStateUpdates` table.
+/// Databases opened with a version below this need to be migrated.
+const STATE_UPDATES_TABLE_VERSION: Version = Version::new(9);
+
 /// Returns `true` if the database needs the `BlockStateUpdates` table to be backfilled.
 ///
-/// Detection: `BlockStateUpdates` is empty while `BlockHashes` has entries.
-pub fn needs_state_update_migration(db: &Db) -> anyhow::Result<bool> {
-    let tx = db.tx().context("opening read tx for migration check")?;
-    let state_update_count = tx.entries::<tables::BlockStateUpdates>()?;
-    let block_count = tx.entries::<tables::BlockHashes>()?;
-    tx.commit()?;
-    Ok(state_update_count == 0 && block_count > 0)
+/// Detection is based on the on-disk version at open time: any database originally at
+/// a version below [`STATE_UPDATES_TABLE_VERSION`] needs backfilling.
+pub fn needs_state_update_migration(db: &Db) -> bool {
+    db.opened_version() < STATE_UPDATES_TABLE_VERSION
 }
 
 /// Backfills the `BlockStateUpdates` table by reconstructing state updates from the legacy
@@ -271,14 +273,8 @@ mod tests {
             tx.commit().unwrap();
         }
 
-        // Verify migration is needed
-        assert!(needs_state_update_migration(&db).unwrap());
-
         // Run migration
         migrate_state_updates(&db).unwrap();
-
-        // Verify migration is no longer needed
-        assert!(!needs_state_update_migration(&db).unwrap());
 
         // Read back and verify
         let tx = db.tx().unwrap();
@@ -310,23 +306,25 @@ mod tests {
     }
 
     #[test]
-    fn migration_not_needed_for_empty_db() {
+    fn migration_not_needed_for_new_db() {
+        // A freshly created in-memory DB is initialized at LATEST_DB_VERSION,
+        // so it should not need migration.
         let db = Db::in_memory().unwrap();
-        assert!(!needs_state_update_migration(&db).unwrap());
+        assert!(!needs_state_update_migration(&db));
     }
 
     #[test]
-    fn migration_not_needed_when_already_populated() {
-        let db = Db::in_memory().unwrap();
+    fn migration_needed_for_old_version_db() {
+        use crate::version::{create_db_version_file, Version};
 
-        {
-            let tx = db.tx_mut().unwrap();
-            tx.put::<tables::BlockHashes>(0, felt!("0xabc")).unwrap();
-            tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
-            tx.commit().unwrap();
-        }
+        let dir = tempfile::tempdir().unwrap();
 
-        assert!(!needs_state_update_migration(&db).unwrap());
+        // Create a DB at version 8 (before BlockStateUpdates was introduced)
+        create_db_version_file(dir.path(), Version::new(8)).unwrap();
+        let db =
+            Db::open_no_sync_with_mode(dir.path(), crate::version::DbOpenMode::Compat).unwrap();
+
+        assert!(needs_state_update_migration(&db));
     }
 
     #[test]
@@ -348,9 +346,6 @@ mod tests {
             tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
             tx.commit().unwrap();
         }
-
-        // Still needs migration (1 entry vs 3 blocks)
-        assert!(needs_state_update_migration(&db).is_ok());
 
         // Run migration — should resume from block 1
         migrate_state_updates(&db).unwrap();

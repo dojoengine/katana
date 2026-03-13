@@ -123,7 +123,7 @@ impl Node {
 
         let db = katana_db::Db::new_with_mode(path, config.db.open_mode)?;
 
-        if katana_db::migration::needs_state_update_migration(&db)? {
+        if katana_db::migration::needs_state_update_migration(&db) {
             if config.db.migrate {
                 katana_db::migration::migrate_state_updates(&db)?;
             } else {
