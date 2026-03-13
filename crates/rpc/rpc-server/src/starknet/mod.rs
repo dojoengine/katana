@@ -17,9 +17,7 @@ use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::Felt;
-use katana_provider::api::block::{
-    BlockHashProvider, BlockIdReader, BlockNumberProvider, BlockProvider,
-};
+use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
@@ -1132,20 +1130,9 @@ where
                 ConfirmedBlockIdOrTag::Hash(hash) => hash.into(),
             };
 
-            let indices = provider.block_body_indices(block_id)?.ok_or(BlockNotFound)?;
-            let tx_hashes = provider.transaction_hashes_in_range(indices.into())?;
-
             let traces =
                 provider.transaction_executions_by_block(block_id)?.ok_or(BlockNotFound)?;
-            let traces = traces.into_iter().map(TxTrace::from);
-
-            let result = tx_hashes
-                .into_iter()
-                .zip(traces)
-                .map(|(h, r)| TxTraceWithHash { transaction_hash: h, trace_root: r })
-                .collect::<Vec<_>>();
-
-            Ok(result)
+            Ok(traces)
         })
         .await?
     }

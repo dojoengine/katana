@@ -116,9 +116,9 @@ where
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
-    pub fn init_genesis(&self, is_forking: bool) -> anyhow::Result<()> {
+    pub fn init_genesis(&self, skip_dev_genesis: bool) -> anyhow::Result<()> {
         match self.chain_spec.as_ref() {
-            ChainSpec::Dev(cs) => self.init_dev_genesis(cs, is_forking),
+            ChainSpec::Dev(cs) => self.init_dev_genesis(cs, skip_dev_genesis),
             ChainSpec::Rollup(cs) => self.init_rollup_genesis(cs),
             ChainSpec::FullNode(_) => {
                 // Full nodes sync from the network, so we skip genesis initialization
@@ -213,14 +213,14 @@ where
     fn init_dev_genesis(
         &self,
         chain_spec: &katana_chain_spec::dev::ChainSpec,
-        is_forking: bool,
+        skip_dev_genesis: bool,
     ) -> anyhow::Result<()> {
         let provider = self.storage.provider();
 
         // check whether the genesis block has been initialized
         let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
 
-        match (local_hash, is_forking) {
+        match (local_hash, skip_dev_genesis) {
             (Some(local_hash), false) => {
                 let genesis_block = chain_spec.block();
                 let mut genesis_state_updates = chain_spec.state_updates();
@@ -247,9 +247,8 @@ where
                 info!(genesis_hash = %local_hash, "Genesis has already been initialized");
             }
 
-            _ => {
-                // Initialize the dev genesis block
-
+            // No local genesis and genesis bootstrap is enabled -> initialize
+            (None, false) => {
                 let block = chain_spec.block();
                 let states = chain_spec.state_updates();
 
@@ -267,6 +266,11 @@ where
                 )?;
 
                 info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+            }
+
+            // Strict forking mode -> keep remote state as-is and never bootstrap local genesis
+            (_, true) => {
+                info!("Skipping dev genesis initialization");
             }
         }
 
@@ -523,7 +527,7 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
             .provider
             .trie_insert_declared_classes(
                 self.header.number,
-                self.state_updates.declared_classes.clone().into_iter(),
+                self.state_updates.declared_classes.clone().into_iter().collect(),
             )
             .expect("failed to update class trie");
 
@@ -685,11 +689,11 @@ impl TrieWriter for GenesisTrieWriter {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
+        classes: Vec<(ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut trie = ClassesTrie::new(HashMapDb::default());
 
-        for (class_hash, compiled_hash) in updates {
+        for (class_hash, compiled_hash) in classes {
             trie.insert(class_hash, compiled_hash);
         }
 

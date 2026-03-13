@@ -257,6 +257,185 @@ async fn classes_proofs() {
     }
 }
 
+/// Test that storage proofs are returned in the same order as the request,
+/// even when the request order differs from the natural sorted order.
+///
+/// This is critical for the forking code which relies on zip() between
+/// storage_updates (BTreeMap iteration) and the RPC response.
+#[tokio::test]
+async fn storage_proofs_ordering_with_reversed_request() {
+    let sequencer = TestNode::new().await;
+    let ChainSpec::Dev(chain_spec) = sequencer.backend().chain_spec.as_ref() else {
+        panic!("should be dev chain spec")
+    };
+
+    let genesis_states = chain_spec.state_updates();
+    let client = sequencer.rpc_http_client();
+
+    // Collect contracts with storage updates in sorted order (BTreeMap)
+    let sorted_storage_keys: Vec<ContractStorageKeys> = genesis_states
+        .state_updates
+        .storage_updates
+        .iter()
+        .map(|(address, keys)| ContractStorageKeys {
+            address: *address,
+            keys: keys.keys().cloned().collect(),
+        })
+        .collect();
+
+    // Need at least 2 contracts to meaningfully test ordering
+    assert!(sorted_storage_keys.len() >= 2, "genesis must have at least 2 contracts with storage");
+
+    // Create reversed order request
+    let reversed_storage_keys: Vec<ContractStorageKeys> =
+        sorted_storage_keys.iter().rev().cloned().collect();
+
+    // Verify the order is actually different (sanity check)
+    assert_ne!(
+        sorted_storage_keys.first().unwrap().address,
+        reversed_storage_keys.first().unwrap().address,
+        "reversed order should differ from sorted"
+    );
+
+    // Also request contract addresses in reversed order to get storage roots via
+    // contract_leaves_data
+    let reversed_contracts: Vec<ContractAddress> =
+        reversed_storage_keys.iter().map(|k| k.address).collect();
+
+    let proofs = client
+        .get_storage_proof(
+            BlockIdOrTag::Latest,
+            None,
+            Some(reversed_contracts.clone()),
+            Some(reversed_storage_keys.clone()),
+        )
+        .await
+        .expect("failed to get storage proofs");
+
+    assert_eq!(
+        proofs.contracts_storage_proofs.nodes.len(),
+        reversed_storage_keys.len(),
+        "should have one proof per requested contract"
+    );
+
+    // Verify each proof matches the contract at that position in the reversed request.
+    // If the RPC returned proofs in sorted order instead of request order, the proofs
+    // would be for different contracts and verification would fail.
+    for (i, (req, proof_nodes)) in
+        reversed_storage_keys.iter().zip(proofs.contracts_storage_proofs.nodes.iter()).enumerate()
+    {
+        let expected_entries = genesis_states
+            .state_updates
+            .storage_updates
+            .get(&req.address)
+            .expect("contract should be in genesis storage updates");
+
+        let storage_keys: Vec<StorageKey> = expected_entries.keys().cloned().collect();
+        let expected_values: Vec<StorageValue> = expected_entries.values().cloned().collect();
+
+        let proof = MultiProof::from(proof_nodes.clone());
+
+        // Use storage root from contract_leaves_data (ordered same as reversed_contracts)
+        let storage_root = proofs.contracts_proof.contract_leaves_data[i].storage_root;
+
+        let verified_values =
+            katana_trie::verify_proof::<hash::Pedersen>(&proof, storage_root, storage_keys);
+
+        assert_eq!(
+            expected_values, verified_values,
+            "storage proof at position {i} should match contract {} (reversed order)",
+            req.address
+        );
+    }
+}
+
+/// Test that contract_leaves_data is returned in the same order as the requested
+/// contract addresses, even when the request order differs from sorted order.
+#[tokio::test]
+async fn contract_leaves_data_ordering_with_reversed_request() {
+    let sequencer = TestNode::new().await;
+    let ChainSpec::Dev(chain_spec) = sequencer.backend().chain_spec.as_ref() else {
+        panic!("should be dev chain spec")
+    };
+
+    let genesis_states = chain_spec.state_updates();
+    let client = sequencer.rpc_http_client();
+
+    // Get genesis contract addresses in sorted order (BTreeMap)
+    let sorted_contracts: Vec<ContractAddress> =
+        genesis_states.state_updates.deployed_contracts.keys().cloned().collect();
+
+    assert!(sorted_contracts.len() >= 2, "genesis must have at least 2 deployed contracts");
+
+    // Request in sorted order
+    let sorted_proofs = client
+        .get_storage_proof(BlockIdOrTag::Latest, None, Some(sorted_contracts.clone()), None)
+        .await
+        .expect("failed to get sorted proofs");
+
+    // Request in reversed order
+    let reversed_contracts: Vec<ContractAddress> = sorted_contracts.iter().rev().cloned().collect();
+    let reversed_proofs = client
+        .get_storage_proof(BlockIdOrTag::Latest, None, Some(reversed_contracts.clone()), None)
+        .await
+        .expect("failed to get reversed proofs");
+
+    assert_eq!(
+        sorted_proofs.contracts_proof.contract_leaves_data.len(),
+        reversed_proofs.contracts_proof.contract_leaves_data.len()
+    );
+
+    let n = sorted_contracts.len();
+
+    // The reversed response's leaf data should be the reverse of the sorted response's
+    for i in 0..n {
+        let sorted_leaf = &sorted_proofs.contracts_proof.contract_leaves_data[i];
+        let reversed_leaf = &reversed_proofs.contracts_proof.contract_leaves_data[n - 1 - i];
+
+        assert_eq!(
+            sorted_leaf.nonce,
+            reversed_leaf.nonce,
+            "nonce mismatch: sorted[{i}] vs reversed[{}]",
+            n - 1 - i
+        );
+        assert_eq!(
+            sorted_leaf.class_hash,
+            reversed_leaf.class_hash,
+            "class_hash mismatch: sorted[{i}] vs reversed[{}]",
+            n - 1 - i
+        );
+        assert_eq!(
+            sorted_leaf.storage_root,
+            reversed_leaf.storage_root,
+            "storage_root mismatch: sorted[{i}] vs reversed[{}]",
+            n - 1 - i
+        );
+    }
+
+    // Verify each leaf in the reversed response computes the correct contract state hash
+    let contracts_proof = MultiProof::from(reversed_proofs.contracts_proof.nodes);
+    let verified_hashes = katana_trie::verify_proof::<hash::Pedersen>(
+        &contracts_proof,
+        reversed_proofs.global_roots.contracts_tree_root,
+        reversed_contracts.iter().map(|a| Felt::from(*a)).collect(),
+    );
+
+    for (i, (leaf_data, verified_hash)) in
+        reversed_proofs.contracts_proof.contract_leaves_data.iter().zip(verified_hashes).enumerate()
+    {
+        let computed_hash = compute_contract_state_hash(
+            &leaf_data.class_hash,
+            &leaf_data.storage_root,
+            &leaf_data.nonce,
+        );
+        assert_eq!(
+            computed_hash, verified_hash,
+            "contract leaf hash mismatch at position {i} for contract {}",
+            reversed_contracts[i]
+        );
+    }
+}
+
 async fn declare(
     client: &katana_starknet::rpc::Client,
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,

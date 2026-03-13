@@ -28,8 +28,8 @@ use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_rpc_types::class::Class;
 use katana_rpc_types::{
-    ContractStorageKeys, GetBlockWithReceiptsResponse, GetStorageProofResponse, StateUpdate,
-    TxReceiptWithBlockInfo,
+    ConfirmedBlockIdOrTag, ContractStorageKeys, GetBlockWithReceiptsResponse,
+    GetStorageProofResponse, StateUpdate, TraceBlockTransactionsResponse, TxReceiptWithBlockInfo,
 };
 use katana_starknet::rpc::{
     Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
@@ -38,8 +38,9 @@ use parking_lot::Mutex;
 use tracing::{error, trace};
 
 /// Default maximum number of concurrent requests that can be processed.
-/// This is a reasonable default to prevent overwhelming the remote RPC provider.
-const DEFAULT_WORKER_MAX_CONCURRENT_REQUESTS: usize = 50;
+/// Heavy game transactions (e.g. Eternum create_building) can trigger 30+ storage
+/// reads each, so 50 is too low for forked chains under gameplay load.
+const DEFAULT_WORKER_MAX_CONCURRENT_REQUESTS: usize = 200;
 
 type BackendResult<T> = Result<T, BackendError>;
 
@@ -349,6 +350,25 @@ impl Backend {
         }
     }
 
+    pub fn get_block_transactions_traces(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> Result<Option<TraceBlockTransactionsResponse>, BackendClientError> {
+        trace!( block = %block_id, "Requesting trace block.");
+        let (req, rx) = BackendRequest::trace(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::TraceBlockTransactions(res) => {
+                if let Some(res) = handle_not_found_err(res)? {
+                    Ok(Some(res))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
     /// Send a request to the backend thread.
     fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
         self.sender.lock().try_send(req).map_err(|e| e.into_send_error())?;
@@ -383,6 +403,7 @@ enum BackendResponse {
     StorageRoot(BackendResult<Felt>),
     GlobalRoots(BackendResult<GetStorageProofResponse>),
     Proofs(BackendResult<GetStorageProofResponse>),
+    TraceBlockTransactions(BackendResult<TraceBlockTransactionsResponse>),
 }
 
 /// Errors that can occur when interacting with the backend.
@@ -423,6 +444,7 @@ enum BackendRequest {
     Nonce(Request<(ContractAddress, BlockNumber)>),
     ClassHash(Request<(ContractAddress, BlockNumber)>),
     Storage(Request<((ContractAddress, StorageKey), BlockNumber)>),
+    Trace(Request<BlockHashOrNumber>),
 }
 
 impl BackendRequest {
@@ -520,6 +542,11 @@ impl BackendRequest {
         let (sender, receiver) = oneshot();
         (BackendRequest::StorageRoot(Request { payload: (contract, block_id), sender }), receiver)
     }
+
+    fn trace(block_id: BlockHashOrNumber) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::Trace(Request { payload: block_id, sender }), receiver)
+    }
 }
 
 type BackendRequestFuture = BoxFuture<'static, BackendResponse>;
@@ -538,6 +565,7 @@ enum BackendRequestIdentifier {
     Class(ClassHash, BlockNumber),
     ClassHash(ContractAddress, BlockNumber),
     Storage((ContractAddress, StorageKey), BlockNumber),
+    Trace(BlockHashOrNumber),
 }
 
 /// Metrics for the forking backend.
@@ -793,6 +821,26 @@ impl BackendWorker {
                     }),
                 );
             }
+
+            BackendRequest::Trace(Request { payload: block_id, sender }) => {
+                let req_key = BackendRequestIdentifier::Trace(block_id);
+                let block_id = match block_id {
+                    BlockHashOrNumber::Hash(h) => ConfirmedBlockIdOrTag::Hash(h),
+                    BlockHashOrNumber::Num(n) => ConfirmedBlockIdOrTag::Number(n),
+                };
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let result = provider
+                            .trace_block_transactions(block_id)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+                        BackendResponse::TraceBlockTransactions(result)
+                    }),
+                );
+            }
         }
     }
 
@@ -901,8 +949,23 @@ impl Future for BackendWorker {
                 pin.stats.queued_requests_count.store(queued_count, Ordering::Relaxed);
             }
 
-            // if no queued requests, then yield
-            if pin.queued_requests.is_empty() {
+            // Yield back to the tokio runtime when no forward progress can be made.
+            //
+            // This is critical because the worker runs on a single-threaded tokio runtime
+            // (`current_thread`). Returning `Poll::Pending` is the ONLY way the runtime gets
+            // to call `park()` and drive the IO reactor — which is what actually processes
+            // incoming HTTP responses from the remote RPC provider.
+            //
+            // Without the second condition, when `queued_requests` is non-empty but
+            // `pending_requests` is at capacity, the worker would busy-spin: it can't move
+            // queued items into pending (limit reached), all pending futures return `Pending`
+            // (no IO events processed), and `queued_requests` is still non-empty so the loop
+            // restarts. The IO reactor never runs, HTTP responses pile up in kernel buffers,
+            // pending futures never complete, and every `rx.recv()` on the calling threads
+            // blocks forever — deadlock.
+            if pin.queued_requests.is_empty()
+                || pin.pending_requests.len() >= pin.max_concurrent_requests
+            {
                 return Poll::Pending;
             }
         }

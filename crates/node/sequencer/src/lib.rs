@@ -127,16 +127,29 @@ where
             .with_fee(config.dev.fee);
 
         let executor_factory = {
-            #[allow(unused_mut)]
-            let mut class_cache = ClassCache::builder();
+            // Try to use existing global cache if already initialized (useful for tests with
+            // multiple nodes) Otherwise, build and initialize a new global cache
+            let global_class_cache = match ClassCache::try_global() {
+                Ok(cache) => {
+                    info!("Using existing global class cache");
+                    cache
+                }
+                Err(_) => {
+                    #[allow(unused_mut)]
+                    let mut class_cache = ClassCache::builder();
 
-            #[cfg(feature = "native")]
-            {
-                info!(enabled = config.execution.compile_native, "Cairo native compilation");
-                class_cache = class_cache.compile_native(config.execution.compile_native);
-            }
+                    #[cfg(feature = "native")]
+                    {
+                        info!(
+                            enabled = config.execution.compile_native,
+                            "Cairo native compilation"
+                        );
+                        class_cache = class_cache.compile_native(config.execution.compile_native);
+                    }
 
-            let global_class_cache = class_cache.build_global()?;
+                    class_cache.build_global()?
+                }
+            };
 
             let factory = BlockifierFactory::new(
                 overrides,
@@ -188,7 +201,12 @@ where
             chain_spec: config.chain.clone(),
         });
 
-        backend.init_genesis(config.forking.is_some()).context("failed to initialize genesis")?;
+        let skip_dev_genesis = config
+            .forking
+            .as_ref()
+            .is_some_and(|forking| !forking.init_dev_genesis);
+
+        backend.init_genesis(skip_dev_genesis).context("failed to initialize genesis")?;
 
         // --- build block producer
 
@@ -355,7 +373,8 @@ where
                     }
                 };
 
-                let api = TeeApi::new(provider.clone(), tee_provider);
+                let api =
+                    TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
                 rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 
                 info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
@@ -530,6 +549,12 @@ impl Node<ForkProviderFactory> {
 
         let block_num = forked_block.block_number;
         let genesis_block_num = block_num + 1;
+
+        // Store fork block number in TEE config so report_data includes it
+        #[cfg(feature = "tee")]
+        if let Some(ref mut tee_config) = config.tee {
+            tee_config.fork_block_number = Some(block_num);
+        }
 
         chain_spec.id = chain_id.into();
 

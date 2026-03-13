@@ -27,7 +27,9 @@ use katana_provider_api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider_api::ProviderError;
-use katana_rpc_types::{GetBlockWithReceiptsResponse, RpcTxWithReceipt, StateUpdate};
+use katana_rpc_types::{
+    GetBlockWithReceiptsResponse, RpcTxWithReceipt, StateUpdate, TxTraceWithHash,
+};
 use tracing::trace;
 
 use super::db::{self, DbProvider};
@@ -205,14 +207,12 @@ impl<Tx1: DbTx> BlockNumberProvider for ForkedProvider<Tx1> {
     }
 
     fn latest_number(&self) -> ProviderResult<BlockNumber> {
-        match self.local_db.latest_number() {
-            Ok(num) => Ok(num),
-            // return the fork block number if local db return this error. this can only happen whne
-            // the ForkedProvider is constructed without inserting any locally produced
-            // blocks.
-            Err(ProviderError::MissingLatestBlockNumber) => Ok(self.block_id()),
-            Err(err) => Err(err),
-        }
+        let local_latest = match self.local_db.latest_number() {
+            Ok(num) => num,
+            Err(ProviderError::MissingLatestBlockNumber) => self.block_id(),
+            Err(err) => return Err(err),
+        };
+        Ok(local_latest.max(self.block_id()))
     }
 }
 
@@ -220,7 +220,14 @@ impl<Tx1: DbTx> BlockIdReader for ForkedProvider<Tx1> {}
 
 impl<Tx1: DbTx> BlockHashProvider for ForkedProvider<Tx1> {
     fn latest_hash(&self) -> ProviderResult<BlockHash> {
-        self.local_db.latest_hash()
+        let fork_point = self.block_id();
+        let latest_num = self.latest_number()?;
+
+        if latest_num > fork_point {
+            return self.local_db.latest_hash();
+        }
+
+        self.block_hash_by_num(latest_num)?.ok_or(ProviderError::MissingLatestBlockHash)
     }
 
     fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
@@ -579,14 +586,16 @@ impl<Tx1: DbTx> TransactionTraceProvider for ForkedProvider<Tx1> {
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
+    ) -> ProviderResult<Option<Vec<TxTraceWithHash>>> {
         if let Some(result) = self.local_db.transaction_executions_by_block(block_id)? {
             return Ok(Some(result));
         }
-
-        // TODO: fetch from remote
-
-        Ok(None)
+        if let Some(value) = self.fork_db.backend.get_block_transactions_traces(block_id)? {
+            let traces = value.traces;
+            return Ok(Some(traces));
+        } else {
+            Ok(None)
+        }
     }
 
     fn transaction_executions_in_range(

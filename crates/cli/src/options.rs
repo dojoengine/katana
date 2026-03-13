@@ -474,6 +474,14 @@ pub struct ForkingOptions {
     #[arg(long = "fork.block", value_name = "BLOCK", requires = "fork_provider")]
     #[arg(value_parser = parse_block_hash_or_number)]
     pub fork_block: Option<BlockHashOrNumber>,
+
+    /// Disable local dev genesis bootstrap when forking.
+    ///
+    /// By default Katana overlays the forked state with dev genesis allocations so predeployed
+    /// dev accounts are available. Enable this flag for strict lazy-fetch forking where local
+    /// state roots must stay aligned with the forked network.
+    #[arg(long = "fork.no-dev-genesis", requires = "fork_provider")]
+    pub no_dev_genesis: bool,
 }
 
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]

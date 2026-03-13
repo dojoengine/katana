@@ -164,8 +164,10 @@ impl SequencerNodeArgs {
         let config = self.config()?;
 
         if config.forking.is_some() {
+            // Pass config by value: build_forked needs exclusive Arc access to mutate chain_spec.
+            // Cloning would create a second Arc reference and cause Arc::get_mut to panic.
             let node =
-                Node::build_forked(config.clone()).await.context("failed to build forked node")?;
+                Node::build_forked(config).await.context("failed to build forked node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
@@ -179,7 +181,7 @@ impl SequencerNodeArgs {
 
                 let paymaster = bootstrap_paymaster(
                     &self.paymaster,
-                    config.paymaster.unwrap().url.clone(),
+                    handle.node().config().paymaster.as_ref().unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
@@ -513,7 +515,11 @@ impl SequencerNodeArgs {
 
     fn forking_config(&self) -> Result<Option<ForkingConfig>> {
         if let Some(ref url) = self.forking.fork_provider {
-            let cfg = ForkingConfig { url: url.clone(), block: self.forking.fork_block };
+            let cfg = ForkingConfig {
+                url: url.clone(),
+                block: self.forking.fork_block,
+                init_dev_genesis: !self.forking.no_dev_genesis,
+            };
             return Ok(Some(cfg));
         }
 
@@ -670,7 +676,9 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "tee")]
     fn tee_config(&self) -> Option<TeeConfig> {
-        self.tee.tee_provider.map(|provider_type| TeeConfig { provider_type })
+        self.tee
+            .tee_provider
+            .map(|provider_type| TeeConfig { provider_type, fork_block_number: None })
     }
 
     /// Parse the node config from the command line arguments and the config file,
