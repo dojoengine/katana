@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_version_constants() {
-        assert_eq!(LATEST_DB_VERSION.value(), 8, "Invalid latest database version");
+        assert_eq!(LATEST_DB_VERSION.value(), 9, "Invalid latest database version");
         assert_eq!(MIN_OPENABLE_DB_VERSION.value(), 5, "Invalid minimum openable database version");
     }
 
@@ -220,7 +220,11 @@ mod tests {
     #[test]
     fn compat_rejects_outside_supported_range() {
         assert!(ensure_version_is_openable(Version::new(4), DbOpenMode::Compat).is_err());
-        assert!(ensure_version_is_openable(Version::new(9), DbOpenMode::Compat).is_err());
+        assert!(ensure_version_is_openable(
+            Version::new(LATEST_DB_VERSION.value() + 1),
+            DbOpenMode::Compat
+        )
+        .is_err());
     }
 
     #[test]

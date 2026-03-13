@@ -33,4 +33,11 @@ pub struct DbConfig {
     /// Disables that compatibility window and only accepts the latest database version. Any older
     /// or newer version is rejected during startup.
     pub open_mode: DbOpenMode,
+
+    /// Whether to run database migrations on startup.
+    ///
+    /// When set to `true`, the node will attempt to migrate the database to the latest schema
+    /// if a migration is needed. When `false` (the default), the node will exit with an error
+    /// if a migration is required.
+    pub migrate: bool,
 }

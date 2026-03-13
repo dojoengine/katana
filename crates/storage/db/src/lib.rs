@@ -12,6 +12,7 @@ pub mod abstraction;
 pub mod codecs;
 pub mod error;
 pub mod mdbx;
+pub mod migration;
 pub mod models;
 pub mod tables;
 pub mod trie;

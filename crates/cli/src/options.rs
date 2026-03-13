@@ -68,6 +68,14 @@ pub struct DbOptions {
     #[arg(value_name = "MODE")]
     #[serde(default, rename = "db_open_mode")]
     pub open_mode: DbOpenMode,
+
+    /// Run database migrations if needed.
+    ///
+    /// When set, the node will automatically migrate the database to the latest schema
+    /// on startup. Without this flag, the node exits with an error if migration is needed.
+    #[arg(long = "db.migrate")]
+    #[serde(default)]
+    pub migrate: bool,
 }
 
 impl DbOptions {

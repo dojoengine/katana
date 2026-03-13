@@ -521,7 +521,11 @@ impl SequencerNodeArgs {
     }
 
     fn db_config(&self) -> DbConfig {
-        DbConfig { dir: self.db.dir.clone(), open_mode: self.db.open_mode }
+        DbConfig {
+            dir: self.db.dir.clone(),
+            open_mode: self.db.open_mode,
+            migrate: self.db.migrate,
+        }
     }
 
     fn metrics_config(&self) -> Option<MetricsConfig> {

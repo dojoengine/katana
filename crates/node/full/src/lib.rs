@@ -122,6 +122,18 @@ impl Node {
         info!(target: "node", path = %path.display(), "Initializing database.");
 
         let db = katana_db::Db::new_with_mode(path, config.db.open_mode)?;
+
+        if katana_db::migration::needs_state_update_migration(&db)? {
+            if config.db.migrate {
+                katana_db::migration::migrate_state_updates(&db)?;
+            } else {
+                anyhow::bail!(
+                    "Database requires migration to backfill the BlockStateUpdates table. Run \
+                     with --db.migrate to perform the migration."
+                );
+            }
+        }
+
         let storage_provider = DbProviderFactory::new(db.clone());
 
         // --- build gateway client
