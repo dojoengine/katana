@@ -65,6 +65,9 @@ pub struct DbOptions {
     ///
     /// When set, the node will automatically migrate the database to the latest schema
     /// on startup. Without this flag, the node exits with an error if migration is needed.
+    ///
+    /// The minimum database version that can be migrated is version 5. Database versions
+    /// older than this will not be able to be initialized nor migrated.
     #[arg(long = "db.migrate")]
     #[serde(default)]
     pub migrate: bool,
