@@ -35,16 +35,10 @@ const BATCH_SIZE: u64 = 1000;
 
 /// A single, self-contained migration step executed by [`Migration`].
 ///
-/// The pipeline calls [`is_needed`](MigrationStage::is_needed) for every registered stage and,
-/// for those that return `true`, invokes [`execute`](MigrationStage::execute) in registration
-/// order. After **all** stages complete the pipeline bumps the on-disk version file to
-/// [`LATEST_DB_VERSION`].
-///
-/// # Implementing a new stage
-///
-/// 1. Create a unit struct (e.g. `pub(crate) struct MyStage;`).
-/// 2. Implement the three required methods below.
-/// 3. Register the stage in [`Migration::new`] via `m.add_stage(Box::new(MyStage))`.
+/// The pipeline compares each stage's [`threshold_version`](MigrationStage::threshold_version)
+/// against the database's on-disk version. Stages whose threshold is above the current version
+/// are executed in registration order. After **all** stages complete, the pipeline bumps the
+/// on-disk version file to [`LATEST_DB_VERSION`].
 ///
 /// ## Checkpointing
 ///
@@ -59,26 +53,18 @@ pub trait MigrationStage {
     /// A unique, human-readable identifier for this stage.
     ///
     /// Used as the key in [`MigrationCheckpoints`](crate::tables::MigrationCheckpoints) and in
-    /// progress-bar labels printed to stderr. Must be a `&'static str` constant — by convention,
-    /// use the form `"migration/<short-name>"` (e.g. `"migration/state-updates"`).
+    /// progress-bar labels printed to stderr.
     fn id(&self) -> &'static str;
 
     /// The minimum database version that **already contains** this stage's data.
     ///
     /// The stage is skipped when `db.version() >= threshold_version()`. Return the version in
     /// which the schema change (or data format change) that this stage addresses was first
-    /// introduced. For example, if the `BlockStateUpdates` table was added in version 9, return
+    /// introduced.
+    ///
+    /// For example, if the `BlockStateUpdates` table was added in version 9, return
     /// `Version::new(9)` so that databases already at version 9 or later are not migrated.
     fn threshold_version(&self) -> Version;
-
-    /// Returns `true` if this stage needs to run for `db`.
-    ///
-    /// The default implementation compares `db.version()` against
-    /// [`threshold_version`](MigrationStage::threshold_version). Override only if additional
-    /// conditions beyond a simple version check are required.
-    fn is_needed(&self, db: &Db) -> bool {
-        db.version() < self.threshold_version()
-    }
 
     /// Performs the actual migration work.
     ///
@@ -123,9 +109,14 @@ impl<'a> Migration<'a> {
         self.stages.push(stage);
     }
 
+    /// Returns `true` if the database version is below any stage's threshold.
+    fn stage_needed(&self, stage: &dyn MigrationStage) -> bool {
+        self.db.version() < stage.threshold_version()
+    }
+
     /// Returns `true` if any migration stage needs to be run.
     pub fn is_needed(&self) -> bool {
-        self.stages.iter().any(|s| s.is_needed(self.db))
+        self.stages.iter().any(|s| self.stage_needed(s.as_ref()))
     }
 
     /// Runs the migration process.
@@ -133,7 +124,7 @@ impl<'a> Migration<'a> {
         eprintln!("[Migrating] Starting migration");
 
         for stage in &self.stages {
-            if stage.is_needed(self.db) {
+            if self.stage_needed(stage.as_ref()) {
                 stage.execute(self.db)?;
             }
         }
