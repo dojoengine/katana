@@ -166,7 +166,6 @@ impl FullNodeArgs {
     fn db_config(&self) -> DbConfig {
         DbConfig {
             dir: self.db.dir.clone(),
-            open_mode: self.db.open_mode,
             migrate: self.db.migrate,
         }
     }
@@ -216,45 +215,5 @@ impl FullNodeArgs {
 
     fn tracer_config(&self) -> Option<katana_tracing::TracerConfig> {
         self.tracer.config()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    use katana_full_node::config::db::DbOpenMode;
-
-    use super::*;
-
-    #[test]
-    fn full_node_defaults_to_compat_db_open_mode() {
-        let args = FullNodeArgs::parse_from([
-            "katana",
-            "--db-dir",
-            "/tmp/katana-db",
-            "--network",
-            "mainnet",
-        ]);
-        let config = args.config().unwrap();
-
-        assert_eq!(config.db.dir, Some(PathBuf::from("/tmp/katana-db")));
-        assert_eq!(config.db.open_mode, DbOpenMode::Compat);
-    }
-
-    #[test]
-    fn full_node_accepts_strict_db_open_mode() {
-        let args = FullNodeArgs::parse_from([
-            "katana",
-            "--db-dir",
-            "/tmp/katana-db",
-            "--network",
-            "mainnet",
-            "--db-open-mode",
-            "strict",
-        ]);
-        let config = args.config().unwrap();
-
-        assert_eq!(config.db.open_mode, DbOpenMode::Strict);
     }
 }

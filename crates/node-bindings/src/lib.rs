@@ -12,7 +12,6 @@ use std::process::{Child, Command};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-pub use katana_db::version::DbOpenMode;
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::short_string;
 use starknet::providers::jsonrpc::HttpTransport;
@@ -179,7 +178,6 @@ pub struct Katana {
     json_log: bool,
     block_time: Option<u64>,
     data_dir: Option<PathBuf>,
-    db_open_mode: Option<DbOpenMode>,
     l1_provider: Option<String>,
     fork_block_number: Option<u64>,
     messaging: Option<PathBuf>,
@@ -278,12 +276,6 @@ impl Katana {
     /// Sets the data directory path which will be used when the `katana` instance is launched.
     pub fn data_dir<T: Into<PathBuf>>(mut self, data_dir: T) -> Self {
         self.data_dir = Some(data_dir.into());
-        self
-    }
-
-    /// Sets the DB open mode which will be used when the `katana` instance is launched.
-    pub fn db_open_mode(mut self, db_open_mode: DbOpenMode) -> Self {
-        self.db_open_mode = Some(db_open_mode);
         self
     }
 
@@ -474,10 +466,6 @@ impl Katana {
 
         if let Some(data_dir) = self.data_dir {
             cmd.arg("--data-dir").arg(data_dir);
-        }
-
-        if let Some(db_open_mode) = self.db_open_mode {
-            cmd.arg("--db-open-mode").arg(db_open_mode.to_string());
         }
 
         if let Some(url) = self.l1_provider {

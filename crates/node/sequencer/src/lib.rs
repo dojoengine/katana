@@ -465,7 +465,7 @@ impl Node<DbProviderFactory> {
     pub fn build(config: Config) -> Result<Self> {
         let (provider, db) = if let Some(path) = &config.db.dir {
             info!(target: "node", path = %path.display(), "Initializing database.");
-            let db = katana_db::Db::new_with_mode(path, config.db.open_mode)?;
+            let db = katana_db::Db::new(path)?;
 
             let migration = katana_db::migration::Migration::new(&db);
             if migration.is_needed() {

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use indicatif::{ProgressBar, ProgressStyle};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::state::StateUpdates;
+use tracing::info;
 
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::error::DatabaseError;
@@ -14,12 +15,18 @@ use crate::{tables, Db};
 #[derive(Debug, thiserror::Error)]
 pub enum MigrationError {
     /// A database operation failed during migration.
-    #[error("database error during migration: {0}")]
+    #[error("database error: {0}")]
     Database(#[from] DatabaseError),
 
     /// Reconstructing state updates for a specific block failed.
-    #[error("failed to reconstruct state update for block {block}: {source}")]
-    Reconstruct { block: BlockNumber, source: DatabaseError },
+    #[error("failed to reconstruct state update for block {block}")]
+    FailedToReconstructStateUpdate {
+        /// The block number for which state update reconstruction failed.
+        block: BlockNumber,
+
+        #[source]
+        source: DatabaseError,
+    },
 }
 
 const BATCH_SIZE: u64 = 1000;
@@ -75,10 +82,8 @@ impl<'a> Migration<'a> {
 
         // Determine latest block number from BlockHashes cursor
         let latest_block_number = {
-            let tx = db.tx()?;
-            let mut cursor = tx.cursor::<tables::BlockHashes>()?;
-            let last = cursor.last()?;
-            tx.commit()?;
+            let last = db.view(|tx| tx.cursor::<tables::BlockHashes>()?.last())?;
+
             match last {
                 Some((block_num, _)) => block_num,
                 None => return Ok(()), // no blocks, nothing to migrate
@@ -86,24 +91,19 @@ impl<'a> Migration<'a> {
         };
 
         // Determine resume point: how many entries already exist in BlockStateUpdates
-        let existing_count = {
-            let tx = db.tx()?;
-            let count = tx.entries::<tables::BlockStateUpdates>()? as u64;
-            tx.commit()?;
-            count
-        };
+        let existing_count = db.view(|tx| tx.entries::<tables::BlockStateUpdates>())? as u64; // view returns Result<usize>
 
         let start_block = existing_count;
         let total_blocks = latest_block_number + 1;
 
         if start_block >= total_blocks {
-            tracing::info!(target: "db::migration", "BlockStateUpdates already up to date.");
+            info!(target: "db::migration", "BlockStateUpdates already up to date.");
             return Ok(());
         }
 
         let blocks_to_migrate = total_blocks - start_block;
 
-        tracing::info!(
+        info!(
             target: "db::migration",
             start_block,
             latest_block_number,
@@ -127,15 +127,16 @@ impl<'a> Migration<'a> {
             let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, latest_block_number);
 
             let tx = db.tx_mut()?;
-
             for block_number in batch_start..=batch_end {
                 let state_updates =
                     reconstruct_state_update(&tx, block_number).map_err(|source| {
-                        MigrationError::Reconstruct { block: block_number, source }
+                        MigrationError::FailedToReconstructStateUpdate {
+                            block: block_number,
+                            source,
+                        }
                     })?;
                 tx.put::<tables::BlockStateUpdates>(block_number, state_updates)?;
             }
-
             tx.commit()?;
 
             pb.set_position(batch_end - start_block + 1);
@@ -145,7 +146,7 @@ impl<'a> Migration<'a> {
 
         pb.finish_with_message(format!("Migrated {blocks_to_migrate} blocks"));
 
-        tracing::info!(
+        info!(
             target: "db::migration",
             total_blocks = blocks_to_migrate,
             "BlockStateUpdates migration complete."
@@ -367,8 +368,7 @@ mod tests {
 
         // Create a DB at version 8 (before BlockStateUpdates was introduced)
         create_db_version_file(dir.path(), Version::new(8)).unwrap();
-        let db =
-            Db::open_no_sync_with_mode(dir.path(), crate::version::DbOpenMode::Compat).unwrap();
+        let db = Db::open_no_sync(dir.path()).unwrap();
 
         assert!(Migration::new(&db).is_needed());
     }
