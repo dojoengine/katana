@@ -206,7 +206,7 @@ impl Database for DbEnv {
             let info = self.inner.env.info().map_err(DatabaseError::Stat)?;
             let freelist = self.inner.env.freelist().map_err(DatabaseError::Stat)?;
             Ok(Stats { table_stats, info, freelist })
-        })?
+        })
     }
 }
 
@@ -541,15 +541,15 @@ mod tests {
 
         // PUT (0,0)
         let value00 = StorageEntry::default();
-        env.update(|tx| tx.put::<ContractStorage>(key, value00).expect(ERROR_PUT)).unwrap();
+        env.update(|tx| Ok(tx.put::<ContractStorage>(key, value00).expect(ERROR_PUT))).unwrap();
 
         // PUT (2,2)
         let value22 = StorageEntry { key: felt!("2"), value: felt!("2") };
-        env.update(|tx| tx.put::<ContractStorage>(key, value22).expect(ERROR_PUT)).unwrap();
+        env.update(|tx| Ok(tx.put::<ContractStorage>(key, value22).expect(ERROR_PUT))).unwrap();
 
         // // PUT (1,1)
         let value11 = StorageEntry { key: felt!("1"), value: felt!("1") };
-        env.update(|tx| tx.put::<ContractStorage>(key, value11).expect(ERROR_PUT)).unwrap();
+        env.update(|tx| Ok(tx.put::<ContractStorage>(key, value11).expect(ERROR_PUT))).unwrap();
 
         // Iterate with cursor
         {

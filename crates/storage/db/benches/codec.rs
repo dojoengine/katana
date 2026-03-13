@@ -5,7 +5,7 @@ use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::{
     ContractClassChange, ContractInfoChangeList, ContractNonceChange,
 };
-use katana_db::models::list::BlockList;
+use katana_db::models::list::BlockChangeList;
 use katana_db::models::receipt::ReceiptEnvelope;
 use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use katana_db::models::storage::{ContractStorageEntry, StorageEntry};
@@ -233,8 +233,8 @@ fn bench_all_value_types(c: &mut Criterion) {
 
     // ContractInfoChangeList
     bench_type!(c, "ContractInfoChangeList", ContractInfoChangeList, {
-        let mut class_list = BlockList::default();
-        let mut nonce_list = BlockList::default();
+        let mut class_list = BlockChangeList::default();
+        let mut nonce_list = BlockChangeList::default();
         for j in 0..10u64 {
             class_list.insert(rng.gen::<u64>().wrapping_add(j));
             nonce_list.insert(rng.gen::<u64>().wrapping_add(j));
@@ -242,10 +242,10 @@ fn bench_all_value_types(c: &mut Criterion) {
         ContractInfoChangeList { class_change_list: class_list, nonce_change_list: nonce_list }
     });
 
-    // BlockList
-    bench_type!(c, "BlockList", BlockList, {
+    // BlockChangeList
+    bench_type!(c, "BlockChangeList", BlockChangeList, {
         let vals: [u64; 8] = std::array::from_fn(|_| rng.gen::<u64>());
-        BlockList::from(vals)
+        BlockChangeList::from(vals)
     });
 
     // ReceiptEnvelope

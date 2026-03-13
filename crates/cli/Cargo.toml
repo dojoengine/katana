@@ -23,10 +23,13 @@ katana-utils.workspace = true
 serde-utils.workspace = true
 cartridge = { path = "../cartridge", optional = true }
 
+katana-db.workspace = true
+
 alloy-primitives.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 console.workspace = true
+inquire = "0.7.5"
 serde.workspace = true
 serde_json.workspace = true
 shellexpand = "3.1.0"

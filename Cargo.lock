@@ -6016,8 +6016,10 @@ dependencies = [
  "cartridge",
  "clap",
  "console",
+ "inquire",
  "katana-chain-spec",
  "katana-core",
+ "katana-db",
  "katana-full-node",
  "katana-gas-price-oracle",
  "katana-genesis",
@@ -6130,6 +6132,8 @@ dependencies = [
  "arbitrary",
  "cairo-lang-starknet-classes",
  "criterion",
+ "indicatif",
+ "katana-db",
  "katana-metrics",
  "katana-primitives",
  "katana-trie",
@@ -6457,7 +6461,6 @@ name = "katana-node-bindings"
 version = "1.7.0"
 dependencies = [
  "criterion",
- "katana-db",
  "pprof",
  "regex",
  "serde",
@@ -6476,7 +6479,6 @@ name = "katana-node-config"
 version = "1.7.0"
 dependencies = [
  "http 1.3.1",
- "katana-db",
  "serde",
  "strum 0.25.0",
  "strum_macros 0.25.3",

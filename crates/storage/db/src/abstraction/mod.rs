@@ -34,10 +34,10 @@ pub trait Database: Send + Sync {
     /// end of the execution.
     fn view<T, F>(&self, f: F) -> Result<T, DatabaseError>
     where
-        F: FnOnce(&Self::Tx) -> T,
+        F: FnOnce(&Self::Tx) -> Result<T, DatabaseError>,
     {
         let tx = self.tx()?;
-        let res = f(&tx);
+        let res = f(&tx)?;
         tx.commit()?;
         Ok(res)
     }
@@ -46,10 +46,10 @@ pub trait Database: Send + Sync {
     /// the end of the execution.
     fn update<T, F>(&self, f: F) -> Result<T, DatabaseError>
     where
-        F: FnOnce(&Self::TxMut) -> T,
+        F: FnOnce(&Self::TxMut) -> Result<T, DatabaseError>,
     {
         let tx = self.tx_mut()?;
-        let res = f(&tx);
+        let res = f(&tx)?;
         tx.commit()?;
         Ok(res)
     }

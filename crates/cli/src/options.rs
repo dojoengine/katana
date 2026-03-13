@@ -24,7 +24,6 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::ContractAddress;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
-use katana_sequencer_node::config::db::DbOpenMode;
 use katana_sequencer_node::config::execution::{
     DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
 };
@@ -61,13 +60,6 @@ pub struct DbOptions {
     #[arg(value_name = "PATH")]
     #[serde(default, alias = "db_dir")]
     pub dir: Option<PathBuf>,
-
-    /// How Katana should open supported older database versions.
-    #[arg(long = "db-open-mode")]
-    #[arg(default_value_t = DbOpenMode::Compat)]
-    #[arg(value_name = "MODE")]
-    #[serde(default, rename = "db_open_mode")]
-    pub open_mode: DbOpenMode,
 }
 
 impl DbOptions {
@@ -79,10 +71,6 @@ impl DbOptions {
         if let Some(other) = other {
             if self.dir.is_none() {
                 self.dir = other.dir.clone();
-            }
-
-            if self.open_mode == DbOpenMode::Compat {
-                self.open_mode = other.open_mode;
             }
         }
     }
