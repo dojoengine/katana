@@ -91,8 +91,19 @@ pub trait MigrationStage {
 
     /// Process all items in the given key `range` within the provided write transaction.
     ///
-    /// The pipeline guarantees that `range` is a sub-range of the value returned by
-    /// [`range()`](MigrationStage::range). All reads and writes **must** go through `tx`.
+    /// The `range` is an inclusive sub-range of the full range returned by
+    /// [`range()`](MigrationStage::range), partitioned by the pipeline according to
+    /// [`BATCH_SIZE`]. The keys carry stage-specific semantics — for example, block numbers
+    /// in [`StateUpdatesStage`] or transaction sequence numbers in [`ReceiptEnvelopeStage`].
+    /// The pipeline is unaware of these semantics; it only performs arithmetic on the `u64`
+    /// boundaries for batching and checkpoint storage.
+    ///
+    /// Implementations must process **every** key in the range. For stages backed by a cursor
+    /// (e.g. receipt re-encoding), iterate from `*range.start()` and stop when the cursor key
+    /// exceeds `*range.end()`. For stages with dense sequential keys (e.g. block numbers),
+    /// a simple `for key in range` loop is sufficient.
+    ///
+    /// All reads and writes **must** go through the provided write transaction `tx`.
     /// Do **not** commit or abort the transaction — the pipeline handles that along with
     /// checkpoint management.
     fn execute(&self, tx: &TxRW, range: RangeInclusive<u64>) -> Result<(), MigrationError>;
