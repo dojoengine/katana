@@ -109,29 +109,22 @@ pub struct Migration<'a> {
     stages: Vec<Box<dyn MigrationStage>>,
 }
 
-impl std::fmt::Debug for Migration<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Migration")
-            .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
-            .finish()
-    }
-}
-
 impl<'a> Migration<'a> {
     pub fn new(db: &'a Db) -> Self {
-        let mut m = Self { db, stages: Vec::new() };
-        m.add_stage(Box::new(StateUpdatesStage));
-        m.add_stage(Box::new(ReceiptEnvelopeStage));
+        Self { db, stages: Vec::new() }
+    }
+
+    /// Creates a new [`Migration`] with all the steps for migrating to database version 9.
+    pub fn new_v9(db: &'a Db) -> Self {
+        let mut m = Self::new(db);
+        m.add_migration(Box::new(StateUpdatesStage));
+        m.add_migration(Box::new(ReceiptEnvelopeStage));
         m
     }
 
-    pub fn add_stage(&mut self, stage: Box<dyn MigrationStage>) {
+    /// Adds a migration step.
+    pub fn add_migration(&mut self, stage: Box<dyn MigrationStage>) {
         self.stages.push(stage);
-    }
-
-    /// Returns `true` if the database version is below any stage's threshold.
-    fn stage_needed(&self, stage: &dyn MigrationStage) -> bool {
-        self.db.version() < stage.threshold_version()
     }
 
     /// Returns `true` if any migration stage needs to be run.
@@ -157,6 +150,11 @@ impl<'a> Migration<'a> {
         );
 
         Ok(())
+    }
+
+    /// Returns `true` if the database version is below any stage's threshold.
+    fn stage_needed(&self, stage: &dyn MigrationStage) -> bool {
+        self.db.version() < stage.threshold_version()
     }
 
     /// Drives a single stage through its batch loop with checkpoint management.
@@ -225,5 +223,14 @@ impl<'a> Migration<'a> {
         pb.finish();
 
         Ok(())
+    }
+}
+
+impl std::fmt::Debug for Migration<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Migration")
+            .field("db", &self.db)
+            .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
+            .finish()
     }
 }

@@ -130,8 +130,8 @@ fn migrate_reconstructs_state_updates_from_index_tables() {
         tx.commit().unwrap();
     }
 
-    assert!(Migration::new(&db).is_needed());
-    Migration::new(&db).run().unwrap();
+    assert!(Migration::new_v9(&db).is_needed());
+    Migration::new_v9(&db).run().unwrap();
 
     // Read back and verify
     let tx = db.tx().unwrap();
@@ -152,13 +152,13 @@ fn migrate_reconstructs_state_updates_from_index_tables() {
 #[test]
 fn migration_not_needed_for_new_db() {
     let db = Db::in_memory().unwrap();
-    assert!(!Migration::new(&db).is_needed());
+    assert!(!Migration::new_v9(&db).is_needed());
 }
 
 #[test]
 fn migration_needed_for_old_version_db() {
     let (db, _dir) = create_old_version_db();
-    assert!(Migration::new(&db).is_needed());
+    assert!(Migration::new_v9(&db).is_needed());
 }
 
 #[test]
@@ -171,8 +171,8 @@ fn migration_updates_version_file() {
         tx.commit().unwrap();
     }
 
-    assert!(Migration::new(&db).is_needed());
-    Migration::new(&db).run().unwrap();
+    assert!(Migration::new_v9(&db).is_needed());
+    Migration::new_v9(&db).run().unwrap();
 
     let version = get_db_version(dir.path()).unwrap();
     assert_eq!(version, LATEST_DB_VERSION);
@@ -202,7 +202,7 @@ fn migration_resumes_from_last_committed_batch() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
@@ -262,7 +262,7 @@ fn migration_handles_multiple_blocks_with_varied_data() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
@@ -284,7 +284,7 @@ fn migration_handles_multiple_blocks_with_varied_data() {
 fn migration_empty_db_is_noop() {
     let (db, _dir) = create_old_version_db();
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
@@ -302,7 +302,7 @@ fn migration_block_with_no_state_changes() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let su = tx.get::<tables::BlockStateUpdates>(0u64).unwrap().unwrap();
@@ -326,15 +326,15 @@ fn migration_not_needed_after_successful_run() {
         tx.commit().unwrap();
     }
 
-    assert!(Migration::new(&db).is_needed());
-    Migration::new(&db).run().unwrap();
+    assert!(Migration::new_v9(&db).is_needed());
+    Migration::new_v9(&db).run().unwrap();
 
     // Drop the first DB handle before reopening
     drop(db);
 
     // Reopen the DB — should no longer need migration
     let db2 = Db::open_no_sync(dir.path()).unwrap();
-    assert!(!Migration::new(&db2).is_needed());
+    assert!(!Migration::new_v9(&db2).is_needed());
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +384,7 @@ fn receipt_migration_converts_legacy_to_envelope() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     // After migration, every receipt should be readable through the envelope codec.
     {
@@ -405,7 +405,7 @@ fn receipt_migration_converts_legacy_to_envelope() {
 fn receipt_migration_empty_table_is_noop() {
     let (db, _dir) = create_old_version_db();
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::Receipts>().unwrap();
@@ -426,7 +426,7 @@ fn receipt_migration_produces_envelope_wire_format() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     // Read the migrated value back through the envelope codec and re-compress
     // to inspect the wire format.
@@ -455,7 +455,7 @@ fn receipt_migration_handles_multiple_batches() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::Receipts>().unwrap();
@@ -475,7 +475,7 @@ fn receipt_migration_handles_multiple_batches() {
 #[test]
 fn receipt_migration_not_needed_at_current_version() {
     let db = Db::in_memory().unwrap();
-    assert!(!Migration::new(&db).is_needed());
+    assert!(!Migration::new_v9(&db).is_needed());
 }
 
 /// Simulate a partial receipt migration by writing some already-migrated envelope receipts
@@ -519,7 +519,7 @@ fn receipt_migration_resumes_from_checkpoint() {
     }
 
     // Run migration — it should resume from key 5 and convert the remaining receipts.
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     // All receipts should now be readable through the envelope codec.
     let tx = db.tx().unwrap();
@@ -560,7 +560,7 @@ fn full_migration_leaves_no_checkpoint_behind() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let su_cp =
@@ -604,7 +604,7 @@ fn stale_state_update_checkpoint_is_cleaned_up() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let cp = tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
@@ -641,7 +641,7 @@ fn stale_receipt_checkpoint_is_cleaned_up() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let cp =
@@ -683,7 +683,7 @@ fn state_update_checkpoint_resumes_mid_migration() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
@@ -726,7 +726,7 @@ fn receipt_checkpoint_resumes_across_batches() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::Receipts>().unwrap();
@@ -775,7 +775,7 @@ fn independent_checkpoints_do_not_interfere() {
         tx.commit().unwrap();
     }
 
-    Migration::new(&db).run().unwrap();
+    Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
 
