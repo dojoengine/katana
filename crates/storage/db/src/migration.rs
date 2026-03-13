@@ -1,116 +1,162 @@
 use std::collections::BTreeMap;
 
-use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::state::StateUpdates;
 
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
+use crate::error::DatabaseError;
 use crate::models::contract::ContractClassChangeType;
 use crate::version::Version;
 use crate::{tables, Db};
 
+/// Errors that can occur during database migration.
+#[derive(Debug, thiserror::Error)]
+pub enum MigrationError {
+    /// A database operation failed during migration.
+    #[error("database error during migration: {0}")]
+    Database(#[from] DatabaseError),
+
+    /// Reconstructing state updates for a specific block failed.
+    #[error("failed to reconstruct state update for block {block}: {source}")]
+    Reconstruct { block: BlockNumber, source: DatabaseError },
+}
+
 const BATCH_SIZE: u64 = 1000;
 
 /// The database version that introduced the `BlockStateUpdates` table.
-/// Databases opened with a version below this need to be migrated.
+/// Databases opened with a version below this need to perform state updates migration.
+///
+/// The schema changes as well as the version bump were introduced in this PR: <https://github.com/dojoengine/katana/pull/470>
 const STATE_UPDATES_TABLE_VERSION: Version = Version::new(9);
 
-/// Returns `true` if the database needs the `BlockStateUpdates` table to be backfilled.
+/// Runs all applicable database migrations based on the on-disk version at open time.
 ///
-/// Detection is based on the on-disk version at open time: any database originally at
-/// a version below [`STATE_UPDATES_TABLE_VERSION`] needs backfilling.
-pub fn needs_state_update_migration(db: &Db) -> bool {
-    db.opened_version() < STATE_UPDATES_TABLE_VERSION
+/// Each migration path has its own version threshold. Only migrations whose version
+/// is above the database's opened version will be executed.
+#[derive(Debug)]
+pub struct Migration<'a> {
+    db: &'a Db,
 }
 
-/// Backfills the `BlockStateUpdates` table by reconstructing state updates from the legacy
-/// index tables (`NonceChangeHistory`, `ClassChangeHistory`, `ClassDeclarations`,
-/// `CompiledClassHashes`, `MigratedCompiledClassHashes`, `StorageChangeHistory`).
-///
-/// Processes blocks in batches for crash recovery — on restart, already-committed batches
-/// are skipped automatically.
-pub fn migrate_state_updates(db: &Db) -> anyhow::Result<()> {
-    // Determine latest block number from BlockHashes cursor
-    let latest_block_number = {
-        let tx = db.tx().context("opening read tx for latest block")?;
-        let mut cursor = tx.cursor::<tables::BlockHashes>()?;
-        let last = cursor.last()?;
-        tx.commit()?;
-        match last {
-            Some((block_num, _)) => block_num,
-            None => return Ok(()), // no blocks, nothing to migrate
-        }
-    };
-
-    // Determine resume point: how many entries already exist in BlockStateUpdates
-    let existing_count = {
-        let tx = db.tx().context("opening read tx for resume point")?;
-        let count = tx.entries::<tables::BlockStateUpdates>()? as u64;
-        tx.commit()?;
-        count
-    };
-
-    let start_block = existing_count;
-    let total_blocks = latest_block_number + 1;
-
-    if start_block >= total_blocks {
-        tracing::info!(target: "db::migration", "BlockStateUpdates already up to date.");
-        return Ok(());
+impl<'a> Migration<'a> {
+    pub fn new(db: &'a Db) -> Self {
+        Self { db }
     }
 
-    let blocks_to_migrate = total_blocks - start_block;
-
-    tracing::info!(
-        target: "db::migration",
-        start_block,
-        latest_block_number,
-        "Migrating BlockStateUpdates table..."
-    );
-
-    let pb = ProgressBar::new(blocks_to_migrate);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template(
-                "Migrating BlockStateUpdates {bar:40.cyan/blue} {pos}/{len} blocks \
-                 [{elapsed_precise}] {per_sec}",
-            )
-            .unwrap()
-            .progress_chars("##-"),
-    );
-
-    // Process in batches
-    let mut batch_start = start_block;
-    while batch_start <= latest_block_number {
-        let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, latest_block_number);
-
-        let tx = db.tx_mut().context("opening write tx for migration batch")?;
-
-        for block_number in batch_start..=batch_end {
-            let state_updates = reconstruct_state_update(&tx, block_number)?;
-            tx.put::<tables::BlockStateUpdates>(block_number, state_updates)?;
-        }
-
-        tx.commit()?;
-
-        pb.set_position(batch_end - start_block + 1);
-
-        batch_start = batch_end + 1;
+    /// Returns `true` if any migration path needs to be run.
+    pub fn is_needed(&self) -> bool {
+        self.needs_state_update_backfill()
     }
 
-    pb.finish_with_message(format!("Migrated {blocks_to_migrate} blocks"));
+    /// Runs all pending migrations in order.
+    pub fn run(&self) -> Result<(), MigrationError> {
+        if self.needs_state_update_backfill() {
+            self.backfill_state_updates()?;
+        }
 
-    tracing::info!(
-        target: "db::migration",
-        total_blocks = blocks_to_migrate,
-        "BlockStateUpdates migration complete."
-    );
+        Ok(())
+    }
 
-    Ok(())
+    /// The `BlockStateUpdates` table was introduced in version 9. Databases opened with
+    /// a version below this need the table backfilled from the legacy index tables.
+    pub(crate) fn needs_state_update_backfill(&self) -> bool {
+        self.db.opened_version() < STATE_UPDATES_TABLE_VERSION
+    }
+
+    /// Backfills the `BlockStateUpdates` table by reconstructing state updates from the legacy
+    /// index tables (`NonceChangeHistory`, `ClassChangeHistory`, `ClassDeclarations`,
+    /// `CompiledClassHashes`, `MigratedCompiledClassHashes`, `StorageChangeHistory`).
+    ///
+    /// Processes blocks in batches for crash recovery — on restart, already-committed batches
+    /// are skipped automatically.
+    pub(crate) fn backfill_state_updates(&self) -> Result<(), MigrationError> {
+        let db = self.db;
+
+        // Determine latest block number from BlockHashes cursor
+        let latest_block_number = {
+            let tx = db.tx()?;
+            let mut cursor = tx.cursor::<tables::BlockHashes>()?;
+            let last = cursor.last()?;
+            tx.commit()?;
+            match last {
+                Some((block_num, _)) => block_num,
+                None => return Ok(()), // no blocks, nothing to migrate
+            }
+        };
+
+        // Determine resume point: how many entries already exist in BlockStateUpdates
+        let existing_count = {
+            let tx = db.tx()?;
+            let count = tx.entries::<tables::BlockStateUpdates>()? as u64;
+            tx.commit()?;
+            count
+        };
+
+        let start_block = existing_count;
+        let total_blocks = latest_block_number + 1;
+
+        if start_block >= total_blocks {
+            tracing::info!(target: "db::migration", "BlockStateUpdates already up to date.");
+            return Ok(());
+        }
+
+        let blocks_to_migrate = total_blocks - start_block;
+
+        tracing::info!(
+            target: "db::migration",
+            start_block,
+            latest_block_number,
+            "Migrating BlockStateUpdates table..."
+        );
+
+        let pb = ProgressBar::new(blocks_to_migrate);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "Migrating BlockStateUpdates {bar:40.cyan/blue} {pos}/{len} blocks \
+                     [{elapsed_precise}] {per_sec}",
+                )
+                .unwrap()
+                .progress_chars("##-"),
+        );
+
+        // Process in batches
+        let mut batch_start = start_block;
+        while batch_start <= latest_block_number {
+            let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, latest_block_number);
+
+            let tx = db.tx_mut()?;
+
+            for block_number in batch_start..=batch_end {
+                let state_updates =
+                    reconstruct_state_update(&tx, block_number).map_err(|source| {
+                        MigrationError::Reconstruct { block: block_number, source }
+                    })?;
+                tx.put::<tables::BlockStateUpdates>(block_number, state_updates)?;
+            }
+
+            tx.commit()?;
+
+            pb.set_position(batch_end - start_block + 1);
+
+            batch_start = batch_end + 1;
+        }
+
+        pb.finish_with_message(format!("Migrated {blocks_to_migrate} blocks"));
+
+        tracing::info!(
+            target: "db::migration",
+            total_blocks = blocks_to_migrate,
+            "BlockStateUpdates migration complete."
+        );
+
+        Ok(())
+    }
 }
 
 /// Collects all DupSort entries for a given primary key from a DupSort table.
-fn dup_entries<Tx, T>(tx: &Tx, key: T::Key) -> anyhow::Result<Vec<T::Value>>
+fn dup_entries<Tx, T>(tx: &Tx, key: T::Key) -> Result<Vec<T::Value>, DatabaseError>
 where
     Tx: DbTx,
     T: tables::DupSort,
@@ -132,7 +178,7 @@ where
 fn reconstruct_state_update<Tx: DbTx>(
     tx: &Tx,
     block_number: BlockNumber,
-) -> anyhow::Result<StateUpdates> {
+) -> Result<StateUpdates, DatabaseError> {
     let mut state_updates = StateUpdates::default();
 
     // --- Nonce updates ---
@@ -274,7 +320,7 @@ mod tests {
         }
 
         // Run migration
-        migrate_state_updates(&db).unwrap();
+        Migration::new(&db).backfill_state_updates().unwrap();
 
         // Read back and verify
         let tx = db.tx().unwrap();
@@ -310,7 +356,7 @@ mod tests {
         // A freshly created in-memory DB is initialized at LATEST_DB_VERSION,
         // so it should not need migration.
         let db = Db::in_memory().unwrap();
-        assert!(!needs_state_update_migration(&db));
+        assert!(!Migration::new(&db).is_needed());
     }
 
     #[test]
@@ -324,7 +370,7 @@ mod tests {
         let db =
             Db::open_no_sync_with_mode(dir.path(), crate::version::DbOpenMode::Compat).unwrap();
 
-        assert!(needs_state_update_migration(&db));
+        assert!(Migration::new(&db).is_needed());
     }
 
     #[test]
@@ -348,7 +394,7 @@ mod tests {
         }
 
         // Run migration — should resume from block 1
-        migrate_state_updates(&db).unwrap();
+        Migration::new(&db).backfill_state_updates().unwrap();
 
         // Verify all 3 blocks now have state updates
         let tx = db.tx().unwrap();

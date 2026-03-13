@@ -123,9 +123,10 @@ impl Node {
 
         let db = katana_db::Db::new_with_mode(path, config.db.open_mode)?;
 
-        if katana_db::migration::needs_state_update_migration(&db) {
+        let migration = katana_db::migration::Migration::new(&db);
+        if migration.is_needed() {
             if config.db.migrate {
-                katana_db::migration::migrate_state_updates(&db)?;
+                migration.run()?;
             } else {
                 anyhow::bail!(
                     "Database requires migration to backfill the BlockStateUpdates table. Run \
