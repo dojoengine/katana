@@ -11,6 +11,7 @@ use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::error::DatabaseError;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractClassChangeType};
+use crate::models::stage::MigrationCheckpoint;
 use crate::models::storage::ContractStorageEntry;
 use crate::models::ReceiptEnvelope;
 use crate::version::{self, Version, LATEST_DB_VERSION};
@@ -49,6 +50,14 @@ const STATE_UPDATES_TABLE_VERSION: Version = Version::new(9);
 /// The database version below which receipts are stored as raw postcard bytes (legacy
 /// `Receipt` codec) and need to be re-encoded into the [`ReceiptEnvelope`] format.
 const RECEIPT_ENVELOPE_VERSION: Version = Version::new(9);
+
+/// Stage ID used to checkpoint state update backfill progress in the
+/// [`MigrationCheckpoints`](tables::MigrationCheckpoints) table.
+const STATE_UPDATE_MIGRATION_STAGE: &str = "migration/state-updates";
+
+/// Stage ID used to checkpoint receipt envelope migration progress in the
+/// [`MigrationCheckpoints`](tables::MigrationCheckpoints) table.
+const RECEIPT_MIGRATION_STAGE: &str = "migration/receipt-envelope";
 
 /// Runs all applicable database migrations based on the on-disk version at open time.
 ///
@@ -109,8 +118,8 @@ impl<'a> Migration<'a> {
     /// index tables (`NonceChangeHistory`, `ClassChangeHistory`, `ClassDeclarations`,
     /// `CompiledClassHashes`, `MigratedCompiledClassHashes`, `StorageChangeHistory`).
     ///
-    /// Processes blocks in batches for crash recovery — on restart, already-committed batches
-    /// are skipped automatically.
+    /// Progress is checkpointed in [`MigrationCheckpoints`](tables::MigrationCheckpoints)
+    /// after each batch so that a crashed migration resumes from the last committed batch.
     pub(crate) fn backfill_state_updates(&self) -> Result<(), MigrationError> {
         let db = self.db;
 
@@ -124,14 +133,25 @@ impl<'a> Migration<'a> {
             }
         };
 
-        // Determine resume point: how many entries already exist in BlockStateUpdates
-        let existing_count = db.view(|tx| tx.entries::<tables::BlockStateUpdates>())? as u64; // view returns Result<usize>
-
-        let start_block = existing_count;
         let total_blocks = latest_block_number + 1;
+
+        // Resume from the last checkpoint if one exists.
+        let checkpoint = db.view(|tx| {
+            tx.get::<tables::MigrationCheckpoints>(STATE_UPDATE_MIGRATION_STAGE.to_string())
+        })?;
+
+        let start_block = checkpoint.map(|cp| cp.next_key).unwrap_or(0);
 
         if start_block >= total_blocks {
             eprintln!("[Migrating] \x1b[1;33mBlockStateUpdates\x1b[0m already up to date.");
+            // Clean up the checkpoint.
+            db.update(|tx| {
+                tx.delete::<tables::MigrationCheckpoints>(
+                    STATE_UPDATE_MIGRATION_STAGE.to_string(),
+                    None,
+                )?;
+                Ok(())
+            })?;
             return Ok(());
         }
 
@@ -151,6 +171,8 @@ impl<'a> Migration<'a> {
         let mut batch_start = start_block;
         while batch_start <= latest_block_number {
             let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, latest_block_number);
+            let next_block = batch_end + 1;
+            let is_last_batch = next_block > latest_block_number;
 
             let tx = db.tx_mut()?;
             for block in batch_start..=batch_end {
@@ -159,11 +181,24 @@ impl<'a> Migration<'a> {
                 })?;
                 tx.put::<tables::BlockStateUpdates>(block, state_updates)?;
             }
+
+            if !is_last_batch {
+                tx.put::<tables::MigrationCheckpoints>(
+                    STATE_UPDATE_MIGRATION_STAGE.to_string(),
+                    MigrationCheckpoint { next_key: next_block },
+                )?;
+            } else {
+                tx.delete::<tables::MigrationCheckpoints>(
+                    STATE_UPDATE_MIGRATION_STAGE.to_string(),
+                    None,
+                )?;
+            }
+
             tx.commit()?;
 
             pb.set_position(batch_end - start_block + 1);
 
-            batch_start = batch_end + 1;
+            batch_start = next_block;
         }
 
         pb.finish_with_message(format!("[Migrating] Migrated {blocks_to_migrate} blocks"));
@@ -177,7 +212,8 @@ impl<'a> Migration<'a> {
     /// Reads rows through [`LegacyReceipts`] (the old `Receipt` postcard codec) and writes
     /// them back through [`tables::Receipts`] (the new `ReceiptEnvelope` codec).
     ///
-    /// Processes entries in batches for crash recovery.
+    /// Progress is checkpointed in [`MigrationCheckpoints`](tables::MigrationCheckpoints)
+    /// after each batch so that a crashed migration resumes from the last committed batch.
     pub(crate) fn backfill_receipt_envelopes(&self) -> Result<(), MigrationError> {
         /// Shadow table definition that reads from the physical `Receipts` table using the legacy
         /// `Receipt` (raw postcard) codec instead of `ReceiptEnvelope`.
@@ -202,7 +238,30 @@ impl<'a> Migration<'a> {
             return Ok(());
         }
 
-        let pb = ProgressBar::new(total_entries);
+        // Resume from the last checkpoint if one exists.
+        let checkpoint = db.view(|tx| {
+            tx.get::<tables::MigrationCheckpoints>(RECEIPT_MIGRATION_STAGE.to_string())
+        })?;
+
+        let start_key = checkpoint.map(|cp| cp.next_key).unwrap_or(0);
+        let already_migrated = start_key;
+
+        if start_key >= total_entries {
+            eprintln!("[Migrating] \x1b[1;33mReceipts         \x1b[0m already up to date.");
+            // Clean up the checkpoint.
+            db.update(|tx| {
+                tx.delete::<tables::MigrationCheckpoints>(
+                    RECEIPT_MIGRATION_STAGE.to_string(),
+                    None,
+                )?;
+                Ok(())
+            })?;
+            return Ok(());
+        }
+
+        let remaining = total_entries - already_migrated;
+
+        let pb = ProgressBar::new(remaining);
         pb.set_style(
             ProgressStyle::default_bar()
                 .template(
@@ -213,14 +272,14 @@ impl<'a> Migration<'a> {
         );
 
         let mut migrated: u64 = 0;
-        let mut batch_start_key: Option<u64> = Some(0);
+        let mut batch_start_key: Option<u64> = Some(start_key);
 
-        while let Some(start_key) = batch_start_key {
+        while let Some(start) = batch_start_key {
             // Phase 1: Read a batch using the legacy Receipt codec.
             let batch: Vec<(u64, Receipt)> = {
                 let tx = db.tx()?;
                 let mut cursor = tx.cursor::<LegacyReceipts>()?;
-                let walker = cursor.walk(Some(start_key))?;
+                let walker = cursor.walk(Some(start))?;
 
                 let mut entries = Vec::new();
                 for result in walker {
@@ -238,24 +297,35 @@ impl<'a> Migration<'a> {
             let current_batch_size = batch.len() as u64;
             let is_last_batch = current_batch_size < BATCH_SIZE;
 
-            if is_last_batch {
-                batch_start_key = None;
-            } else if let Some((last_key, _)) = batch.last() {
-                batch_start_key = Some(last_key + 1);
-            } else {
-                batch_start_key = None;
-            }
+            let next_key =
+                if is_last_batch { None } else { batch.last().map(|(last_key, _)| last_key + 1) };
 
-            // Phase 2: Write back as ReceiptEnvelope.
+            // Phase 2: Write re-encoded receipts and checkpoint atomically.
             db.update(|tx| {
                 for (tx_number, receipt) in batch {
                     tx.put::<tables::Receipts>(tx_number, ReceiptEnvelope::from(receipt))?;
                 }
+
+                if let Some(next) = next_key {
+                    // Persist progress so we can resume from here on crash.
+                    tx.put::<tables::MigrationCheckpoints>(
+                        RECEIPT_MIGRATION_STAGE.to_string(),
+                        MigrationCheckpoint { next_key: next },
+                    )?;
+                } else {
+                    // Migration complete — remove the checkpoint.
+                    tx.delete::<tables::MigrationCheckpoints>(
+                        RECEIPT_MIGRATION_STAGE.to_string(),
+                        None,
+                    )?;
+                }
+
                 Ok(())
             })?;
 
             migrated += current_batch_size;
             pb.set_position(migrated);
+            batch_start_key = next_key;
         }
 
         pb.finish_with_message(format!("[Migrating] Re-encoded {migrated} receipts"));

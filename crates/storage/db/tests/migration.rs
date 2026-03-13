@@ -3,7 +3,9 @@ use katana_db::codecs::Compress;
 use katana_db::migration::Migration;
 use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::ContractClassChange;
+use katana_db::models::stage::MigrationCheckpoint;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey};
+use katana_db::models::ReceiptEnvelope;
 use katana_db::version::{create_db_version_file, get_db_version, Version, LATEST_DB_VERSION};
 use katana_db::{tables, Db};
 use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
@@ -188,10 +190,15 @@ fn migration_resumes_from_last_committed_batch() {
         tx.commit().unwrap();
     }
 
-    // Simulate partial migration: only block 0 was migrated
+    // Simulate partial migration: block 0 was migrated, checkpoint points to block 1.
     {
         let tx = db.tx_mut().unwrap();
         tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
+        tx.put::<tables::MigrationCheckpoints>(
+            "migration/state-updates".to_string(),
+            MigrationCheckpoint { next_key: 1 },
+        )
+        .unwrap();
         tx.commit().unwrap();
     }
 
@@ -199,8 +206,14 @@ fn migration_resumes_from_last_committed_batch() {
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
+    // Checkpoint should have been cleaned up.
+    let cp = tx
+        .get::<tables::MigrationCheckpoints>("migration/state-updates".to_string())
+        .unwrap();
     tx.commit().unwrap();
+
     assert_eq!(count, 3);
+    assert!(cp.is_none(), "checkpoint should be removed after migration completes");
 }
 
 #[test]
@@ -465,4 +478,66 @@ fn receipt_migration_handles_multiple_batches() {
 fn receipt_migration_not_needed_at_current_version() {
     let db = Db::in_memory().unwrap();
     assert!(!Migration::new(&db).is_needed());
+}
+
+/// Simulate a partial receipt migration by writing some already-migrated envelope receipts
+/// and a checkpoint, then verify the migration resumes from where it left off.
+#[test]
+fn receipt_migration_resumes_from_checkpoint() {
+    let (db, _dir) = create_old_version_db();
+
+    let num_receipts: u64 = 10;
+
+    // Need a block hash so the state-update backfill doesn't skip.
+    {
+        let tx = db.tx_mut().unwrap();
+        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
+        tx.commit().unwrap();
+    }
+
+    // Write all receipts using the legacy codec.
+    {
+        let tx = db.tx_mut().unwrap();
+        for i in 0..num_receipts {
+            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    // Simulate a partial migration: manually convert the first 5 receipts to envelope
+    // format and write a checkpoint pointing to the next key (5).
+    let checkpoint_key: u64 = 5;
+    {
+        let tx = db.tx_mut().unwrap();
+        for i in 0..checkpoint_key {
+            tx.put::<tables::Receipts>(i, ReceiptEnvelope::from(sample_receipt(i))).unwrap();
+        }
+        tx.put::<tables::MigrationCheckpoints>(
+            "migration/receipt-envelope".to_string(),
+            MigrationCheckpoint { next_key: checkpoint_key },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    // Run migration — it should resume from key 5 and convert the remaining receipts.
+    Migration::new(&db).run().unwrap();
+
+    // All receipts should now be readable through the envelope codec.
+    let tx = db.tx().unwrap();
+    for i in 0..num_receipts {
+        let envelope = tx
+            .get::<tables::Receipts>(i)
+            .expect("read should succeed")
+            .expect("entry should exist");
+        assert_eq!(envelope.inner, sample_receipt(i), "receipt {i} mismatch");
+    }
+
+    // Checkpoint should have been cleaned up.
+    let cp = tx
+        .get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string())
+        .unwrap();
+    assert!(cp.is_none(), "checkpoint should be removed after migration completes");
+
+    tx.commit().unwrap();
 }
