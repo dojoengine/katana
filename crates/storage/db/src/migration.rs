@@ -4,14 +4,13 @@ use indicatif::{ProgressBar, ProgressStyle};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::contract::{StorageKey, StorageValue};
 use katana_primitives::state::StateUpdates;
-use tracing::info;
 
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::error::DatabaseError;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractClassChangeType};
 use crate::models::storage::ContractStorageEntry;
-use crate::version::Version;
+use crate::version::{self, Version, LATEST_DB_VERSION};
 use crate::{tables, Db};
 
 /// Errors that can occur during database migration.
@@ -30,6 +29,10 @@ pub enum MigrationError {
         #[source]
         source: DatabaseError,
     },
+
+    /// Failed to update the database version file after migration.
+    #[error("failed to update database version: {0}")]
+    VersionUpdate(#[from] version::DatabaseVersionError),
 }
 
 const BATCH_SIZE: u64 = 1000;
@@ -61,9 +64,18 @@ impl<'a> Migration<'a> {
 
     /// Runs all pending migrations in order.
     pub fn run(&self) -> Result<(), MigrationError> {
+        eprintln!("[Migrating] Starting migration");
+
         if self.needs_state_update_backfill() {
             self.backfill_state_updates()?;
         }
+
+        // Update the on-disk version file to the latest version.
+        version::write_db_version_file(self.db.path(), LATEST_DB_VERSION)?;
+
+        eprintln!(
+            "[Migrating] Migration complete (version updated to \x1b[1m{LATEST_DB_VERSION}\x1b[0m)"
+        );
 
         Ok(())
     }
@@ -101,23 +113,20 @@ impl<'a> Migration<'a> {
         let total_blocks = latest_block_number + 1;
 
         if start_block >= total_blocks {
-            info!("BlockStateUpdates already up to date.");
+            eprintln!("[Migrating] \x1b[1;33mBlockStateUpdates\x1b[0m already up to date.");
             return Ok(());
         }
 
         let blocks_to_migrate = total_blocks - start_block;
 
-        info!(start_block, latest_block_number, "Migrating BlockStateUpdates table...");
-
         let pb = ProgressBar::new(blocks_to_migrate);
         pb.set_style(
             ProgressStyle::default_bar()
                 .template(
-                    "Migrating BlockStateUpdates {bar:40.cyan/blue} {pos}/{len} blocks \
-                     [{elapsed_precise}] {per_sec}",
+                    "[Migrating] \x1b[1;33mBlockStateUpdates\x1b[0m {bar:40.cyan/blue} \
+                     {pos}/{len} blocks [{elapsed_precise}] {per_sec}",
                 )
-                .unwrap()
-                .progress_chars("##-"),
+                .expect("valid format"),
         );
 
         // Process in batches
@@ -139,9 +148,7 @@ impl<'a> Migration<'a> {
             batch_start = batch_end + 1;
         }
 
-        pb.finish_with_message(format!("Migrated {blocks_to_migrate} blocks"));
-
-        info!(total_blocks = blocks_to_migrate, "BlockStateUpdates migration complete.");
+        pb.finish_with_message(format!("[Migrating] Migrated {blocks_to_migrate} blocks"));
 
         Ok(())
     }

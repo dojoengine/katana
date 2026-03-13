@@ -23,7 +23,6 @@ pub mod version;
 use error::DatabaseError;
 use libmdbx::SyncMode;
 use mdbx::{DbEnv, DbEnvBuilder};
-use tracing::warn;
 use utils::is_database_empty;
 use version::{
     create_db_version_file, ensure_version_is_openable, get_db_version, DatabaseVersionError,

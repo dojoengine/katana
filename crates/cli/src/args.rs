@@ -40,7 +40,7 @@ use url::Url;
 
 use crate::file::NodeArgsConfig;
 use crate::options::*;
-use crate::utils::{self, parse_chain_config_dir, parse_seed};
+use crate::utils::{self, parse_chain_config_dir, parse_seed, prompt_db_migration};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
 
@@ -302,7 +302,7 @@ impl SequencerNodeArgs {
     }
 
     pub fn config(&self) -> Result<Config> {
-        let db = self.db_config();
+        let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
         let (chain, cs_messaging) = self.chain_spec()?;
@@ -520,8 +520,16 @@ impl SequencerNodeArgs {
         Ok(None)
     }
 
-    fn db_config(&self) -> DbConfig {
-        DbConfig { dir: self.db.dir.clone(), migrate: self.db.migrate }
+    fn db_config(&self) -> Result<DbConfig> {
+        let mut migrate = false;
+
+        if let Some(ref path) = self.db.dir {
+            if path.exists() {
+                migrate = prompt_db_migration(path)?;
+            }
+        }
+
+        Ok(DbConfig { dir: self.db.dir.clone(), migrate })
     }
 
     fn metrics_config(&self) -> Option<MetricsConfig> {

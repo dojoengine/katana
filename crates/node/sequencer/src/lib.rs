@@ -16,6 +16,7 @@ use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
+use katana_db::migration;
 use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
@@ -467,16 +468,8 @@ impl Node<DbProviderFactory> {
             info!(target: "node", path = %path.display(), "Initializing database.");
             let db = katana_db::Db::new(path)?;
 
-            let migration = katana_db::migration::Migration::new(&db);
-            if migration.is_needed() {
-                if config.db.migrate {
-                    migration.run()?;
-                } else {
-                    bail!(
-                        "Database requires migration to backfill the BlockStateUpdates table. Run \
-                         with --db.migrate to perform the migration."
-                    );
-                }
+            if config.db.migrate {
+                migration::Migration::new(&db).run()?;
             }
 
             let factory = DbProviderFactory::new(db.clone());

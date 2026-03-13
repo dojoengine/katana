@@ -91,7 +91,7 @@ pub fn get_db_version(path: impl AsRef<Path>) -> Result<Version, DatabaseVersion
 /// # Errors
 ///
 /// Will fail if all the directories in `path` has not already been created.
-pub(super) fn write_db_version_file(
+pub(crate) fn write_db_version_file(
     path: impl AsRef<Path>,
     version: Version,
 ) -> Result<Version, DatabaseVersionError> {

@@ -11,6 +11,7 @@ use tracing::info;
 use url::Url;
 
 use crate::options::*;
+use crate::utils::prompt_db_migration;
 
 pub(crate) const LOG_TARGET: &str = "katana::cli::full";
 
@@ -118,7 +119,7 @@ impl FullNodeArgs {
     }
 
     fn config(&self) -> Result<katana_full_node::Config> {
-        let db = self.db_config();
+        let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
         let pruning = self.pruning_config();
@@ -163,8 +164,16 @@ impl FullNodeArgs {
         None
     }
 
-    fn db_config(&self) -> DbConfig {
-        DbConfig { dir: self.db.dir.clone(), migrate: self.db.migrate }
+    fn db_config(&self) -> Result<DbConfig> {
+        let mut migrate = false;
+
+        if let Some(ref path) = self.db.dir {
+            if path.exists() {
+                migrate = prompt_db_migration(path)?;
+            }
+        }
+
+        Ok(DbConfig { dir: self.db.dir.clone(), migrate })
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {
