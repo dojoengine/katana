@@ -541,3 +541,271 @@ fn receipt_migration_resumes_from_checkpoint() {
 
     tx.commit().unwrap();
 }
+
+// ---------------------------------------------------------------------------
+// Checkpoint-specific tests
+// ---------------------------------------------------------------------------
+
+/// After a full successful migration with no prior checkpoint, neither migration checkpoint
+/// entry should remain in the table.
+#[test]
+fn full_migration_leaves_no_checkpoint_behind() {
+    let (db, _dir) = create_old_version_db();
+
+    {
+        let tx = db.tx_mut().unwrap();
+        for i in 0..5u64 {
+            tx.put::<tables::BlockHashes>(i, arbitrary!(Felt)).unwrap();
+        }
+        for i in 0..5u64 {
+            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    let tx = db.tx().unwrap();
+    let su_cp = tx
+        .get::<tables::MigrationCheckpoints>("migration/state-updates".to_string())
+        .unwrap();
+    let rc_cp = tx
+        .get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string())
+        .unwrap();
+    let total_checkpoints = tx.entries::<tables::MigrationCheckpoints>().unwrap();
+    tx.commit().unwrap();
+
+    assert!(su_cp.is_none(), "state-update checkpoint should not exist after full migration");
+    assert!(rc_cp.is_none(), "receipt checkpoint should not exist after full migration");
+    assert_eq!(total_checkpoints, 0, "no migration checkpoints should remain");
+}
+
+/// If a stale checkpoint points past the total number of entries, the migration should
+/// clean it up without failing.
+#[test]
+fn stale_state_update_checkpoint_is_cleaned_up() {
+    let (db, _dir) = create_old_version_db();
+
+    // Only 2 blocks exist.
+    {
+        let tx = db.tx_mut().unwrap();
+        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
+        tx.put::<tables::BlockHashes>(1u64, arbitrary!(Felt)).unwrap();
+        tx.commit().unwrap();
+    }
+
+    // Simulate a checkpoint that points beyond the last block (e.g. left over from a
+    // previous run with more blocks that were later pruned).
+    {
+        let tx = db.tx_mut().unwrap();
+        // All blocks already migrated.
+        tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
+        tx.put::<tables::BlockStateUpdates>(1, StateUpdates::default()).unwrap();
+        tx.put::<tables::MigrationCheckpoints>(
+            "migration/state-updates".to_string(),
+            MigrationCheckpoint { next_key: 100 },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    let tx = db.tx().unwrap();
+    let cp = tx
+        .get::<tables::MigrationCheckpoints>("migration/state-updates".to_string())
+        .unwrap();
+    tx.commit().unwrap();
+
+    assert!(cp.is_none(), "stale checkpoint should be cleaned up");
+}
+
+/// If a stale receipt checkpoint points past the total number of entries, the migration
+/// should clean it up without failing.
+#[test]
+fn stale_receipt_checkpoint_is_cleaned_up() {
+    let (db, _dir) = create_old_version_db();
+
+    // Need a block hash for the state-update migration to not skip.
+    {
+        let tx = db.tx_mut().unwrap();
+        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
+        tx.commit().unwrap();
+    }
+
+    // Write 3 receipts already in envelope format (simulate completed migration).
+    {
+        let tx = db.tx_mut().unwrap();
+        for i in 0..3u64 {
+            tx.put::<tables::Receipts>(i, ReceiptEnvelope::from(sample_receipt(i))).unwrap();
+        }
+        // Stale checkpoint pointing past all entries.
+        tx.put::<tables::MigrationCheckpoints>(
+            "migration/receipt-envelope".to_string(),
+            MigrationCheckpoint { next_key: 999 },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    let tx = db.tx().unwrap();
+    let cp = tx
+        .get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string())
+        .unwrap();
+    tx.commit().unwrap();
+
+    assert!(cp.is_none(), "stale receipt checkpoint should be cleaned up");
+}
+
+/// State update migration across multiple batches resumes correctly from a checkpoint that
+/// sits on a batch boundary. With BATCH_SIZE=1000, we use 1500 blocks and set the
+/// checkpoint at block 500 to verify partial resume within the first batch range.
+#[test]
+fn state_update_checkpoint_resumes_mid_migration() {
+    let (db, _dir) = create_old_version_db();
+
+    let num_blocks = 1500u64;
+
+    {
+        let tx = db.tx_mut().unwrap();
+        for i in 0..num_blocks {
+            tx.put::<tables::BlockHashes>(i, arbitrary!(Felt)).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    // Simulate partial migration: blocks 0..500 already migrated.
+    let checkpoint_block = 500u64;
+    {
+        let tx = db.tx_mut().unwrap();
+        for i in 0..checkpoint_block {
+            tx.put::<tables::BlockStateUpdates>(i, StateUpdates::default()).unwrap();
+        }
+        tx.put::<tables::MigrationCheckpoints>(
+            "migration/state-updates".to_string(),
+            MigrationCheckpoint { next_key: checkpoint_block },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    let tx = db.tx().unwrap();
+    let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
+    let cp = tx
+        .get::<tables::MigrationCheckpoints>("migration/state-updates".to_string())
+        .unwrap();
+    tx.commit().unwrap();
+
+    assert_eq!(count, num_blocks as usize);
+    assert!(cp.is_none(), "checkpoint should be removed after migration completes");
+}
+
+/// Receipt migration across multiple batches resumes correctly from a checkpoint that
+/// sits on a batch boundary.
+#[test]
+fn receipt_checkpoint_resumes_across_batches() {
+    let (db, _dir) = create_old_version_db();
+
+    let num_receipts = 1500u64;
+
+    {
+        let tx = db.tx_mut().unwrap();
+        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
+        for i in 0..num_receipts {
+            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    // Simulate partial migration: first 1000 receipts already migrated (one full batch).
+    let checkpoint_key = 1000u64;
+    {
+        let tx = db.tx_mut().unwrap();
+        for i in 0..checkpoint_key {
+            tx.put::<tables::Receipts>(i, ReceiptEnvelope::from(sample_receipt(i))).unwrap();
+        }
+        tx.put::<tables::MigrationCheckpoints>(
+            "migration/receipt-envelope".to_string(),
+            MigrationCheckpoint { next_key: checkpoint_key },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    let tx = db.tx().unwrap();
+    let count = tx.entries::<tables::Receipts>().unwrap();
+    let cp = tx
+        .get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string())
+        .unwrap();
+    tx.commit().unwrap();
+
+    assert_eq!(count, num_receipts as usize);
+    assert!(cp.is_none(), "checkpoint should be removed after migration completes");
+
+    // Spot check values around the checkpoint boundary.
+    let tx = db.tx().unwrap();
+    for i in [checkpoint_key - 1, checkpoint_key, checkpoint_key + 1, num_receipts - 1] {
+        let envelope = tx.get::<tables::Receipts>(i).unwrap().unwrap();
+        assert_eq!(envelope.inner, sample_receipt(i), "receipt {i} mismatch");
+    }
+    tx.commit().unwrap();
+}
+
+/// Both migrations running concurrently with independent checkpoints: simulate partial
+/// progress on state updates only, verify receipt migration starts from scratch.
+#[test]
+fn independent_checkpoints_do_not_interfere() {
+    let (db, _dir) = create_old_version_db();
+
+    {
+        let tx = db.tx_mut().unwrap();
+        for i in 0..3u64 {
+            tx.put::<tables::BlockHashes>(i, arbitrary!(Felt)).unwrap();
+        }
+        for i in 0..5u64 {
+            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    // Only state-update migration has a checkpoint; receipt migration has none.
+    {
+        let tx = db.tx_mut().unwrap();
+        tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
+        tx.put::<tables::MigrationCheckpoints>(
+            "migration/state-updates".to_string(),
+            MigrationCheckpoint { next_key: 1 },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    Migration::new(&db).run().unwrap();
+
+    let tx = db.tx().unwrap();
+
+    // State updates: all 3 blocks migrated.
+    let su_count = tx.entries::<tables::BlockStateUpdates>().unwrap();
+    assert_eq!(su_count, 3);
+
+    // Receipts: all 5 migrated from scratch (no checkpoint existed).
+    let rc_count = tx.entries::<tables::Receipts>().unwrap();
+    assert_eq!(rc_count, 5);
+
+    for i in 0..5u64 {
+        let envelope = tx.get::<tables::Receipts>(i).unwrap().unwrap();
+        assert_eq!(envelope.inner, sample_receipt(i), "receipt {i} mismatch");
+    }
+
+    // No checkpoints remain.
+    let total = tx.entries::<tables::MigrationCheckpoints>().unwrap();
+    assert_eq!(total, 0);
+
+    tx.commit().unwrap();
+}
