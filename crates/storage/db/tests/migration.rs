@@ -1,15 +1,18 @@
+//! Integration tests for individual migration stages.
+//!
+//! These tests verify that each stage correctly transforms data — the pipeline's
+//! batching, checkpointing, and version management are tested separately via unit
+//! tests in `migration/mod.rs`.
+
 use katana_db::abstraction::{Database, DbTx, DbTxMut};
 use katana_db::codecs::Compress;
 use katana_db::migration::Migration;
 use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::ContractClassChange;
-use katana_db::models::stage::MigrationCheckpoint;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey};
-use katana_db::models::ReceiptEnvelope;
-use katana_db::version::{create_db_version_file, get_db_version, Version, LATEST_DB_VERSION};
+use katana_db::version::{create_db_version_file, Version};
 use katana_db::{tables, Db};
 use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
-use katana_primitives::state::StateUpdates;
 use katana_primitives::transaction::TxNumber;
 use katana_primitives::{ContractAddress, Felt};
 use katana_utils::arbitrary;
@@ -25,8 +28,8 @@ impl tables::Table for LegacyReceipts {
     type Value = Receipt;
 }
 
-/// Creates a DB at version 8 (before BlockStateUpdates was introduced) so that
-/// `Migration::is_needed()` returns true.
+/// Creates a DB at version 8 (before BlockStateUpdates / ReceiptEnvelope were
+/// introduced) so that all v9 migration stages are applicable.
 fn create_old_version_db() -> (Db, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     create_db_version_file(dir.path(), Version::new(8)).unwrap();
@@ -34,15 +37,28 @@ fn create_old_version_db() -> (Db, tempfile::TempDir) {
     (db, dir)
 }
 
+fn sample_receipt(id: u64) -> Receipt {
+    Receipt::Invoke(InvokeTxReceipt {
+        revert_error: if id % 2 == 0 { None } else { Some(format!("revert-{id}")) },
+        events: Vec::new(),
+        fee: Default::default(),
+        messages_sent: Vec::new(),
+        execution_resources: Default::default(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// State updates stage
+// ---------------------------------------------------------------------------
+
 /// Write old-format index data for a single block using arbitrary values,
-/// then run migration and verify all data is correctly reconstructed.
+/// then run migration and verify all fields are correctly reconstructed.
 #[test]
-fn migrate_reconstructs_state_updates_from_index_tables() {
+fn state_updates_reconstructs_all_fields() {
     let (db, _dir) = create_old_version_db();
 
     let block = 0u64;
 
-    // Generate arbitrary values for the test
     let nonce_addr: ContractAddress = arbitrary!(ContractAddress);
     let nonce_val: Felt = arbitrary!(Felt);
 
@@ -51,7 +67,6 @@ fn migrate_reconstructs_state_updates_from_index_tables() {
     let deployed2_addr: ContractAddress = arbitrary!(ContractAddress);
     let deployed2_hash: Felt = arbitrary!(Felt);
 
-    // Use fixed addresses to avoid any DupSort key collision issues
     let replaced_addr: ContractAddress = ContractAddress::from(katana_primitives::felt!("0xdead"));
     let replaced_hash: Felt = arbitrary!(Felt);
 
@@ -66,14 +81,12 @@ fn migrate_reconstructs_state_updates_from_index_tables() {
     let storage_key: Felt = arbitrary!(Felt);
     let storage_val: Felt = arbitrary!(Felt);
 
-    // Write block hash
     {
         let tx = db.tx_mut().unwrap();
         tx.put::<tables::BlockHashes>(block, arbitrary!(Felt)).unwrap();
         tx.commit().unwrap();
     }
 
-    // Write legacy index data
     {
         let tx = db.tx_mut().unwrap();
 
@@ -102,11 +115,9 @@ fn migrate_reconstructs_state_updates_from_index_tables() {
         )
         .unwrap();
 
-        // Sierra class declaration (has compiled class hash)
         tx.put::<tables::ClassDeclarations>(block, sierra_class_hash).unwrap();
         tx.put::<tables::CompiledClassHashes>(sierra_class_hash, sierra_compiled_hash).unwrap();
 
-        // Deprecated (Cairo 0) class declaration (no compiled class hash)
         tx.put::<tables::ClassDeclarations>(block, legacy_class_hash).unwrap();
 
         tx.put::<tables::MigratedCompiledClassHashes>(
@@ -130,10 +141,8 @@ fn migrate_reconstructs_state_updates_from_index_tables() {
         tx.commit().unwrap();
     }
 
-    assert!(Migration::new_v9(&db).is_needed());
     Migration::new_v9(&db).run().unwrap();
 
-    // Read back and verify
     let tx = db.tx().unwrap();
     let su = tx.get::<tables::BlockStateUpdates>(block).unwrap().unwrap();
     tx.commit().unwrap();
@@ -150,72 +159,7 @@ fn migrate_reconstructs_state_updates_from_index_tables() {
 }
 
 #[test]
-fn migration_not_needed_for_new_db() {
-    let db = Db::in_memory().unwrap();
-    assert!(!Migration::new_v9(&db).is_needed());
-}
-
-#[test]
-fn migration_needed_for_old_version_db() {
-    let (db, _dir) = create_old_version_db();
-    assert!(Migration::new_v9(&db).is_needed());
-}
-
-#[test]
-fn migration_updates_version_file() {
-    let (db, dir) = create_old_version_db();
-
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
-        tx.commit().unwrap();
-    }
-
-    assert!(Migration::new_v9(&db).is_needed());
-    Migration::new_v9(&db).run().unwrap();
-
-    let version = get_db_version(dir.path()).unwrap();
-    assert_eq!(version, LATEST_DB_VERSION);
-}
-
-#[test]
-fn migration_resumes_from_last_committed_batch() {
-    let (db, _dir) = create_old_version_db();
-
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..3u64 {
-            tx.put::<tables::BlockHashes>(i, arbitrary!(Felt)).unwrap();
-        }
-        tx.commit().unwrap();
-    }
-
-    // Simulate partial migration: block 0 was migrated, checkpoint points to block 1.
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
-        tx.put::<tables::MigrationCheckpoints>(
-            "migration/state-updates".to_string(),
-            MigrationCheckpoint { next_key: 1 },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-    }
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-    let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
-    // Checkpoint should have been cleaned up.
-    let cp = tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
-    tx.commit().unwrap();
-
-    assert_eq!(count, 3);
-    assert!(cp.is_none(), "checkpoint should be removed after migration completes");
-}
-
-#[test]
-fn migration_handles_multiple_blocks_with_varied_data() {
+fn state_updates_multiple_blocks() {
     let (db, _dir) = create_old_version_db();
 
     let num_blocks = 5u64;
@@ -228,7 +172,6 @@ fn migration_handles_multiple_blocks_with_varied_data() {
         tx.commit().unwrap();
     }
 
-    // Populate each block with random legacy data
     {
         let tx = db.tx_mut().unwrap();
         for block in 0..num_blocks {
@@ -266,11 +209,8 @@ fn migration_handles_multiple_blocks_with_varied_data() {
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
-    tx.commit().unwrap();
     assert_eq!(count, num_blocks as usize);
 
-    // Verify each block has non-empty state updates
-    let tx = db.tx().unwrap();
     for block in 0..num_blocks {
         let su = tx.get::<tables::BlockStateUpdates>(block).unwrap().unwrap();
         assert!(!su.nonce_updates.is_empty(), "block {block} missing nonce updates");
@@ -281,19 +221,7 @@ fn migration_handles_multiple_blocks_with_varied_data() {
 }
 
 #[test]
-fn migration_empty_db_is_noop() {
-    let (db, _dir) = create_old_version_db();
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-    let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
-    tx.commit().unwrap();
-    assert_eq!(count, 0);
-}
-
-#[test]
-fn migration_block_with_no_state_changes() {
+fn state_updates_empty_block() {
     let (db, _dir) = create_old_version_db();
 
     {
@@ -316,48 +244,17 @@ fn migration_block_with_no_state_changes() {
     assert!(su.storage_updates.is_empty());
 }
 
-#[test]
-fn migration_not_needed_after_successful_run() {
-    let (db, dir) = create_old_version_db();
-
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
-        tx.commit().unwrap();
-    }
-
-    assert!(Migration::new_v9(&db).is_needed());
-    Migration::new_v9(&db).run().unwrap();
-
-    // Drop the first DB handle before reopening
-    drop(db);
-
-    // Reopen the DB — should no longer need migration
-    let db2 = Db::open_no_sync(dir.path()).unwrap();
-    assert!(!Migration::new_v9(&db2).is_needed());
-}
-
 // ---------------------------------------------------------------------------
-// Receipt envelope migration tests
+// Receipt envelope stage
 // ---------------------------------------------------------------------------
-
-fn sample_receipt(id: u64) -> Receipt {
-    Receipt::Invoke(InvokeTxReceipt {
-        revert_error: if id % 2 == 0 { None } else { Some(format!("revert-{id}")) },
-        events: Vec::new(),
-        fee: Default::default(),
-        messages_sent: Vec::new(),
-        execution_resources: Default::default(),
-    })
-}
 
 /// Write receipts using the legacy raw-postcard codec, run migration, then verify
 /// they can be read back through the new `ReceiptEnvelope` codec.
 #[test]
-fn receipt_migration_converts_legacy_to_envelope() {
+fn receipt_envelope_converts_legacy() {
     let (db, _dir) = create_old_version_db();
 
-    // Need at least one block hash so the state-update backfill doesn't skip entirely.
+    // Need at least one block hash so the state-update stage doesn't skip.
     {
         let tx = db.tx_mut().unwrap();
         tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
@@ -366,7 +263,6 @@ fn receipt_migration_converts_legacy_to_envelope() {
 
     let receipts: Vec<Receipt> = (0..5).map(sample_receipt).collect();
 
-    // Write receipts using the legacy codec (raw postcard).
     {
         let tx = db.tx_mut().unwrap();
         for (i, receipt) in receipts.iter().enumerate() {
@@ -375,8 +271,7 @@ fn receipt_migration_converts_legacy_to_envelope() {
         tx.commit().unwrap();
     }
 
-    // Sanity: reading through the envelope codec should fail before migration
-    // because the raw postcard bytes don't start with the KRCP magic.
+    // Sanity: reading through the envelope codec should fail before migration.
     {
         let tx = db.tx().unwrap();
         let result = tx.get::<tables::Receipts>(0u64);
@@ -386,7 +281,6 @@ fn receipt_migration_converts_legacy_to_envelope() {
 
     Migration::new_v9(&db).run().unwrap();
 
-    // After migration, every receipt should be readable through the envelope codec.
     {
         let tx = db.tx().unwrap();
         for (i, expected) in receipts.iter().enumerate() {
@@ -400,9 +294,8 @@ fn receipt_migration_converts_legacy_to_envelope() {
     }
 }
 
-/// An empty Receipts table should not cause the migration to fail.
 #[test]
-fn receipt_migration_empty_table_is_noop() {
+fn receipt_envelope_empty_table() {
     let (db, _dir) = create_old_version_db();
 
     Migration::new_v9(&db).run().unwrap();
@@ -416,7 +309,7 @@ fn receipt_migration_empty_table_is_noop() {
 /// Verify that migrated receipts are stored in the envelope wire format
 /// (first 4 bytes == KRCP magic).
 #[test]
-fn receipt_migration_produces_envelope_wire_format() {
+fn receipt_envelope_wire_format() {
     let (db, _dir) = create_old_version_db();
 
     {
@@ -428,373 +321,10 @@ fn receipt_migration_produces_envelope_wire_format() {
 
     Migration::new_v9(&db).run().unwrap();
 
-    // Read the migrated value back through the envelope codec and re-compress
-    // to inspect the wire format.
     let tx = db.tx().unwrap();
     let envelope = tx.get::<tables::Receipts>(0u64).unwrap().unwrap();
     tx.commit().unwrap();
 
     let bytes = envelope.compress().expect("compress");
     assert_eq!(&bytes[..4], b"KRCP", "migrated receipt should have KRCP magic prefix");
-}
-
-/// Migration with more receipts than a single batch (BATCH_SIZE = 1000) to exercise
-/// the batching loop.
-#[test]
-fn receipt_migration_handles_multiple_batches() {
-    let (db, _dir) = create_old_version_db();
-
-    let num_receipts: u64 = 1500;
-
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
-        for i in 0..num_receipts {
-            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
-        }
-        tx.commit().unwrap();
-    }
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-    let count = tx.entries::<tables::Receipts>().unwrap();
-    tx.commit().unwrap();
-    assert_eq!(count, num_receipts as usize);
-
-    // Spot check first, last, and a middle entry.
-    let tx = db.tx().unwrap();
-    for i in [0, 749, num_receipts - 1] {
-        let envelope = tx.get::<tables::Receipts>(i).unwrap().unwrap();
-        assert_eq!(envelope.inner, sample_receipt(i), "receipt {i} mismatch");
-    }
-    tx.commit().unwrap();
-}
-
-/// Migration should not be needed for a database already at the current version.
-#[test]
-fn receipt_migration_not_needed_at_current_version() {
-    let db = Db::in_memory().unwrap();
-    assert!(!Migration::new_v9(&db).is_needed());
-}
-
-/// Simulate a partial receipt migration by writing some already-migrated envelope receipts
-/// and a checkpoint, then verify the migration resumes from where it left off.
-#[test]
-fn receipt_migration_resumes_from_checkpoint() {
-    let (db, _dir) = create_old_version_db();
-
-    let num_receipts: u64 = 10;
-
-    // Need a block hash so the state-update backfill doesn't skip.
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
-        tx.commit().unwrap();
-    }
-
-    // Write all receipts using the legacy codec.
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..num_receipts {
-            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
-        }
-        tx.commit().unwrap();
-    }
-
-    // Simulate a partial migration: manually convert the first 5 receipts to envelope
-    // format and write a checkpoint pointing to the next key (5).
-    let checkpoint_key: u64 = 5;
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..checkpoint_key {
-            tx.put::<tables::Receipts>(i, ReceiptEnvelope::from(sample_receipt(i))).unwrap();
-        }
-        tx.put::<tables::MigrationCheckpoints>(
-            "migration/receipt-envelope".to_string(),
-            MigrationCheckpoint { next_key: checkpoint_key },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-    }
-
-    // Run migration — it should resume from key 5 and convert the remaining receipts.
-    Migration::new_v9(&db).run().unwrap();
-
-    // All receipts should now be readable through the envelope codec.
-    let tx = db.tx().unwrap();
-    for i in 0..num_receipts {
-        let envelope = tx
-            .get::<tables::Receipts>(i)
-            .expect("read should succeed")
-            .expect("entry should exist");
-        assert_eq!(envelope.inner, sample_receipt(i), "receipt {i} mismatch");
-    }
-
-    // Checkpoint should have been cleaned up.
-    let cp =
-        tx.get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string()).unwrap();
-    assert!(cp.is_none(), "checkpoint should be removed after migration completes");
-
-    tx.commit().unwrap();
-}
-
-// ---------------------------------------------------------------------------
-// Checkpoint-specific tests
-// ---------------------------------------------------------------------------
-
-/// After a full successful migration with no prior checkpoint, neither migration checkpoint
-/// entry should remain in the table.
-#[test]
-fn full_migration_leaves_no_checkpoint_behind() {
-    let (db, _dir) = create_old_version_db();
-
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..5u64 {
-            tx.put::<tables::BlockHashes>(i, arbitrary!(Felt)).unwrap();
-        }
-        for i in 0..5u64 {
-            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
-        }
-        tx.commit().unwrap();
-    }
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-    let su_cp =
-        tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
-    let rc_cp =
-        tx.get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string()).unwrap();
-    let total_checkpoints = tx.entries::<tables::MigrationCheckpoints>().unwrap();
-    tx.commit().unwrap();
-
-    assert!(su_cp.is_none(), "state-update checkpoint should not exist after full migration");
-    assert!(rc_cp.is_none(), "receipt checkpoint should not exist after full migration");
-    assert_eq!(total_checkpoints, 0, "no migration checkpoints should remain");
-}
-
-/// If a stale checkpoint points past the total number of entries, the migration should
-/// clean it up without failing.
-#[test]
-fn stale_state_update_checkpoint_is_cleaned_up() {
-    let (db, _dir) = create_old_version_db();
-
-    // Only 2 blocks exist.
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
-        tx.put::<tables::BlockHashes>(1u64, arbitrary!(Felt)).unwrap();
-        tx.commit().unwrap();
-    }
-
-    // Simulate a checkpoint that points beyond the last block (e.g. left over from a
-    // previous run with more blocks that were later pruned).
-    {
-        let tx = db.tx_mut().unwrap();
-        // All blocks already migrated.
-        tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
-        tx.put::<tables::BlockStateUpdates>(1, StateUpdates::default()).unwrap();
-        tx.put::<tables::MigrationCheckpoints>(
-            "migration/state-updates".to_string(),
-            MigrationCheckpoint { next_key: 100 },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-    }
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-    let cp = tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
-    tx.commit().unwrap();
-
-    assert!(cp.is_none(), "stale checkpoint should be cleaned up");
-}
-
-/// If a stale receipt checkpoint points past the total number of entries, the migration
-/// should clean it up without failing.
-#[test]
-fn stale_receipt_checkpoint_is_cleaned_up() {
-    let (db, _dir) = create_old_version_db();
-
-    // Need a block hash for the state-update migration to not skip.
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
-        tx.commit().unwrap();
-    }
-
-    // Write 3 receipts already in envelope format (simulate completed migration).
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..3u64 {
-            tx.put::<tables::Receipts>(i, ReceiptEnvelope::from(sample_receipt(i))).unwrap();
-        }
-        // Stale checkpoint pointing past all entries.
-        tx.put::<tables::MigrationCheckpoints>(
-            "migration/receipt-envelope".to_string(),
-            MigrationCheckpoint { next_key: 999 },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-    }
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-    let cp =
-        tx.get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string()).unwrap();
-    tx.commit().unwrap();
-
-    assert!(cp.is_none(), "stale receipt checkpoint should be cleaned up");
-}
-
-/// State update migration across multiple batches resumes correctly from a checkpoint that
-/// sits on a batch boundary. With BATCH_SIZE=1000, we use 1500 blocks and set the
-/// checkpoint at block 500 to verify partial resume within the first batch range.
-#[test]
-fn state_update_checkpoint_resumes_mid_migration() {
-    let (db, _dir) = create_old_version_db();
-
-    let num_blocks = 1500u64;
-
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..num_blocks {
-            tx.put::<tables::BlockHashes>(i, arbitrary!(Felt)).unwrap();
-        }
-        tx.commit().unwrap();
-    }
-
-    // Simulate partial migration: blocks 0..500 already migrated.
-    let checkpoint_block = 500u64;
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..checkpoint_block {
-            tx.put::<tables::BlockStateUpdates>(i, StateUpdates::default()).unwrap();
-        }
-        tx.put::<tables::MigrationCheckpoints>(
-            "migration/state-updates".to_string(),
-            MigrationCheckpoint { next_key: checkpoint_block },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-    }
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-    let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
-    let cp = tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
-    tx.commit().unwrap();
-
-    assert_eq!(count, num_blocks as usize);
-    assert!(cp.is_none(), "checkpoint should be removed after migration completes");
-}
-
-/// Receipt migration across multiple batches resumes correctly from a checkpoint that
-/// sits on a batch boundary.
-#[test]
-fn receipt_checkpoint_resumes_across_batches() {
-    let (db, _dir) = create_old_version_db();
-
-    let num_receipts = 1500u64;
-
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockHashes>(0u64, arbitrary!(Felt)).unwrap();
-        for i in 0..num_receipts {
-            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
-        }
-        tx.commit().unwrap();
-    }
-
-    // Simulate partial migration: first 1000 receipts already migrated (one full batch).
-    let checkpoint_key = 1000u64;
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..checkpoint_key {
-            tx.put::<tables::Receipts>(i, ReceiptEnvelope::from(sample_receipt(i))).unwrap();
-        }
-        tx.put::<tables::MigrationCheckpoints>(
-            "migration/receipt-envelope".to_string(),
-            MigrationCheckpoint { next_key: checkpoint_key },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-    }
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-    let count = tx.entries::<tables::Receipts>().unwrap();
-    let cp =
-        tx.get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string()).unwrap();
-    tx.commit().unwrap();
-
-    assert_eq!(count, num_receipts as usize);
-    assert!(cp.is_none(), "checkpoint should be removed after migration completes");
-
-    // Spot check values around the checkpoint boundary.
-    let tx = db.tx().unwrap();
-    for i in [checkpoint_key - 1, checkpoint_key, checkpoint_key + 1, num_receipts - 1] {
-        let envelope = tx.get::<tables::Receipts>(i).unwrap().unwrap();
-        assert_eq!(envelope.inner, sample_receipt(i), "receipt {i} mismatch");
-    }
-    tx.commit().unwrap();
-}
-
-/// Both migrations running concurrently with independent checkpoints: simulate partial
-/// progress on state updates only, verify receipt migration starts from scratch.
-#[test]
-fn independent_checkpoints_do_not_interfere() {
-    let (db, _dir) = create_old_version_db();
-
-    {
-        let tx = db.tx_mut().unwrap();
-        for i in 0..3u64 {
-            tx.put::<tables::BlockHashes>(i, arbitrary!(Felt)).unwrap();
-        }
-        for i in 0..5u64 {
-            tx.put::<LegacyReceipts>(i, sample_receipt(i)).unwrap();
-        }
-        tx.commit().unwrap();
-    }
-
-    // Only state-update migration has a checkpoint; receipt migration has none.
-    {
-        let tx = db.tx_mut().unwrap();
-        tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
-        tx.put::<tables::MigrationCheckpoints>(
-            "migration/state-updates".to_string(),
-            MigrationCheckpoint { next_key: 1 },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-    }
-
-    Migration::new_v9(&db).run().unwrap();
-
-    let tx = db.tx().unwrap();
-
-    // State updates: all 3 blocks migrated.
-    let su_count = tx.entries::<tables::BlockStateUpdates>().unwrap();
-    assert_eq!(su_count, 3);
-
-    // Receipts: all 5 migrated from scratch (no checkpoint existed).
-    let rc_count = tx.entries::<tables::Receipts>().unwrap();
-    assert_eq!(rc_count, 5);
-
-    for i in 0..5u64 {
-        let envelope = tx.get::<tables::Receipts>(i).unwrap().unwrap();
-        assert_eq!(envelope.inner, sample_receipt(i), "receipt {i} mismatch");
-    }
-
-    // No checkpoints remain.
-    let total = tx.entries::<tables::MigrationCheckpoints>().unwrap();
-    assert_eq!(total, 0);
-
-    tx.commit().unwrap();
 }

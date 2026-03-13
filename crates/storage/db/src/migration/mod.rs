@@ -234,3 +234,249 @@ impl std::fmt::Debug for Migration<'_> {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use katana_primitives::state::StateUpdates;
+
+    use super::*;
+    use crate::models::stage::MigrationCheckpoint;
+    use crate::version::create_db_version_file;
+
+    /// Minimal stage for testing pipeline logic in isolation.
+    ///
+    /// Writes `StateUpdates::default()` for each key in a fixed `0..=count-1` range to
+    /// `BlockStateUpdates`, so pipeline tests can verify batching, checkpointing, and
+    /// version management without depending on real migration stages.
+    struct MarkerStage {
+        id: &'static str,
+        count: u64,
+    }
+
+    impl MarkerStage {
+        fn new(count: u64) -> Self {
+            Self { id: "test/marker", count }
+        }
+
+        fn with_id(id: &'static str, count: u64) -> Self {
+            Self { id, count }
+        }
+    }
+
+    impl MigrationStage for MarkerStage {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+
+        fn threshold_version(&self) -> Version {
+            Version::new(9)
+        }
+
+        fn range(&self, _db: &Db) -> Result<Option<RangeInclusive<u64>>, MigrationError> {
+            if self.count == 0 {
+                Ok(None)
+            } else {
+                Ok(Some(0..=self.count - 1))
+            }
+        }
+
+        fn execute(&self, tx: &TxRW, range: RangeInclusive<u64>) -> Result<(), MigrationError> {
+            for key in range {
+                tx.put::<tables::BlockStateUpdates>(key, StateUpdates::default())?;
+            }
+            Ok(())
+        }
+    }
+
+    fn old_version_db() -> (Db, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        create_db_version_file(dir.path(), Version::new(8)).unwrap();
+        let db = Db::open_no_sync(dir.path()).unwrap();
+        (db, dir)
+    }
+
+    fn pipeline_with_marker(db: &Db, count: u64) -> Migration<'_> {
+        let mut m = Migration::new(db);
+        m.add_migration(Box::new(MarkerStage::new(count)));
+        m
+    }
+
+    #[test]
+    fn skips_stage_at_current_version() {
+        let db = Db::in_memory().unwrap();
+        assert!(!pipeline_with_marker(&db, 10).is_needed());
+    }
+
+    #[test]
+    fn runs_stage_below_threshold() {
+        let (db, _dir) = old_version_db();
+        assert!(pipeline_with_marker(&db, 10).is_needed());
+    }
+
+    #[test]
+    fn updates_version_file() {
+        let (db, dir) = old_version_db();
+        pipeline_with_marker(&db, 5).run().unwrap();
+        let v = version::get_db_version(dir.path()).unwrap();
+        assert_eq!(v, LATEST_DB_VERSION);
+    }
+
+    #[test]
+    fn not_needed_after_run() {
+        let (db, dir) = old_version_db();
+        pipeline_with_marker(&db, 5).run().unwrap();
+        drop(db);
+        let db2 = Db::open_no_sync(dir.path()).unwrap();
+        assert!(!pipeline_with_marker(&db2, 5).is_needed());
+    }
+
+    #[test]
+    fn empty_range_is_noop() {
+        let (db, _dir) = old_version_db();
+        pipeline_with_marker(&db, 0).run().unwrap();
+        let count = db.view(|tx| tx.entries::<tables::BlockStateUpdates>()).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn resumes_from_checkpoint() {
+        let (db, _dir) = old_version_db();
+        let total = 10u64;
+        let checkpoint_at = 5u64;
+
+        // Pre-populate entries 0..5 and set checkpoint.
+        {
+            let tx = db.tx_mut().unwrap();
+            for i in 0..checkpoint_at {
+                tx.put::<tables::BlockStateUpdates>(i, StateUpdates::default()).unwrap();
+            }
+            tx.put::<tables::MigrationCheckpoints>(
+                "test/marker".to_string(),
+                MigrationCheckpoint { next_key: checkpoint_at },
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        pipeline_with_marker(&db, total).run().unwrap();
+
+        let tx = db.tx().unwrap();
+        let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
+        let cp = tx.get::<tables::MigrationCheckpoints>("test/marker".to_string()).unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(count, total as usize);
+        assert!(cp.is_none(), "checkpoint should be removed after migration completes");
+    }
+
+    #[test]
+    fn cleans_up_stale_checkpoint() {
+        let (db, _dir) = old_version_db();
+
+        // Stage has 5 items, but checkpoint points past the end.
+        {
+            let tx = db.tx_mut().unwrap();
+            for i in 0..5u64 {
+                tx.put::<tables::BlockStateUpdates>(i, StateUpdates::default()).unwrap();
+            }
+            tx.put::<tables::MigrationCheckpoints>(
+                "test/marker".to_string(),
+                MigrationCheckpoint { next_key: 100 },
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        pipeline_with_marker(&db, 5).run().unwrap();
+
+        let cp = db
+            .view(|tx| tx.get::<tables::MigrationCheckpoints>("test/marker".to_string()))
+            .unwrap();
+        assert!(cp.is_none(), "stale checkpoint should be cleaned up");
+    }
+
+    #[test]
+    fn batches_large_range() {
+        let (db, _dir) = old_version_db();
+        let total = 1500u64; // exceeds BATCH_SIZE (1000)
+
+        pipeline_with_marker(&db, total).run().unwrap();
+
+        let count = db.view(|tx| tx.entries::<tables::BlockStateUpdates>()).unwrap();
+        assert_eq!(count, total as usize);
+    }
+
+    #[test]
+    fn checkpoint_resumes_across_batches() {
+        let (db, _dir) = old_version_db();
+        let total = 1500u64;
+        let checkpoint_at = 1000u64;
+
+        // Pre-populate first batch and set checkpoint at batch boundary.
+        {
+            let tx = db.tx_mut().unwrap();
+            for i in 0..checkpoint_at {
+                tx.put::<tables::BlockStateUpdates>(i, StateUpdates::default()).unwrap();
+            }
+            tx.put::<tables::MigrationCheckpoints>(
+                "test/marker".to_string(),
+                MigrationCheckpoint { next_key: checkpoint_at },
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        pipeline_with_marker(&db, total).run().unwrap();
+
+        let tx = db.tx().unwrap();
+        let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
+        let cp = tx.get::<tables::MigrationCheckpoints>("test/marker".to_string()).unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(count, total as usize);
+        assert!(cp.is_none(), "checkpoint should be removed after migration completes");
+    }
+
+    #[test]
+    fn no_checkpoint_after_full_migration() {
+        let (db, _dir) = old_version_db();
+        pipeline_with_marker(&db, 5).run().unwrap();
+
+        let total = db.view(|tx| tx.entries::<tables::MigrationCheckpoints>()).unwrap();
+        assert_eq!(total, 0, "no migration checkpoints should remain");
+    }
+
+    #[test]
+    fn independent_stage_checkpoints() {
+        let (db, _dir) = old_version_db();
+
+        // Pre-populate partial data and checkpoint for stage A only.
+        {
+            let tx = db.tx_mut().unwrap();
+            tx.put::<tables::BlockStateUpdates>(0, StateUpdates::default()).unwrap();
+            tx.put::<tables::MigrationCheckpoints>(
+                "test/stage-a".to_string(),
+                MigrationCheckpoint { next_key: 1 },
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let mut m = Migration::new(&db);
+        m.add_migration(Box::new(MarkerStage::with_id("test/stage-a", 3)));
+        m.add_migration(Box::new(MarkerStage::with_id("test/stage-b", 3)));
+        m.run().unwrap();
+
+        let tx = db.tx().unwrap();
+        let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
+        let cp_a = tx.get::<tables::MigrationCheckpoints>("test/stage-a".to_string()).unwrap();
+        let cp_b = tx.get::<tables::MigrationCheckpoints>("test/stage-b".to_string()).unwrap();
+        let total_checkpoints = tx.entries::<tables::MigrationCheckpoints>().unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(count, 3);
+        assert!(cp_a.is_none(), "stage A checkpoint should be removed");
+        assert!(cp_b.is_none(), "stage B checkpoint should be removed");
+        assert_eq!(total_checkpoints, 0, "no migration checkpoints should remain");
+    }
+}
