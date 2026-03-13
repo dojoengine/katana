@@ -195,7 +195,10 @@ impl<'a> Migration<'a> {
         let total_entries = db.view(|tx| tx.entries::<LegacyReceipts>())? as u64;
 
         if total_entries == 0 {
-            eprintln!("[Migrating] \x1b[1;33mReceipts         \x1b[0m table is empty, nothing to migrate.");
+            eprintln!(
+                "[Migrating] \x1b[1;33mReceipts         \x1b[0m table is empty, nothing to \
+                 migrate."
+            );
             return Ok(());
         }
 
