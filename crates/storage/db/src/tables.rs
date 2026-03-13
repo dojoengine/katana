@@ -10,7 +10,9 @@ use crate::models::block::StoredBlockBodyIndices;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractInfoChangeList, ContractNonceChange};
 use crate::models::list::BlockChangeList;
-use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint, StageId};
+use crate::models::stage::{
+    ExecutionCheckpoint, MigrationCheckpoint, MigrationStageId, PruningCheckpoint, StageId,
+};
 use crate::models::state::HistoricalStateRetention;
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
@@ -56,7 +58,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 36;
+pub const NUM_TABLES: usize = 37;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -192,7 +194,8 @@ define_tables_enum! {[
     (StoragesTrieHistory, TableType::DupSort),
     (ClassesTrieChangeSet, TableType::Table),
     (ContractsTrieChangeSet, TableType::Table),
-    (StoragesTrieChangeSet, TableType::Table)
+    (StoragesTrieChangeSet, TableType::Table),
+    (MigrationCheckpoints, TableType::Table)
 ]}
 
 tables! {
@@ -278,7 +281,10 @@ tables! {
     /// contract trie change set
     ContractsTrieChangeSet: (TrieDatabaseKey) => BlockChangeList,
     /// contract storage trie change set
-    StoragesTrieChangeSet: (TrieDatabaseKey) => BlockChangeList
+    StoragesTrieChangeSet: (TrieDatabaseKey) => BlockChangeList,
+
+    /// Migration task checkpoints for crash-recoverable migrations.
+    MigrationCheckpoints: (MigrationStageId) => MigrationCheckpoint
 }
 
 impl Trie for ClassesTrie {
@@ -340,6 +346,7 @@ mod tests {
         assert_eq!(Tables::ALL[33].name(), ClassesTrieChangeSet::NAME);
         assert_eq!(Tables::ALL[34].name(), ContractsTrieChangeSet::NAME);
         assert_eq!(Tables::ALL[35].name(), StoragesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[36].name(), MigrationCheckpoints::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockStateUpdates.table_type(), TableType::Table);
@@ -377,6 +384,7 @@ mod tests {
         assert_eq!(Tables::ClassesTrieChangeSet.table_type(), TableType::Table);
         assert_eq!(Tables::ContractsTrieChangeSet.table_type(), TableType::Table);
         assert_eq!(Tables::StoragesTrieChangeSet.table_type(), TableType::Table);
+        assert_eq!(Tables::MigrationCheckpoints.table_type(), TableType::Table);
     }
 
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};

@@ -26,7 +26,7 @@ use crate::SequencerNodeArgs;
 
 pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
     let db = Db::new(path).context("failed to open database")?;
-    let require_migration = katana_db::migration::Migration::new(&db).is_needed();
+    let require_migration = katana_db::migration::Migration::new_v9(&db).is_needed();
 
     if require_migration {
         let current_version = db.version();
