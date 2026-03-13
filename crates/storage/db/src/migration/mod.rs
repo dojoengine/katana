@@ -33,20 +33,64 @@ pub enum MigrationError {
 
 const BATCH_SIZE: u64 = 1000;
 
-/// A migration stage that can be executed against the database.
+/// A single, self-contained migration step executed by [`Migration`].
+///
+/// The pipeline calls [`is_needed`](MigrationStage::is_needed) for every registered stage and,
+/// for those that return `true`, invokes [`execute`](MigrationStage::execute) in registration
+/// order. After **all** stages complete the pipeline bumps the on-disk version file to
+/// [`LATEST_DB_VERSION`].
+///
+/// # Implementing a new stage
+///
+/// 1. Create a unit struct (e.g. `pub(crate) struct MyStage;`).
+/// 2. Implement the three required methods below.
+/// 3. Register the stage in [`Migration::new`] via `m.add_stage(Box::new(MyStage))`.
+///
+/// ## Checkpointing
+///
+/// Long-running stages should persist progress to the
+/// [`MigrationCheckpoints`](crate::tables::MigrationCheckpoints) table so that a crash-interrupted
+/// migration can resume from the last committed batch instead of restarting from scratch.
+/// On the final batch, the checkpoint entry **must** be deleted so it does not persist after a
+/// successful migration.
+///
+/// See [`StateUpdatesStage`] and [`ReceiptEnvelopeStage`] for reference implementations.
 pub trait MigrationStage {
-    /// A human-readable identifier for this stage (used in log messages).
+    /// A unique, human-readable identifier for this stage.
+    ///
+    /// Used as the key in [`MigrationCheckpoints`](crate::tables::MigrationCheckpoints) and in
+    /// progress-bar labels printed to stderr. Must be a `&'static str` constant — by convention,
+    /// use the form `"migration/<short-name>"` (e.g. `"migration/state-updates"`).
     fn id(&self) -> &'static str;
 
-    /// The database version below which this stage needs to run.
+    /// The minimum database version that **already contains** this stage's data.
+    ///
+    /// The stage is skipped when `db.version() >= threshold_version()`. Return the version in
+    /// which the schema change (or data format change) that this stage addresses was first
+    /// introduced. For example, if the `BlockStateUpdates` table was added in version 9, return
+    /// `Version::new(9)` so that databases already at version 9 or later are not migrated.
     fn threshold_version(&self) -> Version;
 
-    /// Returns `true` if this stage needs to be executed for the given database.
+    /// Returns `true` if this stage needs to run for `db`.
+    ///
+    /// The default implementation compares `db.version()` against
+    /// [`threshold_version`](MigrationStage::threshold_version). Override only if additional
+    /// conditions beyond a simple version check are required.
     fn is_needed(&self, db: &Db) -> bool {
         db.version() < self.threshold_version()
     }
 
-    /// Executes the migration stage against the database.
+    /// Performs the actual migration work.
+    ///
+    /// Implementations should:
+    ///
+    /// - Process rows in batches of [`BATCH_SIZE`] to bound memory usage and allow
+    ///   crash-resumable checkpointing.
+    /// - Write a [`MigrationCheckpoint`](crate::models::stage::MigrationCheckpoint) at the end of
+    ///   every non-final batch (within the same write transaction) and delete it on the final
+    ///   batch.
+    /// - Display progress via an [`indicatif::ProgressBar`] written to stderr.
+    /// - Return `Ok(())` when there is nothing to migrate (e.g. empty table, already up-to-date).
     fn execute(&self, db: &Db) -> Result<(), MigrationError>;
 }
 
