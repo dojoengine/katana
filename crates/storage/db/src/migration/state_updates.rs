@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use indicatif::{ProgressBar, ProgressStyle};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::contract::{StorageKey, StorageValue};
 use katana_primitives::state::StateUpdates;
@@ -8,9 +7,9 @@ use katana_primitives::state::StateUpdates;
 use super::{MigrationError, MigrationStage, BATCH_SIZE};
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::error::DatabaseError;
+use crate::mdbx::tx::TxRW;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractClassChangeType};
-use crate::models::stage::MigrationCheckpoint;
 use crate::models::storage::ContractStorageEntry;
 use crate::version::Version;
 use crate::{tables, Db};
@@ -21,103 +20,45 @@ use crate::{tables, Db};
 /// The schema changes as well as the version bump were introduced in this PR: <https://github.com/dojoengine/katana/pull/470>
 const STATE_UPDATES_TABLE_VERSION: Version = Version::new(9);
 
-/// Stage ID used to checkpoint state update backfill progress in the
-/// [`MigrationCheckpoints`](tables::MigrationCheckpoints) table.
-const STATE_UPDATE_MIGRATION_STAGE: &str = "migration/state-updates";
-
 pub(crate) struct StateUpdatesStage;
 
 impl MigrationStage for StateUpdatesStage {
     fn id(&self) -> &'static str {
-        STATE_UPDATE_MIGRATION_STAGE
+        "migration/state-updates"
     }
 
     fn threshold_version(&self) -> Version {
         STATE_UPDATES_TABLE_VERSION
     }
 
-    fn execute(&self, db: &Db) -> Result<(), MigrationError> {
-        // Determine latest block number from BlockHashes cursor
-        let latest_block_number = {
-            let last = db.view(|tx| tx.cursor::<tables::BlockHashes>()?.last())?;
+    fn total_items(&self, db: &Db) -> Result<u64, MigrationError> {
+        let last = db.view(|tx| tx.cursor::<tables::BlockHashes>()?.last())?;
+        match last {
+            Some((block_num, _)) => Ok(block_num + 1),
+            None => Ok(0),
+        }
+    }
 
-            match last {
-                Some((block_num, _)) => block_num,
-                None => return Ok(()), // no blocks, nothing to migrate
-            }
+    fn process_batch(&self, tx: &TxRW, start_key: u64) -> Result<Option<u64>, MigrationError> {
+        let latest_block_number = match tx.cursor::<tables::BlockHashes>()?.last()? {
+            Some((n, _)) => n,
+            None => return Ok(None),
         };
 
-        let total_blocks = latest_block_number + 1;
+        let batch_end = std::cmp::min(start_key + BATCH_SIZE - 1, latest_block_number);
 
-        // Resume from the last checkpoint if one exists.
-        let checkpoint = db.view(|tx| {
-            tx.get::<tables::MigrationCheckpoints>(STATE_UPDATE_MIGRATION_STAGE.to_string())
-        })?;
-
-        let start_block = checkpoint.map(|cp| cp.next_key).unwrap_or(0);
-
-        if start_block >= total_blocks {
-            eprintln!("[Migrating] \x1b[1;33mBlockStateUpdates\x1b[0m already up to date.");
-            // Clean up the checkpoint.
-            db.update(|tx| {
-                tx.delete::<tables::MigrationCheckpoints>(
-                    STATE_UPDATE_MIGRATION_STAGE.to_string(),
-                    None,
-                )?;
-                Ok(())
+        for block in start_key..=batch_end {
+            let state_updates = reconstruct_state_update(tx, block).map_err(|source| {
+                MigrationError::FailedToReconstructStateUpdate { block, source }
             })?;
-            return Ok(());
+            tx.put::<tables::BlockStateUpdates>(block, state_updates)?;
         }
 
-        let blocks_to_migrate = total_blocks - start_block;
-
-        let pb = ProgressBar::new(blocks_to_migrate);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "[Migrating] \x1b[1;33mBlockStateUpdates\x1b[0m {bar:40.cyan/blue} \
-                     {pos}/{len} blocks   [{elapsed_precise}] {per_sec}",
-                )
-                .expect("valid format"),
-        );
-
-        // Process in batches
-        let mut batch_start = start_block;
-        while batch_start <= latest_block_number {
-            let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, latest_block_number);
-            let next_block = batch_end + 1;
-            let is_last_batch = next_block > latest_block_number;
-
-            let tx = db.tx_mut()?;
-            for block in batch_start..=batch_end {
-                let state_updates = reconstruct_state_update(&tx, block).map_err(|source| {
-                    MigrationError::FailedToReconstructStateUpdate { block, source }
-                })?;
-                tx.put::<tables::BlockStateUpdates>(block, state_updates)?;
-            }
-
-            if !is_last_batch {
-                tx.put::<tables::MigrationCheckpoints>(
-                    STATE_UPDATE_MIGRATION_STAGE.to_string(),
-                    MigrationCheckpoint { next_key: next_block },
-                )?;
-            } else {
-                tx.delete::<tables::MigrationCheckpoints>(
-                    STATE_UPDATE_MIGRATION_STAGE.to_string(),
-                    None,
-                )?;
-            }
-
-            tx.commit()?;
-
-            pb.set_position(batch_end - start_block + 1);
-
-            batch_start = next_block;
+        if batch_end >= latest_block_number {
+            Ok(None)
+        } else {
+            Ok(Some(batch_end + 1))
         }
-
-        pb.finish_with_message(format!("[Migrating] Migrated {blocks_to_migrate} blocks"));
-
-        Ok(())
     }
 }
 
