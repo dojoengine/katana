@@ -207,9 +207,7 @@ fn migration_resumes_from_last_committed_batch() {
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
     // Checkpoint should have been cleaned up.
-    let cp = tx
-        .get::<tables::MigrationCheckpoints>("migration/state-updates".to_string())
-        .unwrap();
+    let cp = tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(count, 3);
@@ -534,9 +532,8 @@ fn receipt_migration_resumes_from_checkpoint() {
     }
 
     // Checkpoint should have been cleaned up.
-    let cp = tx
-        .get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string())
-        .unwrap();
+    let cp =
+        tx.get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string()).unwrap();
     assert!(cp.is_none(), "checkpoint should be removed after migration completes");
 
     tx.commit().unwrap();
@@ -566,12 +563,10 @@ fn full_migration_leaves_no_checkpoint_behind() {
     Migration::new(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
-    let su_cp = tx
-        .get::<tables::MigrationCheckpoints>("migration/state-updates".to_string())
-        .unwrap();
-    let rc_cp = tx
-        .get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string())
-        .unwrap();
+    let su_cp =
+        tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
+    let rc_cp =
+        tx.get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string()).unwrap();
     let total_checkpoints = tx.entries::<tables::MigrationCheckpoints>().unwrap();
     tx.commit().unwrap();
 
@@ -612,9 +607,7 @@ fn stale_state_update_checkpoint_is_cleaned_up() {
     Migration::new(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
-    let cp = tx
-        .get::<tables::MigrationCheckpoints>("migration/state-updates".to_string())
-        .unwrap();
+    let cp = tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
     tx.commit().unwrap();
 
     assert!(cp.is_none(), "stale checkpoint should be cleaned up");
@@ -651,9 +644,8 @@ fn stale_receipt_checkpoint_is_cleaned_up() {
     Migration::new(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
-    let cp = tx
-        .get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string())
-        .unwrap();
+    let cp =
+        tx.get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string()).unwrap();
     tx.commit().unwrap();
 
     assert!(cp.is_none(), "stale receipt checkpoint should be cleaned up");
@@ -695,9 +687,7 @@ fn state_update_checkpoint_resumes_mid_migration() {
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::BlockStateUpdates>().unwrap();
-    let cp = tx
-        .get::<tables::MigrationCheckpoints>("migration/state-updates".to_string())
-        .unwrap();
+    let cp = tx.get::<tables::MigrationCheckpoints>("migration/state-updates".to_string()).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(count, num_blocks as usize);
@@ -740,9 +730,8 @@ fn receipt_checkpoint_resumes_across_batches() {
 
     let tx = db.tx().unwrap();
     let count = tx.entries::<tables::Receipts>().unwrap();
-    let cp = tx
-        .get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string())
-        .unwrap();
+    let cp =
+        tx.get::<tables::MigrationCheckpoints>("migration/receipt-envelope".to_string()).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(count, num_receipts as usize);
