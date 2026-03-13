@@ -3,13 +3,16 @@ use std::collections::BTreeMap;
 use indicatif::{ProgressBar, ProgressStyle};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::contract::{StorageKey, StorageValue};
+use katana_primitives::receipt::Receipt;
 use katana_primitives::state::StateUpdates;
+use katana_primitives::transaction::TxNumber;
 
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::error::DatabaseError;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractClassChangeType};
 use crate::models::storage::ContractStorageEntry;
+use crate::models::ReceiptEnvelope;
 use crate::version::{self, Version, LATEST_DB_VERSION};
 use crate::{tables, Db};
 
@@ -43,6 +46,10 @@ const BATCH_SIZE: u64 = 1000;
 /// The schema changes as well as the version bump were introduced in this PR: <https://github.com/dojoengine/katana/pull/470>
 const STATE_UPDATES_TABLE_VERSION: Version = Version::new(9);
 
+/// The database version below which receipts are stored as raw postcard bytes (legacy
+/// `Receipt` codec) and need to be re-encoded into the [`ReceiptEnvelope`] format.
+const RECEIPT_ENVELOPE_VERSION: Version = Version::new(9);
+
 /// Runs all applicable database migrations based on the on-disk version at open time.
 ///
 /// Each migration path has its own version threshold. Only migrations whose version
@@ -59,15 +66,19 @@ impl<'a> Migration<'a> {
 
     /// Returns `true` if any migration path needs to be run.
     pub fn is_needed(&self) -> bool {
-        self.needs_state_update_backfill()
+        self.needs_state_update_backfill() || self.needs_receipt_envelope_backfill()
     }
 
-    /// Runs all pending migrations in order.
+    /// Runs the migration process.
     pub fn run(&self) -> Result<(), MigrationError> {
         eprintln!("[Migrating] Starting migration");
 
         if self.needs_state_update_backfill() {
             self.backfill_state_updates()?;
+        }
+
+        if self.needs_receipt_envelope_backfill() {
+            self.backfill_receipt_envelopes()?;
         }
 
         // Update the on-disk version file to the latest version.
@@ -85,6 +96,13 @@ impl<'a> Migration<'a> {
     /// index tables.
     pub(crate) fn needs_state_update_backfill(&self) -> bool {
         self.db.version() < STATE_UPDATES_TABLE_VERSION
+    }
+
+    /// Databases opened with a version below [`RECEIPT_ENVELOPE_VERSION`] may contain
+    /// receipts stored as raw postcard bytes (the legacy `Receipt` codec). These need to be
+    /// re-encoded into the [`ReceiptEnvelope`] format.
+    pub(crate) fn needs_receipt_envelope_backfill(&self) -> bool {
+        self.db.version() < RECEIPT_ENVELOPE_VERSION
     }
 
     /// Backfills the `BlockStateUpdates` table by reconstructing state updates from the legacy
@@ -149,6 +167,95 @@ impl<'a> Migration<'a> {
         }
 
         pb.finish_with_message(format!("[Migrating] Migrated {blocks_to_migrate} blocks"));
+
+        Ok(())
+    }
+
+    /// Re-encodes every row in the `Receipts` table from legacy raw-postcard bytes into the
+    /// [`ReceiptEnvelope`] format.
+    ///
+    /// Reads rows through [`LegacyReceipts`] (the old `Receipt` postcard codec) and writes
+    /// them back through [`tables::Receipts`] (the new `ReceiptEnvelope` codec).
+    ///
+    /// Processes entries in batches for crash recovery.
+    pub(crate) fn backfill_receipt_envelopes(&self) -> Result<(), MigrationError> {
+        /// Shadow table definition that reads from the physical `Receipts` table using the legacy
+        /// `Receipt` (raw postcard) codec instead of `ReceiptEnvelope`.
+        #[derive(Debug)]
+        struct LegacyReceipts;
+
+        impl tables::Table for LegacyReceipts {
+            const NAME: &'static str = tables::Receipts::NAME;
+            type Key = TxNumber;
+            type Value = Receipt;
+        }
+
+        let db = self.db;
+
+        let total_entries = db.view(|tx| tx.entries::<LegacyReceipts>())? as u64;
+
+        if total_entries == 0 {
+            eprintln!("[Migrating] \x1b[1;33mReceipts\x1b[0m table is empty, nothing to migrate.");
+            return Ok(());
+        }
+
+        let pb = ProgressBar::new(total_entries);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "[Migrating] \x1b[1;33mReceipts\x1b[0m {bar:40.cyan/blue} {pos}/{len} \
+                     receipts [{elapsed_precise}] {per_sec}",
+                )
+                .expect("valid format"),
+        );
+
+        let mut migrated: u64 = 0;
+        let mut batch_start_key: Option<u64> = Some(0);
+
+        while let Some(start_key) = batch_start_key {
+            // Phase 1: Read a batch using the legacy Receipt codec.
+            let batch: Vec<(u64, Receipt)> = {
+                let tx = db.tx()?;
+                let mut cursor = tx.cursor::<LegacyReceipts>()?;
+                let walker = cursor.walk(Some(start_key))?;
+
+                let mut entries = Vec::new();
+                for result in walker {
+                    let (tx_number, receipt) = result?;
+                    entries.push((tx_number, receipt));
+                    if entries.len() as u64 >= BATCH_SIZE {
+                        break;
+                    }
+                }
+
+                tx.commit()?;
+                entries
+            };
+
+            let current_batch_size = batch.len() as u64;
+            let is_last_batch = current_batch_size < BATCH_SIZE;
+
+            if is_last_batch {
+                batch_start_key = None;
+            } else if let Some((last_key, _)) = batch.last() {
+                batch_start_key = Some(last_key + 1);
+            } else {
+                batch_start_key = None;
+            }
+
+            // Phase 2: Write back as ReceiptEnvelope.
+            db.update(|tx| {
+                for (tx_number, receipt) in batch {
+                    tx.put::<tables::Receipts>(tx_number, ReceiptEnvelope::from(receipt))?;
+                }
+                Ok(())
+            })?;
+
+            migrated += current_batch_size;
+            pb.set_position(migrated);
+        }
+
+        pb.finish_with_message(format!("[Migrating] Re-encoded {migrated} receipts"));
 
         Ok(())
     }

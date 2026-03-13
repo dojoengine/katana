@@ -51,14 +51,12 @@ mod tests {
     }
 
     #[test]
-    fn receipt_envelope_decompresses_legacy_postcard_bytes() {
+    fn receipt_envelope_rejects_legacy_postcard_bytes() {
         let receipt = sample_receipt();
         let legacy = postcard::to_stdvec(&receipt).expect("failed to serialize legacy receipt");
 
-        let decompressed =
-            ReceiptEnvelope::decompress(legacy).expect("failed to read legacy receipt");
-
-        assert_eq!(decompressed, ReceiptEnvelope::from(receipt));
+        ReceiptEnvelope::decompress(legacy)
+            .expect_err("legacy postcard bytes must not be accepted by envelope codec");
     }
 
     #[test]
