@@ -164,10 +164,7 @@ impl FullNodeArgs {
     }
 
     fn db_config(&self) -> DbConfig {
-        DbConfig {
-            dir: self.db.dir.clone(),
-            migrate: self.db.migrate,
-        }
+        DbConfig { dir: self.db.dir.clone(), migrate: self.db.migrate }
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {

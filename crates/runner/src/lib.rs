@@ -101,7 +101,6 @@ impl KatanaRunnerConfig {
         self.db_dir = Some(PathBuf::from(db_dir));
         self
     }
-
 }
 
 impl KatanaRunner {

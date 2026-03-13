@@ -2,12 +2,15 @@ use std::collections::BTreeMap;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use katana_primitives::block::BlockNumber;
+use katana_primitives::contract::{StorageKey, StorageValue};
 use katana_primitives::state::StateUpdates;
 use tracing::info;
 
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::error::DatabaseError;
-use crate::models::contract::ContractClassChangeType;
+use crate::models::class::MigratedCompiledClassHash;
+use crate::models::contract::{ContractClassChange, ContractClassChangeType};
+use crate::models::storage::ContractStorageEntry;
 use crate::version::Version;
 use crate::{tables, Db};
 
@@ -65,10 +68,11 @@ impl<'a> Migration<'a> {
         Ok(())
     }
 
-    /// The `BlockStateUpdates` table was introduced in version 9. Databases opened with
-    /// a version below this need the table backfilled from the legacy index tables.
+    /// The [`BlockStateUpdates`](tables::BlockStateUpdates) table was introduced in version 9.
+    /// Databases opened with a version below this need the table backfilled from the legacy
+    /// index tables.
     pub(crate) fn needs_state_update_backfill(&self) -> bool {
-        self.db.opened_version() < STATE_UPDATES_TABLE_VERSION
+        self.db.version() < STATE_UPDATES_TABLE_VERSION
     }
 
     /// Backfills the `BlockStateUpdates` table by reconstructing state updates from the legacy
@@ -97,18 +101,13 @@ impl<'a> Migration<'a> {
         let total_blocks = latest_block_number + 1;
 
         if start_block >= total_blocks {
-            info!(target: "db::migration", "BlockStateUpdates already up to date.");
+            info!("BlockStateUpdates already up to date.");
             return Ok(());
         }
 
         let blocks_to_migrate = total_blocks - start_block;
 
-        info!(
-            target: "db::migration",
-            start_block,
-            latest_block_number,
-            "Migrating BlockStateUpdates table..."
-        );
+        info!(start_block, latest_block_number, "Migrating BlockStateUpdates table...");
 
         let pb = ProgressBar::new(blocks_to_migrate);
         pb.set_style(
@@ -127,15 +126,11 @@ impl<'a> Migration<'a> {
             let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, latest_block_number);
 
             let tx = db.tx_mut()?;
-            for block_number in batch_start..=batch_end {
-                let state_updates =
-                    reconstruct_state_update(&tx, block_number).map_err(|source| {
-                        MigrationError::FailedToReconstructStateUpdate {
-                            block: block_number,
-                            source,
-                        }
-                    })?;
-                tx.put::<tables::BlockStateUpdates>(block_number, state_updates)?;
+            for block in batch_start..=batch_end {
+                let state_updates = reconstruct_state_update(&tx, block).map_err(|source| {
+                    MigrationError::FailedToReconstructStateUpdate { block, source }
+                })?;
+                tx.put::<tables::BlockStateUpdates>(block, state_updates)?;
             }
             tx.commit()?;
 
@@ -146,11 +141,7 @@ impl<'a> Migration<'a> {
 
         pb.finish_with_message(format!("Migrated {blocks_to_migrate} blocks"));
 
-        info!(
-            target: "db::migration",
-            total_blocks = blocks_to_migrate,
-            "BlockStateUpdates migration complete."
-        );
+        info!(total_blocks = blocks_to_migrate, "BlockStateUpdates migration complete.");
 
         Ok(())
     }
@@ -175,7 +166,8 @@ where
     Ok(entries)
 }
 
-/// Reconstructs a `StateUpdates` for a single block from the legacy index tables.
+/// Reconstructs a [`StateUpdates`] for a single block from the legacy index tables (database
+/// version < 9).
 fn reconstruct_state_update<Tx: DbTx>(
     tx: &Tx,
     block_number: BlockNumber,
@@ -189,16 +181,14 @@ fn reconstruct_state_update<Tx: DbTx>(
 
     // --- Class changes (deployed contracts + replaced classes) ---
     for class_change in dup_entries::<Tx, tables::ClassChangeHistory>(tx, block_number)? {
-        match class_change.r#type {
+        let ContractClassChange { r#type, contract_address, class_hash } = class_change;
+
+        match r#type {
             ContractClassChangeType::Deployed => {
-                state_updates
-                    .deployed_contracts
-                    .insert(class_change.contract_address, class_change.class_hash);
+                state_updates.deployed_contracts.insert(contract_address, class_hash);
             }
             ContractClassChangeType::Replaced => {
-                state_updates
-                    .replaced_classes
-                    .insert(class_change.contract_address, class_change.class_hash);
+                state_updates.replaced_classes.insert(contract_address, class_hash);
             }
         }
     }
@@ -216,19 +206,16 @@ fn reconstruct_state_update<Tx: DbTx>(
 
     // --- Migrated compiled class hashes ---
     for migrated in dup_entries::<Tx, tables::MigratedCompiledClassHashes>(tx, block_number)? {
-        state_updates
-            .migrated_compiled_classes
-            .insert(migrated.class_hash, migrated.compiled_class_hash);
+        let MigratedCompiledClassHash { class_hash, compiled_class_hash } = migrated;
+        state_updates.migrated_compiled_classes.insert(class_hash, compiled_class_hash);
     }
 
     // --- Storage updates ---
     {
-        let mut storage_map: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+        let mut storage_map: BTreeMap<_, BTreeMap<StorageKey, StorageValue>> = BTreeMap::new();
         for entry in dup_entries::<Tx, tables::StorageChangeHistory>(tx, block_number)? {
-            storage_map
-                .entry(entry.key.contract_address)
-                .or_default()
-                .insert(entry.key.key, entry.value);
+            let ContractStorageEntry { key, value } = entry;
+            storage_map.entry(key.contract_address).or_default().insert(key.key, value);
         }
         state_updates.storage_updates = storage_map;
     }

@@ -23,34 +23,20 @@ pub mod version;
 use error::DatabaseError;
 use libmdbx::SyncMode;
 use mdbx::{DbEnv, DbEnvBuilder};
-use tracing::{info, warn};
+use tracing::warn;
 use utils::is_database_empty;
 use version::{
-    create_db_version_file, ensure_version_is_openable, get_db_version, write_db_version_file,
-    DatabaseVersionError, Version, LATEST_DB_VERSION,
+    create_db_version_file, ensure_version_is_openable, get_db_version, DatabaseVersionError,
+    Version, LATEST_DB_VERSION,
 };
 
 const GIGABYTE: usize = 1024 * 1024 * 1024;
 const TERABYTE: usize = GIGABYTE * 1024;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum AccessMode {
-    ReadOnly,
-    Writable,
-}
-
-impl AccessMode {
-    const fn is_read_only(self) -> bool {
-        matches!(self, Self::ReadOnly)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Db {
     env: DbEnv,
     version: Version,
-    /// The on-disk version at the time the database was opened, before any compat-mode bump.
-    opened_version: Version,
 }
 
 impl Db {
@@ -60,14 +46,12 @@ impl Db {
     /// This will create the default tables, if necessary.
     pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        let opened_version = Self::resolve_or_initialize_version(path)?;
+        let version = Self::resolve_or_initialize_version(path)?;
 
         let env = DbEnvBuilder::new().write().build(path)?;
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, opened_version, AccessMode::Writable)?;
-
-        Ok(Self { env, version, opened_version })
+        Ok(Self { env, version })
     }
 
     /// Similar to [`init_db`] but will initialize a temporary database.
@@ -84,7 +68,7 @@ impl Db {
         let dir = tempfile::Builder::new().disable_cleanup(true).tempdir()?;
         let path = dir.path();
 
-        let opened_version = Self::resolve_or_initialize_version(path)?;
+        let version = Self::resolve_or_initialize_version(path)?;
 
         let env = mdbx::DbEnvBuilder::new()
             .max_size(GIGABYTE * 10)  // 10gb
@@ -94,9 +78,7 @@ impl Db {
 
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, opened_version, AccessMode::Writable)?;
-
-        Ok(Self { env, version, opened_version })
+        Ok(Self { env, version })
     }
 
     /// Opens an existing database at the given `path` with [`SyncMode::UtterlyNoSync`] for
@@ -106,7 +88,7 @@ impl Db {
     /// loaded quickly without durability guarantees.
     pub fn open_no_sync<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        let opened_version = Self::resolve_existing_version(path)?;
+        let version = Self::resolve_existing_version(path)?;
 
         let env = mdbx::DbEnvBuilder::new()
             .max_size(GIGABYTE * 10)
@@ -117,42 +99,33 @@ impl Db {
 
         env.create_default_tables()?;
 
-        let version = Self::finalize_open_version(path, opened_version, AccessMode::Writable)?;
-
-        Ok(Self { env, version, opened_version })
+        Ok(Self { env, version })
     }
 
     // Open the database at the given `path` in read-write mode.
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        Self::open_inner(path, AccessMode::Writable)
+        let path = path.as_ref();
+        Self::open_inner(path, false).with_context(|| {
+            format!("Opening database in read-write mode at path {}", path.display())
+        })
     }
 
     // Open the database at the given `path` in read-only mode.
     pub fn open_ro<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        Self::open_inner(path, AccessMode::ReadOnly)
+        let path = path.as_ref();
+        Self::open_inner(path, true).with_context(|| {
+            format!("Opening database in read-only mode at path {}", path.display())
+        })
     }
 
-    fn open_inner<P: AsRef<Path>>(
-        path: P,
-        access_mode: AccessMode,
-    ) -> anyhow::Result<Self> {
+    fn open_inner<P: AsRef<Path>>(path: P, read_only: bool) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        let opened_version = Self::resolve_existing_version(path)?;
+        let version = Self::resolve_existing_version(path)?;
+
         let builder = DbEnvBuilder::new();
+        let env = if read_only { builder.build(path)? } else { builder.write().build(path)? };
 
-        let env = if access_mode.is_read_only() {
-            builder.build(path).with_context(|| {
-                format!("Opening database in read-only mode at path {}", path.display())
-            })?
-        } else {
-            builder.write().build(path).with_context(|| {
-                format!("Opening database in read-write mode at path {}", path.display())
-            })?
-        };
-
-        let version = Self::finalize_open_version(path, opened_version, access_mode)?;
-
-        Ok(Self { env, version, opened_version })
+        Ok(Self { env, version })
     }
 
     pub fn require_migration(&self) -> bool {
@@ -162,12 +135,6 @@ impl Db {
     /// Returns the version of the database.
     pub fn version(&self) -> Version {
         self.version
-    }
-
-    /// Returns the on-disk version at the time the database was first opened,
-    /// before any compat-mode bump.
-    pub fn opened_version(&self) -> Version {
-        self.opened_version
     }
 
     /// Returns the path to the directory where the database is located.
@@ -210,42 +177,8 @@ impl Db {
     fn resolve_existing_version(path: &Path) -> anyhow::Result<Version> {
         let version = get_db_version(path)
             .with_context(|| format!("Getting database version at path {}", path.display()))?;
-        ensure_version_is_openable(version).map_err(anyhow::Error::from)?;
+        ensure_version_is_openable(version)?;
         Ok(version)
-    }
-
-    fn finalize_open_version(
-        path: &Path,
-        version: Version,
-        access_mode: AccessMode,
-    ) -> anyhow::Result<Version> {
-        if version >= LATEST_DB_VERSION {
-            return Ok(version);
-        }
-
-        if access_mode.is_read_only() {
-            info!(
-                target: "db",
-                path = %path.display(),
-                stored_version = %version,
-                latest_version = %LATEST_DB_VERSION,
-                "Opening database in compatibility mode."
-            );
-            Ok(version)
-        } else {
-            let previous_version = version;
-            let version = write_db_version_file(path, LATEST_DB_VERSION).with_context(|| {
-                format!("Updating database version file at path {}", path.display())
-            })?;
-            warn!(
-                target: "db",
-                path = %path.display(),
-                previous_version = %previous_version,
-                latest_version = %LATEST_DB_VERSION,
-                "Opened an older database in compatibility mode for writes. Older Katana binaries may no longer read this database."
-            );
-            Ok(version)
-        }
     }
 }
 

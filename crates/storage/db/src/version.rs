@@ -19,19 +19,18 @@ const DB_VERSION_FILE_NAME: &str = "db.version";
 pub enum DatabaseVersionError {
     #[error("Database version file not found.")]
     FileNotFound,
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
     #[error("Malformed database version file: {0}")]
     MalformedContent(#[from] TryFromSliceError),
+
     #[error(
-        "Database version {found} is not supported. Latest supported version is \
-         {latest}, minimum openable version is {minimum_openable}."
+        "Database version {found} is not supported. Latest supported version is {latest}, minimum \
+         openable version is {minimum_openable}."
     )]
-    IncompatibleVersion {
-        found: Version,
-        latest: Version,
-        minimum_openable: Version,
-    },
+    IncompatibleVersion { found: Version, latest: Version, minimum_openable: Version },
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -51,6 +50,36 @@ impl Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
+}
+
+/// Returns `true` if the given database version is openable.
+pub fn is_version_openable(version: Version) -> bool {
+    version >= MIN_OPENABLE_DB_VERSION && version <= LATEST_DB_VERSION
+}
+
+/// Validates that the requested database version is openable.
+pub fn ensure_version_is_openable(version: Version) -> Result<(), DatabaseVersionError> {
+    if is_version_openable(version) {
+        Ok(())
+    } else {
+        Err(DatabaseVersionError::IncompatibleVersion {
+            found: version,
+            latest: LATEST_DB_VERSION,
+            minimum_openable: MIN_OPENABLE_DB_VERSION,
+        })
+    }
+}
+
+/// Get the version of the database at the given `path`.
+pub fn get_db_version(path: impl AsRef<Path>) -> Result<Version, DatabaseVersionError> {
+    let path = version_file_path(path.as_ref());
+
+    let mut file = fs::File::open(path).map_err(|_| DatabaseVersionError::FileNotFound)?;
+    let mut buf: Vec<u8> = Vec::new();
+    file.read_to_end(&mut buf)?;
+
+    let bytes = <[u8; mem::size_of::<u32>()]>::try_from(buf.as_slice())?;
+    Ok(Version(u32::from_be_bytes(bytes)))
 }
 
 /// Insert a version file at the given `path` with the specified `version`. If the `path` is a
@@ -94,36 +123,6 @@ pub(super) fn create_db_version_file(
     write_db_version_file(path, version)
 }
 
-/// Returns `true` if the given database version is openable.
-pub fn is_version_openable(version: Version) -> bool {
-    version >= MIN_OPENABLE_DB_VERSION && version <= LATEST_DB_VERSION
-}
-
-/// Validates that the requested database version is openable.
-pub fn ensure_version_is_openable(version: Version) -> Result<(), DatabaseVersionError> {
-    if is_version_openable(version) {
-        Ok(())
-    } else {
-        Err(DatabaseVersionError::IncompatibleVersion {
-            found: version,
-            latest: LATEST_DB_VERSION,
-            minimum_openable: MIN_OPENABLE_DB_VERSION,
-        })
-    }
-}
-
-/// Get the version of the database at the given `path`.
-pub fn get_db_version(path: impl AsRef<Path>) -> Result<Version, DatabaseVersionError> {
-    let path = version_file_path(path.as_ref());
-
-    let mut file = fs::File::open(path).map_err(|_| DatabaseVersionError::FileNotFound)?;
-    let mut buf: Vec<u8> = Vec::new();
-    file.read_to_end(&mut buf)?;
-
-    let bytes = <[u8; mem::size_of::<u32>()]>::try_from(buf.as_slice())?;
-    Ok(Version(u32::from_be_bytes(bytes)))
-}
-
 pub(super) fn default_version_file_path(path: &Path) -> PathBuf {
     path.join(DB_VERSION_FILE_NAME)
 }
@@ -158,9 +157,7 @@ fn set_permissions_readonly(permissions: &mut fs::Permissions) {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ensure_version_is_openable, Version, LATEST_DB_VERSION, MIN_OPENABLE_DB_VERSION,
-    };
+    use super::{ensure_version_is_openable, Version, LATEST_DB_VERSION, MIN_OPENABLE_DB_VERSION};
 
     #[test]
     fn test_version_constants() {
@@ -181,9 +178,6 @@ mod tests {
     #[test]
     fn rejects_outside_supported_range() {
         assert!(ensure_version_is_openable(Version::new(4)).is_err());
-        assert!(ensure_version_is_openable(
-            Version::new(LATEST_DB_VERSION.value() + 1),
-        )
-        .is_err());
+        assert!(ensure_version_is_openable(Version::new(LATEST_DB_VERSION.value() + 1),).is_err());
     }
 }

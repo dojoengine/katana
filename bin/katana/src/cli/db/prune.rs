@@ -78,9 +78,7 @@ impl PruneArgs {
     /// Collect statistics about what will be pruned
     fn collect_pruning_stats(&self) -> Result<PruningStats> {
         let mode = self.mode();
-        let tx = open_db_ro(&self.path)?
-            .tx()
-            .context("Failed to create read transaction")?;
+        let tx = open_db_ro(&self.path)?.tx().context("Failed to create read transaction")?;
 
         match mode {
             PruneMode::Latest => count_all_historical_deletions(&tx),
