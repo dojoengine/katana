@@ -52,11 +52,7 @@ impl MigrationStage for StateUpdatesStage {
 }
 
 /// Collects all DupSort entries for a given primary key from a DupSort table.
-fn dup_entries<Tx, T>(tx: &Tx, key: T::Key) -> Result<Vec<T::Value>, DatabaseError>
-where
-    Tx: DbTx,
-    T: tables::DupSort,
-{
+fn dup_entries<T: tables::DupSort>(tx: &TxRW, key: T::Key) -> Result<Vec<T::Value>, DatabaseError> {
     let mut cursor = tx.cursor_dup::<T>()?;
     let mut entries = Vec::new();
 
@@ -72,19 +68,19 @@ where
 
 /// Reconstructs a [`StateUpdates`] for a single block from the legacy index tables (database
 /// version < 9).
-fn reconstruct_state_update<Tx: DbTx>(
-    tx: &Tx,
+fn reconstruct_state_update(
+    tx: &TxRW,
     block_number: BlockNumber,
 ) -> Result<StateUpdates, DatabaseError> {
     let mut state_updates = StateUpdates::default();
 
     // --- Nonce updates ---
-    for nonce_change in dup_entries::<Tx, tables::NonceChangeHistory>(tx, block_number)? {
+    for nonce_change in dup_entries::<tables::NonceChangeHistory>(tx, block_number)? {
         state_updates.nonce_updates.insert(nonce_change.contract_address, nonce_change.nonce);
     }
 
     // --- Class changes (deployed contracts + replaced classes) ---
-    for class_change in dup_entries::<Tx, tables::ClassChangeHistory>(tx, block_number)? {
+    for class_change in dup_entries::<tables::ClassChangeHistory>(tx, block_number)? {
         let ContractClassChange { r#type, contract_address, class_hash } = class_change;
 
         match r#type {
@@ -98,7 +94,7 @@ fn reconstruct_state_update<Tx: DbTx>(
     }
 
     // --- Class declarations ---
-    for class_hash in dup_entries::<Tx, tables::ClassDeclarations>(tx, block_number)? {
+    for class_hash in dup_entries::<tables::ClassDeclarations>(tx, block_number)? {
         if let Some(compiled_class_hash) = tx.get::<tables::CompiledClassHashes>(class_hash)? {
             state_updates.declared_classes.insert(class_hash, compiled_class_hash);
         } else {
@@ -107,7 +103,7 @@ fn reconstruct_state_update<Tx: DbTx>(
     }
 
     // --- Migrated compiled class hashes ---
-    for migrated in dup_entries::<Tx, tables::MigratedCompiledClassHashes>(tx, block_number)? {
+    for migrated in dup_entries::<tables::MigratedCompiledClassHashes>(tx, block_number)? {
         let MigratedCompiledClassHash { class_hash, compiled_class_hash } = migrated;
         state_updates.migrated_compiled_classes.insert(class_hash, compiled_class_hash);
     }
@@ -115,7 +111,7 @@ fn reconstruct_state_update<Tx: DbTx>(
     // --- Storage updates ---
     {
         let mut storage_map: BTreeMap<_, BTreeMap<StorageKey, StorageValue>> = BTreeMap::new();
-        for entry in dup_entries::<Tx, tables::StorageChangeHistory>(tx, block_number)? {
+        for entry in dup_entries::<tables::StorageChangeHistory>(tx, block_number)? {
             let ContractStorageEntry { key, value } = entry;
             storage_map.entry(key.contract_address).or_default().insert(key.key, value);
         }
