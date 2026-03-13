@@ -37,11 +37,6 @@ pub enum MigrationError {
     VersionUpdate(#[from] version::DatabaseVersionError),
 }
 
-/// Number of key-space units per batch. The pipeline partitions the stage's
-/// [`range`](MigrationStage::range) into chunks of this size and calls
-/// [`execute`](MigrationStage::execute) once per chunk.
-const BATCH_SIZE: u64 = 1000;
-
 /// A single, self-contained migration step executed by [`Migration`].
 ///
 /// The pipeline compares each stage's [`threshold_version`](MigrationStage::threshold_version)
@@ -53,22 +48,20 @@ const BATCH_SIZE: u64 = 1000;
 ///
 /// 1. Calls [`range`](MigrationStage::range) to obtain the full key range that needs migration. If
 ///    `None`, the stage is skipped.
+///
 /// 2. Looks up the checkpoint for [`id`](MigrationStage::id) to adjust the start of the range.
+///
 /// 3. Partitions the remaining range into batches of [`BATCH_SIZE`] and, for each batch: opens a
 ///    write transaction, calls [`execute`](MigrationStage::execute) with the batch range, writes
 ///    the checkpoint (or deletes it on the final batch), and commits — all in one atomic
 ///    transaction.
 ///
-/// Stages never read or write checkpoints themselves. They only process data within a
+/// The [`Migration`] pipeline handles all the checkpointing. Stage only process data within a
 /// pipeline-provided write transaction and range.
 ///
 /// See [`StateUpdatesStage`] and [`ReceiptEnvelopeStage`] for reference implementations.
 pub trait MigrationStage {
     /// A unique, human-readable identifier for this stage.
-    ///
-    /// Used as the checkpoint key in
-    /// [`MigrationCheckpoints`](crate::tables::MigrationCheckpoints) and as the label in the
-    /// progress bar printed to stderr.
     fn id(&self) -> &'static str;
 
     /// The minimum database version that **already contains** this stage's data.
@@ -93,21 +86,19 @@ pub trait MigrationStage {
     ///
     /// The `range` is an inclusive sub-range of the full range returned by
     /// [`range()`](MigrationStage::range), partitioned by the pipeline according to
-    /// [`BATCH_SIZE`]. The keys carry stage-specific semantics — for example, block numbers
-    /// in [`StateUpdatesStage`] or transaction sequence numbers in [`ReceiptEnvelopeStage`].
-    /// The pipeline is unaware of these semantics; it only performs arithmetic on the `u64`
-    /// boundaries for batching and checkpoint storage.
+    /// its configured batch size.
     ///
-    /// Implementations must process **every** key in the range. For stages backed by a cursor
-    /// (e.g. receipt re-encoding), iterate from `*range.start()` and stop when the cursor key
-    /// exceeds `*range.end()`. For stages with dense sequential keys (e.g. block numbers),
-    /// a simple `for key in range` loop is sufficient.
-    ///
-    /// All reads and writes **must** go through the provided write transaction `tx`.
-    /// Do **not** commit or abort the transaction — the pipeline handles that along with
-    /// checkpoint management.
+    /// The keys carry stage-specific semantics — for example, block numbers in or transaction
+    /// sequence numbers. The pipeline is unaware of these semantics; it only performs
+    /// arithmetic on the `u64` boundaries for batching and checkpoint storage. Implementations
+    /// MUST process **every** key in the range.
     fn execute(&self, tx: &TxRW, range: RangeInclusive<u64>) -> Result<(), MigrationError>;
 }
+
+/// Number of key-space units per batch. The pipeline partitions the stage's
+/// [`range`](MigrationStage::range) into chunks of this size and calls
+/// [`execute`](MigrationStage::execute) once per chunk.
+const BATCH_SIZE: u64 = 1000;
 
 /// Runs all applicable database migrations based on the on-disk version at open time.
 ///
