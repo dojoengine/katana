@@ -142,7 +142,7 @@ impl<'a> Migration<'a> {
             ProgressStyle::default_bar()
                 .template(
                     "[Migrating] \x1b[1;33mBlockStateUpdates\x1b[0m {bar:40.cyan/blue} \
-                     {pos}/{len} blocks [{elapsed_precise}] {per_sec}",
+                     {pos}/{len} blocks   [{elapsed_precise}] {per_sec}",
                 )
                 .expect("valid format"),
         );
@@ -195,7 +195,7 @@ impl<'a> Migration<'a> {
         let total_entries = db.view(|tx| tx.entries::<LegacyReceipts>())? as u64;
 
         if total_entries == 0 {
-            eprintln!("[Migrating] \x1b[1;33mReceipts\x1b[0m table is empty, nothing to migrate.");
+            eprintln!("[Migrating] \x1b[1;33mReceipts         \x1b[0m table is empty, nothing to migrate.");
             return Ok(());
         }
 
@@ -203,8 +203,8 @@ impl<'a> Migration<'a> {
         pb.set_style(
             ProgressStyle::default_bar()
                 .template(
-                    "[Migrating] \x1b[1;33mReceipts\x1b[0m {bar:40.cyan/blue} {pos}/{len} \
-                     receipts [{elapsed_precise}] {per_sec}",
+                    "[Migrating] \x1b[1;33mReceipts         \x1b[0m {bar:40.cyan/blue} \
+                     {pos}/{len} receipts [{elapsed_precise}] {per_sec}",
                 )
                 .expect("valid format"),
         );
