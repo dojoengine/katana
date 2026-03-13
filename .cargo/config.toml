@@ -1,0 +1,2 @@
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm@16/bin/ld64.lld"]
