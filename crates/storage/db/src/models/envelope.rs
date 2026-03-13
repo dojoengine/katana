@@ -124,7 +124,8 @@ pub trait EnvelopePayload: Compress + Decompress + Debug + Clone + PartialEq + E
 ///
 /// Pre-envelope rows (raw postcard bytes without a magic prefix) are **not** handled by the
 /// envelope codec. They must be migrated to envelope format before they can be read.
-/// See [`ReceiptEnvelopeStage`](crate::migration::ReceiptEnvelopeStage).
+///
+/// See [`Migration`](crate::migration::Migration).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Envelope<T: EnvelopePayload> {
     pub inner: T,
