@@ -469,7 +469,7 @@ impl Node<DbProviderFactory> {
             let db = katana_db::Db::new(path)?;
 
             if config.db.migrate {
-                migration::Migration::new(&db).run()?;
+                migration::Migration::new_v9(&db).run()?;
             }
 
             let factory = DbProviderFactory::new(db.clone());

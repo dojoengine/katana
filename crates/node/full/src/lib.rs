@@ -126,7 +126,7 @@ impl Node {
 
         // --- Perform database migration, if needed
         if config.db.migrate {
-            migration::Migration::new(&db).run()?;
+            migration::Migration::new_v9(&db).run()?;
         }
 
         let storage_provider = DbProviderFactory::new(db.clone());
