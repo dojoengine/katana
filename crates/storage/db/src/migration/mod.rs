@@ -1,5 +1,6 @@
 mod receipt_envelopes;
 mod state_updates;
+mod tx_envelopes;
 
 use std::ops::RangeInclusive;
 
@@ -8,6 +9,7 @@ use katana_primitives::block::BlockNumber;
 
 pub(crate) use self::receipt_envelopes::ReceiptEnvelopeStage;
 pub(crate) use self::state_updates::StateUpdatesStage;
+pub(crate) use self::tx_envelopes::TxEnvelopeStage;
 use crate::abstraction::{Database, DbTx, DbTxMut};
 use crate::error::DatabaseError;
 use crate::mdbx::tx::TxRW;
@@ -119,6 +121,7 @@ impl<'a> Migration<'a> {
         let mut m = Self::new(db);
         m.add_migration(StateUpdatesStage);
         m.add_migration(ReceiptEnvelopeStage);
+        m.add_migration(TxEnvelopeStage);
         m
     }
 
