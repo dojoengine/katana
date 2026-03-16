@@ -60,6 +60,13 @@ pub struct DbOptions {
     #[arg(value_name = "PATH")]
     #[serde(default, alias = "db_dir")]
     pub dir: Option<PathBuf>,
+
+    /// Run pending database migrations non-interactively.
+    ///
+    /// This is a no-op if the database is already on the latest version.
+    #[arg(long = "db.auto-migrate")]
+    #[serde(default)]
+    pub migrate: bool,
 }
 
 impl DbOptions {
@@ -71,6 +78,9 @@ impl DbOptions {
         if let Some(other) = other {
             if self.dir.is_none() {
                 self.dir = other.dir.clone();
+            }
+            if !self.migrate {
+                self.migrate = other.migrate;
             }
         }
     }
