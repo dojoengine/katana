@@ -165,11 +165,13 @@ impl FullNodeArgs {
     }
 
     fn db_config(&self) -> Result<DbConfig> {
-        let mut migrate = false;
+        let mut migrate = self.db.migrate;
 
-        if let Some(ref path) = self.db.dir {
-            if path.exists() {
-                migrate = prompt_db_migration(path)?;
+        if !migrate {
+            if let Some(ref path) = self.db.dir {
+                if path.exists() {
+                    migrate = prompt_db_migration(path)?;
+                }
             }
         }
 
