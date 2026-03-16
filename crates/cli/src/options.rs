@@ -62,7 +62,9 @@ pub struct DbOptions {
     pub dir: Option<PathBuf>,
 
     /// Run pending database migrations non-interactively.
-    #[arg(long = "auto-migrate")]
+    ///
+    /// This is a no-op if the database is already on the latest version.
+    #[arg(long = "db.auto-migrate")]
     #[serde(default)]
     pub migrate: bool,
 }
