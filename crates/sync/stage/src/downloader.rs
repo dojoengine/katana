@@ -35,7 +35,7 @@ use tracing::{trace, warn};
 ///
 /// // Download multiple items
 /// let keys = vec![1, 2, 3, 4, 5];
-/// let values = downloader.download(&keys).await?;
+/// let values = downloader.download(keys).await?;
 /// ```
 #[derive(Debug, Clone)]
 pub struct BatchDownloader<D, B = ExponentialBuilder> {
@@ -119,7 +119,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `keys` - List of keys to download
+    /// * `keys` - Keys to download
     ///
     /// # Returns
     ///
@@ -138,56 +138,56 @@ where
     /// // With batch_size=10, this downloads items 1-10 concurrently in the first batch,
     /// // then items 11-15 concurrently in the second batch
     /// let keys = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-    /// let values = downloader.download(&keys).await?;
+    /// let values = downloader.download(keys).await?;
     /// assert_eq!(values.len(), 15);
     /// ```
-    pub async fn download(&self, keys: Vec<D::Key>) -> Result<Vec<D::Value>, D::Error> {
-        let total_items = keys.len();
-        let total_batches = total_items.div_ceil(self.batch_size);
+    pub async fn download<I>(&self, keys: I) -> Result<Vec<D::Value>, D::Error>
+    where
+        I: IntoIterator<Item = D::Key>,
+    {
+        let keys = keys.into_iter();
+        let (lower_bound, upper_bound) = keys.size_hint();
+        let estimated_items = upper_bound.unwrap_or(lower_bound);
+        let estimated_batches = estimated_items.div_ceil(self.batch_size);
 
         trace!(
-            total_items = %total_items,
+            estimated_items = %estimated_items,
             batch_size = %self.batch_size,
-            total_batches = %total_batches,
-            "Starting batch download."
+            estimated_batches = %estimated_batches,
+            "Starting iterator batch download."
         );
 
-        let mut items = Vec::with_capacity(keys.len());
+        let mut items = Vec::with_capacity(estimated_items);
+        let mut batch = Vec::with_capacity(self.batch_size);
+        let mut batch_num = 0usize;
 
-        for (batch_idx, chunk) in keys.chunks(self.batch_size).enumerate() {
-            let batch_num = batch_idx + 1;
-            trace!(
-                batch = %batch_num,
-                total_batches = %total_batches,
-                batch_size = %chunk.len(),
-                "Processing batch."
-            );
+        for key in keys {
+            batch.push(key);
 
-            let batch = self.download_batch_with_retry(chunk.to_vec()).await?;
-            items.extend(batch);
+            if batch.len() == self.batch_size {
+                batch_num += 1;
+                let downloaded = self.download_batch_with_retry(&batch).await?;
+                items.extend(downloaded);
+                batch.clear();
+            }
+        }
 
-            trace!(
-                batch = %batch_num,
-                total_batches = %total_batches,
-                downloaded = %items.len(),
-                total = %total_items,
-                "Completed batch."
-            );
+        if !batch.is_empty() {
+            batch_num += 1;
+            let downloaded = self.download_batch_with_retry(&batch).await?;
+            items.extend(downloaded);
         }
 
         trace!(
-            total_items = %total_items,
-            total_batches = %total_batches,
-            "Batch download completed successfully."
+            downloaded_items = %items.len(),
+            processed_batches = %batch_num,
+            "Iterator batch download completed successfully."
         );
 
         Ok(items)
     }
 
-    async fn download_batch_with_retry(
-        &self,
-        keys: Vec<D::Key>,
-    ) -> Result<Vec<D::Value>, D::Error> {
+    async fn download_batch_with_retry(&self, keys: &[D::Key]) -> Result<Vec<D::Value>, D::Error> {
         let mut results: Vec<Option<D::Value>> = (0..keys.len()).map(|_| None).collect();
 
         // Track indices of keys that still need to be downloaded.
@@ -508,6 +508,62 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn download_with_iter_succeeds_and_preserves_order() {
+        let mut downloader = MockDownloader::new();
+        for key in 1..=5 {
+            downloader =
+                downloader.with_response(key, vec![DownloaderResult::Ok(format!("value{key}"))]);
+        }
+
+        let batch_downloader = BatchDownloader::new(downloader.clone(), 2);
+        let result = batch_downloader.download(1..=5).await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            vec![
+                "value1".to_string(),
+                "value2".to_string(),
+                "value3".to_string(),
+                "value4".to_string(),
+                "value5".to_string()
+            ]
+        );
+
+        for key in 1..=5 {
+            assert_eq!(downloader.get_attempts(key), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn download_with_iter_retries_only_failed_keys() {
+        let downloader = MockDownloader::new()
+            .with_response(1, vec![DownloaderResult::Ok("value1".to_string())])
+            .with_response(
+                2,
+                vec![
+                    DownloaderResult::Retry(MockError("temporary error".to_string())),
+                    DownloaderResult::Ok("value2".to_string()),
+                ],
+            )
+            .with_response(3, vec![DownloaderResult::Ok("value3".to_string())]);
+
+        let batch_downloader = BatchDownloader::new(downloader.clone(), 3)
+            .backoff(ConstantBuilder::default().with_delay(Duration::from_millis(1)));
+        let result = batch_downloader.download([1, 2, 3]).await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            vec!["value1".to_string(), "value2".to_string(), "value3".to_string()]
+        );
+
+        assert_eq!(downloader.get_attempts(1), 1);
+        assert_eq!(downloader.get_attempts(2), 2);
+        assert_eq!(downloader.get_attempts(3), 1);
     }
 
     #[tokio::test]

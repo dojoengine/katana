@@ -19,7 +19,7 @@ pub trait Decode: Sized {
 
 /// A trait for compressing data that are stored in the db.
 pub trait Compress {
-    type Compressed: AsRef<[u8]>;
+    type Compressed: AsRef<[u8]> + Into<Vec<u8>>;
     fn compress(self) -> Result<Self::Compressed, CodecError>;
 }
 

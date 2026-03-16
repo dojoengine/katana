@@ -9,7 +9,9 @@ use katana_pool_api::TransactionPool;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClassCompilationError};
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
-use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
+use katana_provider_api::block::{
+    BlockHashProvider, BlockIdReader, BlockProvider, BlockStatusProvider,
+};
 use katana_provider_api::transaction::ReceiptProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
@@ -57,6 +59,7 @@ where
                 let provider = this.storage().provider();
 
                 if let Some(num) = provider.convert_block_id(id)? {
+                    let block_hash = provider.block_hash_by_num(num)?.unwrap();
                     let block = provider.block(num.into())?.unwrap();
                     let receipts = provider.receipts_by_block(num.into())?.unwrap();
                     let status = provider.block_status(num.into())?.unwrap();
@@ -79,8 +82,6 @@ where
                         })
                         .collect::<Vec<ConfirmedReceipt>>();
 
-                    let block_hash = block.header.compute_hash();
-
                     Ok(Some(Block {
                         transactions,
                         transaction_receipts,
@@ -94,6 +95,7 @@ where
                         state_root: Some(block.header.state_root),
                         timestamp: block.header.timestamp,
                         transaction_commitment: Some(block.header.transactions_commitment),
+                        state_diff_length: Some(block.header.state_diff_length),
                         state_diff_commitment: Some(block.header.state_diff_commitment),
                         parent_block_hash: block.header.parent_hash,
                         starknet_version: Some(block.header.starknet_version.to_string()),

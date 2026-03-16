@@ -28,8 +28,14 @@ impl StarknetVersion {
     /// so this is unambiguous.
     pub const UNVERSIONED: Self = Self::new([0, 0, 0, 0]);
 
+    /// Starknet version 0.7.0.
     pub const V0_7_0: Self = Self::new([0, 7, 0, 0]);
+    /// Starknet version 0.11.1.
+    pub const V0_11_1: Self = Self::new([0, 11, 1, 0]);
+    /// Starknet version 0.13.2.
     pub const V0_13_2: Self = Self::new([0, 13, 2, 0]);
+    /// Starknet version 0.13.4.
+    pub const V0_13_4: Self = Self::new([0, 13, 4, 0]);
 }
 
 #[derive(Debug, thiserror::Error)]

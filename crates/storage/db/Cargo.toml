@@ -38,6 +38,8 @@ rev = "b34b0d3"
 arbitrary.workspace = true
 criterion.workspace = true
 proptest = "1.6.0"
+katana-utils.workspace = true
+rand.workspace = true
 rstest.workspace = true
 starknet.workspace = true
 
@@ -50,3 +52,4 @@ arbitrary = [ "dep:arbitrary" ]
 [[bench]]
 harness = false
 name = "codec"
+required-features = ["arbitrary"]

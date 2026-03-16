@@ -36,6 +36,7 @@ use katana_stage::blocks::BatchBlockDownloader;
 use katana_stage::{Blocks, Classes, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
+use url::Url;
 
 use crate::pending::PreconfStateFactory;
 
@@ -82,6 +83,8 @@ pub struct Config {
     /// The maximum block number the pipeline will sync to. When set, the pipeline
     /// will stop syncing after reaching this block while the node remains running.
     pub max_sync_tip: Option<u64>,
+    /// Custom feeder gateway base URL to sync from instead of the default network gateway.
+    pub sync_gateway: Option<Url>,
 }
 
 #[derive(Debug)]
@@ -123,9 +126,15 @@ impl Node {
 
         // --- build gateway client
 
-        let gateway_client = match config.network {
-            Network::Mainnet => SequencerGateway::mainnet(),
-            Network::Sepolia => SequencerGateway::sepolia(),
+        let gateway_client = if let Some(ref base_url) = config.sync_gateway {
+            let gateway = base_url.join("gateway").expect("valid URL join");
+            let feeder_gateway = base_url.join("feeder_gateway").expect("valid URL join");
+            SequencerGateway::new(gateway, feeder_gateway)
+        } else {
+            match config.network {
+                Network::Mainnet => SequencerGateway::mainnet(),
+                Network::Sepolia => SequencerGateway::sepolia(),
+            }
         };
 
         let gateway_client = if let Some(ref key) = config.gateway_api_key {

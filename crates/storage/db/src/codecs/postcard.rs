@@ -91,6 +91,8 @@ impl Decompress for TypedTransactionExecutionInfo {
     }
 }
 
+// `Receipt` intentionally stays postcard-only. Compression envelopes are handled by
+// `models::ReceiptEnvelope`, which is used as the `Receipts` table value.
 impl_compress_and_decompress_for_table_values!(
     u64,
     Receipt,
@@ -102,3 +104,45 @@ impl_compress_and_decompress_for_table_values!(
     StoredBlockBodyIndices,
     ContractInfoChangeList
 );
+
+#[cfg(test)]
+mod tests {
+    use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
+
+    use super::{Compress, Decompress};
+    use crate::models::ReceiptEnvelope;
+
+    fn sample_receipt() -> Receipt {
+        Receipt::Invoke(InvokeTxReceipt {
+            revert_error: Some("boom".into()),
+            events: Vec::new(),
+            fee: Default::default(),
+            messages_sent: Vec::new(),
+            execution_resources: Default::default(),
+        })
+    }
+
+    #[test]
+    fn receipt_roundtrip_uses_postcard() {
+        let receipt = sample_receipt();
+
+        let compressed = receipt.clone().compress().expect("failed to compress receipt");
+        let expected = postcard::to_stdvec(&receipt).expect("failed to serialize postcard receipt");
+        assert_eq!(compressed, expected);
+
+        let decompressed =
+            <Receipt as Decompress>::decompress(compressed).expect("failed to decompress receipt");
+
+        assert_eq!(decompressed, receipt);
+    }
+
+    #[test]
+    fn receipt_does_not_decode_envelope_bytes() {
+        let receipt = sample_receipt();
+        let envelope_bytes =
+            ReceiptEnvelope::from(receipt).compress().expect("failed to compress receipt envelope");
+        let err = <Receipt as Decompress>::decompress(envelope_bytes)
+            .expect_err("receipt codec must remain postcard-only");
+        assert!(matches!(err, crate::error::CodecError::Decompress(_)));
+    }
+}

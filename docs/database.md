@@ -57,7 +57,7 @@ TxBlocks {
 
 Receipts {
     KEY TxNumber
-    VALUE Receipt
+    VALUE ReceiptEnvelope
 }
 
 CompiledClassHashes {
@@ -155,3 +155,29 @@ ClassDeclarationBlock ||--|| ClassDeclarations : "has"
 BlockNumbers ||--|| ClassDeclarations : ""
 StorageChangeSet }|--|{ StorageChangeHistory : "has"
 ```
+
+New receipt rows are stored as a receipt-specific envelope plus `zstd(postcard(receipt))`.
+Legacy rows without that envelope remain readable and are decoded as raw postcard bytes for
+backward compatibility.
+
+## Envelope Header Convention
+
+When a table value needs format evolution without a full migration, use an explicit envelope
+header:
+
+`[magic:4][version:1][encoding:1][payload...]`
+
+The `magic` field convention for Katana DB envelopes is:
+
+- 4-byte uppercase ASCII.
+- First byte is `K` (Katana DB namespace).
+- Remaining 3 bytes identify the payload family.
+
+For receipts we use `KRCP` (`K` + `RCP`).
+
+Reader behavior for envelope-enabled values:
+
+- If magic matches, treat the row as enveloped and validate `version` + `encoding`.
+- If magic does not match, treat the row as legacy format.
+- If magic matches but metadata is unsupported/corrupt, return an error (do not fall back to
+  legacy decoding).

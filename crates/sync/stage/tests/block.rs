@@ -4,8 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use katana_gateway_client::Client as SequencerGateway;
 use katana_gateway_types::{
-    Block, BlockStatus, ConfirmedStateUpdate, ErrorCode, GatewayError, StateDiff, StateUpdate,
-    StateUpdateWithBlock,
+    Block, BlockStatus, ConfirmedStateUpdate, StateDiff, StateUpdate, StateUpdateWithBlock,
 };
 use katana_primitives::block::{
     BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
@@ -197,6 +196,7 @@ fn create_downloaded_block_with_parent(
             receipt_commitment: Some(Felt::ZERO),
             event_commitment: Some(Felt::ZERO),
             state_diff_commitment: Some(Felt::ZERO),
+            state_diff_length: None,
             state_root: Some(Felt::ZERO),
         },
         state_update: StateUpdate::Confirmed(ConfirmedStateUpdate {

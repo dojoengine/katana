@@ -3,11 +3,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::codecs::{Compress, Decompress};
 use crate::error::CodecError;
+use crate::models::envelope::{Envelope, EnvelopePayload};
 
 mod v6;
 
+pub type TxEnvelope = Envelope<VersionedTx>;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
 pub enum VersionedTx {
     V6(v6::Tx),
     V7(Tx),
@@ -47,6 +50,11 @@ impl Decompress for VersionedTx {
             "failed to deserialize versioned transaction: unknown format".to_string(),
         ))
     }
+}
+
+impl EnvelopePayload for VersionedTx {
+    const MAGIC: &[u8; 4] = b"KTXN";
+    const NAME: &str = "transaction";
 }
 
 impl From<VersionedTx> for Tx {

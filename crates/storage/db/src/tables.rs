@@ -2,7 +2,6 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
-use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
@@ -13,7 +12,7 @@ use crate::models::list::BlockList;
 use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint, StageId};
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-use crate::models::{VersionedContractClass, VersionedHeader, VersionedTx};
+use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedContractClass, VersionedHeader};
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -214,13 +213,14 @@ tables! {
     /// Transaction hash based on its number
     TxHashes: (TxNumber) => TxHash,
     /// Store canonical transactions
-    Transactions: (TxNumber) => VersionedTx,
+    Transactions: (TxNumber) => TxEnvelope,
     /// Stores the block number of a transaction.
     TxBlocks: (TxNumber) => BlockNumber,
     /// Stores the transaction's traces.
     TxTraces: (TxNumber) => TypedTransactionExecutionInfo,
-    /// Store transaction receipts
-    Receipts: (TxNumber) => Receipt,
+    /// Store transaction receipts as envelopes so table encoding can evolve independently from
+    /// the in-memory `Receipt` type.
+    Receipts: (TxNumber) => ReceiptEnvelope,
     /// Store compiled classes
     CompiledClassHashes: (ClassHash) => CompiledClassHash,
     /// Store contract classes according to its class hash
@@ -386,7 +386,7 @@ mod tests {
     use crate::models::trie::{
         TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
     };
-    use crate::models::{VersionedHeader, VersionedTx};
+    use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedTx};
 
     macro_rules! assert_key_encode_decode {
 	    { $( ($name:ty, $key:expr) ),* } => {
@@ -441,7 +441,7 @@ mod tests {
             (StoredBlockBodyIndices, StoredBlockBodyIndices::default()),
             (TxNumber, 77),
             (TxHash, felt!("0x123456789")),
-            (VersionedTx, VersionedTx::from(Tx::Invoke(InvokeTx::V1(Default::default())))),
+            (TxEnvelope, TxEnvelope::from(VersionedTx::from(Tx::Invoke(InvokeTx::V1(Default::default()))))),
             (BlockNumber, 99),
             (TypedTransactionExecutionInfo, TypedTransactionExecutionInfo::default()),
             (CompiledClassHash, felt!("211")),
@@ -454,13 +454,13 @@ mod tests {
             (ContractClassChange, ContractClassChange::default()),
             (BlockList, BlockList::default()),
             (ContractStorageEntry, ContractStorageEntry::default()),
-            (Receipt, Receipt::Invoke(InvokeTxReceipt {
+            (ReceiptEnvelope, ReceiptEnvelope::from(Receipt::Invoke(InvokeTxReceipt {
                 revert_error: None,
                 events: Vec::new(),
                 fee: Default::default(),
                 messages_sent: Vec::new(),
                 execution_resources: Default::default(),
-            })),
+            }))),
             (TrieDatabaseValue, TrieDatabaseValue::default()),
             (TrieHistoryEntry, TrieHistoryEntry {
                 value: TrieDatabaseValue::default(),

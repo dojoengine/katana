@@ -133,6 +133,8 @@ pub struct Block {
     #[serde(default)]
     pub state_diff_commitment: Option<Felt>,
     #[serde(default)]
+    pub state_diff_length: Option<u32>,
+    #[serde(default)]
     pub state_root: Option<Felt>,
     #[serde(default)]
     pub transaction_commitment: Option<Felt>,
