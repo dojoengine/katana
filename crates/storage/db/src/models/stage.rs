@@ -26,6 +26,6 @@ pub struct PruningCheckpoint {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
 pub struct MigrationCheckpoint {
-    /// The next key that the migration should resume from.
-    pub next_key: u64,
+    /// The most recently migrated key by the migration pipeline.
+    pub last_key_migrated: u64,
 }
