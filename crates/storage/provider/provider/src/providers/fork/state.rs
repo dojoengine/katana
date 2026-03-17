@@ -276,7 +276,7 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
                 .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
             let root = rpc_root.map(|r| r.global_roots.classes_tree_root).unwrap_or(Felt::ZERO);
 
-            let proofs = trie.partial_multiproof(classes, Some(proof), Some(root));
+            let proofs = trie.multiproof(classes, Some(proof), Some(root));
             Ok(proofs)
         }
     }
@@ -307,7 +307,7 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
                 .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
             let root = rpc_root.map(|r| r.global_roots.contracts_tree_root).unwrap_or(Felt::ZERO);
 
-            let proofs = trie.partial_multiproof(addresses, Some(proof), Some(root));
+            let proofs = trie.multiproof(addresses, Some(proof), Some(root));
             Ok(proofs)
         }
     }
@@ -346,7 +346,7 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             let root = rpc_root.unwrap_or(Felt::ZERO);
 
-            let proofs = trie.partial_multiproof(storage_keys, Some(proof), Some(root));
+            let proofs = trie.multiproof(storage_keys, Some(proof), Some(root));
             Ok(proofs)
         }
     }
@@ -536,7 +536,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
                 .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
             let root = rpc_root.map(|r| r.global_roots.classes_tree_root).unwrap_or(Felt::ZERO);
 
-            let proofs = trie.partial_multiproof(classes, Some(proof), Some(root));
+            let proofs = trie.multiproof(classes, Some(proof), Some(root));
             Ok(proofs)
         } else {
             let result = self
@@ -571,7 +571,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
                 .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
             let root = rpc_root.map(|r| r.global_roots.contracts_tree_root).unwrap_or(Felt::ZERO);
 
-            let proofs = trie.partial_multiproof(addresses, Some(proof), Some(root));
+            let proofs = trie.multiproof(addresses, Some(proof), Some(root));
             Ok(proofs)
         } else {
             let result = self
@@ -610,7 +610,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
 
             let root = rpc_root.unwrap_or(Felt::ZERO);
 
-            let proofs = trie.partial_multiproof(storage_keys, Some(proof), Some(root));
+            let proofs = trie.multiproof(storage_keys, Some(proof), Some(root));
             Ok(proofs)
         } else {
             let key = vec![ContractStorageKeys { address, keys: storage_keys }];
@@ -660,12 +660,9 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
             if root == Felt::ZERO {
                 let result =
                     self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
-                return Ok(result
-                    .expect("proofs should exist for block")
-                    .global_roots
-                    .classes_tree_root);
+                Ok(result.expect("proofs should exist for block").global_roots.classes_tree_root)
             } else {
-                return Ok(root);
+                Ok(root)
             }
         } else {
             let result =
@@ -686,12 +683,9 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
             if root == Felt::ZERO {
                 let result =
                     self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
-                return Ok(result
-                    .expect("proofs should exist for block")
-                    .global_roots
-                    .contracts_tree_root);
+                Ok(result.expect("proofs should exist for block").global_roots.contracts_tree_root)
             } else {
-                return Ok(root);
+                Ok(root)
             }
         } else {
             let result =

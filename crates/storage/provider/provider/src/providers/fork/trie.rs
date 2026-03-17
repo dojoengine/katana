@@ -315,7 +315,7 @@ fn contract_state_leaf_hash(
     };
 
     let storage_root = contract_leaf.storage_root.ok_or_else(|| {
-        ProviderError::ParsingError(format!("missing storage root for contract {}", address))
+        ProviderError::ParsingError(format!("missing storage root for contract {address}"))
     })?;
 
     Ok(compute_contract_state_hash(&class_hash, &storage_root, &nonce))

@@ -576,9 +576,10 @@ impl<Tx1: DbTx> TransactionTraceProvider for ForkedProvider<Tx1> {
         if let Some(result) = self.local_db.transaction_executions_by_block(block_id)? {
             return Ok(Some(result));
         }
+
         if let Some(value) = self.fork_db.backend.get_block_transactions_traces(block_id)? {
             let traces = value.traces;
-            return Ok(Some(traces));
+            Ok(Some(traces))
         } else {
             Ok(None)
         }

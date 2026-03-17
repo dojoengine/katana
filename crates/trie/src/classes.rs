@@ -78,11 +78,7 @@ impl<DB: BonsaiDatabase> PartialClassesTrie<DB> {
         self.trie.root(CLASSES_IDENTIFIER)
     }
 
-    pub fn multiproof(&mut self, class_hashes: Vec<ClassHash>) -> MultiProof {
-        self.trie.multiproof(CLASSES_IDENTIFIER, class_hashes)
-    }
-
-    pub fn partial_multiproof(
+    pub fn multiproof(
         &mut self,
         class_hashes: Vec<ClassHash>,
         rpc_proof: Option<MultiProof>,
