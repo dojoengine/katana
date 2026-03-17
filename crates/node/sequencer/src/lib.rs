@@ -202,10 +202,8 @@ where
             chain_spec: config.chain.clone(),
         });
 
-        let skip_dev_genesis = config
-            .forking
-            .as_ref()
-            .is_some_and(|forking| !forking.init_dev_genesis);
+        let skip_dev_genesis =
+            config.forking.as_ref().is_some_and(|forking| !forking.init_dev_genesis);
 
         backend.init_genesis(skip_dev_genesis).context("failed to initialize genesis")?;
 
@@ -374,8 +372,7 @@ where
                     }
                 };
 
-                let api =
-                    TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
+                let api = TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
                 rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 
                 info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");

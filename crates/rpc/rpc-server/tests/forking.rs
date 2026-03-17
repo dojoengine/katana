@@ -672,7 +672,6 @@ mod tests {
     use katana_chain_spec::{dev, ChainSpec};
     use katana_core::service::block_producer::IntervalBlockProducer;
     use katana_db::Db;
-    use katana_sequencer_node::config::fork::ForkingConfig;
     use katana_primitives::block::{
         BlockHash, BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
     };
@@ -683,6 +682,7 @@ mod tests {
     use katana_provider::api::block::{BlockNumberProvider, BlockWriter};
     use katana_provider::api::trie::TrieWriter;
     use katana_provider::{ForkProviderFactory, MutableProvider, ProviderFactory};
+    use katana_sequencer_node::config::fork::ForkingConfig;
     use katana_utils::node::ForkTestNode;
     use katana_utils::TestNode;
     use proptest::arbitrary::any;
@@ -1024,11 +1024,8 @@ mod tests {
 
         fork_config.chain = Arc::new(ChainSpec::Dev(fork_chain_spec));
         let fork_block = katana_primitives::block::BlockHashOrNumber::Num(fork_block_number);
-        fork_config.forking = Some(ForkingConfig {
-            url: fork_url,
-            block: Some(fork_block),
-            init_dev_genesis: false,
-        });
+        fork_config.forking =
+            Some(ForkingConfig { url: fork_url, block: Some(fork_block), init_dev_genesis: false });
 
         let fork_node = ForkTestNode::new_forked_with_config(fork_config).await;
         let fork_backend = fork_node.backend();
@@ -1190,11 +1187,8 @@ mod tests {
         let fork_url: Url = Url::parse(&url).unwrap();
         let mut fork_config = katana_utils::node::test_config();
         let fork_block = katana_primitives::block::BlockHashOrNumber::Num(fork_block_number);
-        fork_config.forking = Some(ForkingConfig {
-            url: fork_url,
-            block: Some(fork_block),
-            init_dev_genesis: false,
-        });
+        fork_config.forking =
+            Some(ForkingConfig { url: fork_url, block: Some(fork_block), init_dev_genesis: false });
 
         let fork_node = ForkTestNode::new_forked_with_config(fork_config).await;
         let fork_backend = fork_node.backend();

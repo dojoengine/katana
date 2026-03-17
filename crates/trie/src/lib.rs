@@ -246,9 +246,8 @@ where
     let root = bs.root_hash(IDENTIFIER).unwrap();
 
     let proof_key = BitVec::from_iter(proof_index.to_be_bytes());
-    let proof = bs
-        .get_multi_proof(IDENTIFIER, vec![proof_key])
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let proof =
+        bs.get_multi_proof(IDENTIFIER, vec![proof_key]).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     Ok((root, proof))
 }

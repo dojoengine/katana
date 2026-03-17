@@ -57,8 +57,7 @@ where
         events_commitment: Felt,
     ) -> [u8; 64] {
         let fb = Felt::from(self.fork_block_number.unwrap_or(0));
-        let commitment =
-            Poseidon::hash_array(&[state_root, block_hash, fb, events_commitment]);
+        let commitment = Poseidon::hash_array(&[state_root, block_hash, fb, events_commitment]);
 
         // Convert Felt to bytes (32 bytes) and pad to 64 bytes
         let commitment_bytes = commitment.to_bytes_be();
@@ -123,22 +122,19 @@ where
                     .header_by_number(prev_num)
                     .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
                     .ok_or_else(|| {
-                        TeeApiError::ProviderError(format!(
-                            "Header not found for block {prev_num}"
-                        ))
+                        TeeApiError::ProviderError(format!("Header not found for block {prev_num}"))
                     })?;
                 (prev_num, prev_hash, prev_header.state_root)
             }
             None => (u64::MAX, Felt::ZERO, Felt::ZERO),
         };
 
-        let block_hash =
-            provider
-                .block_hash_by_num(block_id)
-                .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
-                .ok_or_else(|| {
-                    TeeApiError::ProviderError(format!("Block hash not found for block {block_id}"))
-                })?;
+        let block_hash = provider
+            .block_hash_by_num(block_id)
+            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
+            .ok_or_else(|| {
+                TeeApiError::ProviderError(format!("Block hash not found for block {block_id}"))
+            })?;
 
         // Get the header to retrieve state_root
         let header = provider
@@ -152,8 +148,7 @@ where
         let events_commitment = header.events_commitment;
 
         // Compute report data: Poseidon(state_root, block_hash, fork_block, events_commitment)
-        let report_data =
-            self.compute_report_data(state_root, block_hash, events_commitment);
+        let report_data = self.compute_report_data(state_root, block_hash, events_commitment);
 
         // Generate the attestation quote
         let quote = self
@@ -207,9 +202,7 @@ where
             .receipts_by_block(block_id)
             .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
             .ok_or_else(|| {
-                TeeApiError::EventProofError(format!(
-                    "No receipts found for block {block_number}"
-                ))
+                TeeApiError::EventProofError(format!("No receipts found for block {block_number}"))
             })?;
 
         let transactions = provider
@@ -252,12 +245,11 @@ where
 
         // Build the Merkle-Patricia trie and extract proof for the requested event.
         // Uses the same 64-bit key scheme as compute_merkle_root in katana-trie.
-        let (computed_root, proof) =
-            katana_trie::compute_merkle_root_with_proof::<Poseidon>(
-                &event_hashes,
-                event_index as usize,
-            )
-            .map_err(|e| TeeApiError::EventProofError(e.to_string()))?;
+        let (computed_root, proof) = katana_trie::compute_merkle_root_with_proof::<Poseidon>(
+            &event_hashes,
+            event_index as usize,
+        )
+        .map_err(|e| TeeApiError::EventProofError(e.to_string()))?;
 
         // Sanity check: computed root must match header's events_commitment
         if computed_root != header.events_commitment {

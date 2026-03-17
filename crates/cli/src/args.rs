@@ -166,8 +166,7 @@ impl SequencerNodeArgs {
         if config.forking.is_some() {
             // Pass config by value: build_forked needs exclusive Arc access to mutate chain_spec.
             // Cloning would create a second Arc reference and cause Arc::get_mut to panic.
-            let node =
-                Node::build_forked(config).await.context("failed to build forked node")?;
+            let node = Node::build_forked(config).await.context("failed to build forked node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
