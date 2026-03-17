@@ -5,8 +5,7 @@ use clap::{Args, Subcommand};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
-use katana_db::version::DbOpenMode;
-
+mod migrate;
 mod prune;
 mod stats;
 mod trie;
@@ -28,6 +27,9 @@ enum Commands {
     /// Shows database version information
     Version(version::VersionArgs),
 
+    /// Run database migrations.
+    Migrate(migrate::MigrateArgs),
+
     /// Prune historical trie data.
     Prune(prune::PruneArgs),
 
@@ -38,6 +40,7 @@ enum Commands {
 impl DbArgs {
     pub fn execute(self) -> Result<()> {
         match self.commands {
+            Commands::Migrate(args) => args.execute(),
             Commands::Prune(args) => args.execute(),
             Commands::Stats(args) => args.execute(),
             Commands::Version(args) => args.execute(),
@@ -50,22 +53,16 @@ impl DbArgs {
 ///
 /// The path is expanded and resolved to an absolute path before opening the database for clearer
 /// error messages.
-pub fn open_db_ro(path: &str, open_mode: DbOpenMode) -> Result<katana_db::Db> {
-    katana_db::Db::open_ro_with_mode(
-        &path::absolute(shellexpand::full(path)?.into_owned())?,
-        open_mode,
-    )
+pub fn open_db_ro(path: &str) -> Result<katana_db::Db> {
+    katana_db::Db::open_ro(&path::absolute(shellexpand::full(path)?.into_owned())?)
 }
 
 /// Open the database at `path` in read-write mode.
 ///
 /// The path is expanded and resolved to an absolute path before opening the database for clearer
 /// error messages.
-pub fn open_db_rw(path: &str, open_mode: DbOpenMode) -> Result<katana_db::Db> {
-    katana_db::Db::open_with_mode(
-        &path::absolute(shellexpand::full(path)?.into_owned())?,
-        open_mode,
-    )
+pub fn open_db_rw(path: &str) -> Result<katana_db::Db> {
+    katana_db::Db::open(&path::absolute(shellexpand::full(path)?.into_owned())?)
 }
 
 /// Create a table with the default UTF-8 full border and rounded corners.

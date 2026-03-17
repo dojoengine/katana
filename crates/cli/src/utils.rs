@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use console::Style;
 use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::ChainSpec;
+use katana_db::Db;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{
     DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_UDC_ADDRESS,
@@ -22,6 +23,44 @@ use tracing::info;
 
 use crate::args::LOG_TARGET;
 use crate::SequencerNodeArgs;
+
+pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
+    let db = Db::new(path).context("failed to open database")?;
+    let require_migration = katana_db::migration::Migration::new_v9(&db).is_needed();
+
+    if require_migration {
+        let current_version = db.version();
+        let latest_version = katana_db::version::LATEST_DB_VERSION;
+
+        let prompt = format!(
+            "Database version {} is older than the current support version {}. Migrate now?",
+            console::style(format!("({current_version})")).bold(),
+            console::style(format!("({latest_version})")).bold()
+        );
+
+        let do_migrate = inquire::Confirm::new(&prompt)
+            .with_default(true)
+            .prompt()
+            .context("failed to prompt for database migration")?;
+
+        if !do_migrate {
+            eprintln!(
+                "{} {}",
+                console::style("WARNING:").bold().red(),
+                console::style(
+                    "Skipping database migration. The database schema is outdated and some data \
+                     may be missing or incompatible, which can lead to unexpected behavior such \
+                     as incorrect query results or RPC errors."
+                )
+                .red()
+            );
+        }
+
+        Ok(do_migrate)
+    } else {
+        Ok(false)
+    }
+}
 
 pub fn parse_seed(seed: &str) -> [u8; 32] {
     let seed = seed.as_bytes();

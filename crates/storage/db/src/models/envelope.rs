@@ -55,9 +55,9 @@ pub enum EnvelopeError {
     #[error("failed to zstd-decompress {name} payload: {reason}")]
     ZstdDecompress { name: &'static str, reason: String },
 
-    /// Legacy (pre-envelope) deserialization failed.
-    #[error("failed to decode legacy {name} bytes: {reason}")]
-    LegacyDecode { name: &'static str, reason: String },
+    /// The first bytes do not match the expected magic prefix for this envelope type.
+    #[error("{name} envelope magic mismatch: expected {expected:?}, got {actual:?}")]
+    InvalidMagic { name: &'static str, expected: &'static [u8; 4], actual: Vec<u8> },
 }
 
 impl From<EnvelopeError> for CodecError {
@@ -82,9 +82,7 @@ pub trait EnvelopePayload: Compress + Decompress + Debug + Clone + PartialEq + E
 /// Generic compressed envelope for on-disk table values.
 ///
 /// Wraps a payload `T` with a fixed 8-byte header so that encoding can evolve
-/// independently from the in-memory types. Rows written before the envelope
-/// existed (legacy rows) are detected by the absence of the magic prefix and
-/// decoded via [`EnvelopePayload::from_legacy_bytes`].
+/// independently from the in-memory types.
 ///
 /// # Wire format (v1)
 ///
@@ -122,11 +120,12 @@ pub trait EnvelopePayload: Compress + Decompress + Debug + Clone + PartialEq + E
 /// The inner value serialized by the payload's own `to_bytes` method, then optionally compressed
 /// according to the encoding byte.
 ///
-/// ## Backward Compatibility
+/// ## Legacy Data
 ///
-/// Envelope will fallback to decode the payload as the inner type directly if the magic bytes
-/// do not match the expected value. This allows newer clients to read older pre-envelope data
-/// without requiring a database migration.
+/// Pre-envelope rows (raw postcard bytes without a magic prefix) are **not** handled by the
+/// envelope codec. They must be migrated to envelope format before they can be read.
+///
+/// See [`Migration`](crate::migration::Migration).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Envelope<T: EnvelopePayload> {
     pub inner: T,
@@ -159,9 +158,11 @@ impl<T: EnvelopePayload> Envelope<T> {
 
     fn do_decompress(bytes: &[u8]) -> Result<Self, EnvelopeError> {
         if !bytes.starts_with(T::MAGIC) {
-            return T::decompress(bytes)
-                .map(|inner| Self { inner })
-                .map_err(|e| EnvelopeError::LegacyDecode { name: T::NAME, reason: e.to_string() });
+            return Err(EnvelopeError::InvalidMagic {
+                name: T::NAME,
+                expected: T::MAGIC,
+                actual: bytes.get(..4).unwrap_or(bytes).to_vec(),
+            });
         }
 
         if bytes.len() < ENVELOPE_HEADER_LEN {
@@ -292,12 +293,12 @@ mod tests {
     }
 
     #[test]
-    fn envelope_decompresses_legacy_bytes() {
+    fn envelope_rejects_legacy_bytes() {
         let payload = small_payload();
         let legacy = payload.data.as_bytes().to_vec();
 
-        let decompressed = Envelope::<TestPayload>::decompress(legacy).expect("decompress");
-        assert_eq!(decompressed.inner, payload);
+        let err = Envelope::<TestPayload>::do_decompress(&legacy).expect_err("must reject");
+        assert!(matches!(err, EnvelopeError::InvalidMagic { .. }));
     }
 
     #[test]

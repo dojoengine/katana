@@ -6,68 +6,31 @@ use std::mem;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
-
-use serde::{Deserialize, Serialize};
 
 /// Latest on-disk database version written by current Katana.
-pub const LATEST_DB_VERSION: Version = Version::new(8);
-/// Oldest database version current Katana guarantees it can still open in compatibility mode.
+pub const LATEST_DB_VERSION: Version = Version::new(9);
+/// Oldest database version current Katana guarantees it can still open.
 pub const MIN_OPENABLE_DB_VERSION: Version = Version::new(5);
 
 /// Name of the version file.
 const DB_VERSION_FILE_NAME: &str = "db.version";
 
-/// Controls whether Katana should only accept the latest DB format or also older supported ones.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DbOpenMode {
-    /// Accept any version in the supported compatibility window.
-    #[default]
-    Compat,
-    /// Only accept the latest DB version.
-    Strict,
-}
-
-impl Display for DbOpenMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Compat => f.write_str("compat"),
-            Self::Strict => f.write_str("strict"),
-        }
-    }
-}
-
-impl FromStr for DbOpenMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "compat" => Ok(Self::Compat),
-            "strict" => Ok(Self::Strict),
-            _ => Err(format!("invalid db open mode `{s}`; expected `compat` or `strict`")),
-        }
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum DatabaseVersionError {
     #[error("Database version file not found.")]
     FileNotFound,
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
     #[error("Malformed database version file: {0}")]
     MalformedContent(#[from] TryFromSliceError),
+
     #[error(
-        "Database version {found} cannot be opened in {mode} mode. Latest supported version is \
-         {latest}, minimum openable version is {minimum_openable}."
+        "Database version {found} is not supported. Latest supported version is {latest}, minimum \
+         openable version is {minimum_openable}."
     )]
-    IncompatibleVersion {
-        found: Version,
-        latest: Version,
-        minimum_openable: Version,
-        mode: DbOpenMode,
-    },
+    IncompatibleVersion { found: Version, latest: Version, minimum_openable: Version },
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -89,6 +52,36 @@ impl Display for Version {
     }
 }
 
+/// Returns `true` if the given database version is openable.
+pub fn is_version_openable(version: Version) -> bool {
+    version >= MIN_OPENABLE_DB_VERSION && version <= LATEST_DB_VERSION
+}
+
+/// Validates that the requested database version is openable.
+pub fn ensure_version_is_openable(version: Version) -> Result<(), DatabaseVersionError> {
+    if is_version_openable(version) {
+        Ok(())
+    } else {
+        Err(DatabaseVersionError::IncompatibleVersion {
+            found: version,
+            latest: LATEST_DB_VERSION,
+            minimum_openable: MIN_OPENABLE_DB_VERSION,
+        })
+    }
+}
+
+/// Get the version of the database at the given `path`.
+pub fn get_db_version(path: impl AsRef<Path>) -> Result<Version, DatabaseVersionError> {
+    let path = version_file_path(path.as_ref());
+
+    let mut file = fs::File::open(path).map_err(|_| DatabaseVersionError::FileNotFound)?;
+    let mut buf: Vec<u8> = Vec::new();
+    file.read_to_end(&mut buf)?;
+
+    let bytes = <[u8; mem::size_of::<u32>()]>::try_from(buf.as_slice())?;
+    Ok(Version(u32::from_be_bytes(bytes)))
+}
+
 /// Insert a version file at the given `path` with the specified `version`. If the `path` is a
 /// directory, the version file will be created inside it. Otherwise, the version file will be
 /// created exactly at `path`.
@@ -98,7 +91,7 @@ impl Display for Version {
 /// # Errors
 ///
 /// Will fail if all the directories in `path` has not already been created.
-pub(super) fn write_db_version_file(
+pub(crate) fn write_db_version_file(
     path: impl AsRef<Path>,
     version: Version,
 ) -> Result<Version, DatabaseVersionError> {
@@ -123,48 +116,11 @@ pub(super) fn write_db_version_file(
 }
 
 /// Insert a version file for newly-created databases.
-pub(super) fn create_db_version_file(
+pub fn create_db_version_file(
     path: impl AsRef<Path>,
     version: Version,
 ) -> Result<Version, DatabaseVersionError> {
     write_db_version_file(path, version)
-}
-
-/// Returns `true` if the given database version is openable in the requested mode.
-pub fn is_version_openable(version: Version, mode: DbOpenMode) -> bool {
-    match mode {
-        DbOpenMode::Compat => version >= MIN_OPENABLE_DB_VERSION && version <= LATEST_DB_VERSION,
-        DbOpenMode::Strict => version == LATEST_DB_VERSION,
-    }
-}
-
-/// Validates that the requested database version is openable in the given mode.
-pub fn ensure_version_is_openable(
-    version: Version,
-    mode: DbOpenMode,
-) -> Result<(), DatabaseVersionError> {
-    if is_version_openable(version, mode) {
-        Ok(())
-    } else {
-        Err(DatabaseVersionError::IncompatibleVersion {
-            found: version,
-            latest: LATEST_DB_VERSION,
-            minimum_openable: MIN_OPENABLE_DB_VERSION,
-            mode,
-        })
-    }
-}
-
-/// Get the version of the database at the given `path`.
-pub fn get_db_version(path: impl AsRef<Path>) -> Result<Version, DatabaseVersionError> {
-    let path = version_file_path(path.as_ref());
-
-    let mut file = fs::File::open(path).map_err(|_| DatabaseVersionError::FileNotFound)?;
-    let mut buf: Vec<u8> = Vec::new();
-    file.read_to_end(&mut buf)?;
-
-    let bytes = <[u8; mem::size_of::<u32>()]>::try_from(buf.as_slice())?;
-    Ok(Version(u32::from_be_bytes(bytes)))
 }
 
 pub(super) fn default_version_file_path(path: &Path) -> PathBuf {
@@ -201,31 +157,27 @@ fn set_permissions_readonly(permissions: &mut fs::Permissions) {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ensure_version_is_openable, DbOpenMode, Version, LATEST_DB_VERSION, MIN_OPENABLE_DB_VERSION,
-    };
+    use super::{ensure_version_is_openable, Version, LATEST_DB_VERSION, MIN_OPENABLE_DB_VERSION};
 
     #[test]
     fn test_version_constants() {
-        assert_eq!(LATEST_DB_VERSION.value(), 8, "Invalid latest database version");
+        assert_eq!(LATEST_DB_VERSION.value(), 9, "Invalid latest database version");
         assert_eq!(MIN_OPENABLE_DB_VERSION.value(), 5, "Invalid minimum openable database version");
     }
 
     #[test]
-    fn compat_accepts_supported_range() {
-        assert!(ensure_version_is_openable(MIN_OPENABLE_DB_VERSION, DbOpenMode::Compat).is_ok());
-        assert!(ensure_version_is_openable(LATEST_DB_VERSION, DbOpenMode::Compat).is_ok());
+    fn accepts_supported_range() {
+        assert!(ensure_version_is_openable(MIN_OPENABLE_DB_VERSION).is_ok());
+        assert!(ensure_version_is_openable(LATEST_DB_VERSION).is_ok());
+        // Also check a version in between
+        for v in MIN_OPENABLE_DB_VERSION.value()..=LATEST_DB_VERSION.value() {
+            assert!(ensure_version_is_openable(Version::new(v)).is_ok());
+        }
     }
 
     #[test]
-    fn compat_rejects_outside_supported_range() {
-        assert!(ensure_version_is_openable(Version::new(4), DbOpenMode::Compat).is_err());
-        assert!(ensure_version_is_openable(Version::new(9), DbOpenMode::Compat).is_err());
-    }
-
-    #[test]
-    fn strict_only_accepts_latest_version() {
-        assert!(ensure_version_is_openable(LATEST_DB_VERSION, DbOpenMode::Strict).is_ok());
-        assert!(ensure_version_is_openable(MIN_OPENABLE_DB_VERSION, DbOpenMode::Strict).is_err());
+    fn rejects_outside_supported_range() {
+        assert!(ensure_version_is_openable(Version::new(4)).is_err());
+        assert!(ensure_version_is_openable(Version::new(LATEST_DB_VERSION.value() + 1),).is_err());
     }
 }

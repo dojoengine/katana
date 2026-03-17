@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
@@ -10,12 +10,18 @@ use katana_primitives::block::{
     BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::chain::ChainId;
+use katana_primitives::class::ClassHash;
 use katana_primitives::da::L1DataAvailabilityMode;
+use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
-use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
+use katana_provider::api::state::{
+    HistoricalStateRetentionProvider, StateFactoryProvider, StateProvider,
+};
+use katana_provider::api::state_update::StateUpdateProvider;
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use katana_stage::blocks::{BatchBlockDownloader, BlockData, BlockDownloader, Blocks};
-use katana_stage::{Stage, StageExecutionInput};
+use katana_stage::{PruneInput, Stage, StageExecutionInput};
 use rstest::rstest;
 use starknet::core::types::ResourcePrice;
 
@@ -124,6 +130,46 @@ fn create_provider_with_block(block: SealedBlockWithStatus) -> DbProviderFactory
         .expect("failed to insert initial block");
     provider_mut.commit().expect("failed to commit");
     provider_factory
+}
+
+fn create_provider_with_blocks(
+    blocks: std::ops::RangeInclusive<BlockNumber>,
+    updates_by_block: BTreeMap<BlockNumber, StateUpdatesWithClasses>,
+) -> DbProviderFactory {
+    let provider_factory = DbProviderFactory::new_in_memory();
+    let provider_mut = provider_factory.provider_mut();
+
+    for block_number in blocks {
+        let state_updates = updates_by_block.get(&block_number).cloned().unwrap_or_default();
+        provider_mut
+            .insert_block_with_states_and_receipts(
+                create_stored_block(block_number),
+                state_updates,
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("failed to insert block");
+    }
+
+    provider_mut.commit().expect("failed to commit");
+    provider_factory
+}
+
+fn state_updates_with_contract_changes(
+    contract_address: ContractAddress,
+    class_hash: ClassHash,
+    nonce: Felt,
+    storage_key: Felt,
+    storage_value: Felt,
+) -> StateUpdatesWithClasses {
+    let mut state_updates = StateUpdates::default();
+    state_updates.deployed_contracts.insert(contract_address, class_hash);
+    state_updates.nonce_updates.insert(contract_address, nonce);
+    state_updates
+        .storage_updates
+        .insert(contract_address, BTreeMap::from([(storage_key, storage_value)]));
+
+    StateUpdatesWithClasses { state_updates, ..Default::default() }
 }
 
 /// Gets all stored block numbers from the provider by checking which blocks actually exist.
@@ -391,4 +437,97 @@ async fn downloaded_blocks_do_not_form_valid_chain() {
     // Verify no blocks were stored due to validation failure (except for block 99)
     let stored = get_stored_block_numbers(&provider, 99..=102);
     assert_eq!(stored.len(), 1);
+}
+
+#[tokio::test]
+async fn prune_compacts_state_history_at_boundary() {
+    let contract_address = ContractAddress::from(felt!("0x123"));
+    let class_hash: ClassHash = felt!("0xCAFE");
+    let nonce = felt!("0x7");
+    let storage_key = felt!("0x99");
+    let storage_value = felt!("0xBEEF");
+
+    // Only block 1 has state updates; later blocks are unchanged.
+    let mut updates_by_block = BTreeMap::new();
+    updates_by_block.insert(
+        1,
+        state_updates_with_contract_changes(
+            contract_address,
+            class_hash,
+            nonce,
+            storage_key,
+            storage_value,
+        ),
+    );
+
+    let provider = create_provider_with_blocks(0..=8, updates_by_block);
+    let mut stage = Blocks::new(provider.clone(), MockBlockDownloader::new(), ChainId::SEPOLIA);
+
+    // keep_from = 5, prune range = [0, 5)
+    let output = stage.prune(&PruneInput::new(8, Some(3), None)).await.expect("prune must succeed");
+    assert!(output.pruned_count > 0, "expected prune to delete history entries");
+    assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), Some(5));
+
+    // Historical reads in the retained window must still work due to anchor compaction.
+    let retained_state = provider.provider().historical(7.into()).unwrap().unwrap();
+    assert_eq!(retained_state.class_hash_of_contract(contract_address).unwrap(), Some(class_hash));
+    assert_eq!(retained_state.nonce(contract_address).unwrap(), Some(nonce));
+    assert_eq!(retained_state.storage(contract_address, storage_key).unwrap(), Some(storage_value));
+
+    // Pruned historical state provider range should be unavailable.
+    assert!(matches!(
+        provider.provider().historical(2.into()),
+        Err(ProviderError::HistoricalStatePruned { requested: 2, earliest_available: 5 })
+    ));
+
+    // Canonical per-block diffs remain exact even after history compaction.
+    assert_eq!(
+        provider.provider().state_update(1.into()).unwrap(),
+        Some(
+            state_updates_with_contract_changes(
+                contract_address,
+                class_hash,
+                nonce,
+                storage_key,
+                storage_value,
+            )
+            .state_updates
+        )
+    );
+    assert_eq!(provider.provider().state_update(5.into()).unwrap(), Some(StateUpdates::default()));
+}
+
+#[tokio::test]
+async fn historical_returns_pruned_error_below_retention_boundary() {
+    let provider = create_provider_with_blocks(0..=8, BTreeMap::new());
+
+    let provider_mut = provider.provider_mut();
+    provider_mut.set_earliest_available_state_block(5).unwrap();
+    provider_mut.commit().unwrap();
+
+    assert!(matches!(
+        provider.provider().historical(4.into()),
+        Err(ProviderError::HistoricalStatePruned { requested: 4, earliest_available: 5 })
+    ));
+    assert!(matches!(
+        provider.provider().historical(3.into()),
+        Err(ProviderError::HistoricalStatePruned { requested: 3, earliest_available: 5 })
+    ));
+    assert!(provider.provider().historical(5.into()).unwrap().is_some());
+    assert!(provider.provider().historical(8.into()).unwrap().is_some());
+}
+
+#[tokio::test]
+async fn blocks_prune_does_not_decrease_existing_retention_boundary() {
+    let provider = create_provider_with_blocks(0..=8, BTreeMap::new());
+    let mut stage = Blocks::new(provider.clone(), MockBlockDownloader::new(), ChainId::SEPOLIA);
+
+    let provider_mut = provider.provider_mut();
+    provider_mut.set_earliest_available_state_block(10).unwrap();
+    provider_mut.commit().unwrap();
+
+    // keep_from=5
+    let _output =
+        stage.prune(&PruneInput::new(8, Some(3), None)).await.expect("prune must succeed");
+    assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), Some(10));
 }

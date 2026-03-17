@@ -3,6 +3,7 @@ use std::ops::{Range, RangeInclusive};
 
 use katana_db::abstraction::{DbTx, DbTxMut};
 use katana_db::models::block::StoredBlockBodyIndices;
+use katana_db::tables;
 use katana_fork::Backend;
 use katana_primitives::block::{
     Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
@@ -21,6 +22,7 @@ use katana_provider_api::block::{
 };
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
 use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
@@ -363,22 +365,32 @@ impl<Tx1: DbTx> BlockStatusProvider for ForkedProvider<Tx1> {
 
 impl<Tx1: DbTx> StateUpdateProvider for ForkedProvider<Tx1> {
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>> {
-        // hotfix: because of how `self.local_db.state_update` is implemented (ie the tables may or
-        // may not have the values):
-        //
-        // `if let Some(value) = self.local_db.state_update(block_id)?` will always return Some even
-        // for fork block.
-        //
-        // it's because of the call to `let block_num = self.block_number_by_id(block_id)?;` inside
-        // of it.
         if self.local_db.header(block_id)?.is_some() {
             if let Some(value) = self.local_db.state_update(block_id)? {
                 return Ok(Some(value));
             }
         }
 
-        if let Some(value) = self.fork_db.db.provider().state_update(block_id)? {
-            return Ok(Some(value));
+        match self.fork_db.db.provider().state_update(block_id) {
+            Ok(Some(value)) => return Ok(Some(value)),
+            Ok(None) => {}
+            Err(ProviderError::MissingBlockStateUpdate(block_number)) => {
+                let Some(state_update) = self.fork_db.backend.get_state_update(block_id)? else {
+                    return Ok(None);
+                };
+                let StateUpdate::Confirmed(state_update) = state_update else { unreachable!() };
+
+                let canonical_state_update: StateUpdates = state_update.state_diff.into();
+                let provider_mut = self.fork_db.db.provider_mut();
+                provider_mut.tx().put::<tables::BlockStateUpdates>(
+                    block_number,
+                    canonical_state_update.clone(),
+                )?;
+                provider_mut.commit()?;
+
+                return Ok(Some(canonical_state_update));
+            }
+            Err(err) => return Err(err),
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
@@ -393,40 +405,14 @@ impl<Tx1: DbTx> StateUpdateProvider for ForkedProvider<Tx1> {
         &self,
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<BTreeMap<ClassHash, CompiledClassHash>>> {
-        if let Some(classes) = self.local_db.declared_classes(block_id)? {
-            return Ok(Some(classes));
-        }
-
-        if let Some(value) = self.fork_db.db.provider().declared_classes(block_id)? {
-            return Ok(Some(value));
-        }
-
-        if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.provider().declared_classes(block_id)?.unwrap();
-            Ok(Some(value))
-        } else {
-            Ok(None)
-        }
+        Ok(self.state_update(block_id)?.map(|state_update| state_update.declared_classes))
     }
 
     fn deployed_contracts(
         &self,
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<BTreeMap<ContractAddress, ClassHash>>> {
-        if let Some(value) = self.local_db.deployed_contracts(block_id)? {
-            return Ok(Some(value));
-        }
-
-        if let Some(value) = self.fork_db.db.provider().deployed_contracts(block_id)? {
-            return Ok(Some(value));
-        }
-
-        if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.provider().deployed_contracts(block_id)?.unwrap();
-            Ok(Some(value))
-        } else {
-            Ok(None)
-        }
+        Ok(self.state_update(block_id)?.map(|state_update| state_update.deployed_contracts))
     }
 }
 
@@ -692,5 +678,26 @@ impl<Tx1: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1> {
 
     fn set_prune_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
         self.local_db.set_prune_checkpoint(id, block_number)
+    }
+}
+
+impl<Tx1: DbTxMut> HistoricalStateRetentionProvider for ForkedProvider<Tx1> {
+    fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        self.local_db.earliest_available_state_block()
+    }
+
+    fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()> {
+        self.local_db.set_earliest_available_state_block(block_number)
+    }
+
+    fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        self.local_db.earliest_available_state_trie_block()
+    }
+
+    fn set_earliest_available_state_trie_block(
+        &self,
+        block_number: BlockNumber,
+    ) -> ProviderResult<()> {
+        self.local_db.set_earliest_available_state_trie_block(block_number)
     }
 }

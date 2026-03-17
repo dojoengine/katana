@@ -16,6 +16,7 @@ use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
+use katana_db::migration;
 use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
@@ -484,7 +485,12 @@ impl Node<DbProviderFactory> {
     pub fn build(config: Config) -> Result<Self> {
         let (provider, db) = if let Some(path) = &config.db.dir {
             info!(target: "node", path = %path.display(), "Initializing database.");
-            let db = katana_db::Db::new_with_mode(path, config.db.open_mode)?;
+            let db = katana_db::Db::new(path)?;
+
+            if config.db.migrate {
+                migration::Migration::new_v9(&db).run()?;
+            }
+
             let factory = DbProviderFactory::new(db.clone());
             (factory, db)
         } else {

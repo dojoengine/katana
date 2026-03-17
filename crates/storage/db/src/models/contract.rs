@@ -2,14 +2,14 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use serde::{Deserialize, Serialize};
 
-use super::list::BlockList;
+use super::list::BlockChangeList;
 use crate::codecs::{Compress, Decode, Decompress, Encode};
 use crate::error::CodecError;
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct ContractInfoChangeList {
-    pub class_change_list: BlockList,
-    pub nonce_change_list: BlockList,
+    pub class_change_list: BlockChangeList,
+    pub nonce_change_list: BlockChangeList,
 }
 
 /// The type of event that triggered the class change.
@@ -51,8 +51,9 @@ impl ContractClassChange {
 
     fn decompress_current(bytes: &[u8]) -> Result<Self, CodecError> {
         let contract_address = ContractAddress::decode(&bytes[0..32])?;
-        let class_hash = ClassHash::decompress(&bytes[32..64])?;
-        let r#type = ContractClassChangeType::decompress(&bytes[64..])?;
+        // The type discriminator is always the last byte.
+        let class_hash = ClassHash::decompress(&bytes[32..bytes.len() - 1])?;
+        let r#type = ContractClassChangeType::decompress(&bytes[bytes.len() - 1..])?;
         Ok(Self { r#type, contract_address, class_hash })
     }
 

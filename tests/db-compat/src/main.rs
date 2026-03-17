@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use katana_db::version::{DbOpenMode, LATEST_DB_VERSION};
+use katana_db::version::LATEST_DB_VERSION;
 use katana_node_bindings::Katana;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::{address, felt};
@@ -34,10 +34,6 @@ async fn main() -> Result<()> {
     let fixture_path = PathBuf::from(TEST_DB_DIR);
     copy_db_dir(&fixture_path, temp_dir.path())?;
 
-    let err = katana_db::Db::open_ro_with_mode(temp_dir.path(), DbOpenMode::Strict).unwrap_err();
-    assert!(err.to_string().contains("strict mode"));
-    println!("Strict mode correctly rejects the v1.6.0 fixture.");
-
     // Get the katana binary path from the environment variable if provided (for CI)
     // Otherwise, assume it's in PATH
     let katana = if let Ok(binary_path) = std::env::var("KATANA_BIN") {
@@ -46,7 +42,7 @@ async fn main() -> Result<()> {
         Katana::new()
     };
 
-    let instance = katana.data_dir(temp_dir.path()).spawn();
+    let instance = katana.data_dir(temp_dir.path()).auto_migrate(true).spawn();
 
     // Create HTTP client for Katana's RPC
     let url = format!("http://{}", instance.rpc_addr());

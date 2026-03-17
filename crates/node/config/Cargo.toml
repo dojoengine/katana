@@ -6,7 +6,6 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-db.workspace = true
 http.workspace = true
 serde.workspace = true
 strum.workspace = true

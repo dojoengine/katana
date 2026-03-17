@@ -32,8 +32,7 @@ impl TempDb {
     }
 
     fn open_rw(&self) -> katana_db::Db {
-        katana::cli::db::open_db_rw(self.path_str(), katana_db::version::DbOpenMode::Compat)
-            .unwrap()
+        katana::cli::db::open_db_rw(self.path_str()).unwrap()
     }
 }
 

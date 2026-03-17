@@ -10,6 +10,11 @@ Headers {
     VALUE Header
 }
 
+BlockStateUpdates {
+    KEY BlockNumber
+    VALUE StateUpdates
+}
+
 BlockHashes {
     KEY BlockNumber
     VALUE BlockHash
@@ -129,6 +134,7 @@ StorageChangeHistory {
 BlockHashes ||--|| BlockNumbers : "block id"
 BlockNumbers ||--|| BlockBodyIndices : "has"
 BlockNumbers ||--|| Headers : "has"
+BlockNumbers ||--|| BlockStateUpdates : "has canonical state diff"
 BlockNumbers ||--|| BlockStatusses : "has"
 
 BlockBodyIndices ||--o{ Transactions : "block txs"
@@ -181,3 +187,7 @@ Reader behavior for envelope-enabled values:
 - If magic does not match, treat the row as legacy format.
 - If magic matches but metadata is unsupported/corrupt, return an error (do not fall back to
   legacy decoding).
+
+`BlockStateUpdates` stores the canonical per-block state diff used by `StateUpdateProvider` and RPC `get_state_update`.
+
+The `*ChangeHistory`, `*ChangeSet`, `ClassDeclarations`, and `MigratedCompiledClassHashes` tables are historical reconstruction data. They may be compacted by pruning and must not be treated as the canonical source of a block's exact state diff.

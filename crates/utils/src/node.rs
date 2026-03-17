@@ -12,6 +12,7 @@ use katana_provider::{
     DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
 };
 use katana_rpc_server::HttpClient;
+use katana_sequencer_node::config::db::DbConfig;
 use katana_sequencer_node::config::dev::DevConfig;
 use katana_sequencer_node::config::grpc::{GrpcConfig, DEFAULT_GRPC_ADDR};
 use katana_sequencer_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
@@ -84,28 +85,19 @@ impl TestNode {
     /// Copies the database to a temp directory so each test gets its own mutable copy.
     /// The database is opened with [`SyncMode::UtterlyNoSync`] for test performance.
     pub async fn new_from_db(db_path: &Path) -> Self {
-        Self::new_from_db_with_config(db_path, test_config()).await
-    }
-
-    /// Creates a [`TestNode`] from a pre-existing database directory with a custom config.
-    ///
-    /// Copies the database to a temp directory so each test gets its own mutable copy.
-    /// The database is opened with [`SyncMode::UtterlyNoSync`] for test performance.
-    pub async fn new_from_db_with_config(db_path: &Path, config: Config) -> Self {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-
         copy_db_dir(db_path, temp_dir.path()).expect("failed to copy database");
 
-        let db = katana_db::Db::open_no_sync(temp_dir.path()).expect("failed to open database");
-        let provider = DbProviderFactory::new(db.clone());
+        let mut config = test_config();
+        config.db.dir = Some(temp_dir.path().to_path_buf());
 
         Self {
-            node: Node::build_with_provider(db, provider, config)
+            _db_temp_dir: Some(temp_dir),
+            node: Node::build(config)
                 .expect("failed to build node")
                 .launch()
                 .await
                 .expect("failed to launch node"),
-            _db_temp_dir: Some(temp_dir),
         }
     }
 
@@ -373,7 +365,17 @@ pub fn test_config() -> Config {
         timeout: Some(Duration::from_secs(30)),
     });
 
-    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), grpc, ..Default::default() }
+    let db = DbConfig { migrate: true, ..Default::default() };
+
+    Config {
+        sequencing,
+        rpc,
+        dev,
+        chain: ChainSpec::Dev(chain).into(),
+        grpc,
+        db,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]

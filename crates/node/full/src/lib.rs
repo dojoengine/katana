@@ -17,6 +17,7 @@ use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::ChainSpec;
+use katana_db::{migration, Db};
 use katana_executor::ExecutionFlags;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
@@ -90,7 +91,7 @@ pub struct Config {
 #[derive(Debug)]
 pub struct Node {
     pub provider: DbProviderFactory,
-    pub db: katana_db::Db,
+    pub db: Db,
     pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
@@ -121,7 +122,13 @@ impl Node {
 
         info!(target: "node", path = %path.display(), "Initializing database.");
 
-        let db = katana_db::Db::new_with_mode(path, config.db.open_mode)?;
+        let db = Db::new(path)?;
+
+        // --- Perform database migration, if needed
+        if config.db.migrate {
+            migration::Migration::new_v9(&db).run()?;
+        }
+
         let storage_provider = DbProviderFactory::new(db.clone());
 
         // --- build gateway client
