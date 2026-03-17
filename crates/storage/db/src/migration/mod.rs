@@ -205,7 +205,7 @@ impl<'a> Migration<'a> {
             ProgressStyle::default_bar()
                 .template(&format!(
                     "[Migrating] \x1b[1;33m{padded_id}\x1b[0m {{bar:40.cyan/blue}} \
-                     {{pos}}/{{len}} [{{elapsed_precise}}] {{per_sec}}"
+                     {{percent:>3}}/100% ({remaining}) [{{elapsed_precise}}] ETA: {{eta}}"
                 ))
                 .expect("valid format"),
         );
