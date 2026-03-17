@@ -3,18 +3,15 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-pub mod args;
 pub mod file;
 pub mod full;
 pub mod options;
+pub mod sequencer;
 #[cfg(feature = "paymaster")]
 pub mod sidecar;
 pub mod utils;
 
-pub use args::SequencerNodeArgs;
 pub use options::*;
-
-use crate::full::FullNodeArgs;
 
 #[derive(Debug, Args, PartialEq)]
 pub struct NodeCli {
@@ -25,10 +22,10 @@ pub struct NodeCli {
 #[derive(Debug, Subcommand, PartialEq)]
 pub enum NodeSubcommand {
     #[command(about = "Launch a full node", hide = true)]
-    Full(Box<FullNodeArgs>),
+    Full(Box<full::FullNodeArgs>),
 
     #[command(about = "Launch a sequencer node")]
-    Sequencer(Box<SequencerNodeArgs>),
+    Sequencer(Box<sequencer::SequencerNodeArgs>),
 }
 
 impl NodeCli {

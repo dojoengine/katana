@@ -1,4 +1,4 @@
-//! Katana node CLI options and configuration.
+//! Katana sequencer node CLI arguments.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,8 +42,6 @@ use crate::file::NodeArgsConfig;
 use crate::options::*;
 use crate::utils::{self, parse_chain_config_dir, parse_seed, prompt_db_migration};
 
-pub(crate) const LOG_TARGET: &str = "katana::cli";
-
 #[derive(Parser, Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 #[command(next_help_heading = "Sequencer node options")]
 pub struct SequencerNodeArgs {
@@ -52,7 +50,7 @@ pub struct SequencerNodeArgs {
     pub silent: bool,
 
     /// Path to the chain configuration file.
-    #[arg(long, hide = true)]
+    #[arg(long)]
     #[arg(value_parser = parse_chain_config_dir)]
     pub chain: Option<ChainConfigDir>,
 
@@ -70,7 +68,10 @@ pub struct SequencerNodeArgs {
     #[arg(value_name = "TOTAL")]
     pub block_cairo_steps_limit: Option<u64>,
 
-    /// Configuration file
+    /// Path to a TOML configuration file as an alternative to passing CLI arguments.
+    ///
+    /// All node options that can be set via CLI arguments can also be defined in this
+    /// file. If both are provided, CLI arguments take precedence over the file values.
     #[arg(long)]
     pub config: Option<PathBuf>,
 
