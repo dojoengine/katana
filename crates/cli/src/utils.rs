@@ -21,8 +21,7 @@ use katana_tracing::LogFormat;
 use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;
 
-use crate::args::LOG_TARGET;
-use crate::SequencerNodeArgs;
+use crate::sequencer::SequencerNodeArgs;
 
 pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
     let db = Db::new(path).context("failed to open database")?;
@@ -98,7 +97,7 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
 
     if args.logging.stdout.stdout_format == LogFormat::Json {
         info!(
-            target: LOG_TARGET,
+            target: "katana::cli",
             "{}",
             serde_json::json!({
                 "accounts": accounts.map(|a| serde_json::json!(a)).collect::<Vec<_>>(),

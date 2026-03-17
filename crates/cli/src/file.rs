@@ -5,7 +5,7 @@ use katana_messaging::MessagingConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::options::*;
-use crate::SequencerNodeArgs;
+use crate::sequencer::SequencerNodeArgs;
 
 /// Node arguments configuration file.
 #[derive(Debug, Serialize, Deserialize, Default)]

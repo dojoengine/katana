@@ -3,7 +3,8 @@ use std::future::Future;
 use anyhow::{Context, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use katana_cli::{NodeCli, SequencerNodeArgs};
+use katana_cli::sequencer::SequencerNodeArgs;
+use katana_cli::NodeCli;
 use tokio::runtime::Runtime;
 
 mod config;
