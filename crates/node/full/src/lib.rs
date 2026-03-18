@@ -85,10 +85,17 @@ pub struct Config {
     /// The maximum block number the pipeline will sync to. When set, the pipeline
     /// will stop syncing after reaching this block while the node remains running.
     pub max_sync_tip: Option<u64>,
-    /// Custom feeder gateway base URL to sync from instead of the default network gateway.
-    pub sync_gateway: Option<Url>,
-    /// JSON-RPC endpoint URL to use as the block download source instead of the gateway.
-    pub sync_rpc: Option<Url>,
+    /// The source to sync blocks and classes from.
+    pub sync_source: Option<SyncSource>,
+}
+
+/// The source from which the node downloads blocks and classes.
+#[derive(Debug, Clone)]
+pub enum SyncSource {
+    /// Custom feeder gateway base URL instead of the default network gateway.
+    Gateway(Url),
+    /// JSON-RPC endpoint URL.
+    JsonRpc(Url),
 }
 
 #[derive(Debug)]
@@ -136,7 +143,7 @@ impl Node {
 
         // --- build gateway client
 
-        let gateway_client = if let Some(ref base_url) = config.sync_gateway {
+        let gateway_client = if let Some(SyncSource::Gateway(ref base_url)) = config.sync_source {
             let gateway = base_url.join("gateway").expect("valid URL join");
             let feeder_gateway = base_url.join("feeder_gateway").expect("valid URL join");
             SequencerGateway::new(gateway, feeder_gateway)
@@ -173,7 +180,7 @@ impl Node {
             Network::Sepolia => katana_primitives::chain::ChainId::SEPOLIA,
         };
 
-        if let Some(ref rpc_url) = config.sync_rpc {
+        if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync_source {
             let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
             let block_downloader = JsonRpcBlockDownloader::new(rpc_client.clone());
             pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
