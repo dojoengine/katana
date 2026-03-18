@@ -104,7 +104,7 @@ pub mod gateway {
     };
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
     use katana_primitives::transaction::{Tx, TxWithHash};
-    use katana_primitives::Felt;
+    use katana_primitives::{ContractAddress, Felt};
     use num_traits::ToPrimitive;
     use starknet::core::types::ResourcePrice;
 

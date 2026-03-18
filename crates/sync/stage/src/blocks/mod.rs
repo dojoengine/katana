@@ -120,12 +120,10 @@ where
             // These are CPU-bound hash computations with no inter-block dependencies.
             let mut blocks = blocks;
             blocks.par_iter_mut().for_each(|block_data| {
+                let block_hash = block_data.block.block.hash;
                 let block_number = block_data.block.block.header.number;
 
-                // Compute missing commitments for older blocks where the source
-                // doesn't include them in the block header. This also patches
-                // starknet_version for early blocks that don't populate it.
-                hash::compute_missing_commitments(
+                let computed_block_hash = hash::patch_header_and_compute_hash(
                     &mut block_data.block.block,
                     &block_data.receipts,
                     &block_data.state_updates.state_updates,
@@ -133,18 +131,11 @@ where
                 );
 
                 // Verify the block hash matches what we compute locally.
-                let expected = block_data.block.block.hash;
-                let computed_hash = hash::compute_hash(
-                    &block_data.block.block.header,
-                    &self.chain_id,
-                    Some(expected),
-                );
-
-                if computed_hash != expected {
+                if computed_block_hash != block_hash {
                     warn!(
                         block = %block_number,
                         expected = %format!("{:#x}", block_data.block.block.hash),
-                        computed = %format!("{:#x}", computed_hash),
+                        computed = %format!("{:#x}", computed_block_hash),
                         "Block hash mismatch"
                     );
                 }

@@ -103,43 +103,28 @@ use katana_primitives::state::{compute_state_diff_hash, StateUpdates};
 use katana_primitives::transaction::{DeclareTx, DeployAccountTx, InvokeTx, Tx, TxWithHash};
 use katana_primitives::utils::starknet_keccak;
 use katana_primitives::version::StarknetVersion;
-use katana_primitives::Felt;
+use katana_primitives::{address, ContractAddress, Felt};
 use katana_trie::compute_merkle_root;
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
-
-/// The first block on mainnet that uses the 0.7 hash algorithm.
-///
-/// Blocks before this number use the pre-0.7 algorithm which includes chain_id and zeros
-/// for sequencer/timestamp. The `starknet_version` header field was not populated for
-/// early blocks, so we cannot rely on it alone for the algorithm selection.
-///
-/// Reference: <https://github.com/eqlabs/pathfinder/blob/main/crates/pathfinder/src/state/block_hash.rs>
-const MAINNET_FIRST_0_7_BLOCK: BlockNumber = 833;
 
 /// Fallback sequencer address used for mainnet blocks in the 0.7–0.8.2 range.
 ///
 /// During this period, the sequencer address was not stored in the block header. The actual
 /// address must be injected when computing the block hash for these blocks.
-const MAINNET_FALLBACK_SEQUENCER_ADDRESS: Felt =
-    Felt::from_hex_unchecked("0x021f4b90b0377c82bf330b7b5295820769e72d79d8acd0effa0ebde6e9988bc5");
+const MAINNET_FALLBACK_SEQUENCER_ADDRESS: ContractAddress =
+    address!("0x021f4b90b0377c82bf330b7b5295820769e72d79d8acd0effa0ebde6e9988bc5");
 
-/// Resolves the effective starknet version for hash computation.
-///
-/// Early mainnet blocks lack the `starknet_version` header field (reporting `UNVERSIONED`).
-/// For these, we infer the version from the block number using known mainnet cutoffs.
-fn effective_version(header: &Header, chain_id: &ChainId) -> StarknetVersion {
-    if header.starknet_version != StarknetVersion::UNVERSIONED {
-        return header.starknet_version;
-    }
-
-    // Only mainnet has pre-0.7 blocks; other networks start at 0.7+.
-    if *chain_id == ChainId::MAINNET && header.number < MAINNET_FIRST_0_7_BLOCK {
-        StarknetVersion::UNVERSIONED
-    } else {
-        // Treat unversioned blocks on or after the cutoff as 0.7.
-        StarknetVersion::V0_7_0
-    }
+/// Patches the header for missing fields in the block header (for earlier blocks) and computes the
+/// block hash.
+pub fn patch_header_and_compute_hash(
+    block: &mut SealedBlock,
+    receipts: &[Receipt],
+    state_updates: &StateUpdates,
+    chain_id: &ChainId,
+) -> Felt {
+    patch_missing_fields(block, receipts, state_updates, chain_id);
+    compute_hash(&block.header, chain_id)
 }
 
 /// Computes the block hash for a header, dispatching to the correct algorithm based
@@ -150,23 +135,13 @@ fn effective_version(header: &Header, chain_id: &ChainId) -> StarknetVersion {
 /// The `expected_hash` is used to resolve ambiguity for early mainnet blocks where the
 /// sequencer address was not stored in the header. When the initial hash doesn't match,
 /// the known fallback sequencer address from the 0.7–0.8.2 era is tried.
-pub fn compute_hash(header: &Header, chain_id: &ChainId, expected_hash: Option<Felt>) -> Felt {
+pub fn compute_hash(header: &Header, chain_id: &ChainId) -> Felt {
     let version_str = header.starknet_version.to_string();
 
     if header.starknet_version < StarknetVersion::V0_7_0 {
         compute_hash_pre_0_7(header, chain_id)
     } else if header.starknet_version < StarknetVersion::V0_13_2 {
-        let hash = compute_hash_pre_0_13_2(header);
-
-        // For early mainnet blocks, the sequencer address was not stored in the header.
-        // If the hash doesn't match, retry with the known fallback address.
-        if expected_hash.is_some_and(|expected| hash != expected) && *chain_id == ChainId::MAINNET {
-            let mut patched = header.clone();
-            patched.sequencer_address = MAINNET_FALLBACK_SEQUENCER_ADDRESS.into();
-            compute_hash_pre_0_13_2(&patched)
-        } else {
-            hash
-        }
+        compute_hash_pre_0_13_2(header)
     } else if header.starknet_version < StarknetVersion::V0_13_4 {
         compute_hash_post_0_13_2(header, &version_str)
     } else {
@@ -295,16 +270,16 @@ fn compute_hash_post_0_13_4(header: &Header, version_str: &str) -> Felt {
 ///
 /// This handles two categories of missing data:
 ///
-/// **Header fields** — Early blocks don't populate `starknet_version`. For blocks on or
-/// after the 0.7 cutoff on mainnet, the version is set to `V0_7_0`. Pre-0.7 blocks remain
-/// `UNVERSIONED`.
+/// **Header fields** — Early blocks don't populate `starknet_version` and `sequencer_address`.
+/// For blocks on or after the 0.7 cutoff on mainnet, the version is set to `V0_7_0`. Pre-0.7
+/// blocks remain `UNVERSIONED`.
 ///
 /// **Commitments** — Version gates:
 /// - Transaction commitment: reconstructed for any version when the header field is zero.
 /// - Event commitment: reconstructed for any version when the header field is zero.
 /// - State diff commitment and length: only meaningful from `0.13.2` onward.
 /// - Receipt commitment: only meaningful from `0.13.2` onward.
-pub(crate) fn compute_missing_commitments(
+pub(crate) fn patch_missing_fields(
     block: &mut SealedBlock,
     receipts: &[Receipt],
     state_updates: &StateUpdates,
@@ -323,6 +298,13 @@ pub(crate) fn compute_missing_commitments(
 
     if block.header.events_commitment == Felt::ZERO {
         block.header.events_commitment = compute_event_commitment(&block.body, receipts, version);
+    }
+
+    // For early mainnet blocks, the sequencer address was not stored in the header.
+    //
+    // Early sepolia blocks (>= block 0) already has a non-zero sequencer address.
+    if block.header.sequencer_address == ContractAddress::ZERO && chain_id == &ChainId::MAINNET {
+        block.header.sequencer_address = MAINNET_FALLBACK_SEQUENCER_ADDRESS;
     }
 
     // The rest of the commitments are only meaningful from 0.13.2 onward.
@@ -531,6 +513,34 @@ fn calculate_event_commitment_leaf(event: &Event, tx_hash: Felt, version: Starkn
     }
 }
 
+/// Resolves the effective starknet version for hash computation.
+///
+/// Early mainnet blocks lack the `starknet_version` header field. For these,
+/// we infer the version from the block number using known mainnet cutoffs.
+fn effective_version(header: &Header, chain_id: &ChainId) -> StarknetVersion {
+    /// The first block on mainnet that uses the 0.7 hash algorithm.
+    ///
+    /// Blocks before this number use the pre-0.7 algorithm which includes chain_id and zeros
+    /// for sequencer/timestamp. The `starknet_version` header field was not populated for
+    /// early blocks, so we cannot rely on it alone for the algorithm selection.
+    ///
+    /// Reference: <https://github.com/eqlabs/pathfinder/blob/main/crates/pathfinder/src/state/block_hash.rs>
+    const MAINNET_FIRST_0_7_BLOCK: BlockNumber = 833;
+
+    if header.starknet_version != StarknetVersion::UNVERSIONED {
+        return header.starknet_version;
+    }
+
+    // Only mainnet has pre-0.7 blocks; other networks start at 0.7+.
+    if *chain_id == ChainId::MAINNET && header.number < MAINNET_FIRST_0_7_BLOCK {
+        StarknetVersion::UNVERSIONED
+    }
+    // Treat unversioned blocks on or after the cutoff as 0.7.
+    else {
+        StarknetVersion::V0_7_0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use katana_gateway_types::{Block, ConfirmedStateUpdate, StateUpdate, StateUpdateWithBlock};
@@ -540,7 +550,8 @@ mod tests {
     use katana_primitives::{felt, Felt};
     use num_traits::ToPrimitive;
 
-    use super::{compute_hash, compute_missing_commitments};
+    use super::{compute_hash, patch_missing_fields};
+    use crate::blocks::hash::patch_header_and_compute_hash;
     use crate::blocks::BlockData;
 
     /// Shorthand for including a gateway test fixture file at compile time.
@@ -617,7 +628,7 @@ mod tests {
     fn block_hash_mainnet_65000_v0_11_1() {
         let json = fixture!("0.11.1/block/mainnet_65000.json");
         let (header, expected_hash) = header_from_fixture(json, None);
-        let hash = compute_hash(&header, &ChainId::MAINNET, Some(expected_hash));
+        let hash = compute_hash(&header, &ChainId::MAINNET);
         assert_eq!(hash, expected_hash, "block 65000 (v0.11.1) hash mismatch");
     }
 
@@ -626,7 +637,7 @@ mod tests {
     fn block_hash_mainnet_550000_v0_13_0() {
         let json = fixture!("0.13.0/block/mainnet_550000.json");
         let (header, expected_hash) = header_from_fixture(json, None);
-        let hash = compute_hash(&header, &ChainId::MAINNET, Some(expected_hash));
+        let hash = compute_hash(&header, &ChainId::MAINNET);
         assert_eq!(hash, expected_hash, "block 550000 (v0.13.0) hash mismatch");
     }
 
@@ -635,7 +646,7 @@ mod tests {
     fn block_hash_sepolia_35748_v0_13_2() {
         let json = fixture!("0.13.2/block/sepolia_integration_35748.json");
         let (header, expected_hash) = header_from_fixture(json, None);
-        let hash = compute_hash(&header, &ChainId::SEPOLIA, Some(expected_hash));
+        let hash = compute_hash(&header, &ChainId::SEPOLIA);
         assert_eq!(hash, expected_hash, "sepolia block 35748 (v0.13.2) hash mismatch");
     }
 
@@ -644,7 +655,7 @@ mod tests {
     fn block_hash_sepolia_63881_v0_13_4() {
         let json = fixture!("0.13.4/block/sepolia_integration_63881.json");
         let (header, expected_hash) = header_from_fixture(json, None);
-        let hash = compute_hash(&header, &ChainId::SEPOLIA, Some(expected_hash));
+        let hash = compute_hash(&header, &ChainId::SEPOLIA);
         assert_eq!(hash, expected_hash, "sepolia block 63881 (v0.13.4) hash mismatch");
     }
 
@@ -653,7 +664,7 @@ mod tests {
     fn block_hash_sepolia_2473486_v0_14_0() {
         let json = fixture!("0.14.0/block/sepolia_2473486.json");
         let (header, expected_hash) = header_from_fixture(json, None);
-        let hash = compute_hash(&header, &ChainId::SEPOLIA, Some(expected_hash));
+        let hash = compute_hash(&header, &ChainId::SEPOLIA);
         assert_eq!(hash, expected_hash, "sepolia block 2473486 (v0.14.0) hash mismatch");
     }
 
@@ -662,82 +673,12 @@ mod tests {
     fn block_hash_mainnet_2238855_v0_14_0() {
         let json = fixture!("0.14.0/block/mainnet_2238855.json");
         let (header, expected_hash) = header_from_fixture(json, None);
-        let hash = compute_hash(&header, &ChainId::MAINNET, Some(expected_hash));
+        let hash = compute_hash(&header, &ChainId::MAINNET);
         assert_eq!(hash, expected_hash, "block 2238855 (v0.14.0) hash mismatch");
     }
 
-    /// Block 833 — the first 0.7 block on mainnet.
-    ///
-    /// This block reports `starknet_version: ""` (UNVERSIONED) but must use the 0.7+
-    /// hash algorithm. Additionally, the sequencer address is not stored in the header
-    /// (zero), so the fallback sequencer address must be used.
     #[test]
-    fn block_hash_mainnet_833_first_0_7_block() {
-        use super::{
-            effective_version, MAINNET_FALLBACK_SEQUENCER_ADDRESS, MAINNET_FIRST_0_7_BLOCK,
-        };
-
-        // Block 833 has starknet_version="" → UNVERSIONED, but it's on or after the cutoff
-        let header = Header {
-            number: 833,
-            starknet_version: StarknetVersion::UNVERSIONED,
-            ..Default::default()
-        };
-        assert_eq!(
-            effective_version(&header, &ChainId::MAINNET),
-            StarknetVersion::V0_7_0,
-            "block 833 should use 0.7 algorithm despite UNVERSIONED"
-        );
-
-        // Block 832 is still pre-0.7
-        let header = Header {
-            number: 832,
-            starknet_version: StarknetVersion::UNVERSIONED,
-            ..Default::default()
-        };
-        assert_eq!(
-            effective_version(&header, &ChainId::MAINNET),
-            StarknetVersion::UNVERSIONED,
-            "block 832 should use pre-0.7 algorithm"
-        );
-
-        // On Sepolia, UNVERSIONED blocks always use 0.7 (no pre-0.7 era)
-        let header = Header {
-            number: 0,
-            starknet_version: StarknetVersion::UNVERSIONED,
-            ..Default::default()
-        };
-        assert_eq!(
-            effective_version(&header, &ChainId::SEPOLIA),
-            StarknetVersion::V0_7_0,
-            "sepolia block 0 should use 0.7 algorithm"
-        );
-    }
-
-    /// Block 833 — full hash verification using gateway fixture.
-    ///
-    /// This block has `starknet_version: ""` but is the first 0.7 block. The test verifies
-    /// that the version cutoff + fallback sequencer address produce the correct hash.
-    #[test]
-    fn block_hash_mainnet_833() {
-        // The gateway returns starknet_version=null for this block; override to 0.7.0
-        // since compute_missing_commitments would infer this from the block number.
-        let (header, expected_hash) = header_from_fixture(
-            fixture!("0.7.0/block/mainnet_833.json"),
-            Some(StarknetVersion::V0_7_0),
-        );
-        let hash = compute_hash(&header, &ChainId::MAINNET, Some(expected_hash));
-        assert_eq!(hash, expected_hash, "block 833 (first 0.7 block) hash mismatch");
-    }
-
-    /// Block 833 — commitment reconstruction + hash verification.
-    ///
-    /// Simulates the full pipeline flow: reconstruct commitments (which also patches
-    /// starknet_version), then verify the hash. This mirrors what happens when syncing
-    /// via JSON-RPC where starknet_version, sequencer_address, and commitments are all
-    /// missing.
-    #[test]
-    fn reconstructs_missing_commitments_for_0_7_0_mainnet_833() {
+    fn mainnet_0_7_0_cutoff_block_833() {
         let (mut block_data, _) = block_data_from_split_fixtures(
             fixture!("0.7.0/block/mainnet_833.json"),
             fixture!("0.7.0/state_update/mainnet_833.json"),
@@ -751,20 +692,14 @@ mod tests {
         block_data.block.block.header.starknet_version = StarknetVersion::UNVERSIONED;
         block_data.block.block.header.sequencer_address = Default::default();
 
-        compute_missing_commitments(
+        patch_header_and_compute_hash(
             &mut block_data.block.block,
             &block_data.receipts,
             &block_data.state_updates.state_updates,
             &ChainId::MAINNET,
         );
 
-        let computed_hash =
-            compute_hash(&block_data.block.block.header, &ChainId::MAINNET, Some(expected_hash));
-
-        assert_eq!(
-            computed_hash, expected_hash,
-            "block 833 (first 0.7 block) hash mismatch after commitment reconstruction"
-        );
+        assert_eq!(computed_hash, expected_hash);
     }
 
     #[test]
@@ -778,7 +713,7 @@ mod tests {
         block_data.block.block.header.transactions_commitment = Felt::ZERO;
         block_data.block.block.header.events_commitment = Felt::ZERO;
 
-        compute_missing_commitments(
+        patch_missing_fields(
             &mut block_data.block.block,
             &block_data.receipts,
             &block_data.state_updates.state_updates,
@@ -803,7 +738,7 @@ mod tests {
         block_data.block.block.header.transactions_commitment = Felt::ZERO;
         block_data.block.block.header.events_commitment = Felt::ZERO;
 
-        compute_missing_commitments(
+        patch_missing_fields(
             &mut block_data.block.block,
             &block_data.receipts,
             &block_data.state_updates.state_updates,
@@ -831,7 +766,7 @@ mod tests {
         block_data.block.block.header.state_diff_length = 0;
         block_data.block.block.header.state_diff_commitment = Felt::ZERO;
 
-        compute_missing_commitments(
+        patch_missing_fields(
             &mut block_data.block.block,
             &block_data.receipts,
             &block_data.state_updates.state_updates,
@@ -865,7 +800,7 @@ mod tests {
         block_data.block.block.header.state_diff_length = 0;
         block_data.block.block.header.state_diff_commitment = Felt::ZERO;
 
-        compute_missing_commitments(
+        patch_missing_fields(
             &mut block_data.block.block,
             &block_data.receipts,
             &block_data.state_updates.state_updates,
