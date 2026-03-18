@@ -6261,6 +6261,7 @@ dependencies = [
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-stage",
+ "katana-starknet",
  "katana-tasks",
  "parking_lot",
  "serde",

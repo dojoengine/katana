@@ -3,8 +3,6 @@ use std::future::Future;
 use anyhow::Result;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use katana_gateway_client::Client as SequencerGateway;
-use katana_gateway_types::ContractClass as GatewayContractClass;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassWriter;
@@ -12,6 +10,7 @@ use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_rpc_types::class::ConversionError;
+use katana_rpc_types::Class;
 use rayon::prelude::*;
 use tracing::{debug, error, info_span, Instrument};
 
@@ -19,32 +18,45 @@ use super::{
     PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
     StageResult,
 };
-use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
+mod downloader;
+
+pub use downloader::gateway::GatewayClassDownloader;
+pub use downloader::json_rpc::JsonRpcClassDownloader;
+
+/// Trait for downloading contract class artifacts.
+///
+/// This provides a stage-specific abstraction for downloading classes, allowing different
+/// implementations (e.g., gateway-based, JSON-RPC-based) to be used with the [`Classes`] stage.
+pub trait ClassDownloader: Send + Sync {
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Downloads the class artifact for the given class hash at the given block.
+    fn download_classes(
+        &self,
+        keys: Vec<ClassDownloadKey>,
+    ) -> impl Future<Output = Result<Vec<Class>, Self::Error>> + Send;
+}
 
 /// A stage for downloading and storing contract classes.
-pub struct Classes {
+pub struct Classes<D> {
     provider: DbProviderFactory,
-    downloader: BatchDownloader<ClassDownloader>,
+    downloader: D,
     /// Thread pool for parallel class hash verification
     verification_pool: rayon::ThreadPool,
 }
 
-impl std::fmt::Debug for Classes {
+impl<D> std::fmt::Debug for Classes<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Classes")
             .field("provider", &self.provider)
-            .field("downloader", &self.downloader)
             .field("verification_pool", &"<ThreadPool>")
             .finish()
     }
 }
 
-impl Classes {
-    /// Create a new Classes stage using the Feeder Gateway downloader.
-    pub fn new(provider: DbProviderFactory, gateway: SequencerGateway, batch_size: usize) -> Self {
-        let downloader = ClassDownloader { gateway };
-        let downloader = BatchDownloader::new(downloader, batch_size);
-
+impl<D> Classes<D> {
+    /// Create a new [`Classes`] stage with the given downloader.
+    pub fn new(provider: DbProviderFactory, downloader: D) -> Self {
         // A dedicated thread pool for class hash verification
         let verification_pool = rayon::ThreadPoolBuilder::new()
             .build()
@@ -81,7 +93,7 @@ impl Classes {
     async fn verify_class_hashes(
         &self,
         class_hashes: &[ClassDownloadKey],
-        class_artifacts: Vec<GatewayContractClass>,
+        class_artifacts: Vec<Class>,
     ) -> Result<Vec<ContractClass>, Error> {
         let (tx, rx) = oneshot::channel();
         let class_hashes = class_hashes.to_vec();
@@ -90,11 +102,11 @@ impl Classes {
             let result = class_hashes
                 .par_iter()
                 .zip(class_artifacts.into_par_iter())
-                .map(|(key, gateway_class)| {
+                .map(|(key, class)| {
                     let block = key.block;
 
                     let expected_hash = key.class_hash;
-                    let computed_hash = gateway_class.hash();
+                    let computed_hash = class.hash();
 
                     if computed_hash != expected_hash {
                         return Err(Error::ClassHashMismatch {
@@ -104,7 +116,7 @@ impl Classes {
                         });
                     }
 
-                    ContractClass::try_from(gateway_class).map_err(Error::Conversion)
+                    ContractClass::try_from(class).map_err(Error::Conversion)
                 })
                 .collect::<Result<Vec<_>, Error>>();
 
@@ -115,7 +127,10 @@ impl Classes {
     }
 }
 
-impl Stage for Classes {
+impl<D> Stage for Classes<D>
+where
+    D: ClassDownloader,
+{
     fn id(&self) -> &'static str {
         "Classes"
     }
@@ -132,10 +147,10 @@ impl Stage for Classes {
                 // fetch the classes artifacts
                 let class_artifacts = self
                     .downloader
-                    .download(declared_class_hashes.clone())
+                    .download_classes(declared_class_hashes.clone())
                     .instrument(info_span!(target: "stage", "classes.download", %total_classes))
                     .await
-                    .map_err(Error::Gateway)?;
+                    .map_err(|e| Error::Download(Box::new(e)))?;
 
                 let verified_classes =
                     self.verify_class_hashes(&declared_class_hashes, class_artifacts).await?;
@@ -174,9 +189,9 @@ pub enum Error {
         block: BlockNumber,
     },
 
-    /// Error returnd by the client used to download the classes from.
+    /// Error returned by the downloader used to download the classes.
     #[error(transparent)]
-    Gateway(#[from] katana_gateway_client::Error),
+    Download(Box<dyn std::error::Error + Send + Sync>),
 
     /// Error that can occur when converting the classes types to the internal types.
     #[error(transparent)]
@@ -211,34 +226,9 @@ pub enum Error {
     },
 }
 
-#[derive(Debug)]
-struct ClassDownloader {
-    gateway: SequencerGateway,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ClassDownloadKey {
+pub struct ClassDownloadKey {
     /// The hash of the class artifact to download
-    class_hash: ClassHash,
-    block: BlockNumber,
-}
-
-impl Downloader for ClassDownloader {
-    type Key = ClassDownloadKey;
-    type Value = GatewayContractClass;
-    type Error = katana_gateway_client::Error;
-
-    #[allow(clippy::manual_async_fn)]
-    fn download(
-        &self,
-        key: &Self::Key,
-    ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
-        async {
-            match self.gateway.get_class(key.class_hash, key.block.into()).await {
-                Ok(data) => DownloaderResult::Ok(data),
-                Err(err) if err.is_rate_limited() => DownloaderResult::Retry(err),
-                Err(err) => DownloaderResult::Err(err),
-            }
-        }
-    }
+    pub class_hash: ClassHash,
+    pub block: BlockNumber,
 }

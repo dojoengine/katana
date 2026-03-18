@@ -310,20 +310,19 @@ pub mod json_rpc {
     use starknet::core::types::ResourcePrice;
     use tracing::error;
 
-    use super::{BlockData, BlockDownloader};
+    use super::{BatchBlockDownloader, BlockData};
+    use crate::downloader::{Downloader, DownloaderResult};
 
-    /// A [`BlockDownloader`] that fetches blocks via JSON-RPC.
-    ///
-    /// This downloads blocks one at a time sequentially using
-    /// `starknet_getBlockWithReceipts` and `starknet_getStateUpdate`.
-    #[derive(Debug)]
-    pub struct JsonRpcBlockDownloader {
-        client: JsonRpcClient,
-    }
+    pub type JsonRpcBlockDownloader = BatchBlockDownloader<JsonRpcDownloader>;
 
-    impl JsonRpcBlockDownloader {
-        pub fn new(client: JsonRpcClient) -> Self {
-            Self { client }
+    impl BatchBlockDownloader<JsonRpcDownloader> {
+        /// Create a new [`BatchBlockDownloader`] using a JSON-RPC endpoint for downloading
+        /// blocks.
+        pub fn new_json_rpc(
+            client: JsonRpcClient,
+            batch_size: usize,
+        ) -> BatchBlockDownloader<JsonRpcDownloader> {
+            Self::new(JsonRpcDownloader::new(client), batch_size)
         }
     }
 
@@ -336,20 +335,33 @@ pub mod json_rpc {
         Other(#[from] anyhow::Error),
     }
 
-    impl BlockDownloader for JsonRpcBlockDownloader {
+    /// Internal [`Downloader`] implementation that uses JSON-RPC for downloading a block.
+    #[derive(Debug)]
+    pub struct JsonRpcDownloader {
+        client: JsonRpcClient,
+    }
+
+    impl JsonRpcDownloader {
+        pub fn new(client: JsonRpcClient) -> Self {
+            Self { client }
+        }
+    }
+
+    impl Downloader for JsonRpcDownloader {
+        type Key = BlockNumber;
+        type Value = BlockData;
         type Error = Error;
 
-        async fn download_blocks(
+        #[allow(clippy::manual_async_fn)]
+        fn download(
             &self,
-            from: BlockNumber,
-            to: BlockNumber,
-        ) -> Result<Vec<BlockData>, Self::Error> {
-            let mut blocks = Vec::with_capacity((to - from + 1) as usize);
-
-            for block_num in from..=to {
+            key: &Self::Key,
+        ) -> impl std::future::Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+            let block_num = *key;
+            async move {
                 let block_id = BlockIdOrTag::Number(block_num);
 
-                let (block_resp, state_update) = tokio::try_join!(
+                let result = tokio::try_join!(
                     async {
                         self.client
                             .get_block_with_receipts(block_id)
@@ -376,13 +388,23 @@ pub mod json_rpc {
                             })
                             .map_err(Error::from)
                     },
-                )?;
+                );
 
-                let block_data = BlockData::from_rpc(block_resp, state_update)?;
-                blocks.push(block_data);
+                match result {
+                    Ok((block_resp, state_update)) => {
+                        match BlockData::from_rpc(block_resp, state_update) {
+                            Ok(data) => DownloaderResult::Ok(data),
+                            Err(e) => DownloaderResult::Err(Error::from(e)),
+                        }
+                    }
+                    Err(err) => match err {
+                        Error::Rpc(ref rpc_err) if rpc_err.is_retryable() => {
+                            DownloaderResult::Retry(err)
+                        }
+                        _ => DownloaderResult::Err(err),
+                    },
+                }
             }
-
-            Ok(blocks)
         }
     }
 

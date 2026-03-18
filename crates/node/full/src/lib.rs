@@ -33,7 +33,8 @@ use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, Starkn
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
-use katana_stage::blocks::BatchBlockDownloader;
+use katana_stage::blocks::{BatchBlockDownloader, JsonRpcBlockDownloader};
+use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
 use katana_stage::{Blocks, Classes, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
@@ -84,8 +85,17 @@ pub struct Config {
     /// The maximum block number the pipeline will sync to. When set, the pipeline
     /// will stop syncing after reaching this block while the node remains running.
     pub max_sync_tip: Option<u64>,
-    /// Custom feeder gateway base URL to sync from instead of the default network gateway.
-    pub sync_gateway: Option<Url>,
+    /// The source to sync blocks and classes from.
+    pub sync_source: Option<SyncSource>,
+}
+
+/// The source from which the node downloads blocks and classes.
+#[derive(Debug, Clone)]
+pub enum SyncSource {
+    /// Custom feeder gateway base URL instead of the default network gateway.
+    Gateway(Url),
+    /// JSON-RPC endpoint URL.
+    JsonRpc(Url),
 }
 
 #[derive(Debug)]
@@ -133,7 +143,7 @@ impl Node {
 
         // --- build gateway client
 
-        let gateway_client = if let Some(ref base_url) = config.sync_gateway {
+        let gateway_client = if let Some(SyncSource::Gateway(ref base_url)) = config.sync_source {
             let gateway = base_url.join("gateway").expect("valid URL join");
             let feeder_gateway = base_url.join("feeder_gateway").expect("valid URL join");
             SequencerGateway::new(gateway, feeder_gateway)
@@ -170,9 +180,20 @@ impl Node {
             Network::Sepolia => katana_primitives::chain::ChainId::SEPOLIA,
         };
 
-        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
-        pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
-        pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
+        if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync_source {
+            let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
+            let block_downloader = JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), 20);
+            pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
+
+            let class_downloader = JsonRpcClassDownloader::new(rpc_client, 20);
+            pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+        } else {
+            let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
+            pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
+
+            let class_downloader = GatewayClassDownloader::new(gateway_client.clone(), 20);
+            pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+        }
         if config.trie.compute {
             pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
         }

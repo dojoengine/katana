@@ -4,7 +4,7 @@ use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{self, Event, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt, B256};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxReceiptWithHash {
@@ -127,6 +127,7 @@ pub struct RpcInvokeTxReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcL1HandlerTxReceipt {
+    #[serde(deserialize_with = "deserialize_message_hash")]
     pub message_hash: B256,
     pub actual_fee: FeePayment,
     pub finality_status: FinalityStatus,
@@ -500,4 +501,32 @@ impl From<RpcTxReceipt> for Receipt {
             }),
         }
     }
+}
+
+/// Deserializes `message_hash` from a hex string that may have an odd number of digits.
+///
+/// `B256`'s default deserializer (from alloy_primitives) requires an even-length, zero-padded
+/// hex string. Some RPC servers return hex values with odd length (e.g., `"0x123"` instead of
+/// `"0x0123"`). This deserializer normalizes the input by left-padding with a zero when needed.
+///
+/// We cannot use `Felt` as an intermediary because `message_hash` is a 256-bit Ethereum keccak
+/// hash that can exceed the Stark field modulus.
+fn deserialize_message_hash<'de, D: Deserializer<'de>>(deserializer: D) -> Result<B256, D::Error> {
+    let s = String::deserialize(deserializer)?;
+    let hex_str = s
+        .strip_prefix("0x")
+        .ok_or_else(|| serde::de::Error::custom("expected hex string to be prefixed by '0x'"))?;
+
+    // Left-pad to 64 hex chars (32 bytes) for B256
+    let padded = format!("{hex_str:0>64}");
+    if padded.len() != 64 {
+        return Err(serde::de::Error::custom("message_hash hex too long for B256"));
+    }
+
+    let mut bytes = [0u8; 32];
+    for i in 0..32 {
+        bytes[i] =
+            u8::from_str_radix(&padded[i * 2..i * 2 + 2], 16).map_err(serde::de::Error::custom)?;
+    }
+    Ok(B256::from(bytes))
 }

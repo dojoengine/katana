@@ -362,6 +362,23 @@ pub enum Error {
     Client(jsonrpsee::core::client::Error),
 }
 
+impl Error {
+    /// Returns `true` if the error is transient and the request may succeed on retry.
+    ///
+    /// Transport errors (network issues) and request timeouts are considered retryable.
+    /// Parse errors, API errors, and other client errors are not.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Error::Client(inner) => matches!(
+                inner,
+                jsonrpsee::core::client::Error::Transport(_)
+                    | jsonrpsee::core::client::Error::RequestTimeout
+            ),
+            Error::Starknet(_) => false,
+        }
+    }
+}
+
 impl From<jsonrpsee::core::client::Error> for Error {
     fn from(err: jsonrpsee::core::client::Error) -> Self {
         match err {
