@@ -33,7 +33,8 @@ use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, Starkn
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
-use katana_stage::blocks::BatchBlockDownloader;
+use katana_stage::blocks::{BatchBlockDownloader, JsonRpcBlockDownloader};
+use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
 use katana_stage::{Blocks, Classes, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
@@ -86,6 +87,8 @@ pub struct Config {
     pub max_sync_tip: Option<u64>,
     /// Custom feeder gateway base URL to sync from instead of the default network gateway.
     pub sync_gateway: Option<Url>,
+    /// JSON-RPC endpoint URL to use as the block download source instead of the gateway.
+    pub sync_rpc: Option<Url>,
 }
 
 #[derive(Debug)]
@@ -170,9 +173,20 @@ impl Node {
             Network::Sepolia => katana_primitives::chain::ChainId::SEPOLIA,
         };
 
-        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
-        pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
-        pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
+        if let Some(ref rpc_url) = config.sync_rpc {
+            let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
+            let block_downloader = JsonRpcBlockDownloader::new(rpc_client.clone());
+            pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
+
+            let class_downloader = JsonRpcClassDownloader::new(rpc_client);
+            pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+        } else {
+            let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
+            pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
+
+            let class_downloader = GatewayClassDownloader::new(gateway_client.clone(), 20);
+            pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+        }
         if config.trie.compute {
             pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
         }

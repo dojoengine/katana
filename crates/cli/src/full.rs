@@ -72,7 +72,19 @@ pub struct FullNodeArgs {
     /// feeder gateway.
     #[arg(long = "sync.gateway")]
     #[arg(value_name = "URL")]
+    #[arg(conflicts_with = "sync_rpc")]
     pub sync_gateway: Option<Url>,
+
+    /// JSON-RPC endpoint URL to use as the block download source instead of
+    /// the feeder gateway. When set, blocks and classes are fetched via
+    /// JSON-RPC (`starknet_getBlockWithReceipts`, `starknet_getStateUpdate`,
+    /// `starknet_getClass`).
+    ///
+    /// This is mainly intended for development and testing purposes.
+    #[arg(long = "sync.rpc")]
+    #[arg(value_name = "URL")]
+    #[arg(conflicts_with = "sync_gateway")]
+    pub sync_rpc: Option<Url>,
 }
 
 impl FullNodeArgs {
@@ -136,6 +148,7 @@ impl FullNodeArgs {
             trie: TrieConfig { compute: !self.trie.disable },
             max_sync_tip: self.max_sync_tip,
             sync_gateway: self.sync_gateway.clone(),
+            sync_rpc: self.sync_rpc.clone(),
         })
     }
 
