@@ -57,22 +57,25 @@ pub mod gateway {
 }
 
 pub mod json_rpc {
+    use std::future::Future;
+
     use katana_primitives::block::BlockIdOrTag;
     use katana_rpc_types::Class;
     use katana_starknet::rpc::Client as JsonRpcClient;
     use tracing::error;
 
     use super::super::{ClassDownloadKey, ClassDownloader};
+    use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 
     /// A [`ClassDownloader`] that fetches classes via JSON-RPC using `starknet_getClass`.
     #[derive(Debug)]
     pub struct JsonRpcClassDownloader {
-        client: JsonRpcClient,
+        inner: BatchDownloader<JsonRpcDownloader>,
     }
 
     impl JsonRpcClassDownloader {
-        pub fn new(client: JsonRpcClient) -> Self {
-            Self { client }
+        pub fn new(client: JsonRpcClient, batch_size: usize) -> Self {
+            Self { inner: BatchDownloader::new(JsonRpcDownloader { client }, batch_size) }
         }
     }
 
@@ -83,23 +86,43 @@ pub mod json_rpc {
             &self,
             keys: Vec<ClassDownloadKey>,
         ) -> Result<Vec<Class>, Self::Error> {
-            let mut classes = Vec::with_capacity(keys.len());
+            self.inner.download(keys).await
+        }
+    }
 
-            for key in keys {
+    #[derive(Debug)]
+    struct JsonRpcDownloader {
+        client: JsonRpcClient,
+    }
+
+    impl Downloader for JsonRpcDownloader {
+        type Key = ClassDownloadKey;
+        type Value = Class;
+        type Error = katana_starknet::rpc::Error;
+
+        #[allow(clippy::manual_async_fn)]
+        fn download(
+            &self,
+            key: &Self::Key,
+        ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+            async {
                 let block_id = BlockIdOrTag::Number(key.block);
-                let class =
-                    self.client.get_class(block_id, key.class_hash).await.inspect_err(|e| {
-                        error!(
-                            block = %key.block,
-                            class_hash = %format!("{:#x}", key.class_hash),
-                            error = %e,
-                            "Error downloading class via JSON-RPC."
-                        );
-                    })?;
-                classes.push(class);
+                match self.client.get_class(block_id, key.class_hash).await.inspect_err(|e| {
+                    error!(
+                        block = %key.block,
+                        class_hash = %format!("{:#x}", key.class_hash),
+                        error = %e,
+                        "Error downloading class via JSON-RPC."
+                    );
+                }) {
+                    Ok(data) => DownloaderResult::Ok(data),
+                    // Transport/client errors are retryable
+                    Err(err @ katana_starknet::rpc::Error::Client(_)) => {
+                        DownloaderResult::Retry(err)
+                    }
+                    Err(err) => DownloaderResult::Err(err),
+                }
             }
-
-            Ok(classes)
         }
     }
 }

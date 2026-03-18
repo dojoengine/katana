@@ -182,10 +182,10 @@ impl Node {
 
         if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync_source {
             let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
-            let block_downloader = JsonRpcBlockDownloader::new(rpc_client.clone());
+            let block_downloader = JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), 20);
             pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader, chain_id));
 
-            let class_downloader = JsonRpcClassDownloader::new(rpc_client);
+            let class_downloader = JsonRpcClassDownloader::new(rpc_client, 20);
             pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
         } else {
             let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
