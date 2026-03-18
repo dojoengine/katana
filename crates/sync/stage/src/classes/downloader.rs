@@ -116,10 +116,7 @@ pub mod json_rpc {
                     );
                 }) {
                     Ok(data) => DownloaderResult::Ok(data),
-                    // Transport/client errors are retryable
-                    Err(err @ katana_starknet::rpc::Error::Client(_)) => {
-                        DownloaderResult::Retry(err)
-                    }
+                    Err(err) if err.is_retryable() => DownloaderResult::Retry(err),
                     Err(err) => DownloaderResult::Err(err),
                 }
             }
