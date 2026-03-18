@@ -10,7 +10,7 @@ use blockifier::execution::contract_class::{
 };
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
-use blockifier::state::state_api::{StateReader, UpdatableState};
+use blockifier::state::state_api::StateReader;
 use blockifier::state::stateful_compression::allocate_aliases_in_storage;
 use blockifier::transaction::account_transaction::{
     AccountTransaction, ExecutionFlags as BlockifierExecutionFlags,
@@ -71,68 +71,16 @@ pub fn transact<S: StateReader>(
     tx: ExecutableTxWithHash,
     bouncer: Option<&mut Bouncer>,
 ) -> ExecutorResult<ExecutionResult> {
-    fn transact_inner<U: UpdatableState>(
-        state: &mut U,
-        block_context: &BlockContext,
-        tx: Transaction,
-    ) -> Result<(TransactionExecutionInfo, FeeInfo), ExecutionError> {
-        let execution_info = match &tx {
-            Transaction::Account(tx) => tx.execute(state, block_context),
-            Transaction::L1Handler(tx) => tx.execute(state, block_context),
-        }?;
-
-        let fee_type = get_fee_type_from_tx(&tx);
-
-        // There are a few case where the `actual_fee` field of the transaction info is not set
-        // where the fee is skipped and thus not charged for the transaction (e.g. when the
-        // `skip_fee_transfer` is explicitly set, or when the transaction `max_fee` is set to 0). In
-        // these cases, we still want to calculate the fee.
-        let overall_fee = if execution_info.receipt.fee == Fee(0) {
-            let tip = match &tx {
-                Transaction::Account(tx) if tx.version() == TransactionVersion::THREE => tx.tip(),
-                _ => Tip::ZERO,
-            };
-
-            get_fee_by_gas_vector(
-                block_context.block_info(),
-                execution_info.receipt.gas,
-                &fee_type,
-                tip,
-            )
-        } else {
-            execution_info.receipt.fee
-        };
-
-        let prices = &block_context.block_info().gas_prices;
-
-        let fee = match fee_type {
-            FeeType::Eth => {
-                let unit = PriceUnit::Wei;
-                let overall_fee = overall_fee.0;
-                let l1_gas_price = prices.eth_gas_prices.l1_gas_price.get().0;
-                let l2_gas_price = prices.eth_gas_prices.l2_gas_price.get().0;
-                let l1_data_gas_price = prices.eth_gas_prices.l1_data_gas_price.get().0;
-                FeeInfo { unit, overall_fee, l1_gas_price, l2_gas_price, l1_data_gas_price }
-            }
-            FeeType::Strk => {
-                let unit = PriceUnit::Fri;
-                let overall_fee = overall_fee.0;
-                let l1_gas_price = prices.strk_gas_prices.l1_gas_price.get().0;
-                let l2_gas_price = prices.strk_gas_prices.l2_gas_price.get().0;
-                let l1_data_gas_price = prices.strk_gas_prices.l1_data_gas_price.get().0;
-                FeeInfo { unit, overall_fee, l1_gas_price, l2_gas_price, l1_data_gas_price }
-            }
-        };
-
-        Ok((execution_info, fee))
-    }
-
     let transaction = to_executor_tx(tx.clone(), simulation_flags.clone());
     let mut tx_state = TransactionalState::create_transactional(state);
-    let result = transact_inner(&mut tx_state, block_context, transaction);
+
+    let result = match &transaction {
+        Transaction::Account(tx) => tx.execute(&mut tx_state, block_context),
+        Transaction::L1Handler(tx) => tx.execute(&mut tx_state, block_context),
+    };
 
     match result {
-        Ok((info, fee)) => {
+        Ok(info) => {
             if let Some(bouncer) = bouncer {
                 let tx_state_changes_keys = tx_state.to_state_diff().unwrap().state_maps.keys();
                 let versioned_constants = block_context.versioned_constants();
@@ -149,14 +97,56 @@ pub fn transact<S: StateReader>(
 
             tx_state.commit();
 
+            let fee = compute_fee_info(block_context, &transaction, &info);
             let receipt = build_receipt(&tx.transaction, fee, &info);
             Ok(ExecutionResult::new_success(receipt, info))
         }
 
         Err(e) => {
             tx_state.commit();
-            Ok(ExecutionResult::new_failed(e))
+            Ok(ExecutionResult::new_failed(ExecutionError::from(e)))
         }
+    }
+}
+
+/// Computes the fee information for an executed transaction.
+///
+/// There are a few cases where the `actual_fee` field of the execution info is not set — when the
+/// fee is skipped and thus not charged (e.g. `skip_fee_transfer` is explicitly set, or the
+/// transaction `max_fee` is 0). In these cases, we still calculate the fee from the gas vector.
+fn compute_fee_info(
+    block_context: &BlockContext,
+    tx: &Transaction,
+    execution_info: &TransactionExecutionInfo,
+) -> FeeInfo {
+    let fee_type = get_fee_type_from_tx(tx);
+
+    let overall_fee = if execution_info.receipt.fee == Fee(0) {
+        let tip = match tx {
+            Transaction::Account(tx) if tx.version() == TransactionVersion::THREE => tx.tip(),
+            _ => Tip::ZERO,
+        };
+        get_fee_by_gas_vector(
+            block_context.block_info(),
+            execution_info.receipt.gas,
+            &fee_type,
+            tip,
+        )
+    } else {
+        execution_info.receipt.fee
+    };
+
+    let (unit, prices) = match fee_type {
+        FeeType::Eth => (PriceUnit::Wei, &block_context.block_info().gas_prices.eth_gas_prices),
+        FeeType::Strk => (PriceUnit::Fri, &block_context.block_info().gas_prices.strk_gas_prices),
+    };
+
+    FeeInfo {
+        unit,
+        overall_fee: overall_fee.0,
+        l1_gas_price: prices.l1_gas_price.get().0,
+        l2_gas_price: prices.l2_gas_price.get().0,
+        l1_data_gas_price: prices.l1_data_gas_price.get().0,
     }
 }
 
