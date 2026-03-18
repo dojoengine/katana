@@ -115,16 +115,26 @@ use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 const MAINNET_FALLBACK_SEQUENCER_ADDRESS: ContractAddress =
     address!("0x021f4b90b0377c82bf330b7b5295820769e72d79d8acd0effa0ebde6e9988bc5");
 
-/// Patches the header for missing fields in the block header (for earlier blocks) and computes the
-/// block hash.
-pub fn patch_header_and_compute_hash(
+/// Patches the header for missing fields in the block header (earlier Starknet blocks omit some
+/// fields) and computes the block hash.
+pub fn patch_and_verify_block_hash(
     block: &mut SealedBlock,
     receipts: &[Receipt],
     state_updates: &StateUpdates,
     chain_id: &ChainId,
-) -> Felt {
+) -> bool {
+    let expected_hash = block.hash;
+
     patch_missing_fields(block, receipts, state_updates, chain_id);
-    compute_hash(&block.header, chain_id)
+    let computed_hash = compute_hash(&block.header, chain_id);
+
+    if expected_hash != computed_hash {
+        block.header.sequencer_address = MAINNET_FALLBACK_SEQUENCER_ADDRESS;
+        let updated_computed_hash = compute_hash(&block.header, chain_id);
+        updated_computed_hash == expected_hash
+    } else {
+        true
+    }
 }
 
 /// Computes the block hash for a header, dispatching to the correct algorithm based
@@ -138,13 +148,20 @@ pub fn patch_header_and_compute_hash(
 pub fn compute_hash(header: &Header, chain_id: &ChainId) -> Felt {
     let version_str = header.starknet_version.to_string();
 
+    // [0, 0.7.0)
     if header.starknet_version < StarknetVersion::V0_7_0 {
         compute_hash_pre_0_7(header, chain_id)
-    } else if header.starknet_version < StarknetVersion::V0_13_2 {
+    }
+    // [0.7.0, 0.13.2)
+    else if header.starknet_version < StarknetVersion::V0_13_2 {
         compute_hash_pre_0_13_2(header)
-    } else if header.starknet_version < StarknetVersion::V0_13_4 {
+    }
+    // [0.13.2, 0.13.4)
+    else if header.starknet_version < StarknetVersion::V0_13_4 {
         compute_hash_post_0_13_2(header, &version_str)
-    } else {
+    }
+    // [0.13.4, ..)
+    else {
         compute_hash_post_0_13_4(header, &version_str)
     }
 }
@@ -300,16 +317,16 @@ pub(crate) fn patch_missing_fields(
         block.header.events_commitment = compute_event_commitment(&block.body, receipts, version);
     }
 
-    // For early mainnet blocks, the sequencer address was not stored in the header.
-    //
-    // Early sepolia blocks (>= block 0) already has a non-zero sequencer address.
-    if block.header.sequencer_address == ContractAddress::ZERO && chain_id == &ChainId::MAINNET {
-        block.header.sequencer_address = MAINNET_FALLBACK_SEQUENCER_ADDRESS;
-    }
-
     // The rest of the commitments are only meaningful from 0.13.2 onward.
     if version < StarknetVersion::V0_13_2 {
         return;
+    }
+
+    // For early mainnet blocks, the sequencer address was not stored in the header.
+    //
+    // Early sepolia blocks (>= block 0) already have a non-zero sequencer address.
+    if block.header.sequencer_address == ContractAddress::ZERO && chain_id == &ChainId::MAINNET {
+        block.header.sequencer_address = MAINNET_FALLBACK_SEQUENCER_ADDRESS;
     }
 
     // Post-0.13.2 block hashes include `state_diff_length` and `state_diff_commitment`.
@@ -551,7 +568,7 @@ mod tests {
     use num_traits::ToPrimitive;
 
     use super::{compute_hash, patch_missing_fields};
-    use crate::blocks::hash::patch_header_and_compute_hash;
+    use crate::blocks::hash::patch_and_verify_block_hash;
     use crate::blocks::BlockData;
 
     /// Shorthand for including a gateway test fixture file at compile time.
@@ -684,22 +701,12 @@ mod tests {
             fixture!("0.7.0/state_update/mainnet_833.json"),
         );
 
-        let expected_hash = block_data.block.block.hash;
-
-        // Reset fields as if downloaded from JSON-RPC
-        block_data.block.block.header.transactions_commitment = Felt::ZERO;
-        block_data.block.block.header.events_commitment = Felt::ZERO;
-        block_data.block.block.header.starknet_version = StarknetVersion::UNVERSIONED;
-        block_data.block.block.header.sequencer_address = Default::default();
-
-        patch_header_and_compute_hash(
+        assert!(patch_and_verify_block_hash(
             &mut block_data.block.block,
             &block_data.receipts,
             &block_data.state_updates.state_updates,
             &ChainId::MAINNET,
-        );
-
-        assert_eq!(computed_hash, expected_hash);
+        ));
     }
 
     #[test]
