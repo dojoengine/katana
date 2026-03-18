@@ -39,6 +39,29 @@ pub mod error;
 pub mod rpc;
 pub mod starknet;
 
+/// A L2→L1 message emitted by a contract execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeeL2ToL1Message {
+    pub from_address: Felt,
+    pub to_address: Felt,
+    pub payload: Vec<Felt>,
+}
+
+/// A L1→L2 message derived from an L1Handler transaction.
+///
+/// All fields are required to independently recompute the `message_hash`:
+/// `keccak256(from_address_u256, to_address, nonce, selector, payload.len, payload...)`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeeL1ToL2Message {
+    pub from_address: Felt,
+    pub to_address: Felt,
+    pub selector: Felt,
+    pub payload: Vec<Felt>,
+    pub nonce: Felt,
+}
+
 pub use amd_tee_registry_client::{
     AmdAttestationProver, OnchainProof, ProverConfig, Sp1NetworkBackend, StarknetCalldata,
     StarknetRegistryClient,
@@ -67,24 +90,37 @@ pub struct TeeQuoteResponse {
     pub quote: String,
 
 
-    /// The state root at the attested block (hex-encoded Felt).
+    /// The state root at the previous attested block (hex-encoded Felt).
+    #[serde(default)]
     pub prev_state_root: String,
 
     /// The state root at the attested block (hex-encoded Felt).
     pub state_root: String,
 
+    #[serde(default)]
     pub prev_block_hash: String,
     /// The hash of the attested block (hex-encoded).
     pub block_hash: String,
 
+    #[serde(default)]
     pub prev_block_number: Felt,
     /// The number of the attested block.
     pub block_number: Felt,
 
-    /// Merkle root of all events in the attested block (hex-encoded Felt).
-    /// Included in report_data: Poseidon(state_root, block_hash, fork_block, events_commitment).
+    /// Poseidon commitment over all L1<->L2 messages from prev_block+1 to block_number.
+    ///
+    /// Computed as `Poseidon(l2_to_l1_commitment, l1_to_l2_commitment)` where each direction's
+    /// commitment is `Poseidon` over the individual message hashes in that range.
     #[serde(default)]
-    pub events_commitment: Option<String>,
+    pub messages_commitment: Felt,
+
+    /// All L2→L1 messages emitted in the attested block range.
+    #[serde(default)]
+    pub l2_to_l1_messages: Vec<TeeL2ToL1Message>,
+
+    /// All L1→L2 messages processed in the attested block range.
+    #[serde(default)]
+    pub l1_to_l2_messages: Vec<TeeL1ToL2Message>,
 }
 
 impl TeeQuoteResponse {
