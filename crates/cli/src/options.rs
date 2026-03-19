@@ -974,7 +974,8 @@ pub struct TrieOptions {
 #[command(next_help_heading = "Sync options")]
 pub struct SyncOptions {
     /// The maximum block number to sync to. Once reached, the pipeline stops
-    /// syncing but the node and RPC server remain running.
+    /// syncing but the node and RPC server remain running. By default, the
+    /// pipeline syncs to the head of the chain.
     #[arg(long = "sync.tip")]
     #[arg(value_name = "BLOCK_NUMBER")]
     pub tip: Option<u64>,
@@ -1003,6 +1004,7 @@ pub struct SyncOptions {
     #[arg(long = "sync.chunk-size")]
     #[arg(value_name = "COUNT")]
     #[arg(default_value_t = katana_full_node::DEFAULT_SYNC_CHUNK_SIZE)]
+    #[arg(value_parser = clap::value_parser!(u64).range(1..))]
     pub chunk_size: u64,
 
     /// Number of blocks or classes to download concurrently within each
@@ -1010,6 +1012,7 @@ pub struct SyncOptions {
     #[arg(long = "sync.download-batch-size")]
     #[arg(value_name = "COUNT")]
     #[arg(default_value_t = katana_full_node::DEFAULT_DOWNLOAD_BATCH_SIZE)]
+    #[arg(value_parser = parse_nonzero_usize)]
     pub download_batch_size: usize,
 }
 
@@ -1049,6 +1052,15 @@ impl Default for PruningOptions {
 pub enum PruningMode {
     Archive,
     Full(u64),
+}
+
+fn parse_nonzero_usize(s: &str) -> Result<usize, String> {
+    let n: usize = s.parse().map_err(|e| format!("{e}"))?;
+    if n == 0 {
+        Err("value must be greater than 0".to_string())
+    } else {
+        Ok(n)
+    }
 }
 
 fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
