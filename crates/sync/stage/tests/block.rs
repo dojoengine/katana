@@ -555,12 +555,8 @@ async fn prune_compacts_state_history_at_boundary() {
     );
 
     let provider = create_provider_with_block_range(0..=8, updates_by_block);
-    let mut stage = Blocks::new(
-        provider.clone(),
-        MockBlockDownloader::new(),
-        ChainId::SEPOLIA,
-        TaskManager::current().task_spawner(),
-    );
+    let mut stage =
+        katana_stage::IndexHistory::new(provider.clone(), TaskManager::current().task_spawner());
 
     // keep_from = 5, prune range = [0, 5)
     let output = stage.prune(&PruneInput::new(8, Some(3), None)).await.expect("prune must succeed");
@@ -617,14 +613,10 @@ async fn historical_returns_pruned_error_below_retention_boundary() {
 }
 
 #[tokio::test]
-async fn blocks_prune_does_not_decrease_existing_retention_boundary() {
+async fn index_history_prune_does_not_decrease_existing_retention_boundary() {
     let provider = create_provider_with_block_range(0..=8, BTreeMap::new());
-    let mut stage = Blocks::new(
-        provider.clone(),
-        MockBlockDownloader::new(),
-        ChainId::SEPOLIA,
-        TaskManager::current().task_spawner(),
-    );
+    let mut stage =
+        katana_stage::IndexHistory::new(provider.clone(), TaskManager::current().task_spawner());
 
     let provider_mut = provider.provider_mut();
     provider_mut.set_earliest_available_state_block(10).unwrap();

@@ -191,3 +191,12 @@ Reader behavior for envelope-enabled values:
 `BlockStateUpdates` stores the canonical per-block state diff used by `StateUpdateProvider` and RPC `get_state_update`.
 
 The `*ChangeHistory`, `*ChangeSet`, `ClassDeclarations`, and `MigratedCompiledClassHashes` tables are historical reconstruction data. They may be compacted by pruning and must not be treated as the canonical source of a block's exact state diff.
+
+## Stage ownership
+
+During sync, the pipeline splits block storage and historical indexing across stages:
+
+- **Blocks stage** writes: `Headers`, `BlockHashes`, `BlockNumbers`, `BlockStatusses`, `BlockBodyIndices`, `BlockStateUpdates`, `Transactions`, `TxHashes`, `TxNumbers`, `TxBlocks`, `Receipts`, `TxTraces`, `Classes`, `CompiledClassHashes`, `ClassDeclarationBlock`, `ClassDeclarations`, `MigratedCompiledClassHashes`.
+- **IndexHistory stage** writes: `ContractStorage`, `StorageChangeSet`, `StorageChangeHistory`, `ContractInfo`, `ContractInfoChangeSet`, `ClassChangeHistory`, `NonceChangeHistory`. This stage also owns pruning of these tables.
+
+The sequencing path (`insert_block_with_states_and_receipts`) writes both groups atomically in a single transaction.
