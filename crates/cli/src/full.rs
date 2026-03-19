@@ -5,10 +5,9 @@ use katana_full_node::config::gateway::GatewayConfig;
 use katana_full_node::config::metrics::MetricsConfig;
 use katana_full_node::config::rpc::RpcConfig;
 use katana_full_node::config::trie::TrieConfig;
-use katana_full_node::{Network, SyncSource};
+use katana_full_node::{Network, SyncConfig, SyncSource};
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use url::Url;
 
 use crate::options::*;
 use crate::utils::prompt_db_migration;
@@ -61,30 +60,8 @@ pub struct FullNodeArgs {
     #[command(flatten)]
     pub pruning: PruningOptions,
 
-    /// The maximum block number to sync to. Once reached, the pipeline stops
-    /// syncing but the node and RPC server remain running.
-    #[arg(long = "sync.tip")]
-    #[arg(value_name = "BLOCK_NUMBER")]
-    pub max_sync_tip: Option<u64>,
-
-    /// Custom feeder gateway base URL to sync from instead of the default
-    /// network gateway. Useful for syncing from another katana node's
-    /// feeder gateway.
-    #[arg(long = "sync.gateway")]
-    #[arg(value_name = "URL")]
-    #[arg(conflicts_with = "sync_rpc")]
-    pub sync_gateway: Option<Url>,
-
-    /// JSON-RPC endpoint URL to use as the block download source instead of
-    /// the feeder gateway. When set, blocks and classes are fetched via
-    /// JSON-RPC (`starknet_getBlockWithReceipts`, `starknet_getStateUpdate`,
-    /// `starknet_getClass`).
-    ///
-    /// This is mainly intended for development and testing purposes.
-    #[arg(long = "sync.rpc")]
-    #[arg(value_name = "URL")]
-    #[arg(conflicts_with = "sync_gateway")]
-    pub sync_rpc: Option<Url>,
+    #[command(flatten)]
+    pub sync: SyncOptions,
 }
 
 impl FullNodeArgs {
@@ -146,16 +123,20 @@ impl FullNodeArgs {
             network: self.network,
             gateway_api_key: self.gateway_api_key.clone(),
             trie: TrieConfig { compute: !self.trie.disable },
-            max_sync_tip: self.max_sync_tip,
-            sync_source: self.sync_source(),
+            sync: SyncConfig {
+                max_tip: self.sync.tip,
+                source: self.sync_source(),
+                chunk_size: Some(self.sync.chunk_size),
+                download_batch_size: Some(self.sync.download_batch_size),
+            },
         })
     }
 
     fn sync_source(&self) -> Option<SyncSource> {
-        if let Some(ref url) = self.sync_rpc {
+        if let Some(ref url) = self.sync.rpc {
             Some(SyncSource::JsonRpc(url.clone()))
         } else {
-            self.sync_gateway.clone().map(SyncSource::Gateway)
+            self.sync.gateway.clone().map(SyncSource::Gateway)
         }
     }
 

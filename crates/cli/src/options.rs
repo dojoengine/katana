@@ -971,6 +971,61 @@ pub struct TrieOptions {
 }
 
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Sync options")]
+pub struct SyncOptions {
+    /// The maximum block number to sync to. Once reached, the pipeline stops
+    /// syncing but the node and RPC server remain running.
+    #[arg(long = "sync.tip")]
+    #[arg(value_name = "BLOCK_NUMBER")]
+    pub tip: Option<u64>,
+
+    /// Custom feeder gateway base URL to sync from instead of the default
+    /// network gateway. Useful for syncing from another katana node's
+    /// feeder gateway.
+    #[arg(long = "sync.gateway")]
+    #[arg(value_name = "URL")]
+    #[arg(conflicts_with = "rpc")]
+    pub gateway: Option<Url>,
+
+    /// JSON-RPC endpoint URL to use as the block download source instead of
+    /// the feeder gateway. When set, blocks and classes are fetched via
+    /// JSON-RPC (`starknet_getBlockWithReceipts`, `starknet_getStateUpdate`,
+    /// `starknet_getClass`).
+    ///
+    /// This is mainly intended for development and testing purposes.
+    #[arg(long = "sync.rpc")]
+    #[arg(value_name = "URL")]
+    #[arg(conflicts_with = "gateway")]
+    pub rpc: Option<Url>,
+
+    /// Maximum number of blocks to process per pipeline iteration before
+    /// advancing to the next chunk.
+    #[arg(long = "sync.chunk-size")]
+    #[arg(value_name = "COUNT")]
+    #[arg(default_value_t = katana_full_node::DEFAULT_SYNC_CHUNK_SIZE)]
+    pub chunk_size: u64,
+
+    /// Number of blocks or classes to download concurrently within each
+    /// chunk.
+    #[arg(long = "sync.download-batch-size")]
+    #[arg(value_name = "COUNT")]
+    #[arg(default_value_t = katana_full_node::DEFAULT_DOWNLOAD_BATCH_SIZE)]
+    pub download_batch_size: usize,
+}
+
+impl Default for SyncOptions {
+    fn default() -> Self {
+        Self {
+            tip: None,
+            gateway: None,
+            rpc: None,
+            chunk_size: katana_full_node::DEFAULT_SYNC_CHUNK_SIZE,
+            download_batch_size: katana_full_node::DEFAULT_DOWNLOAD_BATCH_SIZE,
+        }
+    }
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Pruning options")]
 pub struct PruningOptions {
     /// State pruning mode
