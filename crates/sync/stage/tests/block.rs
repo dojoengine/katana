@@ -25,6 +25,7 @@ use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, Provide
 use katana_stage::blocks::hash::compute_hash;
 use katana_stage::blocks::{BatchBlockDownloader, BlockData, BlockDownloader, Blocks};
 use katana_stage::{PruneInput, Stage, StageExecutionInput};
+use katana_tasks::TaskManager;
 use rstest::rstest;
 use starknet::core::types::ResourcePrice;
 
@@ -309,7 +310,12 @@ async fn download_and_store_blocks(
     let provider = create_provider_with_blocks(vec![genesis]);
     let downloader = MockBlockDownloader::new().with_blocks(downloaded_blocks);
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
     let input = StageExecutionInput::new(from_block, to_block);
 
     let result = stage.execute(&input).await;
@@ -334,7 +340,12 @@ async fn download_failure_returns_error() {
 
     let downloader = MockBlockDownloader::new().with_error(block_number, error_msg.clone());
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
     let input = StageExecutionInput::new(block_number, block_number);
 
     let result = stage.execute(&input).await;
@@ -382,7 +393,12 @@ async fn partial_download_failure_stops_execution() {
         .with_error(103, "Block not found".to_string());
 
     let provider = create_provider_with_block_range(99..=99, Default::default());
-    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
 
     let input = StageExecutionInput::new(from_block, to_block);
     let result = stage.execute(&input).await;
@@ -407,7 +423,12 @@ async fn fetch_blocks_from_gateway() {
     let feeder_gateway = SequencerGateway::sepolia();
     let downloader = BatchBlockDownloader::new_gateway(feeder_gateway, 10);
 
-    let mut stage = Blocks::new(provider.clone(), downloader, ChainId::SEPOLIA);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader,
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
 
     let input = StageExecutionInput::new(from_block, to_block);
     stage.execute(&input).await.expect("failed to execute stage");
@@ -431,7 +452,12 @@ async fn downloaded_blocks_do_not_form_valid_chain_with_stored_blocks() {
     let block1 = create_downloaded_block(100, felt!("0x1337"));
     let downloader = MockBlockDownloader::new().with_block(100, block1);
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
     let input = StageExecutionInput::new(100, 100);
 
     let result = stage.execute(&input).await;
@@ -475,7 +501,12 @@ async fn downloaded_blocks_do_not_form_valid_chain() {
         // block 102 has an invalid parent hash
         .with_block(102, create_downloaded_block(102, Felt::from(999)));
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone(), ChainId::SEPOLIA);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
     let input = StageExecutionInput::new(100, 102);
 
     let result = stage.execute(&input).await;
@@ -524,7 +555,12 @@ async fn prune_compacts_state_history_at_boundary() {
     );
 
     let provider = create_provider_with_block_range(0..=8, updates_by_block);
-    let mut stage = Blocks::new(provider.clone(), MockBlockDownloader::new(), ChainId::SEPOLIA);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        MockBlockDownloader::new(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
 
     // keep_from = 5, prune range = [0, 5)
     let output = stage.prune(&PruneInput::new(8, Some(3), None)).await.expect("prune must succeed");
@@ -583,7 +619,12 @@ async fn historical_returns_pruned_error_below_retention_boundary() {
 #[tokio::test]
 async fn blocks_prune_does_not_decrease_existing_retention_boundary() {
     let provider = create_provider_with_block_range(0..=8, BTreeMap::new());
-    let mut stage = Blocks::new(provider.clone(), MockBlockDownloader::new(), ChainId::SEPOLIA);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        MockBlockDownloader::new(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
 
     let provider_mut = provider.provider_mut();
     provider_mut.set_earliest_available_state_block(10).unwrap();
