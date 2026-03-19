@@ -82,12 +82,27 @@ pub struct Config {
     pub network: Network,
     pub trie: TrieConfig,
     pub gateway: Option<GatewayConfig>,
+    pub sync: SyncConfig,
+}
+
+/// Configuration for the sync pipeline.
+#[derive(Debug, Default)]
+pub struct SyncConfig {
     /// The maximum block number the pipeline will sync to. When set, the pipeline
     /// will stop syncing after reaching this block while the node remains running.
-    pub max_sync_tip: Option<u64>,
+    pub max_tip: Option<u64>,
     /// The source to sync blocks and classes from.
-    pub sync_source: Option<SyncSource>,
+    pub source: Option<SyncSource>,
+    /// Maximum number of blocks to process per pipeline iteration.
+    /// Defaults to 256 if not set.
+    pub chunk_size: Option<u64>,
+    /// Number of blocks or classes to download concurrently within each chunk.
+    /// Defaults to 20 if not set.
+    pub download_batch_size: Option<usize>,
 }
+
+pub const DEFAULT_SYNC_CHUNK_SIZE: u64 = 256;
+pub const DEFAULT_DOWNLOAD_BATCH_SIZE: usize = 20;
 
 /// The source from which the node downloads blocks and classes.
 #[derive(Debug, Clone)]
@@ -143,7 +158,7 @@ impl Node {
 
         // --- build gateway client
 
-        let gateway_client = if let Some(SyncSource::Gateway(ref base_url)) = config.sync_source {
+        let gateway_client = if let Some(SyncSource::Gateway(ref base_url)) = config.sync.source {
             let gateway = base_url.join("gateway").expect("valid URL join");
             let feeder_gateway = base_url.join("feeder_gateway").expect("valid URL join");
             SequencerGateway::new(gateway, feeder_gateway)
@@ -167,11 +182,14 @@ impl Node {
 
         // --- build pipeline
 
-        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 256);
+        let chunk_size = config.sync.chunk_size.unwrap_or(DEFAULT_SYNC_CHUNK_SIZE);
+        let batch_size = config.sync.download_batch_size.unwrap_or(DEFAULT_DOWNLOAD_BATCH_SIZE);
+
+        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), chunk_size);
 
         // Configure pipeline
         pipeline.set_config(PipelineConfig {
-            max_sync_tip: config.max_sync_tip,
+            max_sync_tip: config.sync.max_tip,
             pruning: config.pruning.clone(),
         });
 
@@ -180,9 +198,10 @@ impl Node {
             Network::Sepolia => katana_primitives::chain::ChainId::SEPOLIA,
         };
 
-        if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync_source {
+        if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync.source {
             let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
-            let block_downloader = JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), 20);
+            let block_downloader =
+                JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), batch_size);
             pipeline.add_stage(Blocks::new(
                 storage_provider.clone(),
                 block_downloader,
@@ -190,10 +209,11 @@ impl Node {
                 task_spawner.clone(),
             ));
 
-            let class_downloader = JsonRpcClassDownloader::new(rpc_client, 20);
+            let class_downloader = JsonRpcClassDownloader::new(rpc_client, batch_size);
             pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
         } else {
-            let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
+            let block_downloader =
+                BatchBlockDownloader::new_gateway(gateway_client.clone(), batch_size);
             pipeline.add_stage(Blocks::new(
                 storage_provider.clone(),
                 block_downloader,
@@ -201,7 +221,7 @@ impl Node {
                 task_spawner.clone(),
             ));
 
-            let class_downloader = GatewayClassDownloader::new(gateway_client.clone(), 20);
+            let class_downloader = GatewayClassDownloader::new(gateway_client.clone(), batch_size);
             pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
         }
         if config.trie.compute {
