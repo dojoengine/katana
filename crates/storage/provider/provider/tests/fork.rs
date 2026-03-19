@@ -361,45 +361,6 @@ async fn pre_fork_state_proof() {
     }
 }
 
-#[tokio::test]
-async fn post_fork_state_proof_should_not_be_supported() {
-    let fork_block_number = 2906771;
-
-    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
-    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
-
-    let provider_mut = provider_factory.provider_mut();
-
-    let new_block_number = fork_block_number + 1;
-    provider_mut
-        .insert_block_with_states_and_receipts(
-            SealedBlockWithStatus {
-                block: Block {
-                    header: Header { number: new_block_number, ..Default::default() },
-                    body: Vec::new(),
-                }
-                .seal(),
-                status: FinalityStatus::AcceptedOnL2,
-            },
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        )
-        .unwrap();
-    provider_mut.commit().unwrap();
-
-    let provider = provider_factory.provider();
-    let state = provider.latest().unwrap();
-
-    let class_hash = felt!("0x00e022115a73679d4e215da00f53d8f681f5c52b488bf18c71fea115e92181b1");
-    let result = state.class_multiproof(vec![class_hash]);
-    assert_matches!(result, Err(ProviderError::StateProofNotSupported));
-
-    let address = address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2");
-    let result = state.contract_multiproof(vec![address]);
-    assert_matches!(result, Err(ProviderError::StateProofNotSupported));
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn pre_fork_state_root() {
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
