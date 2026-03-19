@@ -13,6 +13,7 @@ use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey};
 use katana_db::version::{create_db_version_file, Version};
 use katana_db::{tables, Db};
 use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
+use katana_primitives::state::StateUpdates;
 use katana_primitives::transaction::TxNumber;
 use katana_primitives::{ContractAddress, Felt};
 use katana_utils::arbitrary;
@@ -144,7 +145,7 @@ fn state_updates_reconstructs_all_fields() {
     Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
-    let su = tx.get::<tables::BlockStateUpdates>(block).unwrap().unwrap();
+    let su: StateUpdates = tx.get::<tables::BlockStateUpdates>(block).unwrap().unwrap().into();
     tx.commit().unwrap();
 
     assert_eq!(su.nonce_updates.get(&nonce_addr), Some(&nonce_val));
@@ -212,7 +213,7 @@ fn state_updates_multiple_blocks() {
     assert_eq!(count, num_blocks as usize);
 
     for block in 0..num_blocks {
-        let su = tx.get::<tables::BlockStateUpdates>(block).unwrap().unwrap();
+        let su: StateUpdates = tx.get::<tables::BlockStateUpdates>(block).unwrap().unwrap().into();
         assert!(!su.nonce_updates.is_empty(), "block {block} missing nonce updates");
         assert!(!su.deployed_contracts.is_empty(), "block {block} missing deployed contracts");
         assert!(!su.storage_updates.is_empty(), "block {block} missing storage updates");
@@ -233,7 +234,7 @@ fn state_updates_empty_block() {
     Migration::new_v9(&db).run().unwrap();
 
     let tx = db.tx().unwrap();
-    let su = tx.get::<tables::BlockStateUpdates>(0u64).unwrap().unwrap();
+    let su: StateUpdates = tx.get::<tables::BlockStateUpdates>(0u64).unwrap().unwrap().into();
     tx.commit().unwrap();
 
     assert!(su.nonce_updates.is_empty());

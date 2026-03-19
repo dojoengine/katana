@@ -11,6 +11,7 @@ use crate::error::DatabaseError;
 use crate::mdbx::tx::TxRW;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractClassChangeType};
+use crate::models::state_update::StateUpdateEnvelope;
 use crate::models::storage::ContractStorageEntry;
 use crate::version::Version;
 use crate::{tables, Db};
@@ -45,7 +46,7 @@ impl MigrationStage for StateUpdatesStage {
             let state_updates = reconstruct_state_update(tx, block).map_err(|source| {
                 MigrationError::FailedToReconstructStateUpdate { block, source }
             })?;
-            tx.put::<tables::BlockStateUpdates>(block, state_updates)?;
+            tx.put::<tables::BlockStateUpdates>(block, StateUpdateEnvelope::from(state_updates))?;
         }
         Ok(())
     }
