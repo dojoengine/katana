@@ -161,7 +161,6 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         id: chain_id,
         deployment_outcome,
         rpc_url: settlement_provider.url().clone(),
-        account: account_address,
         settlement_id: ShortString::try_from(l1_chain_id)?,
         #[cfg(feature = "init-slot")]
         slot_paymasters,

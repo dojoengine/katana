@@ -40,7 +40,11 @@ pub struct Client {
 
 impl Client {
     pub fn new(url: Url) -> Self {
-        Client::new_with_client(HttpClient::builder().build(url).unwrap())
+        // Some blocks can have very large responses (e.g., getBlockWithReceipts for mainnet blocks
+        // 1256131 (~19MB) and 1256132 (~16MB) exceed the default 10MB limit).
+        Client::new_with_client(
+            HttpClient::builder().max_response_size(50 * 1024 * 1024).build(url).unwrap(),
+        )
     }
 
     pub fn new_with_client(client: HttpClient) -> Self {
@@ -360,6 +364,23 @@ pub enum Error {
     /// Transport or other client-level error.
     #[error(transparent)]
     Client(jsonrpsee::core::client::Error),
+}
+
+impl Error {
+    /// Returns `true` if the error is transient and the request may succeed on retry.
+    ///
+    /// Transport errors (network issues) and request timeouts are considered retryable.
+    /// Parse errors, API errors, and other client errors are not.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Error::Client(inner) => matches!(
+                inner,
+                jsonrpsee::core::client::Error::Transport(_)
+                    | jsonrpsee::core::client::Error::RequestTimeout
+            ),
+            Error::Starknet(_) => false,
+        }
+    }
 }
 
 impl From<jsonrpsee::core::client::Error> for Error {

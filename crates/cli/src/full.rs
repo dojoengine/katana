@@ -5,7 +5,7 @@ use katana_full_node::config::gateway::GatewayConfig;
 use katana_full_node::config::metrics::MetricsConfig;
 use katana_full_node::config::rpc::RpcConfig;
 use katana_full_node::config::trie::TrieConfig;
-use katana_full_node::Network;
+use katana_full_node::{Network, SyncSource};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use url::Url;
@@ -72,7 +72,19 @@ pub struct FullNodeArgs {
     /// feeder gateway.
     #[arg(long = "sync.gateway")]
     #[arg(value_name = "URL")]
+    #[arg(conflicts_with = "sync_rpc")]
     pub sync_gateway: Option<Url>,
+
+    /// JSON-RPC endpoint URL to use as the block download source instead of
+    /// the feeder gateway. When set, blocks and classes are fetched via
+    /// JSON-RPC (`starknet_getBlockWithReceipts`, `starknet_getStateUpdate`,
+    /// `starknet_getClass`).
+    ///
+    /// This is mainly intended for development and testing purposes.
+    #[arg(long = "sync.rpc")]
+    #[arg(value_name = "URL")]
+    #[arg(conflicts_with = "sync_gateway")]
+    pub sync_rpc: Option<Url>,
 }
 
 impl FullNodeArgs {
@@ -135,8 +147,16 @@ impl FullNodeArgs {
             gateway_api_key: self.gateway_api_key.clone(),
             trie: TrieConfig { compute: !self.trie.disable },
             max_sync_tip: self.max_sync_tip,
-            sync_gateway: self.sync_gateway.clone(),
+            sync_source: self.sync_source(),
         })
+    }
+
+    fn sync_source(&self) -> Option<SyncSource> {
+        if let Some(ref url) = self.sync_rpc {
+            Some(SyncSource::JsonRpc(url.clone()))
+        } else {
+            self.sync_gateway.clone().map(SyncSource::Gateway)
+        }
     }
 
     fn pruning_config(&self) -> katana_full_node::PruningConfig {
