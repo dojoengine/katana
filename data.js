@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773938876554,
+  "lastUpdate": 1773945464557,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -9706,6 +9706,342 @@ window.BENCHMARK_DATA = {
           {
             "name": "TrieHistoryEntry/decompress",
             "value": 270,
+            "range": "± 10",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "66b14e7c69aaec4b3b80266308cf79ddc84ad62c",
+          "message": "Feat/update gen and statefull compr (rebased) (#450)\n\nRebased version of #238 onto the latest main.\n\nKeeping #238 unchanged; this PR is the updated review target.\n\n## Latest Changes\n\n### fix: increase deploy_account test funding for Starknet v0.14.0\n\nThe Starknet version bump from 0.13.4 to 0.14.0 increased the OS\nresource overhead for `DeployAccount` transactions in the blockifier's\nversioned constants. Key changes in v0.14.0:\n\n- `execute_txs_inner.DeployAccount.constant.n_steps`: 4,161 → 4,583\n(+422 steps)\n- `range_check_builtin`: 72 → 93\n- `poseidon_builtin`: 0 → 11 (new)\n- Multiple syscall costs also increased (`StorageRead`, `StorageWrite`,\n`GetExecutionInfo`, `CallContract`, etc.)\n\nThis made the previously hardcoded funding amount (`0x5ea0fb889c9400`)\ninsufficient for the `deploy_account` RPC test. Updated the funding to 1\nSTRK (`0xde0b6b3a7640000`) for comfortable headroom.\n\n---------\n\nCo-authored-by: Mateusz Chudkowski <mateuszchudy03@gmail.com>\nCo-authored-by: glihm <dev@glihm.net>\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-19T13:18:59-05:00",
+          "tree_id": "5b5381e535fd4ad9be146a63f8ec673c9ddf6758",
+          "url": "https://github.com/dojoengine/katana/commit/66b14e7c69aaec4b3b80266308cf79ddc84ad62c"
+        },
+        "date": 1773945462389,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2687981,
+            "range": "± 154082",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2905343,
+            "range": "± 20969",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 32,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 25,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 32,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 25,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 622,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 819,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 79,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 36,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 145,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 143,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 152,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 232,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 212,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 261,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 152,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 314,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 133,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 102,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 81,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 54,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 84,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 55,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 84,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 54,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 82,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 54,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 83,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 54,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 25,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 27,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 12,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 15821,
+            "range": "± 373",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3493,
+            "range": "± 78",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 370,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 763,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 152,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 143,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1716,
+            "range": "± 63",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2168,
+            "range": "± 420",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 733,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 866,
+            "range": "± 169",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 31685,
+            "range": "± 1958",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 5898,
+            "range": "± 454",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 216,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 250,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 332,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 271,
             "range": "± 10",
             "unit": "ns/iter"
           }
