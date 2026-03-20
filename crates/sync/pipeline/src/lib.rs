@@ -277,7 +277,11 @@ impl Pipeline {
     /// # Returns
     ///
     /// A tuple containing the pipeline instance and a handle for controlling it.
+    /// # Panics
+    ///
+    /// Panics if `chunk_size` is 0.
     pub fn new(provider: DbProviderFactory, chunk_size: u64) -> (Self, PipelineHandle) {
+        assert!(chunk_size > 0, "chunk size must be greater than 0");
         let (tx, rx) = watch::channel(None);
         let (block_tx, _block_rx) = watch::channel(None);
         let handle = PipelineHandle { tx: tx.clone(), block_tx: block_tx.clone() };

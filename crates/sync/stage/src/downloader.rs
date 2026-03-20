@@ -63,7 +63,12 @@ impl<D> BatchDownloader<D> {
     ///
     /// * `downloader` - The downloader implementation to use for individual downloads
     /// * `batch_size` - Maximum number of items to download concurrently in each batch
+    ///
+    /// # Panics
+    ///
+    /// Panics if `batch_size` is 0.
     pub fn new(downloader: D, batch_size: usize) -> Self {
+        assert!(batch_size > 0, "batch size must be greater than 0");
         let backoff = ExponentialBuilder::default()
             .with_min_delay(Duration::from_secs(3))
             .with_max_delay(Duration::from_secs(60))
