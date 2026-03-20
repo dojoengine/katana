@@ -12,7 +12,7 @@ use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_rpc_types::class::ConversionError;
 use katana_rpc_types::Class;
 use rayon::prelude::*;
-use tracing::{debug, error, info_span, Instrument};
+use tracing::{debug, info_span, Instrument};
 
 use super::{
     PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
@@ -92,7 +92,7 @@ impl<D> Classes<D> {
 
     async fn verify_class_hashes(
         &self,
-        class_hashes: &[ClassDownloadKey],
+        class_hashes: &[ClassHash],
         class_artifacts: Vec<Class>,
     ) -> Result<Vec<ContractClass>, Error> {
         let (tx, rx) = oneshot::channel();
@@ -102,17 +102,13 @@ impl<D> Classes<D> {
             let result = class_hashes
                 .par_iter()
                 .zip(class_artifacts.into_par_iter())
-                .map(|(key, class)| {
-                    let block = key.block;
-
-                    let expected_hash = key.class_hash;
+                .map(|(&expected_hash, class)| {
                     let computed_hash = class.hash();
 
                     if computed_hash != expected_hash {
                         return Err(Error::ClassHashMismatch {
                             expected: expected_hash,
                             actual: computed_hash,
-                            block,
                         });
                     }
 
@@ -144,24 +140,28 @@ where
             } else {
                 let total_classes = declared_class_hashes.len();
 
+                // Extract class hashes before moving the keys vec into the downloader.
+                let class_hashes: Vec<ClassHash> =
+                    declared_class_hashes.iter().map(|k| k.class_hash).collect();
+
                 // fetch the classes artifacts
                 let class_artifacts = self
                     .downloader
-                    .download_classes(declared_class_hashes.clone())
+                    .download_classes(declared_class_hashes)
                     .instrument(info_span!(target: "stage", "classes.download", %total_classes))
                     .await
                     .map_err(|e| Error::Download(Box::new(e)))?;
 
                 let verified_classes =
-                    self.verify_class_hashes(&declared_class_hashes, class_artifacts).await?;
+                    self.verify_class_hashes(&class_hashes, class_artifacts).await?;
 
                 debug!(target: "stage", id = self.id(), total = %verified_classes.len(), "Storing class artifacts.");
 
                 let provider_mut = self.provider.provider_mut();
                 // Second pass: insert the verified classes into storage
                 // This must be done sequentially as database only supports single write transaction
-                for (key, class) in declared_class_hashes.iter().zip(verified_classes.into_iter()) {
-                    provider_mut.set_class(key.class_hash, class)?;
+                for (hash, class) in class_hashes.iter().zip(verified_classes.into_iter()) {
+                    provider_mut.set_class(*hash, class)?;
                 }
 
                 provider_mut.commit()?;
@@ -201,28 +201,12 @@ pub enum Error {
     Provider(#[from] ProviderError),
 
     /// Error when a downloaded class produces a different hash than expected
-    #[error(
-        "class hash mismatch for class at block {block}: expected {expected:#x}, got {actual:#x}"
-    )]
+    #[error("class hash mismatch: expected {expected:#x}, got {actual:#x}")]
     ClassHashMismatch {
-        /// The block number where the class was declared
-        block: BlockNumber,
         /// The expected class hash
         expected: ClassHash,
         /// The actual computed class hash
         actual: ClassHash,
-    },
-
-    /// Error when computing the class hash
-    #[error("failed to recompute class hash for class {class_hash} at block {block}: {source}")]
-    ClassHashComputation {
-        /// The block number where the class was declared
-        block: BlockNumber,
-        /// The hash of the class
-        class_hash: ClassHash,
-        /// The underlying error
-        #[source]
-        source: katana_primitives::class::ComputeClassHashError,
     },
 }
 

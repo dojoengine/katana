@@ -535,7 +535,6 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
         let block_hash = block.block.hash;
         let block_number = block.block.header.number;
         let StateUpdatesWithClasses { state_updates, classes } = states;
-        let canonical_state_update = state_updates.clone();
 
         let block_header = block.block.header;
         let transactions = block.block.body;
@@ -551,7 +550,7 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
         self.0.put::<tables::Headers>(block_number, VersionedHeader::from(block_header))?;
         self.0.put::<tables::BlockStateUpdates>(
             block_number,
-            StateUpdateEnvelope::from(canonical_state_update),
+            StateUpdateEnvelope::from(state_updates.clone()),
         )?;
         self.0.put::<tables::BlockBodyIndices>(block_number, block_body_indices)?;
 

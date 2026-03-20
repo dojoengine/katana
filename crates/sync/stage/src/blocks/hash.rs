@@ -335,7 +335,7 @@ pub(crate) fn patch_missing_fields(
     if block.header.state_diff_length == 0 || block.header.state_diff_commitment == Felt::ZERO {
         let state_diff_length = state_updates.len();
         block.header.state_diff_length = u32::try_from(state_diff_length).unwrap();
-        block.header.state_diff_commitment = compute_state_diff_hash(state_updates.clone());
+        block.header.state_diff_commitment = compute_state_diff_hash(state_updates);
     }
 
     // event commitment is not computed in <= 0.13.2 blocks, so we can safely skip this

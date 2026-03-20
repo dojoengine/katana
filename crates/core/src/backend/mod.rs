@@ -472,7 +472,7 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
     }
 
     fn compute_state_diff_commitment(&self) -> Felt {
-        compute_state_diff_hash(self.state_updates.clone())
+        compute_state_diff_hash(self.state_updates)
     }
 
     fn compute_event_commitment(&self) -> Felt {
