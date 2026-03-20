@@ -112,17 +112,13 @@ impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
         let earliest_available = self
             .0
             .get::<tables::StateHistoryRetention>(STATE_HISTORY_RETENTION_KEY)?
-            .map(|retention| retention.earliest_available_block);
+            .map_or(0, |retention| retention.earliest_available_block);
 
-        // If there's no history retention marker, then it is assumed that pruning has never
-        // been performed and all historical state is available.
-        if let Some(earliest_available) = earliest_available {
-            if num < earliest_available {
-                return Err(ProviderError::HistoricalStatePruned {
-                    requested: num,
-                    earliest_available,
-                });
-            }
+        if num < earliest_available {
+            return Err(ProviderError::HistoricalStatePruned {
+                requested: num,
+                earliest_available,
+            });
         }
 
         Ok(Some(Box::new(HistoricalStateProvider::new(self.0.clone(), num))))
@@ -249,21 +245,17 @@ impl<Tx: DbTx> HistoricalStateProvider<Tx> {
         Ok(is_declared)
     }
 
-    // If there's no trie history retention marker, then it is assumed that pruning has never
-    // been performed and all historical trie is available.
     fn ensure_historical_state_trie_available(&self) -> ProviderResult<()> {
         let earliest_available = self
             .tx
             .get::<tables::StateHistoryRetention>(STATE_TRIE_HISTORY_RETENTION_KEY)?
-            .map(|retention| retention.earliest_available_block);
+            .map_or(0, |retention| retention.earliest_available_block);
 
-        if let Some(earliest_available) = earliest_available {
-            if self.block_number < earliest_available {
-                return Err(ProviderError::HistoricalStatePruned {
-                    requested: self.block_number,
-                    earliest_available,
-                });
-            }
+        if self.block_number < earliest_available {
+            return Err(ProviderError::HistoricalStatePruned {
+                requested: self.block_number,
+                earliest_available,
+            });
         }
 
         Ok(())

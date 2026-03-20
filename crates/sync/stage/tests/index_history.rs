@@ -224,7 +224,7 @@ async fn prune_archive_mode_is_noop() {
     // distance=None means archive mode.
     let output = stage.prune(&PruneInput::new(5, None, None)).await.expect("prune");
     assert_eq!(output.pruned_count, 0);
-    assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), None);
+    assert_eq!(provider.provider_mut().earliest_available_state_block().unwrap(), Some(0));
 }
 
 // ---- prune tests ----

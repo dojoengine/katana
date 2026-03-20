@@ -918,8 +918,12 @@ pub const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
 impl<Tx: DbTxMut> HistoricalStateRetentionProvider for DbProvider<Tx> {
     fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>> {
         let key = STATE_HISTORY_RETENTION_KEY;
-        let result = self.0.get::<tables::StateHistoryRetention>(key)?;
-        Ok(result.map(|retention| retention.earliest_available_block))
+        if let Some(retention) = self.0.get::<tables::StateHistoryRetention>(key)? {
+            return Ok(Some(retention.earliest_available_block));
+        }
+        // No pruning entry — return block 0 if any blocks exist, None otherwise.
+        let has_blocks = self.0.cursor::<tables::BlockHashes>()?.last()?.is_some();
+        Ok(has_blocks.then_some(0))
     }
 
     fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()> {
@@ -931,8 +935,12 @@ impl<Tx: DbTxMut> HistoricalStateRetentionProvider for DbProvider<Tx> {
 
     fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>> {
         let key = STATE_TRIE_HISTORY_RETENTION_KEY;
-        let result = self.0.get::<tables::StateHistoryRetention>(key)?;
-        Ok(result.map(|retention| retention.earliest_available_block))
+        if let Some(retention) = self.0.get::<tables::StateHistoryRetention>(key)? {
+            return Ok(Some(retention.earliest_available_block));
+        }
+        // No pruning entry — return block 0 if any blocks exist, None otherwise.
+        let has_blocks = self.0.cursor::<tables::BlockHashes>()?.last()?.is_some();
+        Ok(has_blocks.then_some(0))
     }
 
     fn set_earliest_available_state_trie_block(

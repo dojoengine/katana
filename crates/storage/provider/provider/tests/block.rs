@@ -333,7 +333,7 @@ fn state_trie_retention_is_independent_from_state_retention() -> Result<()> {
 
     // State and trie retention are tracked independently.
     let provider = provider_factory.provider_mut();
-    assert_eq!(provider.earliest_available_state_block()?, None);
+    assert_eq!(provider.earliest_available_state_block()?, Some(0));
     assert_eq!(provider.earliest_available_state_trie_block()?, Some(10));
     provider.commit()?;
 
