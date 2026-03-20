@@ -483,6 +483,7 @@ impl Pipeline {
 
         for stage in self.stages.iter_mut() {
             let id = stage.id();
+            let stage_metrics = self.metrics.stage(id);
 
             let span = info_span!(target: "pipeline", "stage.prune", stage = %id);
             let enter = span.entered();
@@ -507,6 +508,7 @@ impl Pipeline {
             info!(target: "pipeline", distance = ?self.config.pruning.distance, from = range.start, to = range.end, "Pruning stage.");
 
             let span_inner = enter.exit();
+            let _guard = stage_metrics.prune_started();
             let PruneOutput { pruned_count } = stage
                 .prune(&prune_input)
                 .instrument(span_inner.clone())
