@@ -71,6 +71,30 @@ pub fn state_updates_with_contract_changes(
     StateUpdatesWithClasses { state_updates, ..Default::default() }
 }
 
+/// Creates a provider with blocks stored via `insert_block_data` only (no state history).
+///
+/// This simulates the state after the `Blocks` stage runs but before `IndexHistory`,
+/// so that `IndexHistory::execute` has block data and `BlockStateUpdates` to read from
+/// but the history index tables are empty.
+pub fn create_provider_with_block_data_only(
+    block_range: RangeInclusive<BlockNumber>,
+    state_updates: BTreeMap<BlockNumber, StateUpdatesWithClasses>,
+) -> DbProviderFactory {
+    let provider_factory = DbProviderFactory::new_in_memory();
+    let provider_mut = provider_factory.provider_mut();
+    let blocks = create_stored_blocks(block_range);
+
+    for block in blocks {
+        let block_num = block.block.header.number;
+        let state_updates = state_updates.get(&block_num).cloned().unwrap_or_default();
+
+        provider_mut.insert_block_data(block, state_updates, Vec::new(), Vec::new()).unwrap();
+    }
+
+    provider_mut.commit().expect("failed to commit");
+    provider_factory
+}
+
 /// Gets all stored block numbers from the provider by checking which blocks actually exist.
 pub fn get_stored_block_numbers(
     provider: &DbProviderFactory,

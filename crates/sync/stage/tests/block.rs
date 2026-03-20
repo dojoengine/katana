@@ -1,3 +1,4 @@
+#[allow(unused)]
 mod common;
 
 use std::collections::HashMap;
@@ -12,7 +13,7 @@ use katana_gateway_client::Client as SequencerGateway;
 use katana_gateway_types::{
     Block, BlockStatus, ConfirmedStateUpdate, StateDiff, StateUpdate, StateUpdateWithBlock,
 };
-use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
+use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::{felt, ContractAddress, Felt};
