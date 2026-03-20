@@ -17,7 +17,9 @@ starknet-types-core.workspace = true
 thiserror.workspace = true
 
 [dependencies.bonsai-trie]
-branch = "feature/provable-forking"
+# revision with partial merkle tree
+# related PR:  https://github.com/dojoengine/bonsai-trie/pull/3
+rev = "07c0619"
 default-features = false
 features = [ "std" ]
-git = "https://github.com/michalpalkowski/bonsai-trie-katana.git"
+git = "https://github.com/dojoengine/bonsai-trie.git"

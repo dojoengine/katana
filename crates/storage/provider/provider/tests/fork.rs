@@ -1,4 +1,3 @@
-use assert_matches::assert_matches;
 use katana_primitives::block::{
     Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
 };
@@ -11,7 +10,7 @@ use katana_provider::api::block::{
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
-use katana_provider::{ForkProviderFactory, MutableProvider, ProviderError, ProviderFactory};
+use katana_provider::{ForkProviderFactory, MutableProvider, ProviderFactory};
 use katana_rpc_types::MerkleNode;
 use katana_starknet::rpc::Client as StarknetClient;
 
