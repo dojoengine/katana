@@ -35,7 +35,7 @@ use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_stage::blocks::{BatchBlockDownloader, JsonRpcBlockDownloader};
 use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
-use katana_stage::{Blocks, Classes, StateTrie};
+use katana_stage::{Blocks, Classes, IndexHistory, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
 use url::Url;
@@ -224,6 +224,7 @@ impl Node {
             let class_downloader = GatewayClassDownloader::new(gateway_client.clone(), batch_size);
             pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
         }
+        pipeline.add_stage(IndexHistory::new(storage_provider.clone(), task_spawner.clone()));
         if config.trie.compute {
             pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
         }

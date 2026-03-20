@@ -14,9 +14,9 @@ tracing.workspace = true
 # Metrics
 metrics.workspace = true
 metrics-derive = "0.1"
-metrics-exporter-prometheus = "0.15.3"
-metrics-process = "2.1.0"
-metrics-util = "0.17.0"
+metrics-exporter-prometheus = "0.16.0"
+metrics-process = "2.3.0"
+metrics-util = "0.18.0"
 sysinfo = "0.35.1"
 
 [target.'cfg(not(windows))'.dependencies]

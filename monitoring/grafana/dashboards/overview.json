@@ -642,6 +642,23 @@
           "range": true,
           "refId": "V",
           "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "katana_db_table_size{table=\"BlockStateUpdates\"}",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "BlockStateUpdates",
+          "range": true,
+          "refId": "W",
+          "useBackend": false
         }
       ],
       "title": "Table Sizes",
