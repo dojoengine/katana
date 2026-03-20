@@ -80,8 +80,8 @@ pub trait HistoricalStateRetentionProvider: Send + Sync {
     /// # Returns
     ///
     /// - `None` if no blocks have been stored in the database yet.
-    /// - `Some(0)` if blocks exist but no pruning has ever been performed, meaning all
-    ///   historical state since genesis is available.
+    /// - `Some(0)` if blocks exist but no pruning has ever been performed, meaning all historical
+    ///   state since genesis is available.
     /// - `Some(n)` if pruning has been performed, where `n` is the earliest block for which
     ///   historical state is still retained. Blocks before `n` have been pruned.
     fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>>;
@@ -95,8 +95,8 @@ pub trait HistoricalStateRetentionProvider: Send + Sync {
     /// # Returns
     ///
     /// - `None` if no blocks have been stored in the database yet.
-    /// - `Some(0)` if blocks exist but no pruning has ever been performed, meaning all
-    ///   historical trie snapshots since genesis are available.
+    /// - `Some(0)` if blocks exist but no pruning has ever been performed, meaning all historical
+    ///   trie snapshots since genesis are available.
     /// - `Some(n)` if pruning has been performed, where `n` is the earliest block for which
     ///   historical trie snapshots are still retained. Blocks before `n` have been pruned.
     fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>>;
