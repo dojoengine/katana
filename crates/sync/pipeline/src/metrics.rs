@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use katana_metrics::metrics::{self, Counter, Gauge, Histogram};
+use katana_metrics::metrics::{self, Counter, Gauge};
 use katana_metrics::Metrics;
 use parking_lot::Mutex;
 
@@ -77,7 +77,7 @@ impl PipelineMetrics {
 
     /// Record the duration of a pipeline iteration.
     pub fn record_iteration_duration(&self, duration_seconds: f64) {
-        self.inner.pipeline.iteration_duration_seconds.record(duration_seconds);
+        self.inner.pipeline.iteration_duration_seconds.set(duration_seconds);
     }
 
     /// Record a pipeline error.
@@ -108,8 +108,8 @@ struct PipelineOverallMetrics {
     sync_target: Gauge,
     /// Current fully-synced position (minimum checkpoint across all stages)
     sync_position: Gauge,
-    /// Duration of each pipeline iteration
-    iteration_duration_seconds: Histogram,
+    /// Duration of the last pipeline iteration
+    iteration_duration_seconds: Gauge,
     /// Total number of pipeline errors
     errors_total: Counter,
 }
@@ -122,8 +122,10 @@ pub struct StageMetrics {
     checkpoint: Gauge,
     /// Total number of blocks processed by this stage
     blocks_processed_total: Counter,
-    /// Duration of each stage execution
-    execution_duration_seconds: Histogram,
+    /// Duration of the last stage execution
+    execution_duration_seconds: Gauge,
+    /// Duration of the last stage pruning
+    prune_duration_seconds: Gauge,
     /// Total number of errors encountered by this stage
     errors_total: Counter,
 }
@@ -131,8 +133,20 @@ pub struct StageMetrics {
 impl StageMetrics {
     /// Record a stage execution starting. Returns a guard that records
     /// the execution duration when dropped.
-    pub fn execution_started(&self) -> StageExecutionGuard {
-        StageExecutionGuard { metrics: self.clone(), started_at: Instant::now() }
+    pub fn execution_started(&self) -> StageDurationGuard {
+        StageDurationGuard {
+            gauge: self.execution_duration_seconds.clone(),
+            started_at: Instant::now(),
+        }
+    }
+
+    /// Record a stage pruning starting. Returns a guard that records
+    /// the prune duration when dropped.
+    pub fn prune_started(&self) -> StageDurationGuard {
+        StageDurationGuard {
+            gauge: self.prune_duration_seconds.clone(),
+            started_at: Instant::now(),
+        }
     }
 
     /// Record blocks processed by this stage.
@@ -151,16 +165,15 @@ impl StageMetrics {
     }
 }
 
-/// Guard that records the execution duration when dropped.
+/// Guard that records a duration to a gauge when dropped.
 #[allow(missing_debug_implementations)]
-pub struct StageExecutionGuard {
-    metrics: StageMetrics,
+pub struct StageDurationGuard {
+    gauge: Gauge,
     started_at: Instant,
 }
 
-impl Drop for StageExecutionGuard {
+impl Drop for StageDurationGuard {
     fn drop(&mut self) {
-        let duration = self.started_at.elapsed().as_secs_f64();
-        self.metrics.execution_duration_seconds.record(duration);
+        self.gauge.set(self.started_at.elapsed().as_secs_f64());
     }
 }
