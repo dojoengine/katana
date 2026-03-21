@@ -43,6 +43,7 @@ katana-chain-spec.workspace = true
 katana-contracts.workspace = true
 katana-runner.workspace = true
 
+criterion.workspace = true
 similar-asserts.workspace = true
 alloy-primitives.workspace = true
 lazy_static.workspace = true
@@ -54,3 +55,7 @@ starknet.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 url.workspace = true
+
+[[bench]]
+harness = false
+name = "static_files"

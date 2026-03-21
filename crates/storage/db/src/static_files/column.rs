@@ -51,6 +51,10 @@ impl<S: StaticStore> FixedColumn<S> {
         self.store.sync()
     }
 
+    pub fn remap(&self) -> io::Result<()> {
+        self.store.remap()
+    }
+
     /// Truncate to exactly `count` records.
     pub fn truncate_to(&self, count: u64) -> io::Result<()> {
         let new_len = count * self.record_size as u64;
@@ -94,6 +98,10 @@ impl<S: StaticStore> DataColumn<S> {
 
     pub fn sync(&self) -> io::Result<()> {
         self.store.sync()
+    }
+
+    pub fn remap(&self) -> io::Result<()> {
+        self.store.remap()
     }
 
     /// Truncate the data file to the given byte length.

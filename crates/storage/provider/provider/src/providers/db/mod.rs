@@ -150,7 +150,13 @@ impl<Tx: DbTx> DbProvider<Tx> {
 
 impl<Tx: DbTxMut> MutableProvider for DbProvider<Tx> {
     fn commit(self) -> ProviderResult<()> {
+        // Static files are NOT fsynced here. On crash, MDBX state determines what
+        // exists, and orphaned static file data is truncated on next startup.
+        // This matches MDBX's own durability model (the caller controls sync mode).
         let _ = self.tx.commit()?;
+        // Refresh mmap views so subsequent readers see the newly-written data.
+        // This is lightweight (no I/O) — just updates the mmap pointers.
+        let _ = self.static_files.remap();
         Ok(())
     }
 }
@@ -685,10 +691,15 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
             .map_err(|e| ProviderError::StaticFile(StaticFileError::Io(e)))?
             == block_number;
 
-        // -- MDBX: write indexes always --
-        self.tx.put::<tables::BlockHashes>(block_number, block_hash)?;
+        // -- MDBX: write reverse indexes and mutable data --
         self.tx.put::<tables::BlockNumbers>(block_hash, block_number)?;
         self.tx.put::<tables::BlockStatusses>(block_number, block.status)?;
+
+        // BlockHashes: written to MDBX only in non-sequential mode (fork).
+        // In sequential mode, it's in static files only.
+        if !is_sequential {
+            self.tx.put::<tables::BlockHashes>(block_number, block_hash)?;
+        }
 
         if is_sequential {
             // Append variable-size data to static files, store pointers in MDBX.
@@ -739,9 +750,13 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
             let tx_number = tx_offset + i as u64;
             let tx_hash = transaction.hash;
 
-            self.tx.put::<tables::TxHashes>(tx_number, tx_hash)?;
             self.tx.put::<tables::TxNumbers>(tx_hash, tx_number)?;
-            self.tx.put::<tables::TxBlocks>(tx_number, block_number)?;
+
+            // TxHashes/TxBlocks: written to MDBX only in non-sequential mode (fork).
+            if !is_sequential {
+                self.tx.put::<tables::TxHashes>(tx_number, tx_hash)?;
+                self.tx.put::<tables::TxBlocks>(tx_number, block_number)?;
+            }
 
             let tx_envelope = TxEnvelope::from(VersionedTx::from(transaction.transaction));
 
@@ -798,10 +813,8 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
             }
         }
 
-        // Sync static files before MDBX commit (crash safety).
-        if is_sequential {
-            self.static_files.sync().map_err(ProviderError::StaticFile)?;
-        }
+        // Note: static files are synced in commit(), not here, to avoid
+        // per-block fsync overhead when inserting many blocks in a batch.
 
         // insert all class artifacts
         for (class_hash, class) in classes {

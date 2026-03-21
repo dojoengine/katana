@@ -305,6 +305,26 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(())
     }
 
+    // ---- Remap ----
+
+    /// Refresh memory maps to cover all data written so far.
+    /// Call after a batch of writes to make new data visible via mmap reads.
+    /// This is lightweight (no fsync) — just updates the mmap pointers.
+    pub fn remap(&self) -> Result<(), StaticFileError> {
+        self.blocks.block_hashes.remap()?;
+        self.blocks.headers.remap()?;
+        self.blocks.block_body_indices.remap()?;
+        self.blocks.block_state_updates.remap()?;
+
+        self.transactions.tx_hashes.remap()?;
+        self.transactions.tx_blocks.remap()?;
+        self.transactions.transactions.remap()?;
+        self.transactions.receipts.remap()?;
+        self.transactions.tx_traces.remap()?;
+
+        Ok(())
+    }
+
     // ---- Crash recovery ----
 
     /// Truncate static files to match MDBX-committed state.

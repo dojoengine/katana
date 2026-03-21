@@ -16,6 +16,7 @@ indicatif = "0.17.8"
 cairo-lang-starknet-classes.workspace = true
 arbitrary = { workspace = true, optional = true }
 metrics.workspace = true
+memmap2 = "0.9"
 page_size = "0.6.0"
 parking_lot.workspace = true
 roaring = { version = "0.10.3", features = [ "serde" ] }
