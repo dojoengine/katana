@@ -89,7 +89,7 @@ fn create_file_backed_factory() -> (DbProviderFactory, tempfile::TempDir) {
 fn bench_write(c: &mut Criterion) {
     let mut group = c.benchmark_group("write/insert_block_data");
 
-    for &(block_count, txs_per_block) in &[(100, 1), (100, 10), (100, 50), (500, 10)] {
+    for &(block_count, txs_per_block) in &[(100, 1), (100, 10), (100, 50), (100, 100), (500, 100)] {
         let label = format!("{block_count}blocks_{txs_per_block}txs");
         let total_txs = block_count as u64 * txs_per_block as u64;
         group.throughput(Throughput::Elements(total_txs));
@@ -149,7 +149,7 @@ fn setup_file_backed_db(
 
 fn bench_read(c: &mut Criterion) {
     let block_count = 500u64;
-    let txs_per_block = 10usize;
+    let txs_per_block = 100usize;
     let (factory, _dir) = setup_file_backed_db(block_count, txs_per_block);
 
     let mut group = c.benchmark_group("read");

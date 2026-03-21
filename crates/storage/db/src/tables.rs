@@ -4,6 +4,7 @@ use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageK
 use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
+use crate::models::block::StoredBlockBodyIndices;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractInfoChangeList, ContractNonceChange};
 use crate::models::list::BlockChangeList;
@@ -207,8 +208,8 @@ tables! {
     Headers: (BlockNumber) => StaticFileRef,
     /// Pointer to state update in static files (or inline data for fork mode).
     BlockStateUpdates: (BlockNumber) => StaticFileRef,
-    /// Pointer to block body indices in static files (or inline data for fork mode).
-    BlockBodyIndices: (BlockNumber) => StaticFileRef,
+    /// Block number to its body indices (tx_offset + tx_count). Small value, stored directly.
+    BlockBodyIndices: (BlockNumber) => StoredBlockBodyIndices,
     /// Block hash by block number (also in static files for sequential mode).
     BlockHashes: (BlockNumber) => BlockHash,
     /// Stores block numbers according to its block hash

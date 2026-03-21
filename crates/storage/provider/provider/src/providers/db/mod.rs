@@ -224,17 +224,7 @@ impl<Tx: DbTx> BlockProvider for DbProvider<Tx> {
         };
 
         if let Some(num) = block_num {
-            let sf_ref = self.tx.get::<tables::BlockBodyIndices>(num)?;
-            match sf_ref {
-                Some(r) => {
-                    let indices: StoredBlockBodyIndices =
-                        resolve_static_ref(&self.static_files, &r, |sf, o, l| {
-                            sf.read_block_body_indices(o, l)
-                        })?;
-                    Ok(Some(indices))
-                }
-                None => Ok(None),
-            }
+            Ok(self.tx.get::<tables::BlockBodyIndices>(num)?)
         } else {
             Ok(None)
         }
@@ -709,14 +699,8 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
                 .map_err(ProviderError::StaticFile)?;
             self.tx.put::<tables::Headers>(block_number, StaticFileRef::pointer(h_off, h_len))?;
 
-            let (bi_off, bi_len) = self
-                .static_files
-                .append_block_body_indices(block_body_indices.clone())
-                .map_err(ProviderError::StaticFile)?;
-            self.tx.put::<tables::BlockBodyIndices>(
-                block_number,
-                StaticFileRef::pointer(bi_off, bi_len),
-            )?;
+            // BlockBodyIndices is small (~10B), stored directly in MDBX (no pointer).
+            self.tx.put::<tables::BlockBodyIndices>(block_number, block_body_indices.clone())?;
 
             let (su_off, su_len) = self
                 .static_files
@@ -736,9 +720,7 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
             let header_bytes = compress_value(VersionedHeader::from(block_header))?;
             self.tx.put::<tables::Headers>(block_number, StaticFileRef::inline(header_bytes))?;
 
-            let bi_bytes = compress_value(block_body_indices.clone())?;
-            self.tx
-                .put::<tables::BlockBodyIndices>(block_number, StaticFileRef::inline(bi_bytes))?;
+            self.tx.put::<tables::BlockBodyIndices>(block_number, block_body_indices.clone())?;
 
             let su_bytes = compress_value(StateUpdateEnvelope::from(state_updates.clone()))?;
             self.tx
