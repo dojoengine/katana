@@ -33,14 +33,21 @@ pub trait StaticStore: Send + Sync + 'static {
 pub struct FileStore {
     file: File,
     path: std::path::PathBuf,
-    /// Serializes append writes.
-    write_lock: Mutex<()>,
-    /// Cached file length.
+    /// Serializes append writes and protects the write buffer.
+    write_state: Mutex<WriteState>,
+    /// Cached file length (includes buffered data not yet flushed).
     cached_len: AtomicU64,
     /// Memory-mapped read view. RwLock allows concurrent reads, exclusive remap.
     mmap: RwLock<Option<memmap2::Mmap>>,
     /// Length covered by the current mmap.
     mmap_len: AtomicU64,
+}
+
+struct WriteState {
+    /// Buffered writes not yet flushed to disk.
+    buf: Vec<u8>,
+    /// The file offset where the buffer starts (i.e., the on-disk file length).
+    buf_start: u64,
 }
 
 impl FileStore {
@@ -61,11 +68,26 @@ impl FileStore {
         Ok(Self {
             file,
             path: path.to_path_buf(),
-            write_lock: Mutex::new(()),
+            write_state: Mutex::new(WriteState {
+                buf: Vec::with_capacity(64 * 1024),
+                buf_start: len,
+            }),
             cached_len: AtomicU64::new(len),
             mmap: RwLock::new(mmap),
             mmap_len: AtomicU64::new(mmap_len),
         })
+    }
+
+    /// Flush the write buffer to disk in a single pwrite.
+    fn flush_buf(&self) -> io::Result<()> {
+        let mut ws = self.write_state.lock();
+        if ws.buf.is_empty() {
+            return Ok(());
+        }
+        platform::pwrite(self, &ws.buf, ws.buf_start)?;
+        ws.buf_start += ws.buf.len() as u64;
+        ws.buf.clear();
+        Ok(())
     }
 
     /// Refresh the mmap to cover all data written so far.
@@ -143,15 +165,35 @@ impl StaticStore for FileStore {
             }
         }
 
-        // Fallback: pread for data not yet covered by mmap.
+        // Check the write buffer for recently-appended data not yet flushed.
+        {
+            let ws = self.write_state.lock();
+            if !ws.buf.is_empty()
+                && offset >= ws.buf_start
+                && end <= ws.buf_start + ws.buf.len() as u64
+            {
+                let buf_offset = (offset - ws.buf_start) as usize;
+                return Ok(ws.buf[buf_offset..buf_offset + len].to_vec());
+            }
+        }
+
+        // Fallback: pread for data not covered by mmap or buffer.
         platform::pread(self, offset, len)
     }
 
     fn append(&self, data: &[u8]) -> io::Result<u64> {
-        let _guard = self.write_lock.lock();
+        let mut ws = self.write_state.lock();
         let offset = self.cached_len.load(Ordering::Acquire);
-        platform::pwrite(self, data, offset)?;
+        ws.buf.extend_from_slice(data);
         self.cached_len.store(offset + data.len() as u64, Ordering::Release);
+
+        // Auto-flush when buffer gets large.
+        if ws.buf.len() >= 256 * 1024 {
+            platform::pwrite(self, &ws.buf, ws.buf_start)?;
+            ws.buf_start += ws.buf.len() as u64;
+            ws.buf.clear();
+        }
+
         Ok(offset)
     }
 
@@ -160,23 +202,28 @@ impl StaticStore for FileStore {
     }
 
     fn sync(&self) -> io::Result<()> {
+        self.flush_buf()?;
         self.file.sync_all()?;
-        // Remap after sync so new data is visible via mmap.
         FileStore::remap(self)
     }
 
     fn remap(&self) -> io::Result<()> {
+        self.flush_buf()?;
         FileStore::remap(self)
     }
 
     fn truncate(&self, len: u64) -> io::Result<()> {
-        let _guard = self.write_lock.lock();
-        // Drop mmap before truncating to avoid issues on some platforms.
+        // Discard write buffer.
+        {
+            let mut ws = self.write_state.lock();
+            ws.buf.clear();
+            ws.buf_start = len;
+        }
+        // Drop mmap before truncating.
         *self.mmap.write() = None;
         self.mmap_len.store(0, Ordering::Release);
         self.file.set_len(len)?;
         self.cached_len.store(len, Ordering::Release);
-        // Remap if there's still data.
         if len > 0 {
             let m = unsafe { memmap2::Mmap::map(&self.file)? };
             let ml = m.len() as u64;
