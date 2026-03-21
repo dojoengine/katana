@@ -8,11 +8,13 @@ use crate::error::CodecError;
 
 /// Block-indexed segment grouping block-level static columns.
 pub struct BlockSegment<S: StaticStore> {
-    /// Fixed 32B per block — read by key, gated by Headers pointer in MDBX.
+    /// Fixed 32B per block. In sequential mode, this is the primary store; reads fall back to
+    /// MDBX `BlockHashes` table in fork mode where this column is not written.
     pub block_hashes: FixedColumn<S>,
     /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
     pub headers: DataColumn<S>,
-    /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
+    /// Variable-size data column (kept for compatibility but currently unused —
+    /// BlockBodyIndices is stored directly in MDBX as it's too small for pointer indirection).
     pub block_body_indices: DataColumn<S>,
     /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
     pub block_state_updates: DataColumn<S>,
@@ -20,9 +22,11 @@ pub struct BlockSegment<S: StaticStore> {
 
 /// Transaction-indexed segment grouping transaction-level static columns.
 pub struct TxSegment<S: StaticStore> {
-    /// Fixed 32B per tx — read by key, gated by Transactions pointer in MDBX.
+    /// Fixed 32B per tx. Primary store in sequential mode; falls back to MDBX `TxHashes` in fork
+    /// mode.
     pub tx_hashes: FixedColumn<S>,
-    /// Fixed 8B per tx — read by key, gated by Transactions pointer in MDBX.
+    /// Fixed 8B per tx. Primary store in sequential mode; falls back to MDBX `TxBlocks` in fork
+    /// mode.
     pub tx_blocks: FixedColumn<S>,
     /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
     pub transactions: DataColumn<S>,
@@ -38,6 +42,10 @@ pub struct TxSegment<S: StaticStore> {
 /// for heavy immutable data. Each variable-size column has a corresponding MDBX table
 /// storing `StaticFileRef` pointers. Fixed-size columns are gated by the existence of
 /// a related pointer entry.
+///
+/// In **sequential mode** (production), data is appended to `.dat` files and MDBX stores
+/// `StaticFileRef::StaticFile` pointers. In **fork mode** (non-sequential block numbers),
+/// static files are not written; MDBX stores `StaticFileRef::Inline` with compressed data.
 pub struct StaticFiles<S: StaticStore> {
     pub blocks: BlockSegment<S>,
     pub transactions: TxSegment<S>,
@@ -124,13 +132,16 @@ fn decompress_value<T: Decompress>(bytes: &[u8]) -> Result<T, CodecError> {
 // Fixed-size reads/writes use the sequential key directly.
 
 impl<S: StaticStore> StaticFiles<S> {
-    // ---- Block-level variable-size writes (return offset+length) ----
+    // Variable-size writes return `(offset, length)` for the caller to store as
+    // `StaticFileRef::pointer(offset, length)` in MDBX.
 
+    /// Append a compressed header. Returns `(offset, length)`.
     pub fn append_header<T: Compress>(&self, header: T) -> Result<(u64, u32), StaticFileError> {
         let bytes = compress_value(header)?;
         Ok(self.blocks.headers.append(&bytes)?)
     }
 
+    /// Append compressed block body indices. Returns `(offset, length)`.
     pub fn append_block_body_indices<T: Compress>(
         &self,
         indices: T,
@@ -139,6 +150,7 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(self.blocks.block_body_indices.append(&bytes)?)
     }
 
+    /// Append a compressed block state update. Returns `(offset, length)`.
     pub fn append_block_state_update<T: Compress>(
         &self,
         update: T,
@@ -149,6 +161,7 @@ impl<S: StaticStore> StaticFiles<S> {
 
     // ---- Block-level fixed-size writes ----
 
+    /// Append a block hash at the given block number (fixed 32B).
     pub fn append_block_hash(
         &self,
         block_number: u64,
@@ -160,16 +173,19 @@ impl<S: StaticStore> StaticFiles<S> {
 
     // ---- Transaction-level variable-size writes (return offset+length) ----
 
+    /// Append a compressed transaction. Returns `(offset, length)`.
     pub fn append_transaction<T: Compress>(&self, tx: T) -> Result<(u64, u32), StaticFileError> {
         let bytes = compress_value(tx)?;
         Ok(self.transactions.transactions.append(&bytes)?)
     }
 
+    /// Append a compressed receipt. Returns `(offset, length)`.
     pub fn append_receipt<T: Compress>(&self, receipt: T) -> Result<(u64, u32), StaticFileError> {
         let bytes = compress_value(receipt)?;
         Ok(self.transactions.receipts.append(&bytes)?)
     }
 
+    /// Append a compressed transaction trace. Returns `(offset, length)`.
     pub fn append_tx_trace<T: Compress>(&self, trace: T) -> Result<(u64, u32), StaticFileError> {
         let bytes = compress_value(trace)?;
         Ok(self.transactions.tx_traces.append(&bytes)?)
@@ -177,6 +193,7 @@ impl<S: StaticStore> StaticFiles<S> {
 
     // ---- Transaction-level fixed-size writes ----
 
+    /// Append a transaction hash at the given tx number (fixed 32B).
     pub fn append_tx_hash(
         &self,
         tx_number: u64,
@@ -186,6 +203,7 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(())
     }
 
+    /// Append a tx-to-block mapping at the given tx number (fixed 8B).
     pub fn append_tx_block(
         &self,
         tx_number: u64,
@@ -195,8 +213,9 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(())
     }
 
-    // ---- Variable-size reads (caller provides offset+length from MDBX) ----
+    // Variable-size reads take `(offset, length)` from the MDBX `StaticFileRef` pointer.
 
+    /// Read and decompress a header at the given static file position.
     pub fn read_header<T: Decompress>(
         &self,
         offset: u64,
@@ -206,6 +225,7 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(decompress_value(&bytes)?)
     }
 
+    /// Read and decompress block body indices at the given static file position.
     pub fn read_block_body_indices<T: Decompress>(
         &self,
         offset: u64,
@@ -215,6 +235,7 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(decompress_value(&bytes)?)
     }
 
+    /// Read and decompress a block state update at the given static file position.
     pub fn read_block_state_update<T: Decompress>(
         &self,
         offset: u64,
@@ -224,6 +245,7 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(decompress_value(&bytes)?)
     }
 
+    /// Read and decompress a transaction at the given static file position.
     pub fn read_transaction<T: Decompress>(
         &self,
         offset: u64,
@@ -233,6 +255,7 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(decompress_value(&bytes)?)
     }
 
+    /// Read and decompress a receipt at the given static file position.
     pub fn read_receipt<T: Decompress>(
         &self,
         offset: u64,
@@ -242,6 +265,7 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(decompress_value(&bytes)?)
     }
 
+    /// Read and decompress a transaction trace at the given static file position.
     pub fn read_tx_trace<T: Decompress>(
         &self,
         offset: u64,
@@ -251,8 +275,10 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(decompress_value(&bytes)?)
     }
 
-    // ---- Fixed-size reads ----
+    // Fixed-size reads use `key * record_size` as the offset. No MDBX pointer needed —
+    // gated by the existence of a corresponding variable-size pointer entry.
 
+    /// Read a block hash by block number. Returns `None` if not present.
     pub fn read_block_hash(
         &self,
         block_number: u64,
@@ -263,6 +289,7 @@ impl<S: StaticStore> StaticFiles<S> {
         }
     }
 
+    /// Read a transaction hash by tx number. Returns `None` if not present.
     pub fn read_tx_hash(
         &self,
         tx_number: u64,
@@ -273,6 +300,7 @@ impl<S: StaticStore> StaticFiles<S> {
         }
     }
 
+    /// Read the block number for a transaction by tx number. Returns `None` if not present.
     pub fn read_tx_block(&self, tx_number: u64) -> Result<Option<u64>, StaticFileError> {
         match self.transactions.tx_blocks.get(tx_number)? {
             Some(bytes) => {
@@ -359,13 +387,12 @@ impl<S: StaticStore> StaticFiles<S> {
 
     // ---- Crash recovery ----
 
-    /// Truncate static files to match MDBX-committed state.
+    /// Truncate block static files to match MDBX-committed state.
     ///
-    /// For variable-size columns, `last_ptr_byte_end` is the end of the last
-    /// committed entry (offset + length from the last MDBX pointer). Pass 0
-    /// if no entries exist.
-    ///
-    /// For fixed-size columns, truncate to `count` entries.
+    /// - `block_count`: number of committed blocks (fixed-size columns truncate to this).
+    /// - `headers_end`, `body_indices_end`, `state_updates_end`: byte position just past the last
+    ///   committed entry in each variable-size column (i.e., `offset + length` from the last MDBX
+    ///   pointer). Pass 0 if no entries exist.
     pub fn truncate_blocks(
         &self,
         block_count: u64,
@@ -380,6 +407,8 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(())
     }
 
+    /// Truncate transaction static files to match MDBX-committed state.
+    /// See [`truncate_blocks`](Self::truncate_blocks) for parameter semantics.
     pub fn truncate_transactions(
         &self,
         tx_count: u64,

@@ -35,6 +35,12 @@ use version::{
 const GIGABYTE: usize = 1024 * 1024 * 1024;
 const TERABYTE: usize = GIGABYTE * 1024;
 
+/// Database handle combining MDBX (authoritative index) with static files (bulk data store).
+///
+/// MDBX stores pointers ([`StaticFileRef`]) into flat `.dat` files for heavy immutable data
+/// (headers, transactions, receipts, traces, state updates), plus all mutable state, indexes,
+/// and small values directly. On startup, [`recover_static_files`](Self::recover_static_files)
+/// truncates any orphaned static file data to match the MDBX-committed state.
 #[derive(Debug, Clone)]
 pub struct Db {
     env: DbEnv,
@@ -123,7 +129,7 @@ impl Db {
         Ok(Self { env, version, static_files })
     }
 
-    // Open the database at the given `path` in read-write mode.
+    /// Open the database at the given `path` in read-write mode.
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let path = path.as_ref();
         Self::open_inner(path, false).with_context(|| {
@@ -131,7 +137,7 @@ impl Db {
         })
     }
 
-    // Open the database at the given `path` in read-only mode.
+    /// Open the database at the given `path` in read-only mode.
     pub fn open_ro<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let path = path.as_ref();
         Self::open_inner(path, true).with_context(|| {
@@ -189,7 +195,6 @@ impl Db {
         static_files: &StaticFiles<AnyStore>,
     ) -> anyhow::Result<()> {
         use crate::abstraction::{DbCursor, DbTx};
-        use crate::models::StaticFileRef;
 
         let tx = env.tx().context("Failed to create read transaction for recovery")?;
 

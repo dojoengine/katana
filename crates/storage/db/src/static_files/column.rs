@@ -11,6 +11,9 @@ pub struct FixedColumn<S: StaticStore> {
 }
 
 impl<S: StaticStore> FixedColumn<S> {
+    /// Create a new fixed-size column. `record_size` must be > 0 and all records must be
+    /// exactly this size. The column is append-only: records are addressed by sequential
+    /// key starting from 0.
     pub fn new(store: S, record_size: usize) -> Self {
         assert!(record_size > 0, "record_size must be positive");
         Self { store, record_size }
@@ -47,14 +50,17 @@ impl<S: StaticStore> FixedColumn<S> {
         Ok(len / self.record_size as u64)
     }
 
+    /// Flush buffered data and refresh read caches.
     pub fn sync(&self) -> io::Result<()> {
         self.store.sync()
     }
 
+    /// Refresh mmap to cover recently-written data.
     pub fn remap(&self) -> io::Result<()> {
         self.store.remap()
     }
 
+    /// Pre-allocate write buffer for an upcoming batch of `additional` bytes.
     pub fn reserve(&self, additional: usize) -> io::Result<()> {
         self.store.reserve(additional)
     }
@@ -76,6 +82,9 @@ pub struct DataColumn<S: StaticStore> {
 }
 
 impl<S: StaticStore> DataColumn<S> {
+    /// Create a new variable-size data column. Records are appended sequentially; the
+    /// caller must store the returned `(offset, length)` externally (in MDBX) to read
+    /// them back.
     pub fn new(store: S) -> Self {
         Self { store }
     }
@@ -100,14 +109,17 @@ impl<S: StaticStore> DataColumn<S> {
         self.store.len()
     }
 
+    /// Flush buffered data and refresh read caches.
     pub fn sync(&self) -> io::Result<()> {
         self.store.sync()
     }
 
+    /// Refresh mmap to cover recently-written data.
     pub fn remap(&self) -> io::Result<()> {
         self.store.remap()
     }
 
+    /// Pre-allocate write buffer for an upcoming batch of `additional` bytes.
     pub fn reserve(&self, additional: usize) -> io::Result<()> {
         self.store.reserve(additional)
     }

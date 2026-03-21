@@ -15,7 +15,14 @@ use crate::error::CodecError;
 const TAG_STATIC_FILE: u8 = 0;
 const TAG_INLINE: u8 = 1;
 
-/// A reference to data that may live in a static file or inline in MDBX.
+/// A reference to data stored in a static file or inline in MDBX.
+///
+/// Used as the MDBX table value for tables whose heavy data lives in static files.
+/// In sequential (production) mode, stores a pointer to a byte range in a `.dat` file.
+/// In fork mode (non-sequential block numbers), stores the compressed data inline.
+///
+/// The MDBX entry is the authoritative gate: if it exists in the transaction snapshot,
+/// the referenced data is guaranteed to be durable on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StaticFileRef {
     /// Data is in a static file at the given byte offset and length.

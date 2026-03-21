@@ -52,7 +52,13 @@ use tracing::warn;
 
 use crate::{MutableProvider, ProviderResult};
 
-/// Resolve a [`StaticFileRef`] by either reading from static files or decompressing inline data.
+/// Resolve a [`StaticFileRef`] to a typed value.
+///
+/// - `StaticFile { offset, length }` -> reads from the static file via `read_fn`, then
+///   decompresses.
+/// - `Inline(bytes)` -> decompresses directly from the MDBX-stored bytes.
+///
+/// The inline path is used in fork mode where static files are not written.
 pub(crate) fn resolve_static_ref<T: Decompress>(
     static_files: &StaticFiles<AnyStore>,
     sf_ref: &StaticFileRef,
@@ -649,11 +655,21 @@ impl<Tx: DbTx> BlockEnvProvider for DbProvider<Tx> {
 }
 
 impl<Tx: DbTxMut> DbProvider<Tx> {
-    /// Stores block data without building historical state indices.
+    /// Store a single block's data (header, transactions, receipts, traces, state updates,
+    /// classes).
     ///
-    /// This stores: headers, hashes, body indices, `BlockStateUpdates`, txs, receipts, traces,
-    /// class artifacts, compiled class hashes, class declarations, deprecated declarations,
-    /// migrated compiled class hashes.
+    /// Operates in two modes based on whether block numbers are sequential:
+    ///
+    /// - **Sequential mode** (production): Appends heavy data to static files and stores
+    ///   `StaticFileRef::StaticFile` pointers in MDBX. Fixed-size indexes (block hashes, tx hashes,
+    ///   tx-to-block) are written to static files only; MDBX fallback tables (`BlockHashes`,
+    ///   `TxHashes`, `TxBlocks`) are skipped.
+    ///
+    /// - **Fork mode** (non-sequential): Compresses data and stores `StaticFileRef::Inline` in
+    ///   MDBX. All index tables are written to MDBX.
+    ///
+    /// Static files are NOT fsynced here — that happens in [`MutableProvider::commit`].
+    /// On crash before commit, orphaned static file data is truncated on next startup.
     pub fn insert_block_data(
         &self,
         block: SealedBlockWithStatus,

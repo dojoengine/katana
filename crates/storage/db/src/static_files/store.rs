@@ -5,25 +5,37 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::{Mutex, RwLock};
 
-/// Low-level byte storage backend, generic over file/memory/etc.
+/// Low-level byte storage backend for static file columns.
+///
+/// Implementations must be append-only: `append()` always writes at the end, and the
+/// returned offset is monotonically increasing. Overwrites within the committed range
+/// are never performed (only `truncate` modifies existing data, for crash recovery).
+///
+/// Two implementations exist:
+/// - [`FileStore`] — production, backed by real files with pread/pwrite + mmap
+/// - [`MemoryStore`] — tests and in-memory mode, backed by `Vec<u8>`
 pub trait StaticStore: Send + Sync + 'static {
-    /// Read bytes at the given byte offset and length.
+    /// Read `len` bytes starting at `offset`. Returns an error if the range is past EOF.
     fn read_at(&self, offset: u64, len: usize) -> io::Result<Vec<u8>>;
-    /// Append bytes to the end. Returns the offset where data was written.
+    /// Append `data` at the end. Returns the byte offset where data was written.
+    /// The store is append-only — this never overwrites existing data.
     fn append(&self, data: &[u8]) -> io::Result<u64>;
     /// Current length in bytes.
     fn len(&self) -> io::Result<u64>;
-    /// Flush any buffered data to durable storage.
+    /// Flush buffered data to durable storage and refresh read caches (e.g., mmap).
+    /// Callers should call this before making MDBX pointers visible via commit.
     fn sync(&self) -> io::Result<()>;
-    /// Truncate to the given length (for crash recovery).
+    /// Truncate to the given byte length. Used only during crash recovery to discard
+    /// orphaned data beyond the MDBX-committed position. Invalidates any stale mmap.
     fn truncate(&self, len: u64) -> io::Result<()>;
-    /// Refresh any internal read caches (e.g., mmap) to cover newly-written data.
-    /// No-op by default.
+    /// Refresh read caches (e.g., mmap) to cover data written since the last remap.
+    /// Lightweight (no disk I/O beyond the mmap syscall). Called automatically by
+    /// [`sync`] and by [`MutableProvider::commit`] after MDBX commit.
     fn remap(&self) -> io::Result<()> {
         Ok(())
     }
-    /// Ensure the write buffer can hold at least `additional` bytes without reallocating.
-    /// No-op by default.
+    /// Hint that `additional` bytes will be appended soon. Pre-allocates the write
+    /// buffer to avoid reallocation during a batch.
     fn reserve(&self, _additional: usize) -> io::Result<()> {
         Ok(())
     }
@@ -35,9 +47,17 @@ pub trait StaticStore: Send + Sync + 'static {
 ///   written after the last remap.
 /// - Writes use `pwrite` under a mutex for serialized appends.
 /// - The mmap is refreshed on `remap()` to cover newly-written data.
+///
+/// ## Invariants
+///
+/// - `cached_len` always equals the logical file length (on-disk length + buffered data).
+/// - `mmap_len` equals the length of the current mmap mapping. Data between `mmap_len` and
+///   `cached_len` is in the write buffer and served by the buffer on read, or via pread if already
+///   flushed but not yet remapped.
+/// - The write buffer starts at byte offset `buf_start` in the file. `buf_start + buf.len()` always
+///   equals `cached_len`.
 pub struct FileStore {
     file: File,
-    path: std::path::PathBuf,
     /// Serializes append writes and protects the write buffer.
     write_state: Mutex<WriteState>,
     /// Cached file length (includes buffered data not yet flushed).
@@ -56,7 +76,9 @@ struct WriteState {
 }
 
 impl FileStore {
-    /// Open or create a file at the given path.
+    /// Open or create a file at the given path. If the file already exists, its contents
+    /// are preserved and an mmap is created covering the existing data. The write buffer
+    /// starts empty at the current file length.
     pub fn open(path: &Path) -> io::Result<Self> {
         let file =
             OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)?;
@@ -72,7 +94,6 @@ impl FileStore {
 
         Ok(Self {
             file,
-            path: path.to_path_buf(),
             write_state: Mutex::new(WriteState {
                 buf: Vec::with_capacity(64 * 1024),
                 buf_start: len,
