@@ -41,6 +41,7 @@ const INSPECT_TABLES: &[Tables] = &[
     Tables::StateHistoryRetention,
     Tables::MigrationCheckpoints,
 ];
+
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -104,100 +105,227 @@ macro_rules! try_count_entries {
     };
 }
 
-/// Fetch a page of entries from a table as formatted string pairs.
-/// Keys use Display format where available, Debug otherwise. Values always use Debug.
-/// Returns an empty vec if the table doesn't exist in the database.
-fn fetch_entries<Tx: DbTx>(
-    tx: &Tx,
-    table: Tables,
-    offset: usize,
-    limit: usize,
-) -> Vec<(String, String)> {
-    /// Walk a table cursor, formatting keys with Display.
-    fn walk_display<Tx: DbTx, T: tables::Table>(
+// -- Data fetching --
+
+/// Result of fetching entries from a table.
+struct FetchResult {
+    /// Column headers (key column(s) + value column(s)).
+    columns: Vec<&'static str>,
+    /// Each row is a vec of cell strings, matching `columns`.
+    rows: Vec<Vec<String>>,
+    /// Whether to display in tabular mode or detail (split-panel) mode.
+    tabular: bool,
+    /// The value type name (shown above the field table in tabular mode).
+    value_type: &'static str,
+}
+
+/// Fetch a page of entries from a table with per-table formatting.
+fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usize) -> FetchResult {
+    /// Walk a cursor and format each entry using the provided closure.
+    fn walk<Tx: DbTx, T: tables::Table, F: Fn(&T::Key, &T::Value) -> Vec<String>>(
         tx: &Tx,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(String, String)>, katana_db::error::DatabaseError>
-    where
-        T::Key: std::fmt::Display,
-    {
-        let mut cursor = tx.cursor::<T>()?;
-        let mut entries = Vec::with_capacity(limit);
-        let mut walker = cursor.walk(None)?;
-        for _ in 0..offset {
-            if walker.next().is_none() {
-                return Ok(entries);
+        fmt: F,
+    ) -> Vec<Vec<String>> {
+        let result: Result<_, katana_db::error::DatabaseError> = (|| {
+            let mut cursor = tx.cursor::<T>()?;
+            let mut rows = Vec::with_capacity(limit);
+            let mut walker = cursor.walk(None)?;
+            for _ in 0..offset {
+                if walker.next().is_none() {
+                    return Ok(rows);
+                }
             }
-        }
-        for item in walker.take(limit) {
-            let Ok((key, value)) = item else { break };
-            entries.push((format!("{key}"), format!("{value:#?}")));
-        }
-        Ok(entries)
+            for item in walker.take(limit) {
+                let Ok((key, value)) = item else { break };
+                rows.push(fmt(&key, &value));
+            }
+            Ok(rows)
+        })();
+        result.unwrap_or_default()
     }
 
-    /// Walk a table cursor, formatting keys with Debug (fallback for types without Display).
-    fn walk_debug<Tx: DbTx, T: tables::Table>(
-        tx: &Tx,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<(String, String)>, katana_db::error::DatabaseError> {
-        let mut cursor = tx.cursor::<T>()?;
-        let mut entries = Vec::with_capacity(limit);
-        let mut walker = cursor.walk(None)?;
-        for _ in 0..offset {
-            if walker.next().is_none() {
-                return Ok(entries);
+    /// Helper to build a tabular FetchResult.
+    macro_rules! tabular {
+        ($t:ty, $vtype:expr, [$($col:expr),+], |$k:ident, $v:ident| $body:expr) => {{
+            let rows = walk::<Tx, $t, _>(tx, offset, limit, |$k, $v| $body);
+            FetchResult {
+                columns: vec![$($col),+],
+                rows,
+                tabular: true,
+                value_type: $vtype,
             }
-        }
-        for item in walker.take(limit) {
-            let Ok((key, value)) = item else { break };
-            entries.push((format!("{key:?}"), format!("{value:#?}")));
-        }
-        Ok(entries)
+        }};
     }
 
-    macro_rules! fetch {
-        ($t:ty) => {
-            walk_display::<Tx, $t>(tx, offset, limit).unwrap_or_default()
-        };
-        (debug $t:ty) => {
-            walk_debug::<Tx, $t>(tx, offset, limit).unwrap_or_default()
-        };
+    /// Helper to build a detail (split-panel) FetchResult.
+    macro_rules! detail {
+        ($t:ty) => {{
+            let rows = walk::<Tx, $t, _>(tx, offset, limit, |k, v| {
+                vec![format!("{k}"), format!("{v:#?}")]
+            });
+            FetchResult { columns: vec!["Key", "Value"], rows, tabular: false, value_type: "" }
+        }};
+        (debug $t:ty) => {{
+            let rows = walk::<Tx, $t, _>(tx, offset, limit, |k, v| {
+                vec![format!("{k:?}"), format!("{v:#?}")]
+            });
+            FetchResult { columns: vec!["Key", "Value"], rows, tabular: false, value_type: "" }
+        }};
     }
 
     match table {
-        Tables::Headers => fetch!(tables::Headers),
-        Tables::BlockStateUpdates => fetch!(tables::BlockStateUpdates),
-        Tables::BlockHashes => fetch!(tables::BlockHashes),
-        Tables::BlockNumbers => fetch!(tables::BlockNumbers),
-        Tables::BlockBodyIndices => fetch!(tables::BlockBodyIndices),
-        Tables::BlockStatusses => fetch!(tables::BlockStatusses),
-        Tables::TxNumbers => fetch!(tables::TxNumbers),
-        Tables::TxBlocks => fetch!(tables::TxBlocks),
-        Tables::TxHashes => fetch!(tables::TxHashes),
-        Tables::TxTraces => fetch!(tables::TxTraces),
-        Tables::Transactions => fetch!(tables::Transactions),
-        Tables::Receipts => fetch!(tables::Receipts),
-        Tables::CompiledClassHashes => fetch!(tables::CompiledClassHashes),
-        Tables::Classes => fetch!(tables::Classes),
-        Tables::ContractInfo => fetch!(tables::ContractInfo),
-        Tables::ContractStorage => fetch!(debug tables::ContractStorage),
-        Tables::ClassDeclarationBlock => fetch!(tables::ClassDeclarationBlock),
-        Tables::ClassDeclarations => fetch!(tables::ClassDeclarations),
-        Tables::MigratedCompiledClassHashes => fetch!(tables::MigratedCompiledClassHashes),
-        Tables::ContractInfoChangeSet => fetch!(tables::ContractInfoChangeSet),
-        Tables::NonceChangeHistory => fetch!(tables::NonceChangeHistory),
-        Tables::ClassChangeHistory => fetch!(tables::ClassChangeHistory),
-        Tables::StorageChangeHistory => fetch!(debug tables::StorageChangeHistory),
-        Tables::StorageChangeSet => fetch!(debug tables::StorageChangeSet),
-        Tables::StageExecutionCheckpoints => fetch!(tables::StageExecutionCheckpoints),
-        Tables::StagePruningCheckpoints => fetch!(tables::StagePruningCheckpoints),
-        Tables::StateHistoryRetention => fetch!(tables::StateHistoryRetention),
-        Tables::MigrationCheckpoints => fetch!(tables::MigrationCheckpoints),
-        // State trie tables are excluded from the inspector
-        _ => Vec::new(),
+        // -- Simple key-value (scalar value) --
+        Tables::BlockHashes => {
+            tabular!(tables::BlockHashes, "BlockHash", ["Block", "Hash"], |k, v| vec![
+                format!("{k}"),
+                format!("{v}")
+            ])
+        }
+        Tables::BlockNumbers => {
+            tabular!(tables::BlockNumbers, "BlockNumber", ["Hash", "Block"], |k, v| vec![
+                format!("{k}"),
+                format!("{v}")
+            ])
+        }
+        Tables::BlockStatusses => {
+            tabular!(tables::BlockStatusses, "FinalityStatus", ["Block", "Status"], |k, v| vec![
+                format!("{k}"),
+                format!("{v:?}")
+            ])
+        }
+        Tables::TxNumbers => {
+            tabular!(tables::TxNumbers, "TxNumber", ["TxHash", "TxNumber"], |k, v| vec![
+                format!("{k}"),
+                format!("{v}")
+            ])
+        }
+        Tables::TxBlocks => {
+            tabular!(tables::TxBlocks, "BlockNumber", ["TxNumber", "Block"], |k, v| vec![
+                format!("{k}"),
+                format!("{v}")
+            ])
+        }
+        Tables::TxHashes => {
+            tabular!(tables::TxHashes, "TxHash", ["TxNumber", "TxHash"], |k, v| vec![
+                format!("{k}"),
+                format!("{v}")
+            ])
+        }
+        Tables::CompiledClassHashes => tabular!(
+            tables::CompiledClassHashes,
+            "CompiledClassHash",
+            ["ClassHash", "CompiledHash"],
+            |k, v| vec![format!("{k}"), format!("{v}")]
+        ),
+        Tables::ClassDeclarationBlock => tabular!(
+            tables::ClassDeclarationBlock,
+            "BlockNumber",
+            ["ClassHash", "Block"],
+            |k, v| vec![format!("{k}"), format!("{v}")]
+        ),
+        Tables::ClassDeclarations => {
+            tabular!(tables::ClassDeclarations, "ClassHash", ["Block", "ClassHash"], |k, v| vec![
+                format!("{k}"),
+                format!("{v}")
+            ])
+        }
+
+        // -- Struct values (few simple fields) --
+        Tables::BlockBodyIndices => tabular!(
+            tables::BlockBodyIndices,
+            "StoredBlockBodyIndices",
+            ["Block", "TxOffset", "TxCount"],
+            |k, v| vec![format!("{k}"), format!("{}", v.tx_offset), format!("{}", v.tx_count)]
+        ),
+        Tables::ContractInfo => tabular!(
+            tables::ContractInfo,
+            "GenericContractInfo",
+            ["Address", "Nonce", "ClassHash"],
+            |k, v| vec![format!("{k}"), format!("{}", v.nonce), format!("{}", v.class_hash)]
+        ),
+        Tables::ContractStorage => tabular!(
+            tables::ContractStorage,
+            "StorageEntry",
+            ["Address", "Key", "Value"],
+            |k, v| vec![format!("{k}"), format!("{}", v.key), format!("{}", v.value)]
+        ),
+        Tables::MigratedCompiledClassHashes => tabular!(
+            tables::MigratedCompiledClassHashes,
+            "MigratedCompiledClassHash",
+            ["Block", "ClassHash", "CompiledHash"],
+            |k, v| vec![
+                format!("{k}"),
+                format!("{}", v.class_hash),
+                format!("{}", v.compiled_class_hash)
+            ]
+        ),
+        Tables::NonceChangeHistory => tabular!(
+            tables::NonceChangeHistory,
+            "ContractNonceChange",
+            ["Block", "Address", "Nonce"],
+            |k, v| vec![format!("{k}"), format!("{}", v.contract_address), format!("{}", v.nonce)]
+        ),
+        Tables::ClassChangeHistory => tabular!(
+            tables::ClassChangeHistory,
+            "ContractClassChange",
+            ["Block", "Type", "Address", "ClassHash"],
+            |k, v| vec![
+                format!("{k}"),
+                format!("{:?}", v.r#type),
+                format!("{}", v.contract_address),
+                format!("{}", v.class_hash)
+            ]
+        ),
+        Tables::StorageChangeHistory => tabular!(
+            tables::StorageChangeHistory,
+            "ContractStorageEntry",
+            ["Block", "Address", "Key", "Value"],
+            |k, v| vec![
+                format!("{k}"),
+                format!("{}", v.key.contract_address),
+                format!("{}", v.key.key),
+                format!("{}", v.value)
+            ]
+        ),
+        Tables::StageExecutionCheckpoints => tabular!(
+            tables::StageExecutionCheckpoints,
+            "ExecutionCheckpoint",
+            ["StageId", "Block"],
+            |k, v| vec![format!("{k}"), format!("{}", v.block)]
+        ),
+        Tables::StagePruningCheckpoints => tabular!(
+            tables::StagePruningCheckpoints,
+            "PruningCheckpoint",
+            ["StageId", "Block"],
+            |k, v| vec![format!("{k}"), format!("{}", v.block)]
+        ),
+        Tables::StateHistoryRetention => tabular!(
+            tables::StateHistoryRetention,
+            "HistoricalStateRetention",
+            ["Key", "EarliestBlock"],
+            |k, v| vec![format!("{k}"), format!("{}", v.earliest_available_block)]
+        ),
+        Tables::MigrationCheckpoints => tabular!(
+            tables::MigrationCheckpoints,
+            "MigrationCheckpoint",
+            ["StageId", "LastKey"],
+            |k, v| vec![format!("{k}"), format!("{}", v.last_key_migrated)]
+        ),
+
+        // -- Complex values (detail / split-panel mode) --
+        Tables::Headers => detail!(tables::Headers),
+        Tables::BlockStateUpdates => detail!(tables::BlockStateUpdates),
+        Tables::Transactions => detail!(tables::Transactions),
+        Tables::TxTraces => detail!(tables::TxTraces),
+        Tables::Receipts => detail!(tables::Receipts),
+        Tables::Classes => detail!(tables::Classes),
+        Tables::ContractInfoChangeSet => detail!(tables::ContractInfoChangeSet),
+        Tables::StorageChangeSet => detail!(debug tables::StorageChangeSet),
+
+        // State trie tables are excluded
+        _ => FetchResult { columns: vec![], rows: vec![], tabular: true, value_type: "" },
     }
 }
 
@@ -215,15 +343,21 @@ struct App {
     /// Entry counts per table (indexed same as INSPECT_TABLES).
     /// `None` means the table doesn't exist in the database.
     table_counts: Vec<Option<usize>>,
-    /// Currently loaded entries for the open table (key, value) Debug strings
-    entries: Vec<(String, String)>,
+    /// Column headers for the currently open table
+    columns: Vec<&'static str>,
+    /// Row data for the currently open table
+    rows: Vec<Vec<String>>,
+    /// Whether the current table uses tabular display
+    tabular: bool,
+    /// Value type name (for tabular display header)
+    value_type: &'static str,
     /// Total entry count for the currently open table
     current_table_count: usize,
     /// Current offset into the table for pagination
     entry_offset: usize,
-    /// Entry list selection state
+    /// Selection state for key list
     entry_list: ListState,
-    /// Scroll offset for the value panel
+    /// Scroll offset for the value panel (detail mode only)
     value_scroll: u16,
     /// Should quit
     quit: bool,
@@ -239,7 +373,10 @@ impl App {
             screen: Screen::TableList,
             table_list,
             table_counts,
-            entries: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            tabular: false,
+            value_type: "",
             current_table_count: 0,
             entry_offset: 0,
             entry_list: ListState::default(),
@@ -256,6 +393,11 @@ impl App {
         self.entry_list.selected().unwrap_or(0)
     }
 
+    fn select_entry(&mut self, index: usize) {
+        self.entry_list.select(Some(index));
+        self.value_scroll = 0;
+    }
+
     /// Open a table: load its first page of entries.
     /// Does nothing if the table doesn't exist in the database.
     fn open_table<Tx: DbTx>(&mut self, tx: &Tx) {
@@ -266,24 +408,27 @@ impl App {
         let table = INSPECT_TABLES[idx];
         self.current_table_count = count;
         self.entry_offset = 0;
-        self.entries = fetch_entries(tx, table, 0, PAGE_SIZE);
+        let data = fetch_table_data(tx, table, 0, PAGE_SIZE);
+        self.columns = data.columns;
+        self.rows = data.rows;
+        self.tabular = data.tabular;
+        self.value_type = data.value_type;
         self.entry_list = ListState::default();
-        if !self.entries.is_empty() {
-            self.entry_list.select(Some(0));
+        if !self.rows.is_empty() {
+            self.select_entry(0);
         }
-        self.value_scroll = 0;
         self.screen = Screen::EntryView;
     }
 
     /// Ensure the selected entry is within the loaded page, re-fetching if needed.
     fn ensure_entry_loaded<Tx: DbTx>(&mut self, tx: &Tx, absolute_index: usize) {
-        let page_end = self.entry_offset + self.entries.len();
+        let page_end = self.entry_offset + self.rows.len();
         if absolute_index >= page_end || absolute_index < self.entry_offset {
-            // Re-fetch a page centered around the target
             let new_offset = absolute_index.saturating_sub(PAGE_SIZE / 4);
             let idx = self.selected_table_index();
             let table = INSPECT_TABLES[idx];
-            self.entries = fetch_entries(tx, table, new_offset, PAGE_SIZE);
+            let data = fetch_table_data(tx, table, new_offset, PAGE_SIZE);
+            self.rows = data.rows;
             self.entry_offset = new_offset;
         }
     }
@@ -299,8 +444,7 @@ impl App {
             (current + delta as usize).min(self.current_table_count - 1)
         };
         self.ensure_entry_loaded(tx, new_abs);
-        self.entry_list.select(Some(new_abs - self.entry_offset));
-        self.value_scroll = 0;
+        self.select_entry(new_abs - self.entry_offset);
     }
 
     fn jump_entry_first<Tx: DbTx>(&mut self, tx: &Tx) {
@@ -308,8 +452,7 @@ impl App {
             return;
         }
         self.ensure_entry_loaded(tx, 0);
-        self.entry_list.select(Some(0));
-        self.value_scroll = 0;
+        self.select_entry(0);
     }
 
     fn jump_entry_last<Tx: DbTx>(&mut self, tx: &Tx) {
@@ -318,8 +461,7 @@ impl App {
         }
         let last = self.current_table_count - 1;
         self.ensure_entry_loaded(tx, last);
-        self.entry_list.select(Some(last - self.entry_offset));
-        self.value_scroll = 0;
+        self.select_entry(last - self.entry_offset);
     }
 }
 
@@ -421,7 +563,7 @@ fn run_event_loop<Tx: DbTx>(
                     KeyCode::Char('q') => app.quit = true,
                     KeyCode::Esc => {
                         app.screen = Screen::TableList;
-                        app.entries.clear();
+                        app.rows.clear();
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
                         app.move_entry_selection(tx, 1);
@@ -435,10 +577,10 @@ fn run_event_loop<Tx: DbTx>(
                     KeyCode::Char('G') => {
                         app.jump_entry_last(tx);
                     }
-                    KeyCode::Char('h') | KeyCode::Left => {
+                    KeyCode::Char('h') | KeyCode::Left if !app.tabular => {
                         app.value_scroll = app.value_scroll.saturating_sub(4);
                     }
-                    KeyCode::Char('l') | KeyCode::Right => {
+                    KeyCode::Char('l') | KeyCode::Right if !app.tabular => {
                         app.value_scroll = app.value_scroll.saturating_add(4);
                     }
                     _ => {}
@@ -447,6 +589,8 @@ fn run_event_loop<Tx: DbTx>(
         }
     }
 }
+
+// -- Drawing --
 
 fn draw(f: &mut ratatui::Frame<'_>, app: &mut App) {
     match app.screen {
@@ -497,16 +641,22 @@ fn draw_entry_view(f: &mut ratatui::Frame<'_>, app: &mut App) {
 
     let title = format!(" {} ({} entries) ", table.name(), format_number(count));
 
-    let outer_block = Block::default().borders(Borders::ALL).title(title).title_bottom(
-        Line::from(" Esc:back  \u{2191}\u{2193}:nav  h/l:scroll value  g/G:first/last  q:quit ")
-            .centered(),
-    );
+    let footer = if app.tabular {
+        " Esc:back  \u{2191}\u{2193}:nav  g/G:first/last  q:quit "
+    } else {
+        " Esc:back  \u{2191}\u{2193}:nav  h/l:scroll value  g/G:first/last  q:quit "
+    };
+
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .title_bottom(Line::from(footer).centered());
 
     let inner = outer_block.inner(area);
     f.render_widget(outer_block, area);
 
     // Split vertically: 1-line header + remaining content
-    let rows = Layout::default()
+    let vchunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(inner);
@@ -515,12 +665,12 @@ fn draw_entry_view(f: &mut ratatui::Frame<'_>, app: &mut App) {
     let header_cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
-        .split(rows[0]);
+        .split(vchunks[0]);
 
     let content_cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
-        .split(rows[1]);
+        .split(vchunks[1]);
 
     // Render column headers
     let header_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
@@ -549,16 +699,16 @@ fn draw_entry_view(f: &mut ratatui::Frame<'_>, app: &mut App) {
 
 fn draw_key_panel(f: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
     // Split into fixed-width line number column and key list
-    let num_width = 6u16; // enough for "99999 "
+    let num_width = 6u16;
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(num_width), Constraint::Min(1)])
         .split(area);
 
-    // Line numbers (rendered as plain Paragraph, scrolled in sync with the key list)
+    // Line numbers
     let selected = app.selected_entry_index();
     let num_lines: Vec<Line<'_>> = app
-        .entries
+        .rows
         .iter()
         .enumerate()
         .map(|(i, _)| {
@@ -572,19 +722,18 @@ fn draw_key_panel(f: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
         })
         .collect();
 
-    // Offset the paragraph to keep line numbers in sync with the list scroll.
-    // ListState handles its own viewport scroll; we replicate the offset here.
     let visible_height = cols[0].height as usize;
     let scroll_offset = selected.saturating_sub(visible_height.saturating_sub(1));
     let num_paragraph = Paragraph::new(num_lines).scroll((scroll_offset as u16, 0));
     f.render_widget(num_paragraph, cols[0]);
 
-    // Key list
+    // Key list (first column of each row)
     let key_area = cols[1];
     let items: Vec<ListItem<'_>> = app
-        .entries
+        .rows
         .iter()
-        .map(|(key, _)| {
+        .map(|row| {
+            let key = row.first().map(|s| s.as_str()).unwrap_or("");
             let display = truncate_str(key, key_area.width.saturating_sub(4) as usize);
             ListItem::new(Line::from(display))
         })
@@ -600,22 +749,42 @@ fn draw_key_panel(f: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
 
 fn draw_value_panel(f: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let selected = app.selected_entry_index();
-    let value_text = app.entries.get(selected).map(|(_, v)| v.as_str()).unwrap_or("");
 
-    // Apply horizontal scroll by trimming each line
-    let lines: Vec<Line<'_>> = value_text
-        .lines()
-        .map(|line| {
-            let scroll = app.value_scroll as usize;
-            let visible = if scroll < line.len() { &line[scroll..] } else { "" };
-            Line::from(Span::raw(visible.to_string()))
-        })
-        .collect();
+    if app.tabular {
+        // Render value type name + field table
+        let Some(row) = app.rows.get(selected) else {
+            return;
+        };
 
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+        let mut table = crate::cli::db::table();
+        table.set_header(vec!["Field", "Value"]);
+        for (col, val) in app.columns.iter().skip(1).zip(row.iter().skip(1)) {
+            table.add_row(vec![col.to_string(), val.clone()]);
+        }
 
-    f.render_widget(paragraph, area);
+        let text = format!("{}\n{table}", app.value_type);
+        let paragraph = Paragraph::new(text);
+        f.render_widget(paragraph, area);
+    } else {
+        // Render full Debug output with horizontal scroll
+        let value_text =
+            app.rows.get(selected).and_then(|row| row.get(1)).map(|s| s.as_str()).unwrap_or("");
+
+        let lines: Vec<Line<'_>> = value_text
+            .lines()
+            .map(|line| {
+                let scroll = app.value_scroll as usize;
+                let visible = if scroll < line.len() { &line[scroll..] } else { "" };
+                Line::from(Span::raw(visible.to_string()))
+            })
+            .collect();
+
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+        f.render_widget(paragraph, area);
+    }
 }
+
+// -- Helpers --
 
 /// Truncate a string to fit within `max_len` characters, adding "..." if truncated.
 fn truncate_str(s: &str, max_len: usize) -> String {
