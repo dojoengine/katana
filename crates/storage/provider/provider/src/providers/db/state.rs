@@ -455,14 +455,15 @@ impl<Tx: DbTx> StateRootProvider for HistoricalStateProvider<Tx> {
     }
 
     fn state_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        // Try static files first, fall back to MDBX.
-        let header = self
-            .static_files
-            .header(self.block_number)
-            .map_err(ProviderError::StaticFile)?
-            .or(self.tx.get::<tables::Headers>(self.block_number)?)
+        let sf_ref = self
+            .tx
+            .get::<tables::Headers>(self.block_number)?
             .ok_or(ProviderError::MissingBlockHeader(self.block_number))?;
-        let header: katana_primitives::block::Header = header.into();
+        let versioned: katana_db::models::VersionedHeader =
+            super::resolve_static_ref(&self.static_files, &sf_ref, |sf, o, l| {
+                sf.read_header(o, l)
+            })?;
+        let header: katana_primitives::block::Header = versioned.into();
         Ok(header.state_root)
     }
 }

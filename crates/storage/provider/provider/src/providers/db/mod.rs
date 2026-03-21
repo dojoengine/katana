@@ -7,6 +7,7 @@ use std::ops::{Deref, Range, RangeInclusive};
 use std::sync::Arc;
 
 use katana_db::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
+use katana_db::codecs::{Compress, Decompress};
 use katana_db::error::CodecError;
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_db::models::class::MigratedCompiledClassHash;
@@ -18,7 +19,7 @@ use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use katana_db::models::state::HistoricalStateRetention;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::models::{
-    ReceiptEnvelope, StateUpdateEnvelope, TxEnvelope, VersionedHeader, VersionedTx,
+    ReceiptEnvelope, StateUpdateEnvelope, StaticFileRef, TxEnvelope, VersionedHeader, VersionedTx,
 };
 use katana_db::static_files::segment::StaticFileError;
 use katana_db::static_files::{AnyStore, StaticFiles};
@@ -50,6 +51,27 @@ use katana_provider_api::ProviderError;
 use tracing::warn;
 
 use crate::{MutableProvider, ProviderResult};
+
+/// Resolve a [`StaticFileRef`] by either reading from static files or decompressing inline data.
+pub(crate) fn resolve_static_ref<T: Decompress>(
+    static_files: &StaticFiles<AnyStore>,
+    sf_ref: &StaticFileRef,
+    read_fn: impl FnOnce(&StaticFiles<AnyStore>, u64, u32) -> Result<T, StaticFileError>,
+) -> ProviderResult<T> {
+    match sf_ref {
+        StaticFileRef::StaticFile { offset, length } => {
+            read_fn(static_files, *offset, *length).map_err(ProviderError::StaticFile)
+        }
+        StaticFileRef::Inline(data) => {
+            T::decompress(data).map_err(|e| ProviderError::Other(e.to_string()))
+        }
+    }
+}
+
+/// Compress a value for inline storage in MDBX (fork mode).
+fn compress_value<T: Compress>(value: T) -> ProviderResult<Vec<u8>> {
+    Ok(value.compress().map_err(|e| ProviderError::Other(e.to_string()))?.into())
+}
 
 /// A provider implementation that uses a persistent database as the backend.
 #[derive(Clone)]
@@ -88,17 +110,39 @@ impl<Tx: DbTx> DbProvider<Tx> {
         &self.static_files
     }
 
+    /// Read tx hash: try static files first, fall back to MDBX.
+    fn get_tx_hash(&self, num: TxNumber) -> ProviderResult<Option<TxHash>> {
+        if let Some(hash) =
+            self.static_files.read_tx_hash(num).map_err(ProviderError::StaticFile)?
+        {
+            return Ok(Some(hash));
+        }
+        Ok(self.tx.get::<tables::TxHashes>(num)?)
+    }
+
+    /// Read tx block number: try static files first, fall back to MDBX.
+    fn get_tx_block(&self, num: TxNumber) -> ProviderResult<Option<BlockNumber>> {
+        if let Some(block) =
+            self.static_files.read_tx_block(num).map_err(ProviderError::StaticFile)?
+        {
+            return Ok(Some(block));
+        }
+        Ok(self.tx.get::<tables::TxBlocks>(num)?)
+    }
+
     fn canonical_state_update_by_number(
         &self,
         block_number: BlockNumber,
     ) -> ProviderResult<StateUpdates> {
-        // Try static files first, fall back to MDBX.
-        let envelope = self
-            .static_files
-            .block_state_update(block_number)
-            .map_err(ProviderError::StaticFile)?
-            .or(self.tx.get::<tables::BlockStateUpdates>(block_number)?)
+        let sf_ref = self
+            .tx
+            .get::<tables::BlockStateUpdates>(block_number)?
             .ok_or(ProviderError::MissingBlockStateUpdate(block_number))?;
+
+        let envelope: StateUpdateEnvelope =
+            resolve_static_ref(&self.static_files, &sf_ref, |sf, o, l| {
+                sf.read_block_state_update(o, l)
+            })?;
 
         Ok(StateUpdates::from(envelope))
     }
@@ -118,13 +162,7 @@ impl<Tx: DbTx> BlockNumberProvider for DbProvider<Tx> {
     }
 
     fn latest_number(&self) -> ProviderResult<BlockNumber> {
-        // Try static files first, fall back to MDBX.
-        if let Some(num) =
-            self.static_files.latest_block_number().map_err(ProviderError::StaticFile)?
-        {
-            return Ok(num);
-        }
-        let res = self.tx.cursor::<tables::BlockHashes>()?.last()?.map(|(num, _)| num);
+        let res = self.tx.cursor::<tables::Headers>()?.last()?.map(|(num, _)| num);
         res.ok_or(ProviderError::MissingLatestBlockNumber)
     }
 }
@@ -133,13 +171,15 @@ impl<Tx: DbTx> BlockIdReader for DbProvider<Tx> {}
 
 impl<Tx: DbTx> BlockHashProvider for DbProvider<Tx> {
     fn latest_hash(&self) -> ProviderResult<BlockHash> {
-        let latest_block = self.latest_number()?;
-        self.block_hash_by_num(latest_block)?.ok_or(ProviderError::MissingLatestBlockHash)
+        let latest = self.latest_number()?;
+        self.block_hash_by_num(latest)?.ok_or(ProviderError::MissingLatestBlockHash)
     }
 
     fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
-        // Try static files first, fall back to MDBX.
-        if let Some(hash) = self.static_files.block_hash(num).map_err(ProviderError::StaticFile)? {
+        // Try static files first (sequential mode), fall back to MDBX (fork mode).
+        if let Some(hash) =
+            self.static_files.read_block_hash(num).map_err(ProviderError::StaticFile)?
+        {
             return Ok(Some(hash));
         }
         Ok(self.tx.get::<tables::BlockHashes>(num)?)
@@ -155,11 +195,15 @@ impl<Tx: DbTx> HeaderProvider for DbProvider<Tx> {
 
         let Some(num) = num else { return Ok(None) };
 
-        // Try static files first, fall back to MDBX.
-        if let Some(h) = self.static_files.header(num).map_err(ProviderError::StaticFile)? {
-            return Ok(Some(h.into()));
+        let sf_ref = self.tx.get::<tables::Headers>(num)?;
+        match sf_ref {
+            Some(r) => {
+                let header: VersionedHeader =
+                    resolve_static_ref(&self.static_files, &r, |sf, o, l| sf.read_header(o, l))?;
+                Ok(Some(header.into()))
+            }
+            None => Ok(None),
         }
-        Ok(self.tx.get::<tables::Headers>(num)?.map(Header::from))
     }
 }
 
@@ -174,13 +218,17 @@ impl<Tx: DbTx> BlockProvider for DbProvider<Tx> {
         };
 
         if let Some(num) = block_num {
-            // Try static files first, fall back to MDBX.
-            if let Some(idx) =
-                self.static_files.block_body_indices(num).map_err(ProviderError::StaticFile)?
-            {
-                return Ok(Some(idx));
+            let sf_ref = self.tx.get::<tables::BlockBodyIndices>(num)?;
+            match sf_ref {
+                Some(r) => {
+                    let indices: StoredBlockBodyIndices =
+                        resolve_static_ref(&self.static_files, &r, |sf, o, l| {
+                            sf.read_block_body_indices(o, l)
+                        })?;
+                    Ok(Some(indices))
+                }
+                None => Ok(None),
             }
-            Ok(self.tx.get::<tables::BlockBodyIndices>(num)?)
         } else {
             Ok(None)
         }
@@ -302,14 +350,14 @@ impl<Tx: DbTx> StateUpdateProvider for DbProvider<Tx> {
 impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
     fn transaction_by_hash(&self, hash: TxHash) -> ProviderResult<Option<TxWithHash>> {
         if let Some(num) = self.tx.get::<tables::TxNumbers>(hash)? {
-            // Try static files first, fall back to MDBX.
-            if let Some(envelope) =
-                self.static_files.transaction(num).map_err(ProviderError::StaticFile)?
-            {
-                return Ok(Some(TxWithHash { hash, transaction: envelope.inner.into() }));
-            }
-            let envelope =
+            let sf_ref =
                 self.tx.get::<tables::Transactions>(num)?.ok_or(ProviderError::MissingTx(num))?;
+
+            let envelope: TxEnvelope =
+                resolve_static_ref(&self.static_files, &sf_ref, |sf, o, l| {
+                    sf.read_transaction(o, l)
+                })?;
+
             Ok(Some(TxWithHash { hash, transaction: envelope.inner.into() }))
         } else {
             Ok(None)
@@ -332,20 +380,16 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
         let mut transactions = Vec::with_capacity(total as usize);
 
         for i in range {
-            // Try static files first, fall back to MDBX.
-            let envelope = self
-                .static_files
-                .transaction(i)
-                .map_err(ProviderError::StaticFile)?
-                .or(self.tx.get::<tables::Transactions>(i)?);
+            let sf_ref = self.tx.get::<tables::Transactions>(i)?;
 
-            if let Some(envelope) = envelope {
-                let hash = self
-                    .static_files
-                    .tx_hash(i)
-                    .map_err(ProviderError::StaticFile)?
-                    .or(self.tx.get::<tables::TxHashes>(i)?)
-                    .ok_or(ProviderError::MissingTxHash(i))?;
+            if let Some(sf_ref) = sf_ref {
+                let envelope: TxEnvelope =
+                    resolve_static_ref(&self.static_files, &sf_ref, |sf, o, l| {
+                        sf.read_transaction(o, l)
+                    })?;
+
+                let hash = self.get_tx_hash(i)?.ok_or(ProviderError::MissingTxHash(i))?;
+
                 transactions.push(TxWithHash { hash, transaction: envelope.inner.into() });
             };
         }
@@ -358,12 +402,7 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
         hash: TxHash,
     ) -> ProviderResult<Option<(BlockNumber, BlockHash)>> {
         if let Some(num) = self.tx.get::<tables::TxNumbers>(hash)? {
-            let block_num = self
-                .static_files
-                .tx_block(num)
-                .map_err(ProviderError::StaticFile)?
-                .or(self.tx.get::<tables::TxBlocks>(num)?)
-                .ok_or(ProviderError::MissingTxBlock(num))?;
+            let block_num = self.get_tx_block(num)?.ok_or(ProviderError::MissingTxBlock(num))?;
 
             let block_hash =
                 self.block_hash_by_num(block_num)?.ok_or(ProviderError::MissingBlockHash(num))?;
@@ -384,19 +423,17 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
             Some(indices) if idx < indices.tx_count => {
                 let num = indices.tx_offset + idx;
 
-                let hash = self
-                    .static_files
-                    .tx_hash(num)
-                    .map_err(ProviderError::StaticFile)?
-                    .or(self.tx.get::<tables::TxHashes>(num)?)
-                    .ok_or(ProviderError::MissingTxHash(num))?;
+                let hash = self.get_tx_hash(num)?.ok_or(ProviderError::MissingTxHash(num))?;
 
-                let envelope = self
-                    .static_files
-                    .transaction(num)
-                    .map_err(ProviderError::StaticFile)?
-                    .or(self.tx.get::<tables::Transactions>(num)?)
+                let sf_ref = self
+                    .tx
+                    .get::<tables::Transactions>(num)?
                     .ok_or(ProviderError::MissingTx(num))?;
+
+                let envelope: TxEnvelope =
+                    resolve_static_ref(&self.static_files, &sf_ref, |sf, o, l| {
+                        sf.read_transaction(o, l)
+                    })?;
 
                 Ok(Some(TxWithHash { hash, transaction: envelope.inner.into() }))
             }
@@ -423,12 +460,7 @@ impl<Tx: DbTx> TransactionsProviderExt for DbProvider<Tx> {
         let mut hashes = Vec::with_capacity(total as usize);
 
         for i in range {
-            let hash = self
-                .static_files
-                .tx_hash(i)
-                .map_err(ProviderError::StaticFile)?
-                .or(self.tx.get::<tables::TxHashes>(i)?);
-            if let Some(hash) = hash {
+            if let Some(hash) = self.get_tx_hash(i)? {
                 hashes.push(hash);
             }
         }
@@ -437,12 +469,6 @@ impl<Tx: DbTx> TransactionsProviderExt for DbProvider<Tx> {
     }
 
     fn total_transactions(&self) -> ProviderResult<usize> {
-        // Try static files first; if empty, fall back to MDBX.
-        let sf_count =
-            self.static_files.total_transactions().map_err(ProviderError::StaticFile)? as usize;
-        if sf_count > 0 {
-            return Ok(sf_count);
-        }
         Ok(self.tx.entries::<tables::Transactions>()?)
     }
 }
@@ -450,12 +476,8 @@ impl<Tx: DbTx> TransactionsProviderExt for DbProvider<Tx> {
 impl<Tx: DbTx> TransactionStatusProvider for DbProvider<Tx> {
     fn transaction_status(&self, hash: TxHash) -> ProviderResult<Option<FinalityStatus>> {
         if let Some(tx_num) = self.tx.get::<tables::TxNumbers>(hash)? {
-            let block_num = self
-                .static_files
-                .tx_block(tx_num)
-                .map_err(ProviderError::StaticFile)?
-                .or(self.tx.get::<tables::TxBlocks>(tx_num)?)
-                .ok_or(ProviderError::MissingTxBlock(tx_num))?;
+            let block_num =
+                self.get_tx_block(tx_num)?.ok_or(ProviderError::MissingTxBlock(tx_num))?;
 
             let res = self.tx.get::<tables::BlockStatusses>(block_num)?;
             let status = res.ok_or(ProviderError::MissingBlockStatus(block_num))?;
@@ -482,20 +504,29 @@ impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
         hash: TxHash,
     ) -> ProviderResult<Option<TypedTransactionExecutionInfo>> {
         if let Some(num) = self.tx.get::<tables::TxNumbers>(hash)? {
-            // Try static files first.
-            match self.static_files.tx_trace(num) {
-                Ok(Some(execution)) => return Ok(Some(execution)),
-                Ok(None) => {}
-                Err(StaticFileError::Codec(CodecError::Decompress(err))) => {
-                    warn!(tx_num = %num, %err, "Failed to deserialize transaction trace from static files");
+            let sf_ref = self.tx.get::<tables::TxTraces>(num);
+            match sf_ref {
+                Ok(Some(r)) => {
+                    match resolve_static_ref(&self.static_files, &r, |sf, o, l| {
+                        sf.read_tx_trace(o, l)
+                    }) {
+                        Ok(execution) => return Ok(Some(execution)),
+                        Err(ProviderError::StaticFile(StaticFileError::Codec(
+                            CodecError::Decompress(err),
+                        ))) => {
+                            warn!(tx_num = %num, %err, "Failed to deserialize transaction trace from static files");
+                            return Ok(None);
+                        }
+                        Err(ProviderError::Other(err)) => {
+                            warn!(tx_num = %num, %err, "Failed to deserialize inline transaction trace");
+                            return Ok(None);
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
-                Err(e) => return Err(ProviderError::StaticFile(e)),
-            }
-            // Fall back to MDBX.
-            match self.tx.get::<tables::TxTraces>(num) {
-                Ok(result) => Ok(result),
+                Ok(None) => Ok(None),
                 Err(katana_db::error::DatabaseError::Codec(CodecError::Decompress(err))) => {
-                    warn!(tx_num = %num, %err, "Failed to deserialize transaction trace");
+                    warn!(tx_num = %num, %err, "Failed to deserialize transaction trace ref");
                     Ok(None)
                 }
                 Err(e) => Err(e.into()),
@@ -525,27 +556,32 @@ impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
         let mut traces = Vec::with_capacity(total as usize);
 
         for i in range {
-            // Try static files first, fall back to MDBX.
-            let trace = match self.static_files.tx_trace(i) {
-                Ok(Some(trace)) => Some(trace),
-                Ok(None) => {
-                    // Fall back to MDBX.
-                    match self.tx.get::<tables::TxTraces>(i) {
-                        Ok(t) => t,
-                        Err(katana_db::error::DatabaseError::Codec(CodecError::Decompress(
-                            err,
+            let sf_ref = self.tx.get::<tables::TxTraces>(i);
+            let trace = match sf_ref {
+                Ok(Some(r)) => {
+                    match resolve_static_ref(&self.static_files, &r, |sf, o, l| {
+                        sf.read_tx_trace(o, l)
+                    }) {
+                        Ok(trace) => Some(trace),
+                        Err(ProviderError::StaticFile(StaticFileError::Codec(
+                            CodecError::Decompress(err),
                         ))) => {
-                            warn!(tx_num = %i, %err, "Failed to deserialize transaction trace");
+                            warn!(tx_num = %i, %err, "Failed to deserialize transaction trace from static files");
                             None
                         }
-                        Err(e) => return Err(e.into()),
+                        Err(ProviderError::Other(err)) => {
+                            warn!(tx_num = %i, %err, "Failed to deserialize inline transaction trace");
+                            None
+                        }
+                        Err(e) => return Err(e),
                     }
                 }
-                Err(StaticFileError::Codec(CodecError::Decompress(err))) => {
-                    warn!(tx_num = %i, %err, "Failed to deserialize transaction trace");
+                Ok(None) => None,
+                Err(katana_db::error::DatabaseError::Codec(CodecError::Decompress(err))) => {
+                    warn!(tx_num = %i, %err, "Failed to deserialize transaction trace ref");
                     None
                 }
-                Err(e) => return Err(ProviderError::StaticFile(e)),
+                Err(e) => return Err(e.into()),
             };
 
             if let Some(trace) = trace {
@@ -560,12 +596,13 @@ impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
 impl<Tx: DbTx> ReceiptProvider for DbProvider<Tx> {
     fn receipt_by_hash(&self, hash: TxHash) -> ProviderResult<Option<Receipt>> {
         if let Some(num) = self.tx.get::<tables::TxNumbers>(hash)? {
-            let envelope = self
-                .static_files
-                .receipt(num)
-                .map_err(ProviderError::StaticFile)?
-                .or(self.tx.get::<tables::Receipts>(num)?)
+            let sf_ref = self
+                .tx
+                .get::<tables::Receipts>(num)?
                 .ok_or(ProviderError::MissingTxReceipt(num))?;
+
+            let envelope: ReceiptEnvelope =
+                resolve_static_ref(&self.static_files, &sf_ref, |sf, o, l| sf.read_receipt(o, l))?;
 
             Ok(Some(Receipt::from(envelope)))
         } else {
@@ -582,13 +619,13 @@ impl<Tx: DbTx> ReceiptProvider for DbProvider<Tx> {
 
             let range = indices.tx_offset..indices.tx_offset + indices.tx_count;
             for i in range {
-                let receipt = self
-                    .static_files
-                    .receipt(i)
-                    .map_err(ProviderError::StaticFile)?
-                    .or(self.tx.get::<tables::Receipts>(i)?);
-                if let Some(receipt) = receipt {
-                    receipts.push(receipt.into());
+                let sf_ref = self.tx.get::<tables::Receipts>(i)?;
+                if let Some(sf_ref) = sf_ref {
+                    let envelope: ReceiptEnvelope =
+                        resolve_static_ref(&self.static_files, &sf_ref, |sf, o, l| {
+                            sf.read_receipt(o, l)
+                        })?;
+                    receipts.push(envelope.into());
                 }
             }
 
@@ -639,39 +676,62 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
         let tx_offset = self.tx.entries::<tables::Transactions>()? as u64;
         let block_body_indices = StoredBlockBodyIndices { tx_offset, tx_count };
 
-        // -- MDBX: write all data (kept for compatibility, especially fork mode) --
+        // Check if we can append sequentially to static files.
+        let is_sequential = self
+            .static_files
+            .blocks
+            .block_hashes
+            .count()
+            .map_err(|e| ProviderError::StaticFile(StaticFileError::Io(e)))?
+            == block_number;
+
+        // -- MDBX: write indexes always --
         self.tx.put::<tables::BlockHashes>(block_number, block_hash)?;
         self.tx.put::<tables::BlockNumbers>(block_hash, block_number)?;
         self.tx.put::<tables::BlockStatusses>(block_number, block.status)?;
 
-        self.tx
-            .put::<tables::Headers>(block_number, VersionedHeader::from(block_header.clone()))?;
-        self.tx.put::<tables::BlockStateUpdates>(
-            block_number,
-            StateUpdateEnvelope::from(state_updates.clone()),
-        )?;
-        self.tx.put::<tables::BlockBodyIndices>(block_number, block_body_indices.clone())?;
-
-        // -- Static files: append immutable block/tx data (for sequential production blocks) --
-        // Only write to static files if the block number matches the expected next block.
-        let sf_block_count = self
-            .static_files
-            .latest_block_number()
-            .map_err(ProviderError::StaticFile)?
-            .map(|n| n + 1)
-            .unwrap_or(0);
-        let is_sequential = block_number == sf_block_count;
-
         if is_sequential {
-            self.static_files
-                .append_block(
-                    block_number,
-                    VersionedHeader::from(block_header),
-                    block_hash,
-                    block_body_indices,
-                    StateUpdateEnvelope::from(state_updates.clone()),
-                )
+            // Append variable-size data to static files, store pointers in MDBX.
+            let (h_off, h_len) = self
+                .static_files
+                .append_header(VersionedHeader::from(block_header))
                 .map_err(ProviderError::StaticFile)?;
+            self.tx.put::<tables::Headers>(block_number, StaticFileRef::pointer(h_off, h_len))?;
+
+            let (bi_off, bi_len) = self
+                .static_files
+                .append_block_body_indices(block_body_indices.clone())
+                .map_err(ProviderError::StaticFile)?;
+            self.tx.put::<tables::BlockBodyIndices>(
+                block_number,
+                StaticFileRef::pointer(bi_off, bi_len),
+            )?;
+
+            let (su_off, su_len) = self
+                .static_files
+                .append_block_state_update(StateUpdateEnvelope::from(state_updates.clone()))
+                .map_err(ProviderError::StaticFile)?;
+            self.tx.put::<tables::BlockStateUpdates>(
+                block_number,
+                StaticFileRef::pointer(su_off, su_len),
+            )?;
+
+            // Append fixed-size block hash.
+            self.static_files
+                .append_block_hash(block_number, block_hash)
+                .map_err(ProviderError::StaticFile)?;
+        } else {
+            // Non-sequential (fork mode): compress and store inline in MDBX.
+            let header_bytes = compress_value(VersionedHeader::from(block_header))?;
+            self.tx.put::<tables::Headers>(block_number, StaticFileRef::inline(header_bytes))?;
+
+            let bi_bytes = compress_value(block_body_indices.clone())?;
+            self.tx
+                .put::<tables::BlockBodyIndices>(block_number, StaticFileRef::inline(bi_bytes))?;
+
+            let su_bytes = compress_value(StateUpdateEnvelope::from(state_updates.clone()))?;
+            self.tx
+                .put::<tables::BlockStateUpdates>(block_number, StaticFileRef::inline(su_bytes))?;
         }
 
         // Store base transaction details
@@ -684,46 +744,63 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
             self.tx.put::<tables::TxBlocks>(tx_number, block_number)?;
 
             let tx_envelope = TxEnvelope::from(VersionedTx::from(transaction.transaction));
-            self.tx.put::<tables::Transactions>(tx_number, tx_envelope.clone())?;
 
             if is_sequential {
-                self.static_files
-                    .append_transaction(
-                        tx_number,
-                        tx_envelope,
-                        tx_hash,
-                        block_number,
-                        ReceiptEnvelope::from(
-                            receipts
-                                .get(i)
-                                .cloned()
-                                .unwrap_or_else(|| panic!("missing receipt for tx index {i}")),
-                        ),
-                        executions
-                            .get(i)
-                            .cloned()
-                            .unwrap_or_else(|| panic!("missing execution for tx index {i}")),
-                    )
+                let receipt_envelope = ReceiptEnvelope::from(
+                    receipts.get(i).cloned().expect("missing receipt for sequential tx"),
+                );
+                let execution =
+                    executions.get(i).cloned().expect("missing execution for sequential tx");
+
+                // Append to static files, store pointers in MDBX.
+                let (tx_off, tx_len) = self
+                    .static_files
+                    .append_transaction(tx_envelope)
                     .map_err(ProviderError::StaticFile)?;
+                self.tx.put::<tables::Transactions>(
+                    tx_number,
+                    StaticFileRef::pointer(tx_off, tx_len),
+                )?;
+
+                let (r_off, r_len) = self
+                    .static_files
+                    .append_receipt(receipt_envelope)
+                    .map_err(ProviderError::StaticFile)?;
+                self.tx.put::<tables::Receipts>(tx_number, StaticFileRef::pointer(r_off, r_len))?;
+
+                let (t_off, t_len) = self
+                    .static_files
+                    .append_tx_trace(execution)
+                    .map_err(ProviderError::StaticFile)?;
+                self.tx.put::<tables::TxTraces>(tx_number, StaticFileRef::pointer(t_off, t_len))?;
+
+                // Fixed-size: tx hash and tx-to-block mapping.
+                self.static_files
+                    .append_tx_hash(tx_number, tx_hash)
+                    .map_err(ProviderError::StaticFile)?;
+                self.static_files
+                    .append_tx_block(tx_number, block_number)
+                    .map_err(ProviderError::StaticFile)?;
+            } else {
+                // Non-sequential (fork mode): compress and store inline.
+                let tx_bytes = compress_value(tx_envelope)?;
+                self.tx.put::<tables::Transactions>(tx_number, StaticFileRef::inline(tx_bytes))?;
+
+                if let Some(receipt) = receipts.get(i) {
+                    let r_bytes = compress_value(ReceiptEnvelope::from(receipt.clone()))?;
+                    self.tx.put::<tables::Receipts>(tx_number, StaticFileRef::inline(r_bytes))?;
+                }
+
+                if let Some(execution) = executions.get(i) {
+                    let t_bytes = compress_value(execution.clone())?;
+                    self.tx.put::<tables::TxTraces>(tx_number, StaticFileRef::inline(t_bytes))?;
+                }
             }
         }
 
-        // Store transaction receipts and traces in MDBX
-        for (i, receipt) in receipts.into_iter().enumerate() {
-            let tx_number = tx_offset + i as u64;
-            self.tx.put::<tables::Receipts>(tx_number, ReceiptEnvelope::from(receipt))?;
-        }
-
-        for (i, execution) in executions.into_iter().enumerate() {
-            let tx_number = tx_offset + i as u64;
-            self.tx.put::<tables::TxTraces>(tx_number, execution)?;
-        }
-
-        // Commit static files if we wrote to them.
+        // Sync static files before MDBX commit (crash safety).
         if is_sequential {
-            self.static_files
-                .commit(block_number + 1, tx_offset + tx_count)
-                .map_err(ProviderError::StaticFile)?;
+            self.static_files.sync().map_err(ProviderError::StaticFile)?;
         }
 
         // insert all class artifacts

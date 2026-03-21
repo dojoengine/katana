@@ -2,12 +2,9 @@ use std::io;
 
 use super::store::StaticStore;
 
-/// Index entry: 8 bytes for offset + 4 bytes for length = 12 bytes.
-const INDEX_ENTRY_SIZE: usize = 12;
-
 /// A column of fixed-size records, addressed by sequential u64 key.
 ///
-/// Direct offset calculation: `offset = key * record_size`, so no index file is needed.
+/// Direct offset calculation: `offset = key * record_size`, so no external index is needed.
 pub struct FixedColumn<S: StaticStore> {
     store: S,
     record_size: usize,
@@ -61,92 +58,47 @@ impl<S: StaticStore> FixedColumn<S> {
     }
 }
 
-/// A column of variable-size records with an index for offset/length lookup.
+/// A column of variable-size records stored sequentially in a `.dat` file.
 ///
-/// The data file (`.dat`) stores compressed values appended sequentially.
-/// The index file (`.idx`) stores an array of `(offset: u64, length: u32)` = 12 bytes per entry.
-pub struct IndexedColumn<S: StaticStore> {
-    data: S,
-    index: S,
+/// Unlike the previous `IndexedColumn`, this does NOT maintain an `.idx` file.
+/// The caller is responsible for storing and providing the `(offset, length)` pointers
+/// externally (in MDBX) to read data back.
+pub struct DataColumn<S: StaticStore> {
+    store: S,
 }
 
-impl<S: StaticStore> IndexedColumn<S> {
-    pub fn new(data: S, index: S) -> Self {
-        Self { data, index }
+impl<S: StaticStore> DataColumn<S> {
+    pub fn new(store: S) -> Self {
+        Self { store }
     }
 
-    /// Get a record by sequential key. Returns `None` if the key is beyond the current count.
-    pub fn get(&self, key: u64) -> io::Result<Option<Vec<u8>>> {
-        let idx_offset = key * INDEX_ENTRY_SIZE as u64;
-        let idx_len = self.index.len()?;
-
-        if idx_offset + INDEX_ENTRY_SIZE as u64 > idx_len {
-            return Ok(None);
+    /// Read data at the given byte offset and length.
+    pub fn read(&self, offset: u64, length: u32) -> io::Result<Vec<u8>> {
+        if length == 0 {
+            return Ok(Vec::new());
         }
-
-        let idx_entry = self.index.read_at(idx_offset, INDEX_ENTRY_SIZE)?;
-        let data_offset = u64::from_le_bytes(idx_entry[0..8].try_into().unwrap());
-        let data_length = u32::from_le_bytes(idx_entry[8..12].try_into().unwrap()) as usize;
-
-        if data_length == 0 {
-            return Ok(Some(Vec::new()));
-        }
-
-        let data = self.data.read_at(data_offset, data_length)?;
-        Ok(Some(data))
+        self.store.read_at(offset, length as usize)
     }
 
-    /// Append a record. The key must equal the current count (i.e., append-only).
-    pub fn append(&self, key: u64, data: &[u8]) -> io::Result<()> {
-        let data_offset = self.data.append(data)?;
-        let data_length = data.len() as u32;
-
-        let mut idx_entry = [0u8; INDEX_ENTRY_SIZE];
-        idx_entry[0..8].copy_from_slice(&data_offset.to_le_bytes());
-        idx_entry[8..12].copy_from_slice(&data_length.to_le_bytes());
-
-        let expected_idx_offset = key * INDEX_ENTRY_SIZE as u64;
-        let actual_idx_offset = self.index.append(&idx_entry)?;
-        debug_assert_eq!(
-            expected_idx_offset, actual_idx_offset,
-            "IndexedColumn: key {key} does not match index append offset"
-        );
-
-        Ok(())
+    /// Append data to the end. Returns `(offset, length)` where the data was written.
+    /// The caller must store these values externally (e.g., in MDBX) to read the data back.
+    pub fn append(&self, data: &[u8]) -> io::Result<(u64, u32)> {
+        let offset = self.store.append(data)?;
+        Ok((offset, data.len() as u32))
     }
 
-    /// Return the number of records currently stored.
-    pub fn count(&self) -> io::Result<u64> {
-        let idx_len = self.index.len()?;
-        Ok(idx_len / INDEX_ENTRY_SIZE as u64)
+    /// Current file length in bytes.
+    pub fn len(&self) -> io::Result<u64> {
+        self.store.len()
     }
 
     pub fn sync(&self) -> io::Result<()> {
-        self.data.sync()?;
-        self.index.sync()
+        self.store.sync()
     }
 
-    /// Truncate to exactly `count` records.
-    ///
-    /// The index is truncated to `count * 12` bytes. The data file is truncated to the
-    /// offset pointed to by the last remaining index entry (or 0 if count == 0).
-    pub fn truncate_to(&self, count: u64) -> io::Result<()> {
-        if count == 0 {
-            self.data.truncate(0)?;
-            self.index.truncate(0)?;
-            return Ok(());
-        }
-
-        // Read the last valid index entry to find the data truncation point.
-        let last_idx_offset = (count - 1) * INDEX_ENTRY_SIZE as u64;
-        let idx_entry = self.index.read_at(last_idx_offset, INDEX_ENTRY_SIZE)?;
-        let data_offset = u64::from_le_bytes(idx_entry[0..8].try_into().unwrap());
-        let data_length = u32::from_le_bytes(idx_entry[8..12].try_into().unwrap()) as u64;
-
-        self.data.truncate(data_offset + data_length)?;
-        self.index.truncate(count * INDEX_ENTRY_SIZE as u64)?;
-
-        Ok(())
+    /// Truncate the data file to the given byte length.
+    pub fn truncate(&self, byte_len: u64) -> io::Result<()> {
+        self.store.truncate(byte_len)
     }
 }
 
@@ -186,43 +138,34 @@ mod tests {
     }
 
     #[test]
-    fn indexed_column_basic() {
-        let data_store = MemoryStore::new();
-        let idx_store = MemoryStore::new();
-        let col = IndexedColumn::new(data_store, idx_store);
-
-        assert_eq!(col.count().unwrap(), 0);
-        assert!(col.get(0).unwrap().is_none());
+    fn data_column_basic() {
+        let col = DataColumn::new(MemoryStore::new());
 
         let record1 = b"hello world";
-        col.append(0, record1).unwrap();
-        assert_eq!(col.count().unwrap(), 1);
-
-        let retrieved = col.get(0).unwrap().unwrap();
-        assert_eq!(retrieved, record1);
+        let (off1, len1) = col.append(record1).unwrap();
+        assert_eq!(off1, 0);
+        assert_eq!(len1, 11);
 
         let record2 = b"a much longer record with variable length data";
-        col.append(1, record2).unwrap();
-        assert_eq!(col.count().unwrap(), 2);
+        let (off2, len2) = col.append(record2).unwrap();
+        assert_eq!(off2, 11);
 
-        let retrieved2 = col.get(1).unwrap().unwrap();
+        let retrieved1 = col.read(off1, len1).unwrap();
+        assert_eq!(retrieved1, record1);
+
+        let retrieved2 = col.read(off2, len2).unwrap();
         assert_eq!(retrieved2, record2);
-
-        // Truncate back to 1 record.
-        col.truncate_to(1).unwrap();
-        assert_eq!(col.count().unwrap(), 1);
-        assert!(col.get(1).unwrap().is_none());
-        assert_eq!(col.get(0).unwrap().unwrap(), record1);
     }
 
     #[test]
-    fn indexed_column_empty_record() {
-        let col = IndexedColumn::new(MemoryStore::new(), MemoryStore::new());
+    fn data_column_empty_record() {
+        let col = DataColumn::new(MemoryStore::new());
 
-        col.append(0, b"").unwrap();
-        assert_eq!(col.count().unwrap(), 1);
+        let (off, len) = col.append(b"").unwrap();
+        assert_eq!(off, 0);
+        assert_eq!(len, 0);
 
-        let retrieved = col.get(0).unwrap().unwrap();
+        let retrieved = col.read(off, len).unwrap();
         assert!(retrieved.is_empty());
     }
 
@@ -241,18 +184,5 @@ mod tests {
             let val = u64::from_le_bytes(data.try_into().unwrap());
             assert_eq!(val, i);
         }
-    }
-
-    #[test]
-    fn truncate_to_zero() {
-        let col = IndexedColumn::new(MemoryStore::new(), MemoryStore::new());
-
-        col.append(0, b"data").unwrap();
-        col.append(1, b"more data").unwrap();
-        assert_eq!(col.count().unwrap(), 2);
-
-        col.truncate_to(0).unwrap();
-        assert_eq!(col.count().unwrap(), 0);
-        assert!(col.get(0).unwrap().is_none());
     }
 }

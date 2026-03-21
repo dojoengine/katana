@@ -1,11 +1,9 @@
 use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
-use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
-use crate::models::block::StoredBlockBodyIndices;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractInfoChangeList, ContractNonceChange};
 use crate::models::list::BlockChangeList;
@@ -13,10 +11,9 @@ use crate::models::stage::{
     ExecutionCheckpoint, MigrationCheckpoint, MigrationStageId, PruningCheckpoint, StageId,
 };
 use crate::models::state::HistoricalStateRetention;
-use crate::models::state_update::StateUpdateEnvelope;
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedContractClass, VersionedHeader};
+use crate::models::{StaticFileRef, VersionedContractClass};
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -162,15 +159,15 @@ define_tables_enum! {[
     (Headers, TableType::Table),
     (BlockStateUpdates, TableType::Table),
     (BlockHashes, TableType::Table),
-    (BlockNumbers, TableType::Table),
     (BlockBodyIndices, TableType::Table),
+    (BlockNumbers, TableType::Table),
     (BlockStatusses, TableType::Table),
     (TxNumbers, TableType::Table),
-    (TxBlocks, TableType::Table),
     (TxHashes, TableType::Table),
-    (TxTraces, TableType::Table),
+    (TxBlocks, TableType::Table),
     (Transactions, TableType::Table),
     (Receipts, TableType::Table),
+    (TxTraces, TableType::Table),
     (CompiledClassHashes, TableType::Table),
     (Classes, TableType::Table),
     (ContractInfo, TableType::Table),
@@ -206,30 +203,30 @@ tables! {
     /// Provider-owned historical state retention watermark
     StateHistoryRetention: (u64) => HistoricalStateRetention,
 
-    /// Store canonical block headers (also in static files for production reads)
-    Headers: (BlockNumber) => VersionedHeader,
-    /// Stores canonical state updates by block number (also in static files)
-    BlockStateUpdates: (BlockNumber) => StateUpdateEnvelope,
-    /// Stores block hashes according to its block number (also in static files)
+    /// Pointer to block header in static files (or inline data for fork mode).
+    Headers: (BlockNumber) => StaticFileRef,
+    /// Pointer to state update in static files (or inline data for fork mode).
+    BlockStateUpdates: (BlockNumber) => StaticFileRef,
+    /// Pointer to block body indices in static files (or inline data for fork mode).
+    BlockBodyIndices: (BlockNumber) => StaticFileRef,
+    /// Block hash by block number (also in static files for sequential mode).
     BlockHashes: (BlockNumber) => BlockHash,
     /// Stores block numbers according to its block hash
     BlockNumbers: (BlockHash) => BlockNumber,
-    /// Block number to its body indices (also in static files)
-    BlockBodyIndices: (BlockNumber) => StoredBlockBodyIndices,
     /// Stores block finality status according to its block number
     BlockStatusses: (BlockNumber) => FinalityStatus,
     /// Transaction number based on its hash
     TxNumbers: (TxHash) => TxNumber,
-    /// Transaction hash based on its number (also in static files)
+    /// Tx hash by tx number (also in static files for sequential mode).
     TxHashes: (TxNumber) => TxHash,
-    /// Store canonical transactions (also in static files)
-    Transactions: (TxNumber) => TxEnvelope,
-    /// Stores the block number of a transaction (also in static files)
+    /// Block number of a transaction (also in static files for sequential mode).
     TxBlocks: (TxNumber) => BlockNumber,
-    /// Stores the transaction's traces (also in static files)
-    TxTraces: (TxNumber) => TypedTransactionExecutionInfo,
-    /// Store transaction receipts (also in static files)
-    Receipts: (TxNumber) => ReceiptEnvelope,
+    /// Pointer to transaction in static files (or inline data for fork mode).
+    Transactions: (TxNumber) => StaticFileRef,
+    /// Pointer to receipt in static files (or inline data for fork mode).
+    Receipts: (TxNumber) => StaticFileRef,
+    /// Pointer to transaction trace in static files (or inline data for fork mode).
+    TxTraces: (TxNumber) => StaticFileRef,
     /// Store compiled classes
     CompiledClassHashes: (ClassHash) => CompiledClassHash,
     /// Store contract classes according to its class hash
@@ -308,56 +305,62 @@ mod tests {
         use super::*;
 
         assert_eq!(Tables::ALL.len(), NUM_TABLES);
-        assert_eq!(Tables::ALL[0].name(), Headers::NAME);
-        assert_eq!(Tables::ALL[1].name(), BlockStateUpdates::NAME);
-        assert_eq!(Tables::ALL[2].name(), BlockHashes::NAME);
-        assert_eq!(Tables::ALL[3].name(), BlockNumbers::NAME);
-        assert_eq!(Tables::ALL[4].name(), BlockBodyIndices::NAME);
-        assert_eq!(Tables::ALL[5].name(), BlockStatusses::NAME);
-        assert_eq!(Tables::ALL[6].name(), TxNumbers::NAME);
-        assert_eq!(Tables::ALL[7].name(), TxBlocks::NAME);
-        assert_eq!(Tables::ALL[8].name(), TxHashes::NAME);
-        assert_eq!(Tables::ALL[9].name(), TxTraces::NAME);
-        assert_eq!(Tables::ALL[10].name(), Transactions::NAME);
-        assert_eq!(Tables::ALL[11].name(), Receipts::NAME);
-        assert_eq!(Tables::ALL[12].name(), CompiledClassHashes::NAME);
-        assert_eq!(Tables::ALL[13].name(), Classes::NAME);
-        assert_eq!(Tables::ALL[14].name(), ContractInfo::NAME);
-        assert_eq!(Tables::ALL[15].name(), ContractStorage::NAME);
-        assert_eq!(Tables::ALL[16].name(), ClassDeclarationBlock::NAME);
-        assert_eq!(Tables::ALL[17].name(), ClassDeclarations::NAME);
-        assert_eq!(Tables::ALL[18].name(), MigratedCompiledClassHashes::NAME);
-        assert_eq!(Tables::ALL[19].name(), ContractInfoChangeSet::NAME);
-        assert_eq!(Tables::ALL[20].name(), NonceChangeHistory::NAME);
-        assert_eq!(Tables::ALL[21].name(), ClassChangeHistory::NAME);
-        assert_eq!(Tables::ALL[22].name(), StorageChangeHistory::NAME);
-        assert_eq!(Tables::ALL[23].name(), StorageChangeSet::NAME);
-        assert_eq!(Tables::ALL[24].name(), StageExecutionCheckpoints::NAME);
-        assert_eq!(Tables::ALL[25].name(), StagePruningCheckpoints::NAME);
-        assert_eq!(Tables::ALL[26].name(), StateHistoryRetention::NAME);
-        assert_eq!(Tables::ALL[27].name(), ClassesTrie::NAME);
-        assert_eq!(Tables::ALL[28].name(), ContractsTrie::NAME);
-        assert_eq!(Tables::ALL[29].name(), StoragesTrie::NAME);
-        assert_eq!(Tables::ALL[30].name(), ClassesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[31].name(), ContractsTrieHistory::NAME);
-        assert_eq!(Tables::ALL[32].name(), StoragesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[33].name(), ClassesTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[34].name(), ContractsTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[35].name(), StoragesTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[36].name(), MigrationCheckpoints::NAME);
+        // Verify enum order matches define_tables_enum! declaration.
+        let expected_names = [
+            Headers::NAME,
+            BlockStateUpdates::NAME,
+            BlockHashes::NAME,
+            BlockBodyIndices::NAME,
+            BlockNumbers::NAME,
+            BlockStatusses::NAME,
+            TxNumbers::NAME,
+            TxHashes::NAME,
+            TxBlocks::NAME,
+            Transactions::NAME,
+            Receipts::NAME,
+            TxTraces::NAME,
+            CompiledClassHashes::NAME,
+            Classes::NAME,
+            ContractInfo::NAME,
+            ContractStorage::NAME,
+            ClassDeclarationBlock::NAME,
+            ClassDeclarations::NAME,
+            MigratedCompiledClassHashes::NAME,
+            ContractInfoChangeSet::NAME,
+            NonceChangeHistory::NAME,
+            ClassChangeHistory::NAME,
+            StorageChangeHistory::NAME,
+            StorageChangeSet::NAME,
+            StageExecutionCheckpoints::NAME,
+            StagePruningCheckpoints::NAME,
+            StateHistoryRetention::NAME,
+            ClassesTrie::NAME,
+            ContractsTrie::NAME,
+            StoragesTrie::NAME,
+            ClassesTrieHistory::NAME,
+            ContractsTrieHistory::NAME,
+            StoragesTrieHistory::NAME,
+            ClassesTrieChangeSet::NAME,
+            ContractsTrieChangeSet::NAME,
+            StoragesTrieChangeSet::NAME,
+            MigrationCheckpoints::NAME,
+        ];
+        for (i, name) in expected_names.iter().enumerate() {
+            assert_eq!(Tables::ALL[i].name(), *name, "table index {i} mismatch");
+        }
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockStateUpdates.table_type(), TableType::Table);
         assert_eq!(Tables::BlockHashes.table_type(), TableType::Table);
-        assert_eq!(Tables::BlockNumbers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockBodyIndices.table_type(), TableType::Table);
+        assert_eq!(Tables::BlockNumbers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockStatusses.table_type(), TableType::Table);
         assert_eq!(Tables::TxNumbers.table_type(), TableType::Table);
-        assert_eq!(Tables::TxBlocks.table_type(), TableType::Table);
         assert_eq!(Tables::TxHashes.table_type(), TableType::Table);
-        assert_eq!(Tables::TxTraces.table_type(), TableType::Table);
+        assert_eq!(Tables::TxBlocks.table_type(), TableType::Table);
         assert_eq!(Tables::Transactions.table_type(), TableType::Table);
         assert_eq!(Tables::Receipts.table_type(), TableType::Table);
+        assert_eq!(Tables::TxTraces.table_type(), TableType::Table);
         assert_eq!(Tables::CompiledClassHashes.table_type(), TableType::Table);
         assert_eq!(Tables::Classes.table_type(), TableType::Table);
         assert_eq!(Tables::ContractInfo.table_type(), TableType::Table);

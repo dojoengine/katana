@@ -1,42 +1,46 @@
 use std::io;
 use std::path::Path;
 
-use katana_primitives::block::{BlockHash, BlockNumber};
-use katana_primitives::execution::TypedTransactionExecutionInfo;
-use katana_primitives::transaction::TxNumber;
-
-use super::column::{FixedColumn, IndexedColumn};
-use super::manifest::Manifest;
+use super::column::{DataColumn, FixedColumn};
 use super::store::{AnyStore, FileStore, MemoryStore, StaticStore};
 use crate::codecs::{Compress, Decompress};
 use crate::error::CodecError;
-use crate::models::block::StoredBlockBodyIndices;
-use crate::models::state_update::StateUpdateEnvelope;
-use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedHeader};
 
 /// Block-indexed segment grouping block-level static columns.
 pub struct BlockSegment<S: StaticStore> {
-    pub headers: IndexedColumn<S>,
+    /// Fixed 32B per block — read by key, gated by Headers pointer in MDBX.
     pub block_hashes: FixedColumn<S>,
-    pub block_body_indices: IndexedColumn<S>,
-    pub block_state_updates: IndexedColumn<S>,
+    /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
+    pub headers: DataColumn<S>,
+    /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
+    pub block_body_indices: DataColumn<S>,
+    /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
+    pub block_state_updates: DataColumn<S>,
 }
 
 /// Transaction-indexed segment grouping transaction-level static columns.
 pub struct TxSegment<S: StaticStore> {
-    pub transactions: IndexedColumn<S>,
-    pub receipts: IndexedColumn<S>,
+    /// Fixed 32B per tx — read by key, gated by Transactions pointer in MDBX.
     pub tx_hashes: FixedColumn<S>,
+    /// Fixed 8B per tx — read by key, gated by Transactions pointer in MDBX.
     pub tx_blocks: FixedColumn<S>,
-    pub tx_traces: IndexedColumn<S>,
+    /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
+    pub transactions: DataColumn<S>,
+    /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
+    pub receipts: DataColumn<S>,
+    /// Variable-size — (offset, length) stored in MDBX as StaticFileRef.
+    pub tx_traces: DataColumn<S>,
 }
 
 /// Top-level container for all static file data.
+///
+/// MDBX is the authority for what data exists. Static files are the storage backend
+/// for heavy immutable data. Each variable-size column has a corresponding MDBX table
+/// storing `StaticFileRef` pointers. Fixed-size columns are gated by the existence of
+/// a related pointer entry.
 pub struct StaticFiles<S: StaticStore> {
     pub blocks: BlockSegment<S>,
     pub transactions: TxSegment<S>,
-    manifest: parking_lot::Mutex<Manifest>,
-    manifest_path: Option<std::path::PathBuf>,
 }
 
 impl<S: StaticStore> std::fmt::Debug for StaticFiles<S> {
@@ -56,57 +60,26 @@ impl StaticFiles<AnyStore> {
         std::fs::create_dir_all(&blocks_path)?;
         std::fs::create_dir_all(&txs_path)?;
 
-        let manifest_path = base_path.join("manifest.json");
-        let manifest = Manifest::read_from_file(&manifest_path)?.unwrap_or_default();
-
         let open = |dir: &Path, name: &str| -> io::Result<AnyStore> {
             Ok(AnyStore::File(FileStore::open(&dir.join(name))?))
         };
 
         let blocks = BlockSegment {
-            headers: IndexedColumn::new(
-                open(&blocks_path, "headers.dat")?,
-                open(&blocks_path, "headers.idx")?,
-            ),
             block_hashes: FixedColumn::new(open(&blocks_path, "block_hashes.dat")?, 32),
-            block_body_indices: IndexedColumn::new(
-                open(&blocks_path, "block_body_indices.dat")?,
-                open(&blocks_path, "block_body_indices.idx")?,
-            ),
-            block_state_updates: IndexedColumn::new(
-                open(&blocks_path, "block_state_updates.dat")?,
-                open(&blocks_path, "block_state_updates.idx")?,
-            ),
+            headers: DataColumn::new(open(&blocks_path, "headers.dat")?),
+            block_body_indices: DataColumn::new(open(&blocks_path, "block_body_indices.dat")?),
+            block_state_updates: DataColumn::new(open(&blocks_path, "block_state_updates.dat")?),
         };
 
         let transactions = TxSegment {
-            transactions: IndexedColumn::new(
-                open(&txs_path, "transactions.dat")?,
-                open(&txs_path, "transactions.idx")?,
-            ),
-            receipts: IndexedColumn::new(
-                open(&txs_path, "receipts.dat")?,
-                open(&txs_path, "receipts.idx")?,
-            ),
             tx_hashes: FixedColumn::new(open(&txs_path, "tx_hashes.dat")?, 32),
             tx_blocks: FixedColumn::new(open(&txs_path, "tx_blocks.dat")?, 8),
-            tx_traces: IndexedColumn::new(
-                open(&txs_path, "tx_traces.dat")?,
-                open(&txs_path, "tx_traces.idx")?,
-            ),
+            transactions: DataColumn::new(open(&txs_path, "transactions.dat")?),
+            receipts: DataColumn::new(open(&txs_path, "receipts.dat")?),
+            tx_traces: DataColumn::new(open(&txs_path, "tx_traces.dat")?),
         };
 
-        let sf = Self {
-            blocks,
-            transactions,
-            manifest: parking_lot::Mutex::new(manifest.clone()),
-            manifest_path: Some(manifest_path),
-        };
-
-        // Crash recovery: truncate columns to manifest counts.
-        sf.recover(&manifest)?;
-
-        Ok(sf)
+        Ok(Self { blocks, transactions })
     }
 
     /// Create in-memory static files (tests, ephemeral mode).
@@ -114,246 +87,259 @@ impl StaticFiles<AnyStore> {
         let mem = || AnyStore::Memory(MemoryStore::new());
 
         let blocks = BlockSegment {
-            headers: IndexedColumn::new(mem(), mem()),
             block_hashes: FixedColumn::new(mem(), 32),
-            block_body_indices: IndexedColumn::new(mem(), mem()),
-            block_state_updates: IndexedColumn::new(mem(), mem()),
+            headers: DataColumn::new(mem()),
+            block_body_indices: DataColumn::new(mem()),
+            block_state_updates: DataColumn::new(mem()),
         };
 
         let transactions = TxSegment {
-            transactions: IndexedColumn::new(mem(), mem()),
-            receipts: IndexedColumn::new(mem(), mem()),
             tx_hashes: FixedColumn::new(mem(), 32),
             tx_blocks: FixedColumn::new(mem(), 8),
-            tx_traces: IndexedColumn::new(mem(), mem()),
+            transactions: DataColumn::new(mem()),
+            receipts: DataColumn::new(mem()),
+            tx_traces: DataColumn::new(mem()),
         };
 
-        Self {
-            blocks,
-            transactions,
-            manifest: parking_lot::Mutex::new(Manifest::default()),
-            manifest_path: None,
-        }
+        Self { blocks, transactions }
     }
 }
 
-// -- Crash recovery --
+// -- Helpers --
 
-impl<S: StaticStore> StaticFiles<S> {
-    fn recover(&self, manifest: &Manifest) -> io::Result<()> {
-        let bc = manifest.latest_block_count;
-        self.blocks.headers.truncate_to(bc)?;
-        self.blocks.block_hashes.truncate_to(bc)?;
-        self.blocks.block_body_indices.truncate_to(bc)?;
-        self.blocks.block_state_updates.truncate_to(bc)?;
-
-        let tc = manifest.latest_tx_count;
-        self.transactions.transactions.truncate_to(tc)?;
-        self.transactions.receipts.truncate_to(tc)?;
-        self.transactions.tx_hashes.truncate_to(tc)?;
-        self.transactions.tx_blocks.truncate_to(tc)?;
-        self.transactions.tx_traces.truncate_to(tc)?;
-
-        Ok(())
-    }
-}
-
-// -- Typed read/write API --
-
-/// Helper to compress a value using the existing Compress trait.
+/// Compress a value and return the raw bytes.
 fn compress_value<T: Compress>(value: T) -> Result<Vec<u8>, CodecError> {
-    let compressed = value.compress()?;
-    Ok(compressed.into())
+    Ok(value.compress()?.into())
 }
 
-/// Helper to decompress a value using the existing Decompress trait.
+/// Decompress raw bytes into a typed value.
 fn decompress_value<T: Decompress>(bytes: &[u8]) -> Result<T, CodecError> {
     T::decompress(bytes)
 }
 
+// -- Read/Write API --
+//
+// Variable-size writes return (offset, length) for the caller to store in MDBX.
+// Variable-size reads take (offset, length) from MDBX.
+// Fixed-size reads/writes use the sequential key directly.
+
 impl<S: StaticStore> StaticFiles<S> {
-    // ---- Block reads ----
+    // ---- Block-level variable-size writes (return offset+length) ----
 
-    pub fn header(&self, num: BlockNumber) -> Result<Option<VersionedHeader>, StaticFileError> {
-        match self.blocks.headers.get(num)? {
-            Some(bytes) => Ok(Some(decompress_value(&bytes)?)),
-            None => Ok(None),
-        }
+    pub fn append_header<T: Compress>(&self, header: T) -> Result<(u64, u32), StaticFileError> {
+        let bytes = compress_value(header)?;
+        Ok(self.blocks.headers.append(&bytes)?)
     }
 
-    pub fn block_hash(&self, num: BlockNumber) -> Result<Option<BlockHash>, StaticFileError> {
-        match self.blocks.block_hashes.get(num)? {
-            Some(bytes) => {
-                let hash = katana_primitives::Felt::from_bytes_be_slice(&bytes);
-                Ok(Some(hash))
-            }
-            None => Ok(None),
-        }
-    }
-
-    pub fn block_body_indices(
+    pub fn append_block_body_indices<T: Compress>(
         &self,
-        num: BlockNumber,
-    ) -> Result<Option<StoredBlockBodyIndices>, StaticFileError> {
-        match self.blocks.block_body_indices.get(num)? {
-            Some(bytes) => Ok(Some(decompress_value(&bytes)?)),
-            None => Ok(None),
-        }
+        indices: T,
+    ) -> Result<(u64, u32), StaticFileError> {
+        let bytes = compress_value(indices)?;
+        Ok(self.blocks.block_body_indices.append(&bytes)?)
     }
 
-    pub fn block_state_update(
+    pub fn append_block_state_update<T: Compress>(
         &self,
-        num: BlockNumber,
-    ) -> Result<Option<StateUpdateEnvelope>, StaticFileError> {
-        match self.blocks.block_state_updates.get(num)? {
-            Some(bytes) => Ok(Some(decompress_value(&bytes)?)),
-            None => Ok(None),
-        }
+        update: T,
+    ) -> Result<(u64, u32), StaticFileError> {
+        let bytes = compress_value(update)?;
+        Ok(self.blocks.block_state_updates.append(&bytes)?)
     }
 
-    // ---- Transaction reads ----
+    // ---- Block-level fixed-size writes ----
 
-    pub fn transaction(&self, num: TxNumber) -> Result<Option<TxEnvelope>, StaticFileError> {
-        match self.transactions.transactions.get(num)? {
-            Some(bytes) => Ok(Some(decompress_value(&bytes)?)),
-            None => Ok(None),
-        }
-    }
-
-    pub fn receipt(&self, num: TxNumber) -> Result<Option<ReceiptEnvelope>, StaticFileError> {
-        match self.transactions.receipts.get(num)? {
-            Some(bytes) => Ok(Some(decompress_value(&bytes)?)),
-            None => Ok(None),
-        }
-    }
-
-    pub fn tx_hash(
+    pub fn append_block_hash(
         &self,
-        num: TxNumber,
+        block_number: u64,
+        hash: katana_primitives::block::BlockHash,
+    ) -> Result<(), StaticFileError> {
+        self.blocks.block_hashes.append(block_number, &hash.to_bytes_be())?;
+        Ok(())
+    }
+
+    // ---- Transaction-level variable-size writes (return offset+length) ----
+
+    pub fn append_transaction<T: Compress>(&self, tx: T) -> Result<(u64, u32), StaticFileError> {
+        let bytes = compress_value(tx)?;
+        Ok(self.transactions.transactions.append(&bytes)?)
+    }
+
+    pub fn append_receipt<T: Compress>(&self, receipt: T) -> Result<(u64, u32), StaticFileError> {
+        let bytes = compress_value(receipt)?;
+        Ok(self.transactions.receipts.append(&bytes)?)
+    }
+
+    pub fn append_tx_trace<T: Compress>(&self, trace: T) -> Result<(u64, u32), StaticFileError> {
+        let bytes = compress_value(trace)?;
+        Ok(self.transactions.tx_traces.append(&bytes)?)
+    }
+
+    // ---- Transaction-level fixed-size writes ----
+
+    pub fn append_tx_hash(
+        &self,
+        tx_number: u64,
+        hash: katana_primitives::transaction::TxHash,
+    ) -> Result<(), StaticFileError> {
+        self.transactions.tx_hashes.append(tx_number, &hash.to_bytes_be())?;
+        Ok(())
+    }
+
+    pub fn append_tx_block(
+        &self,
+        tx_number: u64,
+        block_number: u64,
+    ) -> Result<(), StaticFileError> {
+        self.transactions.tx_blocks.append(tx_number, &block_number.to_be_bytes())?;
+        Ok(())
+    }
+
+    // ---- Variable-size reads (caller provides offset+length from MDBX) ----
+
+    pub fn read_header<T: Decompress>(
+        &self,
+        offset: u64,
+        length: u32,
+    ) -> Result<T, StaticFileError> {
+        let bytes = self.blocks.headers.read(offset, length)?;
+        Ok(decompress_value(&bytes)?)
+    }
+
+    pub fn read_block_body_indices<T: Decompress>(
+        &self,
+        offset: u64,
+        length: u32,
+    ) -> Result<T, StaticFileError> {
+        let bytes = self.blocks.block_body_indices.read(offset, length)?;
+        Ok(decompress_value(&bytes)?)
+    }
+
+    pub fn read_block_state_update<T: Decompress>(
+        &self,
+        offset: u64,
+        length: u32,
+    ) -> Result<T, StaticFileError> {
+        let bytes = self.blocks.block_state_updates.read(offset, length)?;
+        Ok(decompress_value(&bytes)?)
+    }
+
+    pub fn read_transaction<T: Decompress>(
+        &self,
+        offset: u64,
+        length: u32,
+    ) -> Result<T, StaticFileError> {
+        let bytes = self.transactions.transactions.read(offset, length)?;
+        Ok(decompress_value(&bytes)?)
+    }
+
+    pub fn read_receipt<T: Decompress>(
+        &self,
+        offset: u64,
+        length: u32,
+    ) -> Result<T, StaticFileError> {
+        let bytes = self.transactions.receipts.read(offset, length)?;
+        Ok(decompress_value(&bytes)?)
+    }
+
+    pub fn read_tx_trace<T: Decompress>(
+        &self,
+        offset: u64,
+        length: u32,
+    ) -> Result<T, StaticFileError> {
+        let bytes = self.transactions.tx_traces.read(offset, length)?;
+        Ok(decompress_value(&bytes)?)
+    }
+
+    // ---- Fixed-size reads ----
+
+    pub fn read_block_hash(
+        &self,
+        block_number: u64,
+    ) -> Result<Option<katana_primitives::block::BlockHash>, StaticFileError> {
+        match self.blocks.block_hashes.get(block_number)? {
+            Some(bytes) => Ok(Some(katana_primitives::Felt::from_bytes_be_slice(&bytes))),
+            None => Ok(None),
+        }
+    }
+
+    pub fn read_tx_hash(
+        &self,
+        tx_number: u64,
     ) -> Result<Option<katana_primitives::transaction::TxHash>, StaticFileError> {
-        match self.transactions.tx_hashes.get(num)? {
-            Some(bytes) => {
-                let hash = katana_primitives::Felt::from_bytes_be_slice(&bytes);
-                Ok(Some(hash))
-            }
+        match self.transactions.tx_hashes.get(tx_number)? {
+            Some(bytes) => Ok(Some(katana_primitives::Felt::from_bytes_be_slice(&bytes))),
             None => Ok(None),
         }
     }
 
-    pub fn tx_block(&self, num: TxNumber) -> Result<Option<BlockNumber>, StaticFileError> {
-        match self.transactions.tx_blocks.get(num)? {
+    pub fn read_tx_block(&self, tx_number: u64) -> Result<Option<u64>, StaticFileError> {
+        match self.transactions.tx_blocks.get(tx_number)? {
             Some(bytes) => {
-                let block_num = u64::from_be_bytes(bytes.as_slice().try_into().map_err(|_| {
+                let num = u64::from_be_bytes(bytes.as_slice().try_into().map_err(|_| {
                     StaticFileError::Codec(CodecError::Decode("invalid u64 bytes".into()))
                 })?);
-                Ok(Some(block_num))
+                Ok(Some(num))
             }
             None => Ok(None),
         }
     }
 
-    pub fn tx_trace(
-        &self,
-        num: TxNumber,
-    ) -> Result<Option<TypedTransactionExecutionInfo>, StaticFileError> {
-        match self.transactions.tx_traces.get(num)? {
-            Some(bytes) => Ok(Some(decompress_value(&bytes)?)),
-            None => Ok(None),
-        }
-    }
+    // ---- Sync ----
 
-    // ---- Metadata ----
-
-    pub fn latest_block_number(&self) -> Result<Option<BlockNumber>, StaticFileError> {
-        let manifest = self.manifest.lock();
-        Ok(manifest.latest_block_number())
-    }
-
-    pub fn total_transactions(&self) -> Result<u64, StaticFileError> {
-        let manifest = self.manifest.lock();
-        Ok(manifest.latest_tx_count)
-    }
-
-    // ---- Block writes ----
-
-    pub fn append_block(
-        &self,
-        block_number: BlockNumber,
-        header: VersionedHeader,
-        block_hash: BlockHash,
-        body_indices: StoredBlockBodyIndices,
-        state_updates: StateUpdateEnvelope,
-    ) -> Result<(), StaticFileError> {
-        let header_bytes = compress_value(header)?;
-        self.blocks.headers.append(block_number, &header_bytes)?;
-
-        let hash_bytes = block_hash.to_bytes_be();
-        self.blocks.block_hashes.append(block_number, &hash_bytes)?;
-
-        let indices_bytes = compress_value(body_indices)?;
-        self.blocks.block_body_indices.append(block_number, &indices_bytes)?;
-
-        let state_bytes = compress_value(state_updates)?;
-        self.blocks.block_state_updates.append(block_number, &state_bytes)?;
-
-        Ok(())
-    }
-
-    // ---- Transaction writes ----
-
-    pub fn append_transaction(
-        &self,
-        tx_number: TxNumber,
-        transaction: TxEnvelope,
-        tx_hash: katana_primitives::transaction::TxHash,
-        block_number: BlockNumber,
-        receipt: ReceiptEnvelope,
-        trace: TypedTransactionExecutionInfo,
-    ) -> Result<(), StaticFileError> {
-        let tx_bytes = compress_value(transaction)?;
-        self.transactions.transactions.append(tx_number, &tx_bytes)?;
-
-        let hash_bytes = tx_hash.to_bytes_be();
-        self.transactions.tx_hashes.append(tx_number, &hash_bytes)?;
-
-        let block_bytes = block_number.to_be_bytes();
-        self.transactions.tx_blocks.append(tx_number, &block_bytes)?;
-
-        let receipt_bytes = compress_value(receipt)?;
-        self.transactions.receipts.append(tx_number, &receipt_bytes)?;
-
-        let trace_bytes = compress_value(trace)?;
-        self.transactions.tx_traces.append(tx_number, &trace_bytes)?;
-
-        Ok(())
-    }
-
-    // ---- Commit ----
-
-    /// Fsync all columns and update the manifest with new counts.
-    pub fn commit(&self, block_count: u64, tx_count: u64) -> Result<(), StaticFileError> {
-        // Sync all block columns.
-        self.blocks.headers.sync()?;
+    /// Fsync all static file columns to durable storage.
+    /// Must be called BEFORE the MDBX transaction commits, so the data is
+    /// guaranteed to be on disk when MDBX makes the pointers visible.
+    pub fn sync(&self) -> Result<(), StaticFileError> {
         self.blocks.block_hashes.sync()?;
+        self.blocks.headers.sync()?;
         self.blocks.block_body_indices.sync()?;
         self.blocks.block_state_updates.sync()?;
 
-        // Sync all transaction columns.
-        self.transactions.transactions.sync()?;
-        self.transactions.receipts.sync()?;
         self.transactions.tx_hashes.sync()?;
         self.transactions.tx_blocks.sync()?;
+        self.transactions.transactions.sync()?;
+        self.transactions.receipts.sync()?;
         self.transactions.tx_traces.sync()?;
 
-        // Update and write manifest.
-        let mut manifest = self.manifest.lock();
-        manifest.latest_block_count = block_count;
-        manifest.latest_tx_count = tx_count;
+        Ok(())
+    }
 
-        if let Some(ref path) = self.manifest_path {
-            manifest.write_to_file(path)?;
-        }
+    // ---- Crash recovery ----
 
+    /// Truncate static files to match MDBX-committed state.
+    ///
+    /// For variable-size columns, `last_ptr_byte_end` is the end of the last
+    /// committed entry (offset + length from the last MDBX pointer). Pass 0
+    /// if no entries exist.
+    ///
+    /// For fixed-size columns, truncate to `count` entries.
+    pub fn truncate_blocks(
+        &self,
+        block_count: u64,
+        headers_end: u64,
+        body_indices_end: u64,
+        state_updates_end: u64,
+    ) -> Result<(), StaticFileError> {
+        self.blocks.block_hashes.truncate_to(block_count)?;
+        self.blocks.headers.truncate(headers_end)?;
+        self.blocks.block_body_indices.truncate(body_indices_end)?;
+        self.blocks.block_state_updates.truncate(state_updates_end)?;
+        Ok(())
+    }
+
+    pub fn truncate_transactions(
+        &self,
+        tx_count: u64,
+        transactions_end: u64,
+        receipts_end: u64,
+        traces_end: u64,
+    ) -> Result<(), StaticFileError> {
+        self.transactions.tx_hashes.truncate_to(tx_count)?;
+        self.transactions.tx_blocks.truncate_to(tx_count)?;
+        self.transactions.transactions.truncate(transactions_end)?;
+        self.transactions.receipts.truncate(receipts_end)?;
+        self.transactions.tx_traces.truncate(traces_end)?;
         Ok(())
     }
 }
@@ -374,37 +360,37 @@ mod tests {
     use katana_primitives::state::StateUpdates;
 
     use super::*;
+    use crate::models::block::StoredBlockBodyIndices;
+    use crate::models::state_update::StateUpdateEnvelope;
+    use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedHeader, VersionedTx};
 
     #[test]
     fn roundtrip_block_data() {
         let sf = StaticFiles::<AnyStore>::in_memory();
 
         let header = VersionedHeader::default();
-        let block_hash: BlockHash = felt!("0xdeadbeef");
+        let block_hash = felt!("0xdeadbeef");
         let body_indices = StoredBlockBodyIndices { tx_offset: 0, tx_count: 1 };
         let state_updates = StateUpdateEnvelope::from(StateUpdates::default());
 
-        sf.append_block(0, header.clone(), block_hash, body_indices.clone(), state_updates.clone())
-            .unwrap();
+        // Write — returns pointers for MDBX.
+        let (h_off, h_len) = sf.append_header(header.clone()).unwrap();
+        sf.append_block_hash(0, block_hash).unwrap();
+        let (bi_off, bi_len) = sf.append_block_body_indices(body_indices.clone()).unwrap();
+        let (su_off, su_len) = sf.append_block_state_update(state_updates.clone()).unwrap();
 
-        sf.commit(1, 0).unwrap();
-
-        assert_eq!(sf.latest_block_number().unwrap(), Some(0));
-
-        let h = sf.header(0).unwrap().unwrap();
+        // Read using pointers.
+        let h: VersionedHeader = sf.read_header(h_off, h_len).unwrap();
         assert_eq!(h, header);
 
-        let bh = sf.block_hash(0).unwrap().unwrap();
+        let bh = sf.read_block_hash(0).unwrap().unwrap();
         assert_eq!(bh, block_hash);
 
-        let bi = sf.block_body_indices(0).unwrap().unwrap();
+        let bi: StoredBlockBodyIndices = sf.read_block_body_indices(bi_off, bi_len).unwrap();
         assert_eq!(bi, body_indices);
 
-        let su = sf.block_state_update(0).unwrap().unwrap();
+        let su: StateUpdateEnvelope = sf.read_block_state_update(su_off, su_len).unwrap();
         assert_eq!(su, state_updates);
-
-        // Key beyond range returns None.
-        assert!(sf.header(1).unwrap().is_none());
     }
 
     #[test]
@@ -412,8 +398,6 @@ mod tests {
         use katana_primitives::execution::TypedTransactionExecutionInfo;
         use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
         use katana_primitives::transaction::{InvokeTx, Tx};
-
-        use crate::models::VersionedTx;
 
         let sf = StaticFiles::<AnyStore>::in_memory();
 
@@ -429,35 +413,27 @@ mod tests {
         }));
         let trace = TypedTransactionExecutionInfo::default();
 
-        sf.append_transaction(
-            0,
-            tx_envelope.clone(),
-            tx_hash,
-            0,
-            receipt_envelope.clone(),
-            trace.clone(),
-        )
-        .unwrap();
+        // Write — returns pointers for MDBX.
+        let (tx_off, tx_len) = sf.append_transaction(tx_envelope.clone()).unwrap();
+        sf.append_tx_hash(0, tx_hash).unwrap();
+        sf.append_tx_block(0, 0).unwrap();
+        let (r_off, r_len) = sf.append_receipt(receipt_envelope.clone()).unwrap();
+        let (tr_off, tr_len) = sf.append_tx_trace(trace.clone()).unwrap();
 
-        sf.commit(1, 1).unwrap();
-
-        assert_eq!(sf.total_transactions().unwrap(), 1);
-
-        let t = sf.transaction(0).unwrap().unwrap();
+        // Read using pointers.
+        let t: TxEnvelope = sf.read_transaction(tx_off, tx_len).unwrap();
         assert_eq!(t, tx_envelope);
 
-        let h = sf.tx_hash(0).unwrap().unwrap();
+        let h = sf.read_tx_hash(0).unwrap().unwrap();
         assert_eq!(h, tx_hash);
 
-        let b = sf.tx_block(0).unwrap().unwrap();
+        let b = sf.read_tx_block(0).unwrap().unwrap();
         assert_eq!(b, 0);
 
-        let r = sf.receipt(0).unwrap().unwrap();
+        let r: ReceiptEnvelope = sf.read_receipt(r_off, r_len).unwrap();
         assert_eq!(r, receipt_envelope);
 
-        let tr = sf.tx_trace(0).unwrap().unwrap();
+        let tr: TypedTransactionExecutionInfo = sf.read_tx_trace(tr_off, tr_len).unwrap();
         assert_eq!(tr, trace);
-
-        assert!(sf.transaction(1).unwrap().is_none());
     }
 }

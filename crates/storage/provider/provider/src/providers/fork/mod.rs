@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::ops::{Range, RangeInclusive};
 
 use katana_db::abstraction::{DbTx, DbTxMut};
+use katana_db::codecs::Compress;
 use katana_db::models::block::StoredBlockBodyIndices;
-use katana_db::models::StateUpdateEnvelope;
+use katana_db::models::{StateUpdateEnvelope, StaticFileRef};
 use katana_db::tables;
 use katana_fork::Backend;
 use katana_primitives::block::{
@@ -383,9 +384,13 @@ impl<Tx1: DbTx> StateUpdateProvider for ForkedProvider<Tx1> {
 
                 let canonical_state_update: StateUpdates = state_update.state_diff.into();
                 let provider_mut = self.fork_db.db.provider_mut();
+                let su_bytes = StateUpdateEnvelope::from(canonical_state_update.clone())
+                    .compress()
+                    .map_err(|e| ProviderError::Other(e.to_string()))?
+                    .into();
                 provider_mut.tx().put::<tables::BlockStateUpdates>(
                     _block_number,
-                    StateUpdateEnvelope::from(canonical_state_update.clone()),
+                    StaticFileRef::inline(su_bytes),
                 )?;
                 provider_mut.commit()?;
 

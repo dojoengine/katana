@@ -136,11 +136,15 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
     Ok(())
 }
 
-/// Get the latest block number from the static files.
+/// Get the latest block number from the MDBX Headers table.
 fn get_latest_block_number(db: &katana_db::Db) -> Result<BlockNumber> {
-    db.static_files()
-        .latest_block_number()
-        .context("Failed to read latest block number")?
+    use katana_db::abstraction::Database;
+    let tx = db.tx().context("Failed to create read transaction")?;
+    let mut cursor = tx.cursor::<tables::Headers>().context("Failed to open Headers cursor")?;
+    cursor
+        .last()
+        .context("Failed to read last header")?
+        .map(|(num, _)| num)
         .ok_or_else(|| anyhow!("No blocks found"))
 }
 

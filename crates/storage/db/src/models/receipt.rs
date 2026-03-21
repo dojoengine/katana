@@ -21,9 +21,8 @@ mod tests {
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
 
     use super::ReceiptEnvelope;
-    use crate::abstraction::{Database, DbTx, DbTxMut};
     use crate::codecs::{Compress, Decompress};
-    use crate::{tables, Db};
+    use crate::Db;
 
     fn sample_receipt() -> Receipt {
         Receipt::Invoke(InvokeTxReceipt {
@@ -67,22 +66,10 @@ mod tests {
 
         // Receipts are now stored in static files, not MDBX.
         let sf = db.static_files();
-        sf.append_transaction(
-            0,
-            crate::models::TxEnvelope::from(crate::models::VersionedTx::from(
-                katana_primitives::transaction::Tx::Invoke(
-                    katana_primitives::transaction::InvokeTx::V1(Default::default()),
-                ),
-            )),
-            katana_primitives::Felt::ZERO,
-            0,
-            envelope,
-            katana_primitives::execution::TypedTransactionExecutionInfo::default(),
-        )
-        .expect("failed to write transaction");
-        sf.commit(1, 1).expect("failed to commit");
+        let (off, len) = sf.append_receipt(envelope).expect("failed to write receipt");
+        sf.sync().expect("failed to sync");
 
-        let stored = sf.receipt(0).expect("failed to read receipt");
-        assert_eq!(stored.map(Receipt::from), Some(receipt));
+        let stored: ReceiptEnvelope = sf.read_receipt(off, len).expect("failed to read receipt");
+        assert_eq!(Receipt::from(stored), receipt);
     }
 }

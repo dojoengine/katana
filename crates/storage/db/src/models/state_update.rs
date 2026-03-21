@@ -24,9 +24,8 @@ mod tests {
     use katana_primitives::{address, felt};
 
     use super::StateUpdateEnvelope;
-    use crate::abstraction::{Database, DbTx, DbTxMut};
     use crate::codecs::{Compress, Decompress};
-    use crate::{tables, Db};
+    use crate::Db;
 
     fn sample_state_updates() -> StateUpdates {
         let mut su = StateUpdates::default();
@@ -69,17 +68,11 @@ mod tests {
 
         // BlockStateUpdates is now stored in static files.
         let sf = db.static_files();
-        sf.append_block(
-            0,
-            crate::models::VersionedHeader::default(),
-            katana_primitives::Felt::ZERO,
-            crate::models::block::StoredBlockBodyIndices::default(),
-            envelope,
-        )
-        .expect("failed to write");
-        sf.commit(1, 0).expect("failed to commit");
+        let (off, len) = sf.append_block_state_update(envelope).expect("failed to write");
+        sf.sync().expect("failed to sync");
 
-        let stored = sf.block_state_update(0).expect("failed to read");
-        assert_eq!(stored.map(StateUpdates::from), Some(su));
+        let stored: StateUpdateEnvelope =
+            sf.read_block_state_update(off, len).expect("failed to read");
+        assert_eq!(StateUpdates::from(stored), su);
     }
 }
