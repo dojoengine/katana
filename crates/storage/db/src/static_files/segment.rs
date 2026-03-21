@@ -305,6 +305,38 @@ impl<S: StaticStore> StaticFiles<S> {
         Ok(())
     }
 
+    // ---- Buffer management ----
+
+    /// Pre-allocate write buffers for an upcoming batch of blocks and transactions.
+    ///
+    /// `total_blocks` is the number of blocks, `total_txs` is the total number of
+    /// transactions across all blocks. The sizes are estimates — the buffers will
+    /// grow if needed, but pre-allocating avoids reallocations during the batch.
+    pub fn reserve_for_batch(
+        &self,
+        total_blocks: usize,
+        total_txs: usize,
+    ) -> Result<(), StaticFileError> {
+        // Estimates per entry (compressed sizes vary, these are conservative).
+        const HEADER_EST: usize = 512;
+        const STATE_UPDATE_EST: usize = 256;
+        const TX_EST: usize = 256;
+        const RECEIPT_EST: usize = 128;
+        const TRACE_EST: usize = 128;
+
+        self.blocks.headers.reserve(total_blocks * HEADER_EST)?;
+        self.blocks.block_state_updates.reserve(total_blocks * STATE_UPDATE_EST)?;
+        self.blocks.block_hashes.reserve(total_blocks * 32)?;
+
+        self.transactions.transactions.reserve(total_txs * TX_EST)?;
+        self.transactions.receipts.reserve(total_txs * RECEIPT_EST)?;
+        self.transactions.tx_traces.reserve(total_txs * TRACE_EST)?;
+        self.transactions.tx_hashes.reserve(total_txs * 32)?;
+        self.transactions.tx_blocks.reserve(total_txs * 8)?;
+
+        Ok(())
+    }
+
     // ---- Remap ----
 
     /// Refresh memory maps to cover all data written so far.

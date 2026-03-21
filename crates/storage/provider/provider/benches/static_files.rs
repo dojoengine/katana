@@ -94,7 +94,8 @@ fn bench_write(c: &mut Criterion) {
         let total_txs = block_count as u64 * txs_per_block as u64;
         group.throughput(Throughput::Elements(total_txs));
 
-        group.bench_function(BenchmarkId::new("file_backed", &label), |b| {
+        // Per-block commit (current approach).
+        group.bench_function(BenchmarkId::new("per_block", &label), |b| {
             b.iter_with_setup(
                 || {
                     let blocks = generate_blocks(block_count, txs_per_block);
@@ -113,6 +114,27 @@ fn bench_write(c: &mut Criterion) {
                         .unwrap();
                         p.commit().unwrap();
                     }
+                },
+            );
+        });
+
+        // Two-phase batch (pipeline-optimized): single MDBX tx for the whole batch.
+        group.bench_function(BenchmarkId::new("batch", &label), |b| {
+            b.iter_with_setup(
+                || {
+                    let blocks: Vec<_> = generate_blocks(block_count, txs_per_block)
+                        .into_iter()
+                        .map(|(block, receipts, execs)| {
+                            (block, StateUpdatesWithClasses::default(), receipts, execs)
+                        })
+                        .collect();
+                    let (factory, dir) = create_file_backed_factory();
+                    (factory, dir, blocks)
+                },
+                |(factory, _dir, blocks)| {
+                    let p = factory.provider_mut();
+                    p.insert_block_data_batch(black_box(blocks)).unwrap();
+                    p.commit().unwrap();
                 },
             );
         });

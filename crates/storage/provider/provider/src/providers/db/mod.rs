@@ -825,6 +825,218 @@ impl<Tx: DbTxMut> DbProvider<Tx> {
         Ok(())
     }
 
+    /// Two-phase batch insertion optimized for the sync pipeline.
+    ///
+    /// Phase 1: Appends ALL block/tx data to static files (sequential I/O), collecting
+    /// the resulting pointers in memory.
+    /// Phase 2: Writes ALL MDBX entries (pointers + indexes) in one pass.
+    ///
+    /// This improves I/O locality compared to per-block interleaved writes, and
+    /// pre-sizes static file buffers to avoid reallocations during the batch.
+    #[allow(clippy::type_complexity)]
+    pub fn insert_block_data_batch(
+        &self,
+        blocks: Vec<(
+            SealedBlockWithStatus,
+            StateUpdatesWithClasses,
+            Vec<Receipt>,
+            Vec<TypedTransactionExecutionInfo>,
+        )>,
+    ) -> ProviderResult<()> {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+
+        let total_blocks = blocks.len();
+        let total_txs: usize = blocks.iter().map(|(b, _, _, _)| b.block.body.len()).sum();
+
+        let first_block_num = blocks[0].0.block.header.number;
+        let is_sequential = self
+            .static_files
+            .blocks
+            .block_hashes
+            .count()
+            .map_err(|e| ProviderError::StaticFile(StaticFileError::Io(e)))?
+            == first_block_num;
+
+        if is_sequential {
+            self.static_files
+                .reserve_for_batch(total_blocks, total_txs)
+                .map_err(ProviderError::StaticFile)?;
+        }
+
+        // ---- Phase 1: Static file appends (sequential I/O) ----
+        // Collect all pointer data in flat vectors for phase 2.
+
+        let mut tx_counter = self.tx.entries::<tables::Transactions>()? as u64;
+
+        // Block-level collected data.
+        let mut block_metas: Vec<(
+            BlockNumber,
+            BlockHash,
+            FinalityStatus,
+            StoredBlockBodyIndices,
+            StaticFileRef,
+            StaticFileRef,
+        )> = Vec::with_capacity(total_blocks);
+        // Tx-level collected data.
+        let mut tx_metas: Vec<(
+            TxNumber,
+            TxHash,
+            BlockNumber,
+            StaticFileRef,
+            Option<StaticFileRef>,
+            Option<StaticFileRef>,
+        )> = Vec::with_capacity(total_txs);
+        // Class data (passed through to phase 2).
+        let mut class_data: Vec<(BlockNumber, StateUpdatesWithClasses)> =
+            Vec::with_capacity(total_blocks);
+
+        for (block, states, receipts, executions) in blocks {
+            let block_hash = block.block.hash;
+            let block_number = block.block.header.number;
+            let block_header = block.block.header;
+            let transactions = block.block.body;
+            let status = block.status;
+
+            let tx_count = transactions.len() as u64;
+            let tx_offset = tx_counter;
+            let body_indices = StoredBlockBodyIndices { tx_offset, tx_count };
+
+            let (header_ref, su_ref) = if is_sequential {
+                let (h_off, h_len) = self
+                    .static_files
+                    .append_header(VersionedHeader::from(block_header))
+                    .map_err(ProviderError::StaticFile)?;
+                let (su_off, su_len) = self
+                    .static_files
+                    .append_block_state_update(StateUpdateEnvelope::from(
+                        states.state_updates.clone(),
+                    ))
+                    .map_err(ProviderError::StaticFile)?;
+                self.static_files
+                    .append_block_hash(block_number, block_hash)
+                    .map_err(ProviderError::StaticFile)?;
+
+                (StaticFileRef::pointer(h_off, h_len), StaticFileRef::pointer(su_off, su_len))
+            } else {
+                (
+                    StaticFileRef::inline(compress_value(VersionedHeader::from(block_header))?),
+                    StaticFileRef::inline(compress_value(StateUpdateEnvelope::from(
+                        states.state_updates.clone(),
+                    ))?),
+                )
+            };
+
+            block_metas.push((block_number, block_hash, status, body_indices, header_ref, su_ref));
+
+            for (i, transaction) in transactions.into_iter().enumerate() {
+                let tx_number = tx_offset + i as u64;
+                let tx_hash = transaction.hash;
+                let tx_envelope = TxEnvelope::from(VersionedTx::from(transaction.transaction));
+
+                let (tx_ref, r_ref, t_ref) = if is_sequential {
+                    let (tx_off, tx_len) = self
+                        .static_files
+                        .append_transaction(tx_envelope)
+                        .map_err(ProviderError::StaticFile)?;
+                    let (r_off, r_len) = self
+                        .static_files
+                        .append_receipt(ReceiptEnvelope::from(
+                            receipts.get(i).cloned().expect("missing receipt"),
+                        ))
+                        .map_err(ProviderError::StaticFile)?;
+                    let (t_off, t_len) = self
+                        .static_files
+                        .append_tx_trace(executions.get(i).cloned().expect("missing execution"))
+                        .map_err(ProviderError::StaticFile)?;
+                    self.static_files
+                        .append_tx_hash(tx_number, tx_hash)
+                        .map_err(ProviderError::StaticFile)?;
+                    self.static_files
+                        .append_tx_block(tx_number, block_number)
+                        .map_err(ProviderError::StaticFile)?;
+
+                    (
+                        StaticFileRef::pointer(tx_off, tx_len),
+                        Some(StaticFileRef::pointer(r_off, r_len)),
+                        Some(StaticFileRef::pointer(t_off, t_len)),
+                    )
+                } else {
+                    let tx_ref = StaticFileRef::inline(compress_value(tx_envelope)?);
+                    let r_ref = receipts
+                        .get(i)
+                        .map(|r| {
+                            compress_value(ReceiptEnvelope::from(r.clone()))
+                                .map(StaticFileRef::inline)
+                        })
+                        .transpose()?;
+                    let t_ref = executions
+                        .get(i)
+                        .map(|e| compress_value(e.clone()).map(StaticFileRef::inline))
+                        .transpose()?;
+                    (tx_ref, r_ref, t_ref)
+                };
+
+                tx_metas.push((tx_number, tx_hash, block_number, tx_ref, r_ref, t_ref));
+            }
+
+            tx_counter += tx_count;
+            class_data.push((block_number, states));
+        }
+
+        // ---- Phase 2: MDBX writes (B-tree inserts) ----
+
+        for (block_number, block_hash, status, body_indices, header_ref, su_ref) in block_metas {
+            self.tx.put::<tables::BlockNumbers>(block_hash, block_number)?;
+            self.tx.put::<tables::BlockStatusses>(block_number, status)?;
+            self.tx.put::<tables::Headers>(block_number, header_ref)?;
+            self.tx.put::<tables::BlockBodyIndices>(block_number, body_indices)?;
+            self.tx.put::<tables::BlockStateUpdates>(block_number, su_ref)?;
+
+            if !is_sequential {
+                self.tx.put::<tables::BlockHashes>(block_number, block_hash)?;
+            }
+        }
+
+        for (tx_number, tx_hash, block_number, tx_ref, r_ref, t_ref) in tx_metas {
+            self.tx.put::<tables::TxNumbers>(tx_hash, tx_number)?;
+            self.tx.put::<tables::Transactions>(tx_number, tx_ref)?;
+            if let Some(r) = r_ref {
+                self.tx.put::<tables::Receipts>(tx_number, r)?;
+            }
+            if let Some(t) = t_ref {
+                self.tx.put::<tables::TxTraces>(tx_number, t)?;
+            }
+            if !is_sequential {
+                self.tx.put::<tables::TxHashes>(tx_number, tx_hash)?;
+                self.tx.put::<tables::TxBlocks>(tx_number, block_number)?;
+            }
+        }
+
+        for (block_number, states) in class_data {
+            let StateUpdatesWithClasses { state_updates, classes } = states;
+            for (class_hash, class) in classes {
+                self.tx.put::<tables::Classes>(class_hash, class.into())?;
+            }
+            for (class_hash, compiled_hash) in state_updates.declared_classes {
+                self.tx.put::<tables::CompiledClassHashes>(class_hash, compiled_hash)?;
+                self.tx.put::<tables::ClassDeclarationBlock>(class_hash, block_number)?;
+                self.tx.put::<tables::ClassDeclarations>(block_number, class_hash)?;
+            }
+            for class_hash in state_updates.deprecated_declared_classes {
+                self.tx.put::<tables::ClassDeclarationBlock>(class_hash, block_number)?;
+                self.tx.put::<tables::ClassDeclarations>(block_number, class_hash)?;
+            }
+            for (class_hash, compiled_class_hash) in state_updates.migrated_compiled_classes {
+                let entry = MigratedCompiledClassHash { class_hash, compiled_class_hash };
+                self.tx.put::<tables::MigratedCompiledClassHashes>(block_number, entry)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Builds historical state indices for a range of blocks in bulk.
     ///
     /// This is an optimized path for first sync (when the history tables are empty). Instead of

@@ -22,6 +22,11 @@ pub trait StaticStore: Send + Sync + 'static {
     fn remap(&self) -> io::Result<()> {
         Ok(())
     }
+    /// Ensure the write buffer can hold at least `additional` bytes without reallocating.
+    /// No-op by default.
+    fn reserve(&self, _additional: usize) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// File-backed store using `pread`/`pwrite` for concurrent I/O, with mmap for reads.
@@ -212,6 +217,12 @@ impl StaticStore for FileStore {
         FileStore::remap(self)
     }
 
+    fn reserve(&self, additional: usize) -> io::Result<()> {
+        let mut ws = self.write_state.lock();
+        ws.buf.reserve(additional);
+        Ok(())
+    }
+
     fn truncate(&self, len: u64) -> io::Result<()> {
         // Discard write buffer.
         {
@@ -330,6 +341,13 @@ impl StaticStore for AnyStore {
     fn remap(&self) -> io::Result<()> {
         match self {
             AnyStore::File(s) => s.remap(),
+            AnyStore::Memory(_) => Ok(()),
+        }
+    }
+
+    fn reserve(&self, additional: usize) -> io::Result<()> {
+        match self {
+            AnyStore::File(s) => s.reserve(additional),
             AnyStore::Memory(_) => Ok(()),
         }
     }
