@@ -17,6 +17,9 @@ katana-starknet.workspace = true
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 
+crossterm = "0.28"
+ratatui = "0.29"
+
 anyhow.workspace = true
 async-trait.workspace = true
 byte-unit = "5.1.4"
