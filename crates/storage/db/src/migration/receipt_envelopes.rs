@@ -16,13 +16,26 @@ const RECEIPT_ENVELOPE_VERSION: Version = Version::new(9);
 
 /// Shadow table definition that reads from the physical `Receipts` table using the legacy
 /// `Receipt` (raw postcard) codec instead of `ReceiptEnvelope`.
+///
+/// NOTE: The `Receipts` table has been moved to static files in v10+. This shadow table
+/// definition is only used during migration from v5-v8 databases.
 #[derive(Debug)]
 struct LegacyReceipts;
 
 impl tables::Table for LegacyReceipts {
-    const NAME: &'static str = tables::Receipts::NAME;
+    const NAME: &'static str = "Receipts";
     type Key = TxNumber;
     type Value = Receipt;
+}
+
+/// Shadow table for writing ReceiptEnvelope during migration.
+#[derive(Debug)]
+struct MigrationReceipts;
+
+impl tables::Table for MigrationReceipts {
+    const NAME: &'static str = "Receipts";
+    type Key = TxNumber;
+    type Value = ReceiptEnvelope;
 }
 
 pub(crate) struct ReceiptEnvelopeStage;
@@ -64,7 +77,7 @@ impl MigrationStage for ReceiptEnvelopeStage {
 
         // Write back as ReceiptEnvelope.
         for (tx_number, receipt) in batch {
-            tx.put::<tables::Receipts>(tx_number, ReceiptEnvelope::from(receipt))?;
+            tx.put::<MigrationReceipts>(tx_number, ReceiptEnvelope::from(receipt))?;
         }
 
         Ok(())

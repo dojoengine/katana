@@ -62,19 +62,24 @@ mod tests {
     }
 
     #[test]
-    fn block_state_updates_table_roundtrip_uses_envelope() {
+    fn block_state_updates_static_file_roundtrip() {
         let db = Db::in_memory().expect("failed to create in-memory db");
         let su = sample_state_updates();
         let envelope = StateUpdateEnvelope::from(su.clone());
 
-        let tx = db.tx_mut().expect("failed to open write transaction");
-        tx.put::<tables::BlockStateUpdates>(7, envelope).expect("failed to write");
-        tx.commit().expect("failed to commit write transaction");
+        // BlockStateUpdates is now stored in static files.
+        let sf = db.static_files();
+        sf.append_block(
+            0,
+            crate::models::VersionedHeader::default(),
+            katana_primitives::Felt::ZERO,
+            crate::models::block::StoredBlockBodyIndices::default(),
+            envelope,
+        )
+        .expect("failed to write");
+        sf.commit(1, 0).expect("failed to commit");
 
-        let tx = db.tx().expect("failed to open read transaction");
-        let stored = tx.get::<tables::BlockStateUpdates>(7).expect("failed to read");
-        tx.commit().expect("failed to commit read transaction");
-
+        let stored = sf.block_state_update(0).expect("failed to read");
         assert_eq!(stored.map(StateUpdates::from), Some(su));
     }
 }

@@ -65,8 +65,11 @@ impl<Tx1: DbTx> StateFactoryProvider for ForkedProvider<Tx1> {
 
         let Some(block) = block_number else { return Ok(None) };
 
-        let local_provider =
-            db::state::HistoricalStateProvider::new(self.local_db.tx().clone(), block);
+        let local_provider = db::state::HistoricalStateProvider::new(
+            self.local_db.tx().clone(),
+            block,
+            self.local_db.static_files().clone(),
+        );
 
         Ok(Some(Box::new(HistoricalStateProvider {
             local_provider,

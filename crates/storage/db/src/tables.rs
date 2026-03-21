@@ -206,31 +206,29 @@ tables! {
     /// Provider-owned historical state retention watermark
     StateHistoryRetention: (u64) => HistoricalStateRetention,
 
-    /// Store canonical block headers
+    /// Store canonical block headers (also in static files for production reads)
     Headers: (BlockNumber) => VersionedHeader,
-    /// Stores canonical state updates by block number.
+    /// Stores canonical state updates by block number (also in static files)
     BlockStateUpdates: (BlockNumber) => StateUpdateEnvelope,
-    /// Stores block hashes according to its block number
+    /// Stores block hashes according to its block number (also in static files)
     BlockHashes: (BlockNumber) => BlockHash,
     /// Stores block numbers according to its block hash
     BlockNumbers: (BlockHash) => BlockNumber,
+    /// Block number to its body indices (also in static files)
+    BlockBodyIndices: (BlockNumber) => StoredBlockBodyIndices,
     /// Stores block finality status according to its block number
     BlockStatusses: (BlockNumber) => FinalityStatus,
-    /// Block number to its body indices which stores the tx number of
-    /// the first tx in the block and the number of txs in the block.
-    BlockBodyIndices: (BlockNumber) => StoredBlockBodyIndices,
     /// Transaction number based on its hash
     TxNumbers: (TxHash) => TxNumber,
-    /// Transaction hash based on its number
+    /// Transaction hash based on its number (also in static files)
     TxHashes: (TxNumber) => TxHash,
-    /// Store canonical transactions
+    /// Store canonical transactions (also in static files)
     Transactions: (TxNumber) => TxEnvelope,
-    /// Stores the block number of a transaction.
+    /// Stores the block number of a transaction (also in static files)
     TxBlocks: (TxNumber) => BlockNumber,
-    /// Stores the transaction's traces.
+    /// Stores the transaction's traces (also in static files)
     TxTraces: (TxNumber) => TypedTransactionExecutionInfo,
-    /// Store transaction receipts as envelopes so table encoding can evolve independently from
-    /// the in-memory `Receipt` type.
+    /// Store transaction receipts (also in static files)
     Receipts: (TxNumber) => ReceiptEnvelope,
     /// Store compiled classes
     CompiledClassHashes: (ClassHash) => CompiledClassHash,

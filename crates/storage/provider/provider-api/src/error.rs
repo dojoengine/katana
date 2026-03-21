@@ -156,6 +156,10 @@ pub enum ProviderError {
     #[error(transparent)]
     Database(#[from] DatabaseError),
 
+    /// Error returned by static file storage.
+    #[error("Static file error: {0}")]
+    StaticFile(#[from] katana_db::static_files::segment::StaticFileError),
+
     /// Any error that is not covered by the other variants.
     #[error("Something went wrong: {0}")]
     Other(String),

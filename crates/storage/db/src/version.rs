@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 /// Latest on-disk database version written by current Katana.
-pub const LATEST_DB_VERSION: Version = Version::new(9);
+pub const LATEST_DB_VERSION: Version = Version::new(10);
 /// Oldest database version current Katana guarantees it can still open.
 pub const MIN_OPENABLE_DB_VERSION: Version = Version::new(5);
 
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_version_constants() {
-        assert_eq!(LATEST_DB_VERSION.value(), 9, "Invalid latest database version");
+        assert_eq!(LATEST_DB_VERSION.value(), 10, "Invalid latest database version");
         assert_eq!(MIN_OPENABLE_DB_VERSION.value(), 5, "Invalid minimum openable database version");
     }
 

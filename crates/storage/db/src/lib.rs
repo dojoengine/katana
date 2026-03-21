@@ -4,6 +4,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use abstraction::Database;
 use anyhow::{anyhow, Context};
@@ -14,6 +15,7 @@ pub mod error;
 pub mod mdbx;
 pub mod migration;
 pub mod models;
+pub mod static_files;
 pub mod tables;
 pub mod trie;
 
@@ -23,6 +25,7 @@ pub mod version;
 use error::DatabaseError;
 use libmdbx::SyncMode;
 use mdbx::{DbEnv, DbEnvBuilder};
+use static_files::{AnyStore, StaticFiles};
 use utils::is_database_empty;
 use version::{
     create_db_version_file, ensure_version_is_openable, get_db_version, DatabaseVersionError,
@@ -36,6 +39,7 @@ const TERABYTE: usize = GIGABYTE * 1024;
 pub struct Db {
     env: DbEnv,
     version: Version,
+    static_files: Arc<StaticFiles<AnyStore>>,
 }
 
 impl Db {
@@ -50,7 +54,13 @@ impl Db {
         let env = DbEnvBuilder::new().write().build(path)?;
         env.create_default_tables()?;
 
-        Ok(Self { env, version })
+        let static_path = path.join("static");
+        let static_files = Arc::new(
+            StaticFiles::open_file(&static_path)
+                .with_context(|| format!("Opening static files at {}", static_path.display()))?,
+        );
+
+        Ok(Self { env, version, static_files })
     }
 
     /// Similar to [`init_db`] but will initialize a temporary database.
@@ -77,7 +87,9 @@ impl Db {
 
         env.create_default_tables()?;
 
-        Ok(Self { env, version })
+        let static_files = Arc::new(StaticFiles::in_memory());
+
+        Ok(Self { env, version, static_files })
     }
 
     /// Opens an existing database at the given `path` with [`SyncMode::UtterlyNoSync`] for
@@ -98,7 +110,13 @@ impl Db {
 
         env.create_default_tables()?;
 
-        Ok(Self { env, version })
+        let static_path = path.join("static");
+        let static_files = Arc::new(
+            StaticFiles::open_file(&static_path)
+                .with_context(|| format!("Opening static files at {}", static_path.display()))?,
+        );
+
+        Ok(Self { env, version, static_files })
     }
 
     // Open the database at the given `path` in read-write mode.
@@ -124,7 +142,13 @@ impl Db {
         let builder = DbEnvBuilder::new();
         let env = if read_only { builder.build(path)? } else { builder.write().build(path)? };
 
-        Ok(Self { env, version })
+        let static_path = path.join("static");
+        let static_files = Arc::new(
+            StaticFiles::open_file(&static_path)
+                .with_context(|| format!("Opening static files at {}", static_path.display()))?,
+        );
+
+        Ok(Self { env, version, static_files })
     }
 
     pub fn require_migration(&self) -> bool {
@@ -139,6 +163,11 @@ impl Db {
     /// Returns the path to the directory where the database is located.
     pub fn path(&self) -> &Path {
         self.env.path()
+    }
+
+    /// Returns a reference to the static files storage.
+    pub fn static_files(&self) -> &Arc<StaticFiles<AnyStore>> {
+        &self.static_files
     }
 
     fn resolve_or_initialize_version(path: &Path) -> anyhow::Result<Version> {

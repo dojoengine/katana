@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use katana_db::abstraction::{DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::ContractInfoChangeList;
 use katana_db::models::storage::{ContractStorageKey, StorageEntry};
+use katana_db::static_files::{AnyStore, StaticFiles};
 use katana_db::tables;
 use katana_db::trie::TrieDbFactory;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
@@ -22,13 +25,13 @@ use crate::ProviderResult;
 
 impl<Tx: DbTxMut> StateWriter for DbProvider<Tx> {
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
-        let value = if let Some(info) = self.0.get::<tables::ContractInfo>(address)? {
+        let value = if let Some(info) = self.tx.get::<tables::ContractInfo>(address)? {
             GenericContractInfo { nonce, ..info }
         } else {
             GenericContractInfo { nonce, ..Default::default() }
         };
 
-        self.0.put::<tables::ContractInfo>(address, value)?;
+        self.tx.put::<tables::ContractInfo>(address, value)?;
         Ok(())
     }
 
@@ -38,7 +41,7 @@ impl<Tx: DbTxMut> StateWriter for DbProvider<Tx> {
         storage_key: StorageKey,
         storage_value: StorageValue,
     ) -> ProviderResult<()> {
-        let mut cursor = self.0.cursor_dup_mut::<tables::ContractStorage>()?;
+        let mut cursor = self.tx.cursor_dup_mut::<tables::ContractStorage>()?;
         let entry = cursor.seek_by_key_subkey(address, storage_key)?;
 
         match entry {
@@ -57,20 +60,20 @@ impl<Tx: DbTxMut> StateWriter for DbProvider<Tx> {
         address: ContractAddress,
         class_hash: ClassHash,
     ) -> ProviderResult<()> {
-        let value = if let Some(info) = self.0.get::<tables::ContractInfo>(address)? {
+        let value = if let Some(info) = self.tx.get::<tables::ContractInfo>(address)? {
             GenericContractInfo { class_hash, ..info }
         } else {
             GenericContractInfo { class_hash, ..Default::default() }
         };
 
-        self.0.put::<tables::ContractInfo>(address, value)?;
+        self.tx.put::<tables::ContractInfo>(address, value)?;
         Ok(())
     }
 }
 
 impl<Tx: DbTxMut> ContractClassWriter for DbProvider<Tx> {
     fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
-        self.0.put::<tables::Classes>(hash, class.into())?;
+        self.tx.put::<tables::Classes>(hash, class.into())?;
         Ok(())
     }
 
@@ -79,7 +82,7 @@ impl<Tx: DbTxMut> ContractClassWriter for DbProvider<Tx> {
         hash: ClassHash,
         compiled_hash: CompiledClassHash,
     ) -> ProviderResult<()> {
-        self.0.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+        self.tx.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
         Ok(())
     }
 }
@@ -110,7 +113,7 @@ impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
         let Some(num) = block_number else { return Ok(None) };
 
         let earliest_available = self
-            .0
+            .tx
             .get::<tables::StateHistoryRetention>(STATE_HISTORY_RETENTION_KEY)?
             .map(|retention| retention.earliest_available_block);
 
@@ -125,7 +128,11 @@ impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
             }
         }
 
-        Ok(Some(Box::new(HistoricalStateProvider::new(self.0.clone(), num))))
+        Ok(Some(Box::new(HistoricalStateProvider::new(
+            self.tx.clone(),
+            num,
+            self.static_files.clone(),
+        ))))
     }
 }
 
@@ -220,17 +227,30 @@ impl<Tx: DbTx> StateRootProvider for LatestStateProvider<Tx> {
 }
 
 /// A historical state provider.
-#[derive(Debug)]
 pub(crate) struct HistoricalStateProvider<Tx: DbTx> {
     /// The database transaction used to read the database.
     tx: Tx,
     /// The block number of the state.
     block_number: BlockNumber,
+    /// Static files for reading immutable block/tx data.
+    static_files: Arc<StaticFiles<AnyStore>>,
+}
+
+impl<Tx: DbTx> std::fmt::Debug for HistoricalStateProvider<Tx> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HistoricalStateProvider")
+            .field("block_number", &self.block_number)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<Tx: DbTx> HistoricalStateProvider<Tx> {
-    pub fn new(tx: Tx, block_number: BlockNumber) -> Self {
-        Self { tx, block_number }
+    pub fn new(
+        tx: Tx,
+        block_number: BlockNumber,
+        static_files: Arc<StaticFiles<AnyStore>>,
+    ) -> Self {
+        Self { tx, block_number, static_files }
     }
 
     pub fn tx(&self) -> &Tx {
@@ -435,9 +455,12 @@ impl<Tx: DbTx> StateRootProvider for HistoricalStateProvider<Tx> {
     }
 
     fn state_root(&self) -> ProviderResult<katana_primitives::Felt> {
+        // Try static files first, fall back to MDBX.
         let header = self
-            .tx
-            .get::<tables::Headers>(self.block_number)?
+            .static_files
+            .header(self.block_number)
+            .map_err(ProviderError::StaticFile)?
+            .or(self.tx.get::<tables::Headers>(self.block_number)?)
             .ok_or(ProviderError::MissingBlockHeader(self.block_number))?;
         let header: katana_primitives::block::Header = header.into();
         Ok(header.state_root)

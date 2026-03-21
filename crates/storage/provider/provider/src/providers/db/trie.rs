@@ -23,7 +23,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
         block_number: BlockNumber,
         updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> ProviderResult<Felt> {
-        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(self.0.clone()));
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(self.tx.clone()));
 
         for (class_hash, compiled_hash) in updates {
             trie.insert(class_hash, compiled_hash);
@@ -39,7 +39,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
         let mut contract_trie_db =
-            ContractsTrie::new(TrieDbMut::<tables::ContractsTrie, _>::new(self.0.clone()));
+            ContractsTrie::new(TrieDbMut::<tables::ContractsTrie, _>::new(self.tx.clone()));
 
         let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
 
@@ -47,7 +47,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
             // First we insert the contract storage changes
             for (address, storage_entries) in &state_updates.storage_updates {
                 let mut storage_trie_db = StoragesTrie::new(
-                    TrieDbMut::<tables::StoragesTrie, _>::new(self.0.clone()),
+                    TrieDbMut::<tables::StoragesTrie, _>::new(self.tx.clone()),
                     *address,
                 );
 
@@ -78,7 +78,7 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
                 .into_iter()
                 .map(|(address, mut leaf)| {
                     let storage_trie = StoragesTrie::new(
-                        TrieDbMut::<tables::StoragesTrie, _>::new(self.0.clone()),
+                        TrieDbMut::<tables::StoragesTrie, _>::new(self.tx.clone()),
                         address,
                     );
                     let storage_root = storage_trie.root();

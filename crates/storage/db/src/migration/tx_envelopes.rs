@@ -15,13 +15,26 @@ const TX_ENVELOPE_VERSION: Version = Version::new(9);
 
 /// Shadow table definition that reads from the physical `Transactions` table using the legacy
 /// `VersionedTx` (raw postcard) codec instead of `TxEnvelope`.
+///
+/// NOTE: The `Transactions` table has been moved to static files in v10+. This shadow table
+/// definition is only used during migration from v5-v8 databases.
 #[derive(Debug)]
 struct LegacyTransactions;
 
 impl tables::Table for LegacyTransactions {
-    const NAME: &'static str = tables::Transactions::NAME;
+    const NAME: &'static str = "Transactions";
     type Key = TxNumber;
     type Value = VersionedTx;
+}
+
+/// Shadow table for writing TxEnvelope during migration.
+#[derive(Debug)]
+struct MigrationTransactions;
+
+impl tables::Table for MigrationTransactions {
+    const NAME: &'static str = "Transactions";
+    type Key = TxNumber;
+    type Value = TxEnvelope;
 }
 
 pub(crate) struct TxEnvelopeStage;
@@ -63,7 +76,7 @@ impl MigrationStage for TxEnvelopeStage {
 
         // Write back as TxEnvelope.
         for (tx_number, versioned_tx) in batch {
-            tx.put::<tables::Transactions>(tx_number, TxEnvelope::from(versioned_tx))?;
+            tx.put::<MigrationTransactions>(tx_number, TxEnvelope::from(versioned_tx))?;
         }
 
         Ok(())

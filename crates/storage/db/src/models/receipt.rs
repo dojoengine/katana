@@ -60,19 +60,29 @@ mod tests {
     }
 
     #[test]
-    fn receipts_table_roundtrip_uses_receipt_envelope() {
+    fn receipt_envelope_static_file_roundtrip() {
         let db = Db::in_memory().expect("failed to create in-memory db");
         let receipt = sample_receipt();
         let envelope = ReceiptEnvelope::from(receipt.clone());
 
-        let tx = db.tx_mut().expect("failed to open write transaction");
-        tx.put::<tables::Receipts>(7, envelope).expect("failed to write receipt");
-        tx.commit().expect("failed to commit write transaction");
+        // Receipts are now stored in static files, not MDBX.
+        let sf = db.static_files();
+        sf.append_transaction(
+            0,
+            crate::models::TxEnvelope::from(crate::models::VersionedTx::from(
+                katana_primitives::transaction::Tx::Invoke(
+                    katana_primitives::transaction::InvokeTx::V1(Default::default()),
+                ),
+            )),
+            katana_primitives::Felt::ZERO,
+            0,
+            envelope,
+            katana_primitives::execution::TypedTransactionExecutionInfo::default(),
+        )
+        .expect("failed to write transaction");
+        sf.commit(1, 1).expect("failed to commit");
 
-        let tx = db.tx().expect("failed to open read transaction");
-        let stored = tx.get::<tables::Receipts>(7).expect("failed to read receipt");
-        tx.commit().expect("failed to commit read transaction");
-
+        let stored = sf.receipt(0).expect("failed to read receipt");
         assert_eq!(stored.map(Receipt::from), Some(receipt));
     }
 }

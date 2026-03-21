@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 
-use katana_primitives::block::BlockNumber;
+use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::contract::{StorageKey, StorageValue};
 use katana_primitives::state::StateUpdates;
 
@@ -22,6 +22,28 @@ use crate::{tables, Db};
 /// The schema changes as well as the version bump were introduced in this PR: <https://github.com/dojoengine/katana/pull/470>
 const STATE_UPDATES_TABLE_VERSION: Version = Version::new(9);
 
+/// Shadow table for the legacy `BlockHashes` table that was in MDBX before v10.
+/// Used only during migration to determine the block range.
+#[derive(Debug)]
+struct LegacyBlockHashes;
+
+impl tables::Table for LegacyBlockHashes {
+    const NAME: &'static str = "BlockHashes";
+    type Key = BlockNumber;
+    type Value = BlockHash;
+}
+
+/// Shadow table for writing `BlockStateUpdates` during migration.
+/// This table was in MDBX before v10 and is now in static files.
+#[derive(Debug)]
+struct LegacyBlockStateUpdates;
+
+impl tables::Table for LegacyBlockStateUpdates {
+    const NAME: &'static str = "BlockStateUpdates";
+    type Key = BlockNumber;
+    type Value = StateUpdateEnvelope;
+}
+
 pub(crate) struct StateUpdatesStage;
 
 impl MigrationStage for StateUpdatesStage {
@@ -34,7 +56,7 @@ impl MigrationStage for StateUpdatesStage {
     }
 
     fn range(&self, db: &Db) -> Result<Option<RangeInclusive<u64>>, MigrationError> {
-        let last = db.view(|tx| tx.cursor::<tables::BlockHashes>()?.last())?;
+        let last = db.view(|tx| tx.cursor::<LegacyBlockHashes>()?.last())?;
         match last {
             Some((block_num, _)) => Ok(Some(0..=block_num)),
             None => Ok(None),
@@ -46,7 +68,7 @@ impl MigrationStage for StateUpdatesStage {
             let state_updates = reconstruct_state_update(tx, block).map_err(|source| {
                 MigrationError::FailedToReconstructStateUpdate { block, source }
             })?;
-            tx.put::<tables::BlockStateUpdates>(block, StateUpdateEnvelope::from(state_updates))?;
+            tx.put::<LegacyBlockStateUpdates>(block, StateUpdateEnvelope::from(state_updates))?;
         }
         Ok(())
     }

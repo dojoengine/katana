@@ -78,11 +78,15 @@ impl PruneArgs {
     /// Collect statistics about what will be pruned
     fn collect_pruning_stats(&self) -> Result<PruningStats> {
         let mode = self.mode();
-        let tx = open_db_ro(&self.path)?.tx().context("Failed to create read transaction")?;
+        let db = open_db_ro(&self.path)?;
+        let tx = db.tx().context("Failed to create read transaction")?;
 
         match mode {
             PruneMode::Latest => count_all_historical_deletions(&tx),
-            PruneMode::KeepLastN { blocks } => count_keep_last_n_deletions(&tx, blocks),
+            PruneMode::KeepLastN { blocks } => {
+                let latest = get_latest_block_number(&db)?;
+                count_keep_last_n_deletions(&tx, blocks, latest)
+            }
         }
     }
 }
@@ -93,7 +97,7 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
     let db = open_db_rw(db_path)?;
     let tx = db.tx_mut().context("Failed to create write transaction")?;
 
-    let latest_block = get_latest_block_number(&tx)?;
+    let latest_block = get_latest_block_number(&db)?;
 
     match mode {
         PruneMode::Latest => {
@@ -132,14 +136,12 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
     Ok(())
 }
 
-/// Get the latest block number from the Headers table
-fn get_latest_block_number(tx: &impl DbTx) -> Result<BlockNumber> {
-    let mut cursor = tx.cursor::<tables::Headers>()?;
-    if let Some((block_num, _)) = cursor.last()? {
-        Ok(block_num)
-    } else {
-        Ok(0)
-    }
+/// Get the latest block number from the static files.
+fn get_latest_block_number(db: &katana_db::Db) -> Result<BlockNumber> {
+    db.static_files()
+        .latest_block_number()
+        .context("Failed to read latest block number")?
+        .ok_or_else(|| anyhow!("No blocks found"))
 }
 
 /// Prune all historical trie data (keeping only current state)
@@ -358,8 +360,12 @@ fn count_all_historical_deletions(tx: &impl DbTx) -> Result<PruningStats> {
 }
 
 /// Count total entries that will be deleted for PruneMode::KeepLastN
-fn count_keep_last_n_deletions(tx: &impl DbTx, keep_last_n: BlockNumber) -> Result<PruningStats> {
-    let cutoff_block = get_latest_block_number(tx)?.saturating_sub(keep_last_n);
+fn count_keep_last_n_deletions(
+    tx: &impl DbTx,
+    keep_last_n: BlockNumber,
+    latest_block: BlockNumber,
+) -> Result<PruningStats> {
+    let cutoff_block = latest_block.saturating_sub(keep_last_n);
 
     if cutoff_block == 0 {
         return Ok(PruningStats::default());
@@ -476,7 +482,6 @@ mod tests {
     use katana_db::mdbx::{test_utils, DbEnv};
     use katana_db::models::list::BlockChangeList;
     use katana_db::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-    use katana_db::models::VersionedHeader;
     use katana_db::tables::{self, Tables};
     use katana_primitives::block::BlockNumber;
     use katana_utils::arbitrary;
@@ -543,11 +548,6 @@ mod tests {
                 tx.put::<tables::ContractsTrieChangeSet>(key2, block_list2)?;
                 tx.put::<tables::StoragesTrieChangeSet>(key3, block_list3)?;
             }
-        }
-
-        // Insert headers for block range
-        for block in block_range {
-            tx.put::<tables::Headers>(block, VersionedHeader::default())?;
         }
 
         Ok(())
@@ -620,7 +620,7 @@ mod tests {
         let tx = db.tx()?;
 
         // Test keeping last 5 blocks (should delete blocks 0-14)
-        let stats = count_keep_last_n_deletions(&tx, 5)?;
+        let stats = count_keep_last_n_deletions(&tx, 5, 19)?;
 
         // History tables: blocks 0-14 = 15 blocks
         assert_eq!(stats.table_entries_deletions.get(Tables::ClassesTrieHistory.name()), Some(&15));
@@ -685,7 +685,7 @@ mod tests {
         // Count entries before pruning
         let tx = db.tx().unwrap();
         let before_count = count_total_entries(&tx).unwrap();
-        let stats = count_keep_last_n_deletions(&tx, 10).unwrap();
+        let stats = count_keep_last_n_deletions(&tx, 10, 29).unwrap();
         let predicted_deletions: usize = stats.table_entries_deletions.values().sum();
         drop(tx);
 
@@ -714,7 +714,7 @@ mod tests {
         let tx = db.tx()?;
 
         // Test keeping last 15 blocks when we only have 10
-        let stats = count_keep_last_n_deletions(&tx, 15)?;
+        let stats = count_keep_last_n_deletions(&tx, 15, 9)?;
 
         // Should have no deletions
         let total: usize = stats.table_entries_deletions.values().sum();

@@ -176,7 +176,14 @@ impl<Tx1: DbTxMut> MutableProvider for ForkedProvider<Tx1> {
 }
 
 impl<Tx1: DbTx> ForkedProvider<Tx1> {
-    pub fn new(local_db: DbProvider<Tx1>, fork_db: ForkedDb) -> Self {
+    pub fn new(
+        local_db: DbProvider<Tx1>,
+        fork_db: ForkedDb,
+        _static_files: std::sync::Arc<
+            katana_db::static_files::StaticFiles<katana_db::static_files::AnyStore>,
+        >,
+    ) -> Self {
+        // Static files are already accessible through local_db.static_files()
         Self { local_db, fork_db }
     }
 
@@ -368,7 +375,7 @@ impl<Tx1: DbTx> StateUpdateProvider for ForkedProvider<Tx1> {
         match self.fork_db.db.provider().state_update(block_id) {
             Ok(Some(value)) => return Ok(Some(value)),
             Ok(None) => {}
-            Err(ProviderError::MissingBlockStateUpdate(block_number)) => {
+            Err(ProviderError::MissingBlockStateUpdate(_block_number)) => {
                 let Some(state_update) = self.fork_db.backend.get_state_update(block_id)? else {
                     return Ok(None);
                 };
@@ -377,7 +384,7 @@ impl<Tx1: DbTx> StateUpdateProvider for ForkedProvider<Tx1> {
                 let canonical_state_update: StateUpdates = state_update.state_diff.into();
                 let provider_mut = self.fork_db.db.provider_mut();
                 provider_mut.tx().put::<tables::BlockStateUpdates>(
-                    block_number,
+                    _block_number,
                     StateUpdateEnvelope::from(canonical_state_update.clone()),
                 )?;
                 provider_mut.commit()?;

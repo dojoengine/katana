@@ -282,6 +282,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
 
+    use katana_primitives::block::FinalityStatus;
     use katana_primitives::contract::GenericContractInfo;
     use katana_primitives::{address, felt, Felt};
 
@@ -290,8 +291,7 @@ mod tests {
     use crate::codecs::Encode;
     use crate::mdbx::test_utils::create_test_db;
     use crate::models::storage::StorageEntry;
-    use crate::models::VersionedHeader;
-    use crate::tables::{BlockHashes, ContractInfo, ContractStorage, Headers, Table};
+    use crate::tables::{BlockStatusses, ContractInfo, ContractStorage, Table};
 
     const ERROR_PUT: &str = "Not able to insert value into table.";
     const ERROR_DELETE: &str = "Failed to delete value from table.";
@@ -314,7 +314,7 @@ mod tests {
 
         // Insert some data to ensure non-zero stats
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(1u64, VersionedHeader::default()).expect(ERROR_PUT);
+        tx.put::<BlockStatusses>(1u64, FinalityStatus::AcceptedOnL2).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // Retrieve stats
@@ -326,7 +326,8 @@ mod tests {
         assert!(stats.map_size() > 0, "Map size should be non-zero");
 
         // Check table-specific stats
-        let headers_stat = stats.table_stat(Headers::NAME).expect("Headers table stats not found");
+        let headers_stat =
+            stats.table_stat(BlockStatusses::NAME).expect("Headers table stats not found");
         assert!(headers_stat.entries() > 0, "Headers table should have entries");
         assert!(headers_stat.leaf_pages() > 0, "Headers table should have leaf pages");
 
@@ -344,18 +345,18 @@ mod tests {
     fn db_manual_put_get() {
         let env = create_test_db();
 
-        let value = VersionedHeader::default();
+        let value = FinalityStatus::AcceptedOnL2;
         let key = 1u64;
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, value.clone()).expect(ERROR_PUT);
+        tx.put::<BlockStatusses>(key, value.clone()).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // GET
         let tx = env.tx().expect(ERROR_INIT_TX);
-        let result = tx.get::<Headers>(key).expect(ERROR_GET);
-        let total_entries = tx.entries::<Headers>().expect(ERROR_GET);
+        let result = tx.get::<BlockStatusses>(key).expect(ERROR_GET);
+        let total_entries = tx.entries::<BlockStatusses>().expect(ERROR_GET);
         tx.commit().expect(ERROR_COMMIT);
 
         assert!(total_entries == 1);
@@ -366,23 +367,23 @@ mod tests {
     fn db_delete() {
         let env = create_test_db();
 
-        let value = VersionedHeader::default();
+        let value = FinalityStatus::AcceptedOnL2;
         let key = 1u64;
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, value).expect(ERROR_PUT);
+        tx.put::<BlockStatusses>(key, value).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
-        let entries = env.tx().expect(ERROR_INIT_TX).entries::<Headers>().expect(ERROR_GET);
+        let entries = env.tx().expect(ERROR_INIT_TX).entries::<BlockStatusses>().expect(ERROR_GET);
         assert!(entries == 1);
 
         // DELETE
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.delete::<Headers>(key, None).expect(ERROR_DELETE);
+        tx.delete::<BlockStatusses>(key, None).expect(ERROR_DELETE);
         tx.commit().expect(ERROR_COMMIT);
 
-        let entries = env.tx().expect(ERROR_INIT_TX).entries::<Headers>().expect(ERROR_GET);
+        let entries = env.tx().expect(ERROR_INIT_TX).entries::<BlockStatusses>().expect(ERROR_GET);
         assert!(entries == 0);
     }
 
@@ -393,20 +394,20 @@ mod tests {
         let key1 = 1u64;
         let key2 = 2u64;
         let key3 = 3u64;
-        let header1 = VersionedHeader::default();
-        let header2 = VersionedHeader::default();
-        let header3 = VersionedHeader::default();
+        let header1 = FinalityStatus::AcceptedOnL2;
+        let header2 = FinalityStatus::AcceptedOnL2;
+        let header3 = FinalityStatus::AcceptedOnL2;
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key1, header1.clone()).expect(ERROR_PUT);
-        tx.put::<Headers>(key2, header2.clone()).expect(ERROR_PUT);
-        tx.put::<Headers>(key3, header3.clone()).expect(ERROR_PUT);
+        tx.put::<BlockStatusses>(key1, header1.clone()).expect(ERROR_PUT);
+        tx.put::<BlockStatusses>(key2, header2.clone()).expect(ERROR_PUT);
+        tx.put::<BlockStatusses>(key3, header3.clone()).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // CURSOR
         let tx = env.tx().expect(ERROR_INIT_TX);
-        let mut cursor = tx.cursor::<Headers>().expect(ERROR_INIT_CURSOR);
+        let mut cursor = tx.cursor::<BlockStatusses>().expect(ERROR_INIT_CURSOR);
         let (_, result1) = cursor.next().expect(ERROR_GET_AT_CURSOR_POS).expect(ERROR_RETURN_VALUE);
         let (_, result2) = cursor.next().expect(ERROR_GET_AT_CURSOR_POS).expect(ERROR_RETURN_VALUE);
         let (_, result3) = cursor.next().expect(ERROR_GET_AT_CURSOR_POS).expect(ERROR_RETURN_VALUE);
@@ -456,17 +457,17 @@ mod tests {
     fn db_cursor_walk() {
         let env = create_test_db();
 
-        let value = VersionedHeader::default();
+        let value = FinalityStatus::AcceptedOnL2;
         let key = 1u64;
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, value.clone()).expect(ERROR_PUT);
+        tx.put::<BlockStatusses>(key, value.clone()).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // Cursor
         let tx = env.tx().expect(ERROR_INIT_TX);
-        let mut cursor = tx.cursor::<Headers>().expect(ERROR_INIT_CURSOR);
+        let mut cursor = tx.cursor::<BlockStatusses>().expect(ERROR_INIT_CURSOR);
 
         let first = cursor.first().unwrap();
         assert!(first.is_some(), "First should be our put");
@@ -483,16 +484,18 @@ mod tests {
 
         // PUT (0, 0), (1, 0), (2, 0)
         let tx = db.tx_mut().expect(ERROR_INIT_TX);
-        (0..3).try_for_each(|key| tx.put::<BlockHashes>(key, Felt::ZERO)).expect(ERROR_PUT);
+        (0..3)
+            .try_for_each(|key| tx.put::<BlockStatusses>(key, FinalityStatus::AcceptedOnL2))
+            .expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         let tx = db.tx().expect(ERROR_INIT_TX);
-        let mut cursor = tx.cursor::<BlockHashes>().expect(ERROR_INIT_CURSOR);
+        let mut cursor = tx.cursor::<BlockStatusses>().expect(ERROR_INIT_CURSOR);
         let mut walker = Walker::new(&mut cursor, None);
 
-        assert_eq!(walker.next(), Some(Ok((0, Felt::ZERO))));
-        assert_eq!(walker.next(), Some(Ok((1, Felt::ZERO))));
-        assert_eq!(walker.next(), Some(Ok((2, Felt::ZERO))));
+        assert_eq!(walker.next(), Some(Ok((0, FinalityStatus::AcceptedOnL2))));
+        assert_eq!(walker.next(), Some(Ok((1, FinalityStatus::AcceptedOnL2))));
+        assert_eq!(walker.next(), Some(Ok((2, FinalityStatus::AcceptedOnL2))));
         assert_eq!(walker.next(), None);
     }
 
@@ -502,33 +505,35 @@ mod tests {
 
         // PUT
         let tx = db.tx_mut().expect(ERROR_INIT_TX);
-        (0..=4).try_for_each(|key| tx.put::<BlockHashes>(key, Felt::ZERO)).expect(ERROR_PUT);
+        (0..=4)
+            .try_for_each(|key| tx.put::<BlockStatusses>(key, FinalityStatus::AcceptedOnL2))
+            .expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         let key_to_insert = 5;
         let tx = db.tx_mut().expect(ERROR_INIT_TX);
-        let mut cursor = tx.cursor::<BlockHashes>().expect(ERROR_INIT_CURSOR);
+        let mut cursor = tx.cursor::<BlockStatusses>().expect(ERROR_INIT_CURSOR);
 
         // INSERT
-        assert_eq!(cursor.insert(key_to_insert, Felt::ZERO), Ok(()));
-        assert_eq!(cursor.current(), Ok(Some((key_to_insert, Felt::ZERO))));
+        assert_eq!(cursor.insert(key_to_insert, FinalityStatus::AcceptedOnL2), Ok(()));
+        assert_eq!(cursor.current(), Ok(Some((key_to_insert, FinalityStatus::AcceptedOnL2))));
 
         // INSERT (failure)
         assert_eq!(
-            cursor.insert(key_to_insert, Felt::ZERO),
+            cursor.insert(key_to_insert, FinalityStatus::AcceptedOnL2),
             Err(DatabaseError::Write {
-                table: BlockHashes::NAME,
+                table: BlockStatusses::NAME,
                 error: libmdbx::Error::KeyExist,
                 key: Box::from(key_to_insert.encode())
             })
         );
-        assert_eq!(cursor.current(), Ok(Some((key_to_insert, Felt::ZERO))));
+        assert_eq!(cursor.current(), Ok(Some((key_to_insert, FinalityStatus::AcceptedOnL2))));
 
         tx.commit().expect(ERROR_COMMIT);
 
         // Confirm the result
         let tx = db.tx().expect(ERROR_INIT_TX);
-        let mut cursor = tx.cursor::<BlockHashes>().expect(ERROR_INIT_CURSOR);
+        let mut cursor = tx.cursor::<BlockStatusses>().expect(ERROR_INIT_CURSOR);
         let res = cursor.walk(None).unwrap().map(|res| res.unwrap().0).collect::<Vec<_>>();
         assert_eq!(res, vec![0, 1, 2, 3, 4, 5]);
         tx.commit().expect(ERROR_COMMIT);

@@ -1,6 +1,8 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use katana_db::abstraction::Database;
+use katana_db::static_files::{AnyStore, StaticFiles};
 use katana_fork::Backend;
 use katana_primitives::block::BlockNumber;
 pub use katana_provider_api::{ProviderError, ProviderResult};
@@ -107,12 +109,14 @@ pub trait MutableProvider: Sized + Send + Sync + 'static {
 #[derive(Clone, Debug)]
 pub struct DbProviderFactory {
     db: katana_db::Db,
+    static_files: Arc<StaticFiles<AnyStore>>,
 }
 
 impl DbProviderFactory {
     /// Creates a new [`DbProviderFactory`] with the given database.
     pub fn new(db: katana_db::Db) -> Self {
-        Self { db }
+        let static_files = db.static_files().clone();
+        Self { db, static_files }
     }
 
     /// Creates a new [`DbProviderFactory`] with an in-memory database.
@@ -131,11 +135,11 @@ impl ProviderFactory for DbProviderFactory {
     type ProviderMut = DbProvider<<katana_db::Db as Database>::TxMut>;
 
     fn provider(&self) -> Self::Provider {
-        DbProvider::new(self.db.tx().unwrap())
+        DbProvider::new(self.db.tx().unwrap(), self.static_files.clone())
     }
 
     fn provider_mut(&self) -> Self::ProviderMut {
-        DbProvider::new(self.db.tx_mut().unwrap())
+        DbProvider::new(self.db.tx_mut().unwrap(), self.static_files.clone())
     }
 }
 
@@ -181,6 +185,7 @@ impl ProviderFactory for ForkProviderFactory {
         ForkedProvider::new(
             self.local_factory.provider(),
             ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.clone()),
+            self.local_factory.static_files.clone(),
         )
     }
 
@@ -188,6 +193,7 @@ impl ProviderFactory for ForkProviderFactory {
         ForkedProvider::new(
             self.local_factory.provider_mut(),
             ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.clone()),
+            self.local_factory.static_files.clone(),
         )
     }
 }
