@@ -178,37 +178,37 @@ fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usiz
     match table {
         // -- Simple key-value (scalar value) --
         Tables::BlockHashes => {
-            tabular!(tables::BlockHashes, "BlockHash", ["Block", "Hash"], |k, v| vec![
+            tabular!(tables::BlockHashes, "BlockHash", ["number", "value"], |k, v| vec![
                 format!("{k}"),
                 format!("{v}")
             ])
         }
         Tables::BlockNumbers => {
-            tabular!(tables::BlockNumbers, "BlockNumber", ["Hash", "Block"], |k, v| vec![
+            tabular!(tables::BlockNumbers, "BlockNumber", ["hash", "value"], |k, v| vec![
                 format!("{k}"),
                 format!("{v}")
             ])
         }
         Tables::BlockStatusses => {
-            tabular!(tables::BlockStatusses, "FinalityStatus", ["Block", "Status"], |k, v| vec![
+            tabular!(tables::BlockStatusses, "FinalityStatus", ["number", "value"], |k, v| vec![
                 format!("{k}"),
                 format!("{v:?}")
             ])
         }
         Tables::TxNumbers => {
-            tabular!(tables::TxNumbers, "TxNumber", ["TxHash", "TxNumber"], |k, v| vec![
+            tabular!(tables::TxNumbers, "TxNumber", ["tx_hash", "value"], |k, v| vec![
                 format!("{k}"),
                 format!("{v}")
             ])
         }
         Tables::TxBlocks => {
-            tabular!(tables::TxBlocks, "BlockNumber", ["TxNumber", "Block"], |k, v| vec![
+            tabular!(tables::TxBlocks, "BlockNumber", ["tx_number", "value"], |k, v| vec![
                 format!("{k}"),
                 format!("{v}")
             ])
         }
         Tables::TxHashes => {
-            tabular!(tables::TxHashes, "TxHash", ["TxNumber", "TxHash"], |k, v| vec![
+            tabular!(tables::TxHashes, "TxHash", ["tx_number", "value"], |k, v| vec![
                 format!("{k}"),
                 format!("{v}")
             ])
@@ -216,17 +216,17 @@ fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usiz
         Tables::CompiledClassHashes => tabular!(
             tables::CompiledClassHashes,
             "CompiledClassHash",
-            ["ClassHash", "CompiledHash"],
+            ["class_hash", "value"],
             |k, v| vec![format!("{k}"), format!("{v}")]
         ),
         Tables::ClassDeclarationBlock => tabular!(
             tables::ClassDeclarationBlock,
             "BlockNumber",
-            ["ClassHash", "Block"],
+            ["class_hash", "value"],
             |k, v| vec![format!("{k}"), format!("{v}")]
         ),
         Tables::ClassDeclarations => {
-            tabular!(tables::ClassDeclarations, "ClassHash", ["Block", "ClassHash"], |k, v| vec![
+            tabular!(tables::ClassDeclarations, "ClassHash", ["number", "value"], |k, v| vec![
                 format!("{k}"),
                 format!("{v}")
             ])
@@ -236,25 +236,25 @@ fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usiz
         Tables::BlockBodyIndices => tabular!(
             tables::BlockBodyIndices,
             "StoredBlockBodyIndices",
-            ["Block", "TxOffset", "TxCount"],
+            ["number", "tx_offset", "tx_count"],
             |k, v| vec![format!("{k}"), format!("{}", v.tx_offset), format!("{}", v.tx_count)]
         ),
         Tables::ContractInfo => tabular!(
             tables::ContractInfo,
             "GenericContractInfo",
-            ["Address", "Nonce", "ClassHash"],
+            ["contract_address", "nonce", "class_hash"],
             |k, v| vec![format!("{k}"), format!("{}", v.nonce), format!("{}", v.class_hash)]
         ),
         Tables::ContractStorage => tabular!(
             tables::ContractStorage,
             "StorageEntry",
-            ["Address", "Key", "Value"],
+            ["contract_address", "key", "value"],
             |k, v| vec![format!("{k}"), format!("{}", v.key), format!("{}", v.value)]
         ),
         Tables::MigratedCompiledClassHashes => tabular!(
             tables::MigratedCompiledClassHashes,
             "MigratedCompiledClassHash",
-            ["Block", "ClassHash", "CompiledHash"],
+            ["number", "class_hash", "compiled_class_hash"],
             |k, v| vec![
                 format!("{k}"),
                 format!("{}", v.class_hash),
@@ -264,13 +264,13 @@ fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usiz
         Tables::NonceChangeHistory => tabular!(
             tables::NonceChangeHistory,
             "ContractNonceChange",
-            ["Block", "Address", "Nonce"],
+            ["number", "contract_address", "nonce"],
             |k, v| vec![format!("{k}"), format!("{}", v.contract_address), format!("{}", v.nonce)]
         ),
         Tables::ClassChangeHistory => tabular!(
             tables::ClassChangeHistory,
             "ContractClassChange",
-            ["Block", "Type", "Address", "ClassHash"],
+            ["number", "type", "contract_address", "class_hash"],
             |k, v| vec![
                 format!("{k}"),
                 format!("{:?}", v.r#type),
@@ -281,7 +281,7 @@ fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usiz
         Tables::StorageChangeHistory => tabular!(
             tables::StorageChangeHistory,
             "ContractStorageEntry",
-            ["Block", "Address", "Key", "Value"],
+            ["number", "key.contract_address", "key.key", "value"],
             |k, v| vec![
                 format!("{k}"),
                 format!("{}", v.key.contract_address),
@@ -292,30 +292,74 @@ fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usiz
         Tables::StageExecutionCheckpoints => tabular!(
             tables::StageExecutionCheckpoints,
             "ExecutionCheckpoint",
-            ["StageId", "Block"],
+            ["stage_id", "block"],
             |k, v| vec![format!("{k}"), format!("{}", v.block)]
         ),
         Tables::StagePruningCheckpoints => tabular!(
             tables::StagePruningCheckpoints,
             "PruningCheckpoint",
-            ["StageId", "Block"],
+            ["stage_id", "block"],
             |k, v| vec![format!("{k}"), format!("{}", v.block)]
         ),
         Tables::StateHistoryRetention => tabular!(
             tables::StateHistoryRetention,
             "HistoricalStateRetention",
-            ["Key", "EarliestBlock"],
+            ["key", "earliest_available_block"],
             |k, v| vec![format!("{k}"), format!("{}", v.earliest_available_block)]
         ),
         Tables::MigrationCheckpoints => tabular!(
             tables::MigrationCheckpoints,
             "MigrationCheckpoint",
-            ["StageId", "LastKey"],
+            ["stage_id", "last_key_migrated"],
             |k, v| vec![format!("{k}"), format!("{}", v.last_key_migrated)]
         ),
 
+        // -- Header (convert VersionedHeader to Header for field access) --
+        Tables::Headers => tabular!(
+            tables::Headers,
+            "Header",
+            [
+                "number",
+                "parent_hash",
+                "state_root",
+                "transaction_count",
+                "events_count",
+                "state_diff_length",
+                "timestamp",
+                "sequencer_address",
+                "l1_gas_prices.eth",
+                "l1_gas_prices.strk",
+                "l1_data_gas_prices.eth",
+                "l1_data_gas_prices.strk",
+                "l2_gas_prices.eth",
+                "l2_gas_prices.strk",
+                "l1_da_mode",
+                "starknet_version"
+            ],
+            |k, v| {
+                let h = katana_primitives::block::Header::from(v.clone());
+                vec![
+                    format!("{k}"),
+                    format!("{}", h.parent_hash),
+                    format!("{}", h.state_root),
+                    format!("{}", h.transaction_count),
+                    format!("{}", h.events_count),
+                    format!("{}", h.state_diff_length),
+                    format!("{}", h.timestamp),
+                    format!("{}", h.sequencer_address),
+                    format!("{}", h.l1_gas_prices.eth),
+                    format!("{}", h.l1_gas_prices.strk),
+                    format!("{}", h.l1_data_gas_prices.eth),
+                    format!("{}", h.l1_data_gas_prices.strk),
+                    format!("{}", h.l2_gas_prices.eth),
+                    format!("{}", h.l2_gas_prices.strk),
+                    format!("{:?}", h.l1_da_mode),
+                    format!("{}", h.starknet_version),
+                ]
+            }
+        ),
+
         // -- Complex values (detail / split-panel mode) --
-        Tables::Headers => detail!(tables::Headers),
         Tables::BlockStateUpdates => detail!(tables::BlockStateUpdates),
         Tables::Transactions => detail!(tables::Transactions),
         Tables::TxTraces => detail!(tables::TxTraces),
