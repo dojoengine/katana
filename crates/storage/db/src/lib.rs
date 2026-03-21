@@ -60,6 +60,8 @@ impl Db {
                 .with_context(|| format!("Opening static files at {}", static_path.display()))?,
         );
 
+        Self::recover_static_files(&env, &static_files)?;
+
         Ok(Self { env, version, static_files })
     }
 
@@ -116,6 +118,8 @@ impl Db {
                 .with_context(|| format!("Opening static files at {}", static_path.display()))?,
         );
 
+        Self::recover_static_files(&env, &static_files)?;
+
         Ok(Self { env, version, static_files })
     }
 
@@ -148,6 +152,9 @@ impl Db {
                 .with_context(|| format!("Opening static files at {}", static_path.display()))?,
         );
 
+        // Truncate orphaned static file data to match MDBX-committed state.
+        Self::recover_static_files(&env, &static_files)?;
+
         Ok(Self { env, version, static_files })
     }
 
@@ -168,6 +175,79 @@ impl Db {
     /// Returns a reference to the static files storage.
     pub fn static_files(&self) -> &Arc<StaticFiles<AnyStore>> {
         &self.static_files
+    }
+
+    /// Truncate static files to match the MDBX-committed state.
+    ///
+    /// After a crash, static files may contain orphaned data beyond what MDBX
+    /// committed. This method reads the last committed pointers from MDBX and
+    /// truncates each static file column to the exact byte position.
+    ///
+    /// Must be called after opening MDBX and static files, before any writes.
+    fn recover_static_files(
+        env: &DbEnv,
+        static_files: &StaticFiles<AnyStore>,
+    ) -> anyhow::Result<()> {
+        use crate::abstraction::{DbCursor, DbTx};
+        use crate::models::StaticFileRef;
+
+        let tx = env.tx().context("Failed to create read transaction for recovery")?;
+
+        // -- Block-level recovery --
+        // Find the last committed block by reading the last Headers entry.
+        let last_block = tx.cursor::<tables::Headers>()?.last()?;
+
+        let (block_count, headers_end, state_updates_end) = match last_block {
+            Some((block_num, ref header_ref)) => {
+                let headers_end = header_ref.byte_end().unwrap_or(0);
+
+                // Read the last BlockStateUpdates pointer.
+                let su_end = tx
+                    .cursor::<tables::BlockStateUpdates>()?
+                    .last()?
+                    .and_then(|(_, ref r)| r.byte_end())
+                    .unwrap_or(0);
+
+                (block_num + 1, headers_end, su_end)
+            }
+            None => (0, 0, 0),
+        };
+
+        // body_indices_end = 0: BlockBodyIndices is stored in MDBX, not static files.
+        static_files
+            .truncate_blocks(block_count, headers_end, 0, state_updates_end)
+            .context("Failed to truncate block static files during recovery")?;
+
+        // -- Transaction-level recovery --
+        // Find the last committed tx by reading the last Transactions entry.
+        let last_tx = tx.cursor::<tables::Transactions>()?.last()?;
+
+        let (tx_count, transactions_end, receipts_end, traces_end) = match last_tx {
+            Some((tx_num, ref tx_ref)) => {
+                let transactions_end = tx_ref.byte_end().unwrap_or(0);
+
+                let receipts_end = tx
+                    .cursor::<tables::Receipts>()?
+                    .last()?
+                    .and_then(|(_, ref r)| r.byte_end())
+                    .unwrap_or(0);
+
+                let traces_end = tx
+                    .cursor::<tables::TxTraces>()?
+                    .last()?
+                    .and_then(|(_, ref r)| r.byte_end())
+                    .unwrap_or(0);
+
+                (tx_num + 1, transactions_end, receipts_end, traces_end)
+            }
+            None => (0, 0, 0, 0),
+        };
+
+        static_files
+            .truncate_transactions(tx_count, transactions_end, receipts_end, traces_end)
+            .context("Failed to truncate transaction static files during recovery")?;
+
+        Ok(())
     }
 
     fn resolve_or_initialize_version(path: &Path) -> anyhow::Result<Version> {

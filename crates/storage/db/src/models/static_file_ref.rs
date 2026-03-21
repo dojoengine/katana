@@ -34,6 +34,15 @@ impl StaticFileRef {
     pub fn inline(compressed_bytes: Vec<u8>) -> Self {
         Self::Inline(compressed_bytes)
     }
+
+    /// For a `StaticFile` pointer, returns `offset + length` (the byte position
+    /// just past the end of this entry in the .dat file). Returns `None` for inline refs.
+    pub fn byte_end(&self) -> Option<u64> {
+        match self {
+            StaticFileRef::StaticFile { offset, length } => Some(*offset + *length as u64),
+            StaticFileRef::Inline(_) => None,
+        }
+    }
 }
 
 impl Compress for StaticFileRef {
