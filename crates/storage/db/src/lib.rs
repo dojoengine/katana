@@ -63,9 +63,10 @@ pub struct Db {
 /// let db = DbBuilder::new().in_memory().build_ephemeral()?;
 ///
 /// // Custom static file tuning
+/// let sf = StaticFilesBuilder::new().write_buffer_size(1024 * 1024);
 /// let db = DbBuilder::new()
 ///     .write()
-///     .static_files(|sf| sf.write_buffer_size(1024 * 1024))
+///     .static_files(sf)
 ///     .build(path)?;
 /// ```
 #[derive(Debug)]
@@ -114,12 +115,9 @@ impl DbBuilder {
         self
     }
 
-    /// Configure static files with a closure.
-    pub fn static_files(
-        mut self,
-        f: impl FnOnce(StaticFilesBuilder) -> StaticFilesBuilder,
-    ) -> Self {
-        self.static_files = f(self.static_files);
+    /// Set the static files configuration.
+    pub fn static_files(mut self, builder: StaticFilesBuilder) -> Self {
+        self.static_files = builder;
         self
     }
 
