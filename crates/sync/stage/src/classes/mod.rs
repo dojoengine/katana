@@ -21,6 +21,7 @@ use super::{
 mod downloader;
 
 pub use downloader::gateway::GatewayClassDownloader;
+pub use downloader::grpc::GrpcClassDownloader;
 pub use downloader::json_rpc::JsonRpcClassDownloader;
 
 /// Trait for downloading contract class artifacts.

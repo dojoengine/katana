@@ -34,7 +34,7 @@ use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_stage::blocks::{BatchBlockDownloader, GrpcBlockDownloader, JsonRpcBlockDownloader};
-use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
+use katana_stage::classes::{GatewayClassDownloader, GrpcClassDownloader, JsonRpcClassDownloader};
 use katana_stage::{Blocks, Classes, IndexHistory, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
@@ -224,9 +224,7 @@ impl Node {
                     task_spawner.clone(),
                 ));
 
-                // gRPC class downloader not yet implemented; fall back to gateway
-                let class_downloader =
-                    GatewayClassDownloader::new(gateway_client.clone(), batch_size);
+                let class_downloader = GrpcClassDownloader::new(grpc_url.to_string(), batch_size);
                 pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
             }
             _ => {
