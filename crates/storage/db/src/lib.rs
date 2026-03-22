@@ -25,7 +25,7 @@ pub mod version;
 use error::DatabaseError;
 use libmdbx::SyncMode;
 use mdbx::{DbEnv, DbEnvBuilder};
-use static_files::{AnyStore, StaticFiles};
+use static_files::{AnyStore, StaticFiles, StaticFilesBuilder};
 use utils::is_database_empty;
 use version::{
     create_db_version_file, ensure_version_is_openable, get_db_version, DatabaseVersionError,
@@ -48,27 +48,141 @@ pub struct Db {
     static_files: Arc<StaticFiles<AnyStore>>,
 }
 
+/// Builder for configuring and creating a [`Db`] instance.
+///
+/// Replaces the individual constructors (`Db::new`, `Db::in_memory`, etc.) with a
+/// unified fluent API that configures both MDBX and static files.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Production database
+/// let db = DbBuilder::new().write().build(path)?;
+///
+/// // In-memory (tests)
+/// let db = DbBuilder::new().in_memory().build_ephemeral()?;
+///
+/// // Custom static file tuning
+/// let db = DbBuilder::new()
+///     .write()
+///     .static_files(|sf| sf.write_buffer_size(1024 * 1024))
+///     .build(path)?;
+/// ```
+#[derive(Debug)]
+pub struct DbBuilder {
+    mdbx: DbEnvBuilder,
+    static_files: StaticFilesBuilder,
+    ephemeral: bool,
+}
+
+impl DbBuilder {
+    pub fn new() -> Self {
+        Self {
+            mdbx: DbEnvBuilder::new(),
+            static_files: StaticFilesBuilder::new(),
+            ephemeral: false,
+        }
+    }
+
+    /// Open in read-write mode (default is read-only).
+    pub fn write(mut self) -> Self {
+        self.mdbx = self.mdbx.write();
+        self
+    }
+
+    /// Set MDBX sync mode.
+    pub fn sync(mut self, mode: libmdbx::SyncMode) -> Self {
+        self.mdbx = self.mdbx.sync(mode);
+        self
+    }
+
+    /// Set maximum database size.
+    pub fn max_size(mut self, size: usize) -> Self {
+        self.mdbx = self.mdbx.max_size(size);
+        self
+    }
+
+    /// Set database growth step.
+    pub fn growth_step(mut self, step: isize) -> Self {
+        self.mdbx = self.mdbx.growth_step(step);
+        self
+    }
+
+    /// Use the page size from an existing database.
+    pub fn existing_page_size(mut self) -> Self {
+        self.mdbx = self.mdbx.existing_page_size();
+        self
+    }
+
+    /// Configure static files with a closure.
+    pub fn static_files(
+        mut self,
+        f: impl FnOnce(StaticFilesBuilder) -> StaticFilesBuilder,
+    ) -> Self {
+        self.static_files = f(self.static_files);
+        self
+    }
+
+    /// Mark as ephemeral (in-memory MDBX + in-memory static files).
+    /// Use `build_ephemeral()` instead of `build()`.
+    pub fn in_memory(mut self) -> Self {
+        self.ephemeral = true;
+        self.static_files = self.static_files.memory();
+        self
+    }
+
+    /// Build a file-backed database at the given path.
+    pub fn build<P: AsRef<Path>>(self, path: P) -> anyhow::Result<Db> {
+        let path = path.as_ref();
+        let version = Db::resolve_or_initialize_version(path)?;
+
+        let env = self.mdbx.build(path)?;
+        env.create_default_tables()?;
+
+        let static_files =
+            Arc::new(self.static_files.file(path.join("static")).build().with_context(|| {
+                format!("Opening static files at {}", path.join("static").display())
+            })?);
+
+        Db::recover_static_files(&env, &static_files)?;
+
+        Ok(Db { env, version, static_files })
+    }
+
+    /// Build an ephemeral in-memory database (tests, dev mode).
+    pub fn build_ephemeral(self) -> anyhow::Result<Db> {
+        let dir = tempfile::Builder::new().disable_cleanup(true).tempdir()?;
+        let path = dir.path();
+
+        let version = Db::resolve_or_initialize_version(path)?;
+
+        let env = mdbx::DbEnvBuilder::new()
+            .max_size(GIGABYTE * 10)
+            .growth_step((GIGABYTE / 2) as isize)
+            .sync(SyncMode::UtterlyNoSync)
+            .build(path)?;
+
+        env.create_default_tables()?;
+
+        let static_files = Arc::new(StaticFiles::in_memory());
+
+        Ok(Db { env, version, static_files })
+    }
+}
+
+impl Default for DbBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Db {
     /// Initialize the database at the given path and returning a handle to the its
     /// environment.
     ///
     /// This will create the default tables, if necessary.
     pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let path = path.as_ref();
-        let version = Self::resolve_or_initialize_version(path)?;
-
-        let env = DbEnvBuilder::new().write().build(path)?;
-        env.create_default_tables()?;
-
-        let static_path = path.join("static");
-        let static_files = Arc::new(
-            StaticFiles::open_file(&static_path)
-                .with_context(|| format!("Opening static files at {}", static_path.display()))?,
-        );
-
-        Self::recover_static_files(&env, &static_files)?;
-
-        Ok(Self { env, version, static_files })
+        DbBuilder::new().write().build(path)
     }
 
     /// Similar to [`init_db`] but will initialize a temporary database.
@@ -82,22 +196,7 @@ impl Db {
     /// shouldn't be used in the case where data persistence is required. For that, use
     /// [`init_db`].
     pub fn in_memory() -> anyhow::Result<Self> {
-        let dir = tempfile::Builder::new().disable_cleanup(true).tempdir()?;
-        let path = dir.path();
-
-        let version = Self::resolve_or_initialize_version(path)?;
-
-        let env = mdbx::DbEnvBuilder::new()
-            .max_size(GIGABYTE * 10)  // 10gb
-            .growth_step((GIGABYTE / 2) as isize) // 512mb
-            .sync(SyncMode::UtterlyNoSync)
-            .build(path)?;
-
-        env.create_default_tables()?;
-
-        let static_files = Arc::new(StaticFiles::in_memory());
-
-        Ok(Self { env, version, static_files })
+        DbBuilder::new().in_memory().build_ephemeral()
     }
 
     /// Opens an existing database at the given `path` with [`SyncMode::UtterlyNoSync`] for

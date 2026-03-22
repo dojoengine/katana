@@ -11,5 +11,5 @@ pub mod manifest;
 pub mod segment;
 pub mod store;
 
-pub use segment::StaticFiles;
-pub use store::{AnyStore, FileStore, MemoryStore, StaticStore};
+pub use segment::{StaticFiles, StaticFilesBuilder};
+pub use store::{AnyStore, FileStore, FileStoreConfig, MemoryStore, StaticStore};

@@ -2,7 +2,7 @@ use std::io;
 use std::path::Path;
 
 use super::column::{DataColumn, FixedColumn};
-use super::store::{AnyStore, FileStore, MemoryStore, StaticStore};
+use super::store::{AnyStore, FileStore, FileStoreConfig, MemoryStore, StaticStore};
 use crate::codecs::{Compress, Decompress};
 use crate::error::CodecError;
 
@@ -57,41 +57,121 @@ impl<S: StaticStore> std::fmt::Debug for StaticFiles<S> {
     }
 }
 
-// -- Constructors --
+// -- Builder --
+
+/// Builder for configuring and creating a [`StaticFiles`] instance.
+#[derive(Debug, Clone)]
+pub struct StaticFilesBuilder {
+    mode: StaticFilesMode,
+    file_store_config: FileStoreConfig,
+}
+
+#[derive(Debug, Clone)]
+enum StaticFilesMode {
+    File(std::path::PathBuf),
+    Memory,
+}
+
+impl StaticFilesBuilder {
+    /// Create a new builder. Defaults to in-memory mode.
+    pub fn new() -> Self {
+        Self { mode: StaticFilesMode::Memory, file_store_config: FileStoreConfig::default() }
+    }
+
+    /// Use file-backed storage at the given directory.
+    pub fn file(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.mode = StaticFilesMode::File(path.into());
+        self
+    }
+
+    /// Use in-memory storage (tests, ephemeral mode).
+    pub fn memory(mut self) -> Self {
+        self.mode = StaticFilesMode::Memory;
+        self
+    }
+
+    /// Set the initial write buffer capacity per column (default: 64KB).
+    pub fn write_buffer_size(mut self, size: usize) -> Self {
+        self.file_store_config.write_buffer_size = size;
+        self
+    }
+
+    /// Set the auto-flush threshold per column (default: 256KB).
+    pub fn flush_threshold(mut self, threshold: usize) -> Self {
+        self.file_store_config.flush_threshold = threshold;
+        self
+    }
+
+    /// Disable mmap for reads (fall back to pread only).
+    pub fn no_mmap(mut self) -> Self {
+        self.file_store_config.use_mmap = false;
+        self
+    }
+
+    /// Build the static files instance.
+    pub fn build(self) -> io::Result<StaticFiles<AnyStore>> {
+        match self.mode {
+            StaticFilesMode::File(base_path) => {
+                let blocks_path = base_path.join("blocks");
+                let txs_path = base_path.join("transactions");
+                std::fs::create_dir_all(&blocks_path)?;
+                std::fs::create_dir_all(&txs_path)?;
+
+                let cfg = &self.file_store_config;
+                let open = |dir: &Path, name: &str| -> io::Result<AnyStore> {
+                    Ok(AnyStore::File(FileStore::open_with_config(&dir.join(name), cfg.clone())?))
+                };
+
+                let blocks = BlockSegment {
+                    block_hashes: FixedColumn::new(open(&blocks_path, "block_hashes.dat")?, 32),
+                    headers: DataColumn::new(open(&blocks_path, "headers.dat")?),
+                    block_body_indices: DataColumn::new(open(
+                        &blocks_path,
+                        "block_body_indices.dat",
+                    )?),
+                    block_state_updates: DataColumn::new(open(
+                        &blocks_path,
+                        "block_state_updates.dat",
+                    )?),
+                };
+
+                let transactions = TxSegment {
+                    tx_hashes: FixedColumn::new(open(&txs_path, "tx_hashes.dat")?, 32),
+                    tx_blocks: FixedColumn::new(open(&txs_path, "tx_blocks.dat")?, 8),
+                    transactions: DataColumn::new(open(&txs_path, "transactions.dat")?),
+                    receipts: DataColumn::new(open(&txs_path, "receipts.dat")?),
+                    tx_traces: DataColumn::new(open(&txs_path, "tx_traces.dat")?),
+                };
+
+                Ok(StaticFiles { blocks, transactions })
+            }
+            StaticFilesMode::Memory => Ok(StaticFiles::new_in_memory()),
+        }
+    }
+}
+
+impl Default for StaticFilesBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// -- Constructors (convenience methods delegating to builder) --
 
 impl StaticFiles<AnyStore> {
     /// Open file-backed static files at the given directory (production).
     pub fn open_file(base_path: &Path) -> io::Result<Self> {
-        let blocks_path = base_path.join("blocks");
-        let txs_path = base_path.join("transactions");
-
-        std::fs::create_dir_all(&blocks_path)?;
-        std::fs::create_dir_all(&txs_path)?;
-
-        let open = |dir: &Path, name: &str| -> io::Result<AnyStore> {
-            Ok(AnyStore::File(FileStore::open(&dir.join(name))?))
-        };
-
-        let blocks = BlockSegment {
-            block_hashes: FixedColumn::new(open(&blocks_path, "block_hashes.dat")?, 32),
-            headers: DataColumn::new(open(&blocks_path, "headers.dat")?),
-            block_body_indices: DataColumn::new(open(&blocks_path, "block_body_indices.dat")?),
-            block_state_updates: DataColumn::new(open(&blocks_path, "block_state_updates.dat")?),
-        };
-
-        let transactions = TxSegment {
-            tx_hashes: FixedColumn::new(open(&txs_path, "tx_hashes.dat")?, 32),
-            tx_blocks: FixedColumn::new(open(&txs_path, "tx_blocks.dat")?, 8),
-            transactions: DataColumn::new(open(&txs_path, "transactions.dat")?),
-            receipts: DataColumn::new(open(&txs_path, "receipts.dat")?),
-            tx_traces: DataColumn::new(open(&txs_path, "tx_traces.dat")?),
-        };
-
-        Ok(Self { blocks, transactions })
+        StaticFilesBuilder::new().file(base_path).build()
     }
 
     /// Create in-memory static files (tests, ephemeral mode).
     pub fn in_memory() -> Self {
+        StaticFilesBuilder::new().memory().build().expect("in-memory cannot fail")
+    }
+
+    /// Internal constructor for in-memory static files (avoids infinite recursion
+    /// with the builder).
+    fn new_in_memory() -> Self {
         let mem = || AnyStore::Memory(MemoryStore::new());
 
         let blocks = BlockSegment {

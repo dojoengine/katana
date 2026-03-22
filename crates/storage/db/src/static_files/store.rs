@@ -41,6 +41,24 @@ pub trait StaticStore: Send + Sync + 'static {
     }
 }
 
+/// Configuration for a [`FileStore`] instance.
+#[derive(Debug, Clone)]
+pub struct FileStoreConfig {
+    /// Initial write buffer capacity in bytes (default: 64KB).
+    pub write_buffer_size: usize,
+    /// Auto-flush threshold in bytes — buffer is flushed when it exceeds this (default: 256KB).
+    pub flush_threshold: usize,
+    /// Whether to use mmap for reads (default: true). Disable for debugging or platforms without
+    /// mmap.
+    pub use_mmap: bool,
+}
+
+impl Default for FileStoreConfig {
+    fn default() -> Self {
+        Self { write_buffer_size: 64 * 1024, flush_threshold: 256 * 1024, use_mmap: true }
+    }
+}
+
 /// File-backed store using `pread`/`pwrite` for concurrent I/O, with mmap for reads.
 ///
 /// - Reads use mmap when the data is within the mapped region, falling back to pread for data
@@ -57,6 +75,7 @@ pub trait StaticStore: Send + Sync + 'static {
 /// - The write buffer starts at byte offset `buf_start` in the file. `buf_start + buf.len()` always
 ///   equals `cached_len`.
 pub struct FileStore {
+    config: FileStoreConfig,
     file: File,
     /// Serializes append writes and protects the write buffer.
     write_state: Mutex<WriteState>,
@@ -76,15 +95,21 @@ struct WriteState {
 }
 
 impl FileStore {
-    /// Open or create a file at the given path. If the file already exists, its contents
-    /// are preserved and an mmap is created covering the existing data. The write buffer
-    /// starts empty at the current file length.
+    /// Open or create a file at the given path with default configuration.
+    /// See [`FileStore::open_with_config`] for custom settings.
     pub fn open(path: &Path) -> io::Result<Self> {
+        Self::open_with_config(path, FileStoreConfig::default())
+    }
+
+    /// Open or create a file at the given path with the provided configuration.
+    /// If the file already exists, its contents are preserved and an mmap is created
+    /// covering the existing data. The write buffer starts empty at the current file length.
+    pub fn open_with_config(path: &Path, config: FileStoreConfig) -> io::Result<Self> {
         let file =
             OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)?;
         let len = file.metadata()?.len();
 
-        let (mmap, mmap_len) = if len > 0 {
+        let (mmap, mmap_len) = if config.use_mmap && len > 0 {
             let m = unsafe { memmap2::Mmap::map(&file)? };
             let ml = m.len() as u64;
             (Some(m), ml)
@@ -95,12 +120,13 @@ impl FileStore {
         Ok(Self {
             file,
             write_state: Mutex::new(WriteState {
-                buf: Vec::with_capacity(64 * 1024),
+                buf: Vec::with_capacity(config.write_buffer_size),
                 buf_start: len,
             }),
             cached_len: AtomicU64::new(len),
             mmap: RwLock::new(mmap),
             mmap_len: AtomicU64::new(mmap_len),
+            config,
         })
     }
 
@@ -159,7 +185,7 @@ mod platform {
     use super::FileStore;
 
     pub fn pread(store: &FileStore, offset: u64, len: usize) -> io::Result<Vec<u8>> {
-        let _guard = store.write_lock.lock();
+        let _guard = store.write_state.lock();
         let file = &store.file;
         let file = unsafe { &mut *(&*file as *const std::fs::File as *mut std::fs::File) };
         file.seek(SeekFrom::Start(offset))?;
@@ -182,7 +208,7 @@ impl StaticStore for FileStore {
         let end = offset + len as u64;
 
         // Try mmap first (fast path: zero-copy from kernel page cache).
-        if end <= self.mmap_len.load(Ordering::Acquire) {
+        if self.config.use_mmap && end <= self.mmap_len.load(Ordering::Acquire) {
             let guard = self.mmap.read();
             if let Some(ref mmap) = *guard {
                 if end <= mmap.len() as u64 {
@@ -214,7 +240,7 @@ impl StaticStore for FileStore {
         self.cached_len.store(offset + data.len() as u64, Ordering::Release);
 
         // Auto-flush when buffer gets large.
-        if ws.buf.len() >= 256 * 1024 {
+        if ws.buf.len() >= self.config.flush_threshold {
             platform::pwrite(self, &ws.buf, ws.buf_start)?;
             ws.buf_start += ws.buf.len() as u64;
             ws.buf.clear();
