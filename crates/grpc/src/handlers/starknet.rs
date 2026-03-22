@@ -243,28 +243,15 @@ where
             .try_into()?;
 
         let class = self.api.class_at_hash(block_id, class_hash).await.into_grpc_result()?;
-        let json = serde_json::to_string(&class)
+        let json = serde_json::to_vec(&class)
             .map_err(|e| Status::internal(format!("failed to serialize class: {e}")))?;
 
         let result = match class {
             katana_rpc_types::Class::Sierra(_) => {
-                crate::protos::starknet::get_class_response::Result::ContractClass(
-                    crate::protos::types::ContractClass {
-                        sierra_program: Vec::new(),
-                        contract_class_version: String::new(),
-                        entry_points_by_type: None,
-                        abi: json,
-                    },
-                )
+                crate::protos::starknet::get_class_response::Result::ContractClass(json)
             }
             katana_rpc_types::Class::Legacy(_) => {
-                crate::protos::starknet::get_class_response::Result::DeprecatedContractClass(
-                    crate::protos::types::DeprecatedContractClass {
-                        program: String::new(),
-                        entry_points_by_type: None,
-                        abi: json,
-                    },
-                )
+                crate::protos::starknet::get_class_response::Result::DeprecatedContractClass(json)
             }
         };
 
@@ -301,27 +288,16 @@ where
 
         let class =
             self.api.class_at_address(block_id, contract_address).await.into_grpc_result()?;
-        let json = serde_json::to_string(&class)
+        let json = serde_json::to_vec(&class)
             .map_err(|e| Status::internal(format!("failed to serialize class: {e}")))?;
 
         let result = match class {
             katana_rpc_types::Class::Sierra(_) => {
-                crate::protos::starknet::get_class_at_response::Result::ContractClass(
-                    crate::protos::types::ContractClass {
-                        sierra_program: Vec::new(),
-                        contract_class_version: String::new(),
-                        entry_points_by_type: None,
-                        abi: json,
-                    },
-                )
+                crate::protos::starknet::get_class_at_response::Result::ContractClass(json)
             }
             katana_rpc_types::Class::Legacy(_) => {
                 crate::protos::starknet::get_class_at_response::Result::DeprecatedContractClass(
-                    crate::protos::types::DeprecatedContractClass {
-                        program: String::new(),
-                        entry_points_by_type: None,
-                        abi: json,
-                    },
+                    json,
                 )
             }
         };

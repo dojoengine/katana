@@ -187,8 +187,8 @@ pub mod grpc {
 
     /// Deserializes a `Class` from the gRPC response.
     ///
-    /// The server serializes the full class as JSON into the `abi` field of the
-    /// proto message (because the class types are not compatible with non-human-
+    /// The server serializes the full class as JSON bytes into the oneof
+    /// variant (because the class types are not compatible with non-human-
     /// readable serialization formats).
     fn class_from_proto(resp: katana_grpc::proto::GetClassResponse) -> anyhow::Result<Class> {
         use katana_grpc::proto::get_class_response::Result as ClassResult;
@@ -197,11 +197,12 @@ pub mod grpc {
             resp.result.ok_or_else(|| anyhow::anyhow!("missing class result in gRPC response"))?;
 
         let json = match &result {
-            ClassResult::ContractClass(c) => &c.abi,
-            ClassResult::DeprecatedContractClass(c) => &c.abi,
+            ClassResult::ContractClass(bytes) | ClassResult::DeprecatedContractClass(bytes) => {
+                bytes
+            }
         };
 
-        let class: Class = serde_json::from_str(json)?;
+        let class: Class = serde_json::from_slice(json)?;
         Ok(class)
     }
 }
