@@ -135,6 +135,8 @@ impl FullNodeArgs {
     fn sync_source(&self) -> Option<SyncSource> {
         if let Some(ref url) = self.sync.rpc {
             Some(SyncSource::JsonRpc(url.clone()))
+        } else if let Some(ref url) = self.sync.grpc {
+            Some(SyncSource::Grpc(url.clone()))
         } else {
             self.sync.gateway.clone().map(SyncSource::Gateway)
         }

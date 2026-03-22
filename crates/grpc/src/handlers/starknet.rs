@@ -243,18 +243,10 @@ where
             .try_into()?;
 
         let class = self.api.class_at_hash(block_id, class_hash).await.into_grpc_result()?;
+        let json = serde_json::to_string(&class)
+            .map_err(|e| Status::internal(format!("failed to serialize class: {e}")))?;
 
-        // Convert class to proto - simplified for now
-        Ok(Response::new(GetClassResponse {
-            result: Some(crate::protos::starknet::get_class_response::Result::ContractClass(
-                crate::protos::types::ContractClass {
-                    sierra_program: Vec::new(), // Would need full conversion
-                    contract_class_version: String::new(),
-                    entry_points_by_type: None,
-                    abi: serde_json::to_string(&class).unwrap_or_default(),
-                },
-            )),
-        }))
+        Ok(Response::new(class_to_proto_response::<GetClassResponse>(class, json)))
     }
 
     async fn get_class_hash_at(
@@ -287,18 +279,10 @@ where
 
         let class =
             self.api.class_at_address(block_id, contract_address).await.into_grpc_result()?;
+        let json = serde_json::to_string(&class)
+            .map_err(|e| Status::internal(format!("failed to serialize class: {e}")))?;
 
-        // Convert class to proto - simplified for now
-        Ok(Response::new(GetClassAtResponse {
-            result: Some(crate::protos::starknet::get_class_at_response::Result::ContractClass(
-                crate::protos::types::ContractClass {
-                    sierra_program: Vec::new(),
-                    contract_class_version: String::new(),
-                    entry_points_by_type: None,
-                    abi: serde_json::to_string(&class).unwrap_or_default(),
-                },
-            )),
-        }))
+        Ok(Response::new(class_to_proto_response::<GetClassAtResponse>(class, json)))
     }
 
     async fn get_block_transaction_count(
@@ -586,5 +570,82 @@ fn execution_result_to_string(exec: &katana_rpc_types::ExecutionResult) -> Strin
     match exec {
         katana_rpc_types::ExecutionResult::Succeeded => "SUCCEEDED".to_string(),
         katana_rpc_types::ExecutionResult::Reverted { .. } => "REVERTED".to_string(),
+    }
+}
+
+/// Helper trait for building class responses from either `GetClassResponse` or
+/// `GetClassAtResponse`, since both have the same shape.
+trait ClassProtoResponse: Sized {
+    fn from_sierra(json: String) -> Self;
+    fn from_legacy(json: String) -> Self;
+}
+
+impl ClassProtoResponse for GetClassResponse {
+    fn from_sierra(json: String) -> Self {
+        GetClassResponse {
+            result: Some(crate::protos::starknet::get_class_response::Result::ContractClass(
+                crate::protos::types::ContractClass {
+                    sierra_program: Vec::new(),
+                    contract_class_version: String::new(),
+                    entry_points_by_type: None,
+                    abi: json,
+                },
+            )),
+        }
+    }
+
+    fn from_legacy(json: String) -> Self {
+        GetClassResponse {
+            result: Some(
+                crate::protos::starknet::get_class_response::Result::DeprecatedContractClass(
+                    crate::protos::types::DeprecatedContractClass {
+                        program: String::new(),
+                        entry_points_by_type: None,
+                        abi: json,
+                    },
+                ),
+            ),
+        }
+    }
+}
+
+impl ClassProtoResponse for GetClassAtResponse {
+    fn from_sierra(json: String) -> Self {
+        GetClassAtResponse {
+            result: Some(crate::protos::starknet::get_class_at_response::Result::ContractClass(
+                crate::protos::types::ContractClass {
+                    sierra_program: Vec::new(),
+                    contract_class_version: String::new(),
+                    entry_points_by_type: None,
+                    abi: json,
+                },
+            )),
+        }
+    }
+
+    fn from_legacy(json: String) -> Self {
+        GetClassAtResponse {
+            result: Some(
+                crate::protos::starknet::get_class_at_response::Result::DeprecatedContractClass(
+                    crate::protos::types::DeprecatedContractClass {
+                        program: String::new(),
+                        entry_points_by_type: None,
+                        abi: json,
+                    },
+                ),
+            ),
+        }
+    }
+}
+
+/// Converts a `Class` into the appropriate proto response, using the JSON
+/// serialization of the class as the payload.
+fn class_to_proto_response<R: ClassProtoResponse>(
+    class: katana_rpc_types::Class,
+    json: String,
+) -> R {
+    match class {
+        katana_rpc_types::Class::Sierra(_) => R::from_sierra(json),
+        katana_rpc_types::Class::Legacy(_) => R::from_legacy(json),
     }
 }

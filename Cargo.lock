@@ -6926,6 +6926,7 @@ dependencies = [
  "katana-db",
  "katana-gateway-client",
  "katana-gateway-types",
+ "katana-grpc",
  "katana-messaging",
  "katana-pool",
  "katana-primitives",
@@ -6942,6 +6943,7 @@ dependencies = [
  "starknet-types-core 0.2.3",
  "thiserror 1.0.69",
  "tokio",
+ "tonic 0.11.0",
  "tracing",
  "url",
 ]

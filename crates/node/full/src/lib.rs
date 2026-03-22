@@ -33,7 +33,7 @@ use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, Starkn
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
-use katana_stage::blocks::{BatchBlockDownloader, JsonRpcBlockDownloader};
+use katana_stage::blocks::{BatchBlockDownloader, GrpcBlockDownloader, JsonRpcBlockDownloader};
 use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
 use katana_stage::{Blocks, Classes, IndexHistory, StateTrie};
 use katana_tasks::TaskManager;
@@ -111,6 +111,8 @@ pub enum SyncSource {
     Gateway(Url),
     /// JSON-RPC endpoint URL.
     JsonRpc(Url),
+    /// gRPC endpoint URL.
+    Grpc(Url),
 }
 
 #[derive(Debug)]
@@ -198,31 +200,49 @@ impl Node {
             Network::Sepolia => katana_primitives::chain::ChainId::SEPOLIA,
         };
 
-        if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync.source {
-            let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
-            let block_downloader =
-                JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), batch_size);
-            pipeline.add_stage(Blocks::new(
-                storage_provider.clone(),
-                block_downloader,
-                chain_id,
-                task_spawner.clone(),
-            ));
+        match config.sync.source {
+            Some(SyncSource::JsonRpc(ref rpc_url)) => {
+                let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
+                let block_downloader =
+                    JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), batch_size);
+                pipeline.add_stage(Blocks::new(
+                    storage_provider.clone(),
+                    block_downloader,
+                    chain_id,
+                    task_spawner.clone(),
+                ));
 
-            let class_downloader = JsonRpcClassDownloader::new(rpc_client, batch_size);
-            pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
-        } else {
-            let block_downloader =
-                BatchBlockDownloader::new_gateway(gateway_client.clone(), batch_size);
-            pipeline.add_stage(Blocks::new(
-                storage_provider.clone(),
-                block_downloader,
-                chain_id,
-                task_spawner.clone(),
-            ));
+                let class_downloader = JsonRpcClassDownloader::new(rpc_client, batch_size);
+                pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            }
+            Some(SyncSource::Grpc(ref grpc_url)) => {
+                let block_downloader = GrpcBlockDownloader::new(grpc_url.to_string(), batch_size);
+                pipeline.add_stage(Blocks::new(
+                    storage_provider.clone(),
+                    block_downloader,
+                    chain_id,
+                    task_spawner.clone(),
+                ));
 
-            let class_downloader = GatewayClassDownloader::new(gateway_client.clone(), batch_size);
-            pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+                // gRPC class downloader not yet implemented; fall back to gateway
+                let class_downloader =
+                    GatewayClassDownloader::new(gateway_client.clone(), batch_size);
+                pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            }
+            _ => {
+                let block_downloader =
+                    BatchBlockDownloader::new_gateway(gateway_client.clone(), batch_size);
+                pipeline.add_stage(Blocks::new(
+                    storage_provider.clone(),
+                    block_downloader,
+                    chain_id,
+                    task_spawner.clone(),
+                ));
+
+                let class_downloader =
+                    GatewayClassDownloader::new(gateway_client.clone(), batch_size);
+                pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            }
         }
         pipeline.add_stage(IndexHistory::new(storage_provider.clone(), task_spawner.clone()));
         if config.trie.compute {
