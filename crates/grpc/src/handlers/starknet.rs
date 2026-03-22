@@ -13,12 +13,11 @@ use tonic::{Request, Response, Status};
 
 use crate::conversion::{block_id_from_proto, confirmed_block_id_from_proto};
 use crate::error::IntoGrpcResult;
-use crate::protos::starknet::get_class_response;
 use crate::protos::starknet::starknet_server::Starknet;
 use crate::protos::starknet::starknet_trace_server::StarknetTrace;
 use crate::protos::starknet::starknet_write_server::StarknetWrite;
 use crate::protos::starknet::{
-    AddDeclareTransactionRequest, AddDeclareTransactionResponse,
+    get_class_response, AddDeclareTransactionRequest, AddDeclareTransactionResponse,
     AddDeployAccountTransactionRequest, AddDeployAccountTransactionResponse,
     AddInvokeTransactionRequest, AddInvokeTransactionResponse, BlockHashAndNumberRequest,
     BlockHashAndNumberResponse, BlockNumberRequest, BlockNumberResponse, CallRequest, CallResponse,
