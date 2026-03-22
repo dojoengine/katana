@@ -197,9 +197,9 @@ message GetClassRequest {
 message GetClassResponse {
     // JSON-serialized class bytes. The class types are not compatible with
     // non-human-readable serialization, so we use JSON here.
-    oneof result {
-        bytes contract_class = 1;
-        bytes deprecated_contract_class = 2;
+    oneof Class {
+        bytes sierra = 1;
+        bytes legacy = 2;
     }
 }
 

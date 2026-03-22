@@ -13,6 +13,7 @@ use tonic::{Request, Response, Status};
 
 use crate::conversion::{block_id_from_proto, confirmed_block_id_from_proto};
 use crate::error::IntoGrpcResult;
+use crate::protos::starknet::get_class_response;
 use crate::protos::starknet::starknet_server::Starknet;
 use crate::protos::starknet::starknet_trace_server::StarknetTrace;
 use crate::protos::starknet::starknet_write_server::StarknetWrite;
@@ -246,16 +247,12 @@ where
         let json = serde_json::to_vec(&class)
             .map_err(|e| Status::internal(format!("failed to serialize class: {e}")))?;
 
-        let result = match class {
-            katana_rpc_types::Class::Sierra(_) => {
-                crate::protos::starknet::get_class_response::Result::ContractClass(json)
-            }
-            katana_rpc_types::Class::Legacy(_) => {
-                crate::protos::starknet::get_class_response::Result::DeprecatedContractClass(json)
-            }
+        let serialized = match class {
+            katana_rpc_types::Class::Sierra(_) => get_class_response::Class::Sierra(json),
+            katana_rpc_types::Class::Legacy(_) => get_class_response::Class::Legacy(json),
         };
 
-        Ok(Response::new(GetClassResponse { result: Some(result) }))
+        Ok(Response::new(GetClassResponse { class: Some(serialized) }))
     }
 
     async fn get_class_hash_at(

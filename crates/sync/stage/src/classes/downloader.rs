@@ -191,19 +191,16 @@ pub mod grpc {
     /// variant (because the class types are not compatible with non-human-
     /// readable serialization formats).
     fn class_from_proto(resp: katana_grpc::proto::GetClassResponse) -> anyhow::Result<Class> {
-        use katana_grpc::proto::get_class_response::Result as ClassResult;
+        use katana_grpc::proto::get_class_response::Class as ClassResult;
 
         let result =
-            resp.result.ok_or_else(|| anyhow::anyhow!("missing class result in gRPC response"))?;
+            resp.class.ok_or_else(|| anyhow::anyhow!("missing class result in gRPC response"))?;
 
         let json = match &result {
-            ClassResult::ContractClass(bytes) | ClassResult::DeprecatedContractClass(bytes) => {
-                bytes
-            }
+            ClassResult::Sierra(bytes) | ClassResult::Legacy(bytes) => bytes,
         };
 
-        let class: Class = serde_json::from_slice(json)?;
-        Ok(class)
+        Ok(serde_json::from_slice(json)?)
     }
 }
 
