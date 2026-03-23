@@ -93,6 +93,21 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+/// Print database summary: latest block number and table entry counts.
+fn print_db_info(db: &Db) {
+    let tx = db.tx().expect("failed to open read transaction");
+    let mut cursor = tx.cursor::<tables::Headers>().expect("failed to open Headers cursor");
+    if let Ok(Some((last_block, _))) = cursor.last() {
+        println!("Latest block: {last_block}");
+    }
+    if let Ok(n) = tx.entries::<tables::Receipts>() {
+        println!("Receipts entries: {n}");
+    }
+    if let Ok(n) = tx.entries::<tables::Transactions>() {
+        println!("Transactions entries: {n}");
+    }
+}
+
 // ── train subcommand ────────────────────────────────────────────────────────
 
 fn cmd_train(
@@ -106,6 +121,7 @@ fn cmd_train(
     std::fs::create_dir_all(output_dir)?;
     println!("Opening database at {} (read-only)...", path.display());
     let db = Db::open_ro(path)?;
+    print_db_info(&db);
     let mut rng = StdRng::seed_from_u64(seed);
 
     for (name, filename, samples) in [
@@ -174,6 +190,7 @@ fn cmd_pareto(
     std::fs::create_dir_all(output_dir)?;
     println!("Opening database at {} (read-only)...", path.display());
     let db = Db::open_ro(path)?;
+    print_db_info(&db);
 
     // ── Axis definitions ────────────────────────────────────────────────
     let ranges = vec![
