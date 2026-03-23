@@ -259,14 +259,17 @@ impl Node {
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: ExecutionFlags::default(),
             versioned_constant_overrides: None,
-            cache: katana_rpc_server::starknet::RpcCacheConfig::from_cli(
+            #[cfg(feature = "cartridge")]
+            paymaster: None,
+        };
+
+        let cache = katana_rpc_server::starknet::RpcCache::new(
+            &katana_rpc_server::starknet::RpcCacheConfig::from_cli(
                 config.rpc.cache_max_blocks,
                 config.rpc.cache_max_transactions,
                 config.rpc.cache_max_classes,
             ),
-            #[cfg(feature = "cartridge")]
-            paymaster: None,
-        };
+        );
 
         let chain_spec = match config.network {
             Network::Mainnet => ChainSpec::mainnet(),
@@ -281,6 +284,7 @@ impl Node {
             GasPriceOracle::create_for_testing(),
             starknet_api_cfg,
             storage_provider.clone(),
+            cache,
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

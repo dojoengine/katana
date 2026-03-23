@@ -21,7 +21,7 @@ pub const DEFAULT_CACHE_MAX_CLASSES: usize = 256;
 /// Configuration for the RPC response cache.
 ///
 /// Each field controls the maximum number of entries for that cache type.
-/// Set a field to 0 to disable that specific cache.
+/// Setting a field to 0 effectively disables that cache — inserts are immediately evicted.
 #[derive(Debug, Clone)]
 pub struct RpcCacheConfig {
     /// Maximum number of cached block-with-txs entries.
@@ -83,48 +83,28 @@ impl Default for RpcCacheConfig {
 /// data is never cached. Cache keys are normalized: block-keyed data uses [`BlockNumber`],
 /// transaction-keyed data uses [`TxHash`], and class-keyed data uses
 /// `(ClassHash, BlockNumber)`.
+///
+/// When a cache is created with capacity 0, inserts are immediately evicted (no-op).
 #[derive(Debug, Clone)]
 pub struct RpcCache {
     inner: Arc<RpcCacheInner>,
 }
 
 struct RpcCacheInner {
-    blocks_with_txs: Option<Cache<BlockNumber, BlockWithTxs>>,
-    blocks_with_tx_hashes: Option<Cache<BlockNumber, BlockWithTxHashes>>,
-    blocks_with_receipts: Option<Cache<BlockNumber, BlockWithReceipts>>,
-    transactions: Option<Cache<TxHash, RpcTxWithHash>>,
-    receipts: Option<Cache<TxHash, TxReceiptWithBlockInfo>>,
-    classes: Option<Cache<(ClassHash, BlockNumber), Class>>,
-    state_updates: Option<Cache<BlockNumber, ConfirmedStateUpdate>>,
-    traces: Option<Cache<TxHash, TxTrace>>,
-    block_traces: Option<Cache<BlockNumber, Vec<TxTraceWithHash>>>,
+    blocks_with_txs: Cache<BlockNumber, BlockWithTxs>,
+    blocks_with_tx_hashes: Cache<BlockNumber, BlockWithTxHashes>,
+    blocks_with_receipts: Cache<BlockNumber, BlockWithReceipts>,
+    transactions: Cache<TxHash, RpcTxWithHash>,
+    receipts: Cache<TxHash, TxReceiptWithBlockInfo>,
+    classes: Cache<(ClassHash, BlockNumber), Class>,
+    state_updates: Cache<BlockNumber, ConfirmedStateUpdate>,
+    traces: Cache<TxHash, TxTrace>,
+    block_traces: Cache<BlockNumber, Vec<TxTraceWithHash>>,
 }
 
 impl std::fmt::Debug for RpcCacheInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RpcCacheInner")
-            .field("blocks_with_txs", &self.blocks_with_txs.as_ref().map(|_| ".."))
-            .field("blocks_with_tx_hashes", &self.blocks_with_tx_hashes.as_ref().map(|_| ".."))
-            .field("blocks_with_receipts", &self.blocks_with_receipts.as_ref().map(|_| ".."))
-            .field("transactions", &self.transactions.as_ref().map(|_| ".."))
-            .field("receipts", &self.receipts.as_ref().map(|_| ".."))
-            .field("classes", &self.classes.as_ref().map(|_| ".."))
-            .field("state_updates", &self.state_updates.as_ref().map(|_| ".."))
-            .field("traces", &self.traces.as_ref().map(|_| ".."))
-            .field("block_traces", &self.block_traces.as_ref().map(|_| ".."))
-            .finish()
-    }
-}
-
-fn make_cache<K, V>(size: usize) -> Option<Cache<K, V>>
-where
-    K: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-    V: Clone + Send + Sync + 'static,
-{
-    if size > 0 {
-        Some(Cache::new(size))
-    } else {
-        None
+        f.debug_struct("RpcCacheInner").finish_non_exhaustive()
     }
 }
 
@@ -133,15 +113,15 @@ impl RpcCache {
     pub fn new(config: &RpcCacheConfig) -> Self {
         Self {
             inner: Arc::new(RpcCacheInner {
-                blocks_with_txs: make_cache(config.max_blocks_with_txs),
-                blocks_with_tx_hashes: make_cache(config.max_blocks_with_tx_hashes),
-                blocks_with_receipts: make_cache(config.max_blocks_with_receipts),
-                transactions: make_cache(config.max_transactions),
-                receipts: make_cache(config.max_receipts),
-                classes: make_cache(config.max_classes),
-                state_updates: make_cache(config.max_state_updates),
-                traces: make_cache(config.max_traces),
-                block_traces: make_cache(config.max_block_traces),
+                blocks_with_txs: Cache::new(config.max_blocks_with_txs),
+                blocks_with_tx_hashes: Cache::new(config.max_blocks_with_tx_hashes),
+                blocks_with_receipts: Cache::new(config.max_blocks_with_receipts),
+                transactions: Cache::new(config.max_transactions),
+                receipts: Cache::new(config.max_receipts),
+                classes: Cache::new(config.max_classes),
+                state_updates: Cache::new(config.max_state_updates),
+                traces: Cache::new(config.max_traces),
+                block_traces: Cache::new(config.max_block_traces),
             }),
         }
     }
@@ -149,108 +129,90 @@ impl RpcCache {
     // --- Blocks with transactions ---
 
     pub fn get_block_with_txs(&self, block_num: BlockNumber) -> Option<BlockWithTxs> {
-        self.inner.blocks_with_txs.as_ref()?.get(&block_num)
+        self.inner.blocks_with_txs.get(&block_num)
     }
 
     pub fn insert_block_with_txs(&self, block_num: BlockNumber, block: BlockWithTxs) {
-        if let Some(cache) = &self.inner.blocks_with_txs {
-            cache.insert(block_num, block);
-        }
+        self.inner.blocks_with_txs.insert(block_num, block);
     }
 
     // --- Blocks with transaction hashes ---
 
     pub fn get_block_with_tx_hashes(&self, block_num: BlockNumber) -> Option<BlockWithTxHashes> {
-        self.inner.blocks_with_tx_hashes.as_ref()?.get(&block_num)
+        self.inner.blocks_with_tx_hashes.get(&block_num)
     }
 
     pub fn insert_block_with_tx_hashes(&self, block_num: BlockNumber, block: BlockWithTxHashes) {
-        if let Some(cache) = &self.inner.blocks_with_tx_hashes {
-            cache.insert(block_num, block);
-        }
+        self.inner.blocks_with_tx_hashes.insert(block_num, block);
     }
 
     // --- Blocks with receipts ---
 
     pub fn get_block_with_receipts(&self, block_num: BlockNumber) -> Option<BlockWithReceipts> {
-        self.inner.blocks_with_receipts.as_ref()?.get(&block_num)
+        self.inner.blocks_with_receipts.get(&block_num)
     }
 
     pub fn insert_block_with_receipts(&self, block_num: BlockNumber, block: BlockWithReceipts) {
-        if let Some(cache) = &self.inner.blocks_with_receipts {
-            cache.insert(block_num, block);
-        }
+        self.inner.blocks_with_receipts.insert(block_num, block);
     }
 
     // --- Transactions ---
 
     pub fn get_transaction(&self, hash: TxHash) -> Option<RpcTxWithHash> {
-        self.inner.transactions.as_ref()?.get(&hash)
+        self.inner.transactions.get(&hash)
     }
 
     pub fn insert_transaction(&self, hash: TxHash, tx: RpcTxWithHash) {
-        if let Some(cache) = &self.inner.transactions {
-            cache.insert(hash, tx);
-        }
+        self.inner.transactions.insert(hash, tx);
     }
 
     // --- Receipts ---
 
     pub fn get_receipt(&self, hash: TxHash) -> Option<TxReceiptWithBlockInfo> {
-        self.inner.receipts.as_ref()?.get(&hash)
+        self.inner.receipts.get(&hash)
     }
 
     pub fn insert_receipt(&self, hash: TxHash, receipt: TxReceiptWithBlockInfo) {
-        if let Some(cache) = &self.inner.receipts {
-            cache.insert(hash, receipt);
-        }
+        self.inner.receipts.insert(hash, receipt);
     }
 
     // --- Classes ---
 
     pub fn get_class(&self, key: (ClassHash, BlockNumber)) -> Option<Class> {
-        self.inner.classes.as_ref()?.get(&key)
+        self.inner.classes.get(&key)
     }
 
     pub fn insert_class(&self, key: (ClassHash, BlockNumber), class: Class) {
-        if let Some(cache) = &self.inner.classes {
-            cache.insert(key, class);
-        }
+        self.inner.classes.insert(key, class);
     }
 
     // --- State updates ---
 
     pub fn get_state_update(&self, block_num: BlockNumber) -> Option<ConfirmedStateUpdate> {
-        self.inner.state_updates.as_ref()?.get(&block_num)
+        self.inner.state_updates.get(&block_num)
     }
 
     pub fn insert_state_update(&self, block_num: BlockNumber, update: ConfirmedStateUpdate) {
-        if let Some(cache) = &self.inner.state_updates {
-            cache.insert(block_num, update);
-        }
+        self.inner.state_updates.insert(block_num, update);
     }
 
     // --- Transaction traces ---
 
     pub fn get_trace(&self, hash: TxHash) -> Option<TxTrace> {
-        self.inner.traces.as_ref()?.get(&hash)
+        self.inner.traces.get(&hash)
     }
 
     pub fn insert_trace(&self, hash: TxHash, trace: TxTrace) {
-        if let Some(cache) = &self.inner.traces {
-            cache.insert(hash, trace);
-        }
+        self.inner.traces.insert(hash, trace);
     }
 
     // --- Block traces ---
 
     pub fn get_block_traces(&self, block_num: BlockNumber) -> Option<Vec<TxTraceWithHash>> {
-        self.inner.block_traces.as_ref()?.get(&block_num)
+        self.inner.block_traces.get(&block_num)
     }
 
     pub fn insert_block_traces(&self, block_num: BlockNumber, traces: Vec<TxTraceWithHash>) {
-        if let Some(cache) = &self.inner.block_traces {
-            cache.insert(block_num, traces);
-        }
+        self.inner.block_traces.insert(block_num, traces);
     }
 }

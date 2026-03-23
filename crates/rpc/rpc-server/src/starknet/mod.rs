@@ -60,7 +60,7 @@ use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
 mod blockifier;
-pub(crate) mod cache;
+pub mod cache;
 mod config;
 mod list;
 mod pending;
@@ -68,8 +68,7 @@ mod read;
 mod trace;
 mod write;
 
-use cache::RpcCache;
-pub use cache::RpcCacheConfig;
+pub use cache::{RpcCache, RpcCacheConfig};
 #[cfg(feature = "cartridge")]
 pub use config::CartridgePaymasterConfig;
 pub use config::StarknetApiConfig;
@@ -125,35 +124,13 @@ where
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
         config: StarknetApiConfig,
-        storage2: PF,
-    ) -> Self {
-        Self::new_inner(
-            chain_spec,
-            pool,
-            task_spawner,
-            config,
-            pending_block_provider,
-            gas_oracle,
-            storage2,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn new_inner(
-        chain_spec: Arc<ChainSpec>,
-        pool: Pool,
-        task_spawner: TaskSpawner,
-        config: StarknetApiConfig,
-        pending_block_provider: PP,
-        gas_oracle: GasPriceOracle,
-        storage2: PF,
+        storage: PF,
+        cache: RpcCache,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
             .unwrap_or(DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
         let estimate_fee_permit = Permits::new(total_permits);
-
-        let cache = RpcCache::new(&config.cache);
 
         let inner = StarknetApiInner {
             chain_spec,
@@ -163,7 +140,7 @@ where
             config,
             pending_block_provider,
             gas_oracle,
-            storage: storage2,
+            storage,
             cache,
         };
 

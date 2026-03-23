@@ -306,14 +306,17 @@ where
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: execution_flags,
             versioned_constant_overrides,
-            cache: katana_rpc_server::starknet::RpcCacheConfig::from_cli(
+            #[cfg(feature = "cartridge")]
+            paymaster: cartridge_paymaster,
+        };
+
+        let cache = katana_rpc_server::starknet::RpcCache::new(
+            &katana_rpc_server::starknet::RpcCacheConfig::from_cli(
                 config.rpc.cache_max_blocks,
                 config.rpc.cache_max_transactions,
                 config.rpc.cache_max_classes,
             ),
-            #[cfg(feature = "cartridge")]
-            paymaster: cartridge_paymaster,
-        };
+        );
 
         let chain_spec = backend.chain_spec.clone();
 
@@ -325,6 +328,7 @@ where
             gas_oracle.clone(),
             starknet_api_cfg,
             provider.clone(),
+            cache,
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

@@ -1,8 +1,6 @@
 use katana_executor::ExecutionFlags;
 use katana_primitives::env::VersionedConstantsOverrides;
 
-use super::cache::RpcCacheConfig;
-
 #[derive(Debug, Clone)]
 pub struct StarknetApiConfig {
     /// The max chunk size that can be served from the `getEvents` method.
@@ -42,9 +40,6 @@ pub struct StarknetApiConfig {
     /// [`VersionedConstants`](katana_executor::implementation::blockifier::blockifier::VersionedConstants)
     /// used for execution (i.e., estimates, simulation, and call)
     pub versioned_constant_overrides: Option<VersionedConstantsOverrides>,
-
-    /// Configuration for the RPC response cache.
-    pub cache: RpcCacheConfig,
 
     #[cfg(feature = "cartridge")]
     pub paymaster: Option<CartridgePaymasterConfig>,
