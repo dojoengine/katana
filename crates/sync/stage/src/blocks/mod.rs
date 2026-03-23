@@ -16,6 +16,7 @@ use crate::{
 mod downloader;
 pub mod hash;
 
+pub use downloader::grpc::GrpcBlockDownloader;
 pub use downloader::json_rpc::JsonRpcBlockDownloader;
 pub use downloader::{BatchBlockDownloader, BlockData, BlockDownloader};
 

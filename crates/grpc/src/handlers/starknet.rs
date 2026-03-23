@@ -17,7 +17,7 @@ use crate::protos::starknet::starknet_server::Starknet;
 use crate::protos::starknet::starknet_trace_server::StarknetTrace;
 use crate::protos::starknet::starknet_write_server::StarknetWrite;
 use crate::protos::starknet::{
-    AddDeclareTransactionRequest, AddDeclareTransactionResponse,
+    get_class_response, AddDeclareTransactionRequest, AddDeclareTransactionResponse,
     AddDeployAccountTransactionRequest, AddDeployAccountTransactionResponse,
     AddInvokeTransactionRequest, AddInvokeTransactionResponse, BlockHashAndNumberRequest,
     BlockHashAndNumberResponse, BlockNumberRequest, BlockNumberResponse, CallRequest, CallResponse,
@@ -243,18 +243,15 @@ where
             .try_into()?;
 
         let class = self.api.class_at_hash(block_id, class_hash).await.into_grpc_result()?;
+        let json = serde_json::to_vec(&class)
+            .map_err(|e| Status::internal(format!("failed to serialize class: {e}")))?;
 
-        // Convert class to proto - simplified for now
-        Ok(Response::new(GetClassResponse {
-            result: Some(crate::protos::starknet::get_class_response::Result::ContractClass(
-                crate::protos::types::ContractClass {
-                    sierra_program: Vec::new(), // Would need full conversion
-                    contract_class_version: String::new(),
-                    entry_points_by_type: None,
-                    abi: serde_json::to_string(&class).unwrap_or_default(),
-                },
-            )),
-        }))
+        let serialized = match class {
+            katana_rpc_types::Class::Sierra(_) => get_class_response::Class::Sierra(json),
+            katana_rpc_types::Class::Legacy(_) => get_class_response::Class::Legacy(json),
+        };
+
+        Ok(Response::new(GetClassResponse { class: Some(serialized) }))
     }
 
     async fn get_class_hash_at(
@@ -287,18 +284,21 @@ where
 
         let class =
             self.api.class_at_address(block_id, contract_address).await.into_grpc_result()?;
+        let json = serde_json::to_vec(&class)
+            .map_err(|e| Status::internal(format!("failed to serialize class: {e}")))?;
 
-        // Convert class to proto - simplified for now
-        Ok(Response::new(GetClassAtResponse {
-            result: Some(crate::protos::starknet::get_class_at_response::Result::ContractClass(
-                crate::protos::types::ContractClass {
-                    sierra_program: Vec::new(),
-                    contract_class_version: String::new(),
-                    entry_points_by_type: None,
-                    abi: serde_json::to_string(&class).unwrap_or_default(),
-                },
-            )),
-        }))
+        let result = match class {
+            katana_rpc_types::Class::Sierra(_) => {
+                crate::protos::starknet::get_class_at_response::Result::ContractClass(json)
+            }
+            katana_rpc_types::Class::Legacy(_) => {
+                crate::protos::starknet::get_class_at_response::Result::DeprecatedContractClass(
+                    json,
+                )
+            }
+        };
+
+        Ok(Response::new(GetClassAtResponse { result: Some(result) }))
     }
 
     async fn get_block_transaction_count(

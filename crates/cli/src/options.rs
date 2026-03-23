@@ -993,7 +993,7 @@ pub struct SyncOptions {
     /// feeder gateway.
     #[arg(long = "sync.gateway")]
     #[arg(value_name = "URL")]
-    #[arg(conflicts_with = "rpc")]
+    #[arg(conflicts_with_all = ["rpc", "grpc"])]
     pub gateway: Option<Url>,
 
     /// JSON-RPC endpoint URL to use as the block download source instead of
@@ -1004,8 +1004,19 @@ pub struct SyncOptions {
     /// This is mainly intended for development and testing purposes.
     #[arg(long = "sync.rpc")]
     #[arg(value_name = "URL")]
-    #[arg(conflicts_with = "gateway")]
+    #[arg(conflicts_with_all = ["gateway", "grpc"])]
     pub rpc: Option<Url>,
+
+    /// gRPC endpoint URL to use as the block download source (e.g.,
+    /// `http://localhost:5051`). When set, blocks are fetched via
+    /// gRPC from another Katana node's gRPC server.
+    ///
+    /// This is a Katana-specific endpoint and only works when syncing
+    /// from another Katana node with `--grpc` enabled.
+    #[arg(long = "sync.grpc")]
+    #[arg(value_name = "URL")]
+    #[arg(conflicts_with_all = ["gateway", "rpc"])]
+    pub grpc: Option<Url>,
 
     /// Maximum number of blocks to process per pipeline iteration before
     /// advancing to the next chunk.
@@ -1030,6 +1041,7 @@ impl Default for SyncOptions {
             tip: None,
             gateway: None,
             rpc: None,
+            grpc: None,
             chunk_size: katana_full_node::DEFAULT_SYNC_CHUNK_SIZE,
             download_batch_size: katana_full_node::DEFAULT_DOWNLOAD_BATCH_SIZE,
         }

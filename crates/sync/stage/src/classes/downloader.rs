@@ -56,6 +56,154 @@ pub mod gateway {
     }
 }
 
+pub mod grpc {
+    use std::future::Future;
+    use std::sync::Arc;
+
+    use katana_grpc::{ClientError, GrpcClient};
+    use katana_rpc_types::Class;
+    use tokio::sync::OnceCell;
+    use tonic::Code;
+    use tracing::error;
+
+    use super::super::{ClassDownloadKey, ClassDownloader};
+    use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        #[error(transparent)]
+        Grpc(#[from] tonic::Status),
+
+        #[error(transparent)]
+        Transport(#[from] ClientError),
+
+        #[error(transparent)]
+        Other(#[from] anyhow::Error),
+    }
+
+    /// A [`ClassDownloader`] that fetches classes via gRPC.
+    ///
+    /// Uses lazy connection and clones the client per download (tonic Channel is
+    /// cheap to clone).
+    #[derive(Debug)]
+    pub struct GrpcClassDownloader {
+        endpoint: String,
+        batch_size: usize,
+        client: Arc<OnceCell<GrpcClient>>,
+    }
+
+    impl GrpcClassDownloader {
+        pub fn new(endpoint: String, batch_size: usize) -> Self {
+            Self { endpoint, batch_size, client: Arc::new(OnceCell::new()) }
+        }
+
+        async fn get_or_connect(&self) -> Result<GrpcClient, Error> {
+            let client = self
+                .client
+                .get_or_try_init(|| async { GrpcClient::connect(&self.endpoint).await })
+                .await?;
+            Ok(client.clone())
+        }
+    }
+
+    impl ClassDownloader for GrpcClassDownloader {
+        type Error = Error;
+
+        async fn download_classes(
+            &self,
+            keys: Vec<ClassDownloadKey>,
+        ) -> Result<Vec<Class>, Self::Error> {
+            let client = self.get_or_connect().await?;
+            let downloader = GrpcDownloaderInner { client };
+            let batch = BatchDownloader::new(downloader, self.batch_size);
+            batch.download(keys).await
+        }
+    }
+
+    #[derive(Debug)]
+    struct GrpcDownloaderInner {
+        client: GrpcClient,
+    }
+
+    impl Downloader for GrpcDownloaderInner {
+        type Key = ClassDownloadKey;
+        type Value = Class;
+        type Error = Error;
+
+        #[allow(clippy::manual_async_fn)]
+        fn download(
+            &self,
+            key: &Self::Key,
+        ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+            let mut client = self.client.clone();
+            let block = key.block;
+            let class_hash = key.class_hash;
+
+            async move {
+                let block_id = Some(katana_grpc::proto::BlockId {
+                    identifier: Some(katana_grpc::proto::block_id::Identifier::Number(block)),
+                });
+
+                let request = katana_grpc::proto::GetClassRequest {
+                    block_id,
+                    class_hash: Some(class_hash.into()),
+                };
+
+                match client.get_class(tonic::Request::new(request)).await.inspect_err(|e| {
+                    error!(
+                        block = %block,
+                        class_hash = %format!("{:#x}", class_hash),
+                        error = %e,
+                        "Error downloading class via gRPC."
+                    );
+                }) {
+                    Ok(resp) => match class_from_proto(resp.into_inner()) {
+                        Ok(class) => DownloaderResult::Ok(class),
+                        Err(e) => DownloaderResult::Err(Error::from(e)),
+                    },
+                    Err(status) => {
+                        let err = Error::from(status);
+                        if is_retryable(&err) {
+                            DownloaderResult::Retry(err)
+                        } else {
+                            DownloaderResult::Err(err)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn is_retryable(err: &Error) -> bool {
+        match err {
+            Error::Grpc(status) => matches!(
+                status.code(),
+                Code::Unavailable | Code::ResourceExhausted | Code::DeadlineExceeded
+            ),
+            Error::Transport(_) => true,
+            Error::Other(_) => false,
+        }
+    }
+
+    /// Deserializes a `Class` from the gRPC response.
+    ///
+    /// The server serializes the full class as JSON bytes into the oneof
+    /// variant (because the class types are not compatible with non-human-
+    /// readable serialization formats).
+    fn class_from_proto(resp: katana_grpc::proto::GetClassResponse) -> anyhow::Result<Class> {
+        use katana_grpc::proto::get_class_response::Class as ClassResult;
+
+        let result =
+            resp.class.ok_or_else(|| anyhow::anyhow!("missing class result in gRPC response"))?;
+
+        let json = match &result {
+            ClassResult::Sierra(bytes) | ClassResult::Legacy(bytes) => bytes,
+        };
+
+        Ok(serde_json::from_slice(json)?)
+    }
+}
+
 pub mod json_rpc {
     use std::future::Future;
 

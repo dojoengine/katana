@@ -195,9 +195,11 @@ message GetClassRequest {
 }
 
 message GetClassResponse {
-    oneof result {
-        types.DeprecatedContractClass deprecated_contract_class = 1;
-        types.ContractClass contract_class = 2;
+    // JSON-serialized class bytes. The class types are not compatible with
+    // non-human-readable serialization, so we use JSON here.
+    oneof Class {
+        bytes sierra = 1;
+        bytes legacy = 2;
     }
 }
 
@@ -216,9 +218,11 @@ message GetClassAtRequest {
 }
 
 message GetClassAtResponse {
+    // JSON-serialized class bytes. The class types are not compatible with
+    // non-human-readable serialization, so we use JSON here.
     oneof result {
-        types.DeprecatedContractClass deprecated_contract_class = 1;
-        types.ContractClass contract_class = 2;
+        bytes contract_class = 1;
+        bytes deprecated_contract_class = 2;
     }
 }
 
