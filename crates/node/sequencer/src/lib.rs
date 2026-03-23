@@ -306,6 +306,11 @@ where
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: execution_flags,
             versioned_constant_overrides,
+            cache: katana_rpc_server::starknet::RpcCacheConfig::from_cli(
+                config.rpc.cache_max_blocks,
+                config.rpc.cache_max_transactions,
+                config.rpc.cache_max_classes,
+            ),
             #[cfg(feature = "cartridge")]
             paymaster: cartridge_paymaster,
         };

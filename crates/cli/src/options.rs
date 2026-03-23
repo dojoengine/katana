@@ -33,7 +33,9 @@ use katana_sequencer_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRI
 use katana_sequencer_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
 #[cfg(feature = "server")]
 use katana_sequencer_node::config::rpc::{
-    DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
+    DEFAULT_RPC_ADDR, DEFAULT_RPC_CACHE_MAX_BLOCKS, DEFAULT_RPC_CACHE_MAX_CLASSES,
+    DEFAULT_RPC_CACHE_MAX_TRANSACTIONS, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE,
+    DEFAULT_RPC_PORT,
 };
 use katana_tracing::{default_log_file_directory, gcloud, otlp, LogColor, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
@@ -232,6 +234,24 @@ pub struct ServerOptions {
     #[arg(default_value_t = DEFAULT_RPC_MAX_CALL_GAS)]
     #[serde(default = "default_max_call_gas")]
     pub max_call_gas: u64,
+
+    /// Maximum number of cached blocks in the RPC response cache. Set to 0 to disable.
+    #[arg(long = "rpc.cache-max-blocks", value_name = "SIZE")]
+    #[arg(default_value_t = DEFAULT_RPC_CACHE_MAX_BLOCKS)]
+    #[serde(default = "default_cache_max_blocks")]
+    pub cache_max_blocks: usize,
+
+    /// Maximum number of cached transactions in the RPC response cache. Set to 0 to disable.
+    #[arg(long = "rpc.cache-max-transactions", value_name = "SIZE")]
+    #[arg(default_value_t = DEFAULT_RPC_CACHE_MAX_TRANSACTIONS)]
+    #[serde(default = "default_cache_max_transactions")]
+    pub cache_max_transactions: usize,
+
+    /// Maximum number of cached classes in the RPC response cache. Set to 0 to disable.
+    #[arg(long = "rpc.cache-max-classes", value_name = "SIZE")]
+    #[arg(default_value_t = DEFAULT_RPC_CACHE_MAX_CLASSES)]
+    #[serde(default = "default_cache_max_classes")]
+    pub cache_max_classes: usize,
 }
 
 #[cfg(feature = "server")]
@@ -249,6 +269,9 @@ impl Default for ServerOptions {
             max_response_body_size: None,
             timeout: None,
             max_call_gas: DEFAULT_RPC_MAX_CALL_GAS,
+            cache_max_blocks: DEFAULT_RPC_CACHE_MAX_BLOCKS,
+            cache_max_transactions: DEFAULT_RPC_CACHE_MAX_TRANSACTIONS,
+            cache_max_classes: DEFAULT_RPC_CACHE_MAX_CLASSES,
         }
     }
 }
@@ -289,6 +312,15 @@ impl ServerOptions {
             }
             if self.max_call_gas == DEFAULT_RPC_MAX_CALL_GAS {
                 self.max_call_gas = other.max_call_gas;
+            }
+            if self.cache_max_blocks == DEFAULT_RPC_CACHE_MAX_BLOCKS {
+                self.cache_max_blocks = other.cache_max_blocks;
+            }
+            if self.cache_max_transactions == DEFAULT_RPC_CACHE_MAX_TRANSACTIONS {
+                self.cache_max_transactions = other.cache_max_transactions;
+            }
+            if self.cache_max_classes == DEFAULT_RPC_CACHE_MAX_CLASSES {
+                self.cache_max_classes = other.cache_max_classes;
             }
         }
     }
@@ -873,6 +905,21 @@ fn default_metrics_port() -> u16 {
 #[cfg(feature = "server")]
 fn default_max_call_gas() -> u64 {
     DEFAULT_RPC_MAX_CALL_GAS
+}
+
+#[cfg(feature = "server")]
+fn default_cache_max_blocks() -> usize {
+    DEFAULT_RPC_CACHE_MAX_BLOCKS
+}
+
+#[cfg(feature = "server")]
+fn default_cache_max_transactions() -> usize {
+    DEFAULT_RPC_CACHE_MAX_TRANSACTIONS
+}
+
+#[cfg(feature = "server")]
+fn default_cache_max_classes() -> usize {
+    DEFAULT_RPC_CACHE_MAX_CLASSES
 }
 
 /// Deserialize a string (hex or decimal) into a [`GasPrice`]

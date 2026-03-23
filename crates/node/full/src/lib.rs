@@ -259,6 +259,11 @@ impl Node {
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: ExecutionFlags::default(),
             versioned_constant_overrides: None,
+            cache: katana_rpc_server::starknet::RpcCacheConfig::from_cli(
+                config.rpc.cache_max_blocks,
+                config.rpc.cache_max_transactions,
+                config.rpc.cache_max_classes,
+            ),
             #[cfg(feature = "cartridge")]
             paymaster: None,
         };

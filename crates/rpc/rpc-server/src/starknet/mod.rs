@@ -60,6 +60,7 @@ use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
 mod blockifier;
+pub(crate) mod cache;
 mod config;
 mod list;
 mod pending;
@@ -67,6 +68,8 @@ mod read;
 mod trace;
 mod write;
 
+use cache::RpcCache;
+pub use cache::RpcCacheConfig;
 #[cfg(feature = "cartridge")]
 pub use config::CartridgePaymasterConfig;
 pub use config::StarknetApiConfig;
@@ -105,6 +108,7 @@ where
     estimate_fee_permit: Permits,
     pending_block_provider: PP,
     config: StarknetApiConfig,
+    cache: RpcCache,
 }
 
 impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
@@ -149,6 +153,8 @@ where
             .unwrap_or(DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
         let estimate_fee_permit = Permits::new(total_permits);
 
+        let cache = RpcCache::new(&config.cache);
+
         let inner = StarknetApiInner {
             chain_spec,
             pool,
@@ -158,6 +164,7 @@ where
             pending_block_provider,
             gas_oracle,
             storage: storage2,
+            cache,
         };
 
         Self { inner: Arc::new(inner) }
@@ -169,6 +176,10 @@ where
 
     pub fn storage(&self) -> &PF {
         &self.inner.storage
+    }
+
+    pub fn cache(&self) -> &RpcCache {
+        &self.inner.cache
     }
 
     pub fn estimate_fee_permit(&self) -> &Permits {
@@ -366,13 +377,30 @@ where
         class_hash: ClassHash,
     ) -> StarknetApiResult<Class> {
         self.on_io_blocking_task(move |this| {
-            let state = this.state(&block_id)?;
+            // Skip caching for pending blocks
+            if matches!(block_id, BlockIdOrTag::PreConfirmed) {
+                let state = this.state(&block_id)?;
+                let class = state.class(class_hash)?.ok_or(StarknetApiError::ClassHashNotFound)?;
+                return Ok(Class::try_from(class).unwrap());
+            }
 
-            let Some(class) = state.class(class_hash)? else {
-                return Err(StarknetApiError::ClassHashNotFound);
-            };
+            // Resolve to block number for cache key
+            let block_num = this
+                .storage()
+                .provider()
+                .convert_block_id(block_id)?
+                .ok_or(StarknetApiError::BlockNotFound)?;
 
-            Ok(Class::try_from(class).unwrap())
+            // Check cache
+            if let Some(cached) = this.cache().get_class((class_hash, block_num)) {
+                return Ok(cached);
+            }
+
+            let state = this.state(&BlockIdOrTag::Number(block_num))?;
+            let class = state.class(class_hash)?.ok_or(StarknetApiError::ClassHashNotFound)?;
+            let rpc_class = Class::try_from(class).unwrap();
+            this.cache().insert_class((class_hash, block_num), rpc_class.clone());
+            Ok(rpc_class)
         })
         .await?
     }
@@ -585,19 +613,26 @@ where
     pub async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
+                // Check pending first (not cached)
                 if let pending_tx @ Some(..) =
                     this.inner.pending_block_provider.get_pending_transaction(hash)?
                 {
-                    Result::<_, StarknetApiError>::Ok(pending_tx)
-                } else {
-                    let tx = this
-                        .storage()
-                        .provider()
-                        .transaction_by_hash(hash)?
-                        .map(RpcTxWithHash::from);
-
-                    Result::<_, StarknetApiError>::Ok(tx)
+                    return Result::<_, StarknetApiError>::Ok(pending_tx);
                 }
+
+                // Check cache
+                if let Some(cached) = this.cache().get_transaction(hash) {
+                    return Ok(Some(cached));
+                }
+
+                // DB fallback
+                let tx = this.storage().provider().transaction_by_hash(hash)?.map(|t| {
+                    let rpc_tx = RpcTxWithHash::from(t);
+                    this.cache().insert_transaction(hash, rpc_tx.clone());
+                    rpc_tx
+                });
+
+                Result::<_, StarknetApiError>::Ok(tx)
             })
             .await??;
 
@@ -611,14 +646,25 @@ where
     pub async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
         let receipt = self
             .on_io_blocking_task(move |this| {
+                // Check pending first (not cached)
                 if let pending_receipt @ Some(..) =
                     this.inner.pending_block_provider.get_pending_receipt(hash)?
                 {
-                    StarknetApiResult::Ok(pending_receipt)
-                } else {
-                    let provider = this.storage().provider();
-                    StarknetApiResult::Ok(ReceiptBuilder::new(hash, provider).build()?)
+                    return StarknetApiResult::Ok(pending_receipt);
                 }
+
+                // Check cache
+                if let Some(cached) = this.cache().get_receipt(hash) {
+                    return Ok(Some(cached));
+                }
+
+                // DB fallback
+                let provider = this.storage().provider();
+                let receipt = ReceiptBuilder::new(hash, provider).build()?;
+                if let Some(ref receipt) = receipt {
+                    this.cache().insert_receipt(hash, receipt.clone());
+                }
+                StarknetApiResult::Ok(receipt)
             })
             .await??;
 
@@ -696,9 +742,17 @@ where
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
+                    // Check cache
+                    if let Some(cached) = this.cache().get_block_with_txs(num) {
+                        return Ok(Some(MaybePreConfirmedBlock::Confirmed(cached)));
+                    }
+
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build()?
-                        .map(MaybePreConfirmedBlock::Confirmed);
+                        .map(|block| {
+                            this.cache().insert_block_with_txs(num, block.clone());
+                            MaybePreConfirmedBlock::Confirmed(block)
+                        });
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -731,9 +785,17 @@ where
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
+                    // Check cache
+                    if let Some(cached) = this.cache().get_block_with_receipts(num) {
+                        return Ok(Some(GetBlockWithReceiptsResponse::Block(cached)));
+                    }
+
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build_with_receipts()?
-                        .map(GetBlockWithReceiptsResponse::Block);
+                        .map(|block| {
+                            this.cache().insert_block_with_receipts(num, block.clone());
+                            GetBlockWithReceiptsResponse::Block(block)
+                        });
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -766,9 +828,17 @@ where
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
+                    // Check cache
+                    if let Some(cached) = this.cache().get_block_with_tx_hashes(num) {
+                        return Ok(Some(GetBlockWithTxHashesResponse::Block(cached)));
+                    }
+
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build_with_tx_hash()?
-                        .map(GetBlockWithTxHashesResponse::Block);
+                        .map(|block| {
+                            this.cache().insert_block_with_tx_hashes(num, block.clone());
+                            GetBlockWithTxHashesResponse::Block(block)
+                        });
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -789,32 +859,46 @@ where
             .on_io_blocking_task(move |this| {
                 let provider = this.storage().provider();
 
-                let block_id = match block_id {
-                    BlockIdOrTag::Number(num) => BlockHashOrNumber::Num(num),
-                    BlockIdOrTag::Hash(hash) => BlockHashOrNumber::Hash(hash),
-                    BlockIdOrTag::Latest => provider.latest_number().map(BlockHashOrNumber::Num)?,
+                // TODO: Implement for L1 accepted
+                if matches!(block_id, BlockIdOrTag::L1Accepted) {
+                    return Err(StarknetApiError::BlockNotFound);
+                }
 
-                    // TODO: Implement for L1 accepted and preconfirmed block id
-                    BlockIdOrTag::L1Accepted => {
-                        return Err(StarknetApiError::BlockNotFound);
+                if matches!(block_id, BlockIdOrTag::PreConfirmed) {
+                    if let Some(state_update) =
+                        this.inner.pending_block_provider.get_pending_state_update()?
+                    {
+                        let state_update = StateUpdate::PreConfirmed(state_update);
+                        return StarknetApiResult::Ok(Some(state_update));
+                    } else {
+                        return StarknetApiResult::Ok(None);
                     }
+                }
 
-                    BlockIdOrTag::PreConfirmed => {
-                        if let Some(state_update) =
-                            this.inner.pending_block_provider.get_pending_state_update()?
-                        {
-                            let state_update = StateUpdate::PreConfirmed(state_update);
-                            return StarknetApiResult::Ok(Some(state_update));
-                        } else {
-                            return StarknetApiResult::Ok(None);
+                let block_num = match block_id {
+                    BlockIdOrTag::Number(num) => num,
+                    BlockIdOrTag::Hash(hash) => {
+                        match provider.convert_block_id(BlockIdOrTag::Hash(hash))? {
+                            Some(num) => num,
+                            None => return StarknetApiResult::Ok(None),
                         }
                     }
+                    BlockIdOrTag::Latest => provider.latest_number()?,
+                    _ => unreachable!(),
                 };
 
+                // Check cache
+                if let Some(cached) = this.cache().get_state_update(block_num) {
+                    return Ok(Some(StateUpdate::Confirmed(cached)));
+                }
+
                 let state_update =
-                    katana_rpc_types_builder::StateUpdateBuilder::new(block_id, provider)
+                    katana_rpc_types_builder::StateUpdateBuilder::new(block_num.into(), provider)
                         .build()?
-                        .map(StateUpdate::Confirmed);
+                        .map(|update| {
+                            this.cache().insert_state_update(block_num, update.clone());
+                            StateUpdate::Confirmed(update)
+                        });
 
                 StarknetApiResult::Ok(state_update)
             })
@@ -1121,17 +1205,25 @@ where
 
             let provider = &this.storage().provider();
 
-            let block_id: BlockHashOrNumber = match block_id {
+            let block_num = match block_id {
                 ConfirmedBlockIdOrTag::L1Accepted => {
                     unimplemented!("l1 accepted block id")
                 }
-                ConfirmedBlockIdOrTag::Latest => provider.latest_number()?.into(),
-                ConfirmedBlockIdOrTag::Number(num) => num.into(),
-                ConfirmedBlockIdOrTag::Hash(hash) => hash.into(),
+                ConfirmedBlockIdOrTag::Latest => provider.latest_number()?,
+                ConfirmedBlockIdOrTag::Number(num) => num,
+                ConfirmedBlockIdOrTag::Hash(hash) => {
+                    provider.block_number_by_hash(hash)?.ok_or(BlockNotFound)?
+                }
             };
 
+            // Check cache
+            if let Some(cached) = this.cache().get_block_traces(block_num) {
+                return Ok(cached);
+            }
+
             let traces =
-                provider.transaction_executions_by_block(block_id)?.ok_or(BlockNotFound)?;
+                provider.transaction_executions_by_block(block_num.into())?.ok_or(BlockNotFound)?;
+            this.cache().insert_block_traces(block_num, traces.clone());
             Ok(traces)
         })
         .await?
@@ -1139,21 +1231,28 @@ where
 
     pub async fn trace(&self, tx_hash: TxHash) -> Result<TxTrace, StarknetApiError> {
         self.on_io_blocking_task(move |this| {
-            // Check in the pending block first
+            // Check in the pending block first (not cached)
             if let Some(pending_trace) =
                 this.inner.pending_block_provider.get_pending_trace(tx_hash)?
             {
-                Ok(pending_trace)
-            } else {
-                // If not found in pending block, fallback to the provider
-                let trace = this
-                    .storage()
-                    .provider()
-                    .transaction_execution(tx_hash)?
-                    .ok_or(StarknetApiError::TxnHashNotFound)?;
-
-                Ok(TxTrace::from(trace))
+                return Ok(pending_trace);
             }
+
+            // Check cache
+            if let Some(cached) = this.cache().get_trace(tx_hash) {
+                return Ok(cached);
+            }
+
+            // DB fallback
+            let trace = this
+                .storage()
+                .provider()
+                .transaction_execution(tx_hash)?
+                .ok_or(StarknetApiError::TxnHashNotFound)?;
+
+            let rpc_trace = TxTrace::from(trace);
+            this.cache().insert_trace(tx_hash, rpc_trace.clone());
+            Ok(rpc_trace)
         })
         .await?
     }

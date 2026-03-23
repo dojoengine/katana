@@ -6794,6 +6794,7 @@ dependencies = [
  "num-traits",
  "paymaster-rpc",
  "proptest",
+ "quick_cache",
  "rand 0.8.5",
  "rstest 0.18.2",
  "serde",

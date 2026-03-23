@@ -23,6 +23,7 @@ katana-tasks.workspace = true
 katana-gas-price-oracle.workspace = true
 katana-tracing.workspace = true
 
+quick_cache = "0.6.10"
 anyhow.workspace = true
 auto_impl.workspace = true
 http.workspace = true
