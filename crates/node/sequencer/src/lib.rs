@@ -25,6 +25,8 @@ use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 #[cfg(feature = "grpc")]
 use katana_grpc::{GrpcServer, GrpcServerHandle};
 use katana_messaging::server::{MessagingHandle, MessagingServer};
+use katana_messaging::stream::MessageStream;
+use katana_messaging::trigger::IntervalTrigger;
 use katana_messaging::{NoopMessenger, SettlementChainConfig};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
@@ -694,8 +696,7 @@ where
             &self.config,
             &self.backend,
             &self.pool,
-        )
-        .await?;
+        )?;
 
         Ok(LaunchedNode {
             node: self,
@@ -742,7 +743,7 @@ where
         &self.block_producer
     }
 
-    async fn build_and_start_messaging(
+    fn build_and_start_messaging(
         config: &Config,
         backend: &Arc<Backend<P>>,
         pool: &TxPool,
@@ -751,32 +752,24 @@ where
             if let Some(ref msg_config) = config.messaging {
                 let chain_id = backend.chain_spec.id();
                 let from_block = msg_config.from_block;
-                let interval = msg_config.interval;
+                let trigger = IntervalTrigger::new(msg_config.interval);
 
                 match &msg_config.settlement {
                     SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
-                        let messenger =
-                            katana_messaging::ethereum::EthereumMessaging::new(
+                        let collector =
+                            katana_messaging::ethereum::EthereumCollector::new(
                                 rpc_url,
                                 contract_address,
-                                chain_id,
-                                from_block,
-                                interval,
-                            )
-                            .await?;
-                        Box::new(messenger)
+                            )?;
+                        Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
                     }
                     SettlementChainConfig::Starknet { rpc_url, contract_address } => {
-                        let messenger =
-                            katana_messaging::starknet::StarknetMessaging::new(
+                        let collector =
+                            katana_messaging::starknet::StarknetCollector::new(
                                 rpc_url,
                                 contract_address,
-                                chain_id,
-                                from_block,
-                                interval,
-                            )
-                            .await?;
-                        Box::new(messenger)
+                            )?;
+                        Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
                     }
                 }
             } else {

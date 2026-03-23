@@ -2,8 +2,6 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::time::Duration;
 
 use alloy_network::Ethereum;
 use alloy_primitives::{Address, U256};
@@ -11,7 +9,7 @@ use alloy_provider::{Provider, RootProvider};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, FilterSet, Log, Topic};
 use alloy_sol_types::{sol, SolEvent};
 use anyhow::Result;
-use futures::{Future, FutureExt, Stream};
+use futures::Future;
 use katana_primitives::chain::ChainId;
 use katana_primitives::message::L1ToL2Message;
 use katana_primitives::receipt::MessageToL1;
@@ -20,10 +18,10 @@ use katana_primitives::utils::transaction::{
     compute_l1_to_l2_message_hash, compute_l2_to_l1_message_hash,
 };
 use katana_primitives::{ContractAddress, Felt};
-use tokio::time::{interval_at, Instant, Interval};
-use tracing::{debug, error, trace};
+use tracing::{debug, trace};
 
-use super::{MessagingOutcome, MessengerResult, LOG_TARGET};
+use crate::collector::{GatherResult, MessageCollector};
+use crate::{Error, LOG_TARGET};
 
 sol! {
     #[sol(rpc, rename_all = "snakecase")]
@@ -44,65 +42,28 @@ sol! {
     );
 }
 
-/// Maximum number of blocks to fetch in a single gather call.
-const MAX_BLOCKS_PER_GATHER: u64 = 200;
-
-type BlockNumberFuture = Pin<Box<dyn Future<Output = MessengerResult<u64>> + Send>>;
-type GatherFuture = Pin<Box<dyn Future<Output = MessengerResult<(u64, u64, Vec<L1HandlerTx>)>> + Send>>;
-
-/// The phase the messenger is currently in.
-enum Phase {
-    /// Idle — waiting for the next poll interval tick.
-    Idle,
-    /// Checking the latest block number on the settlement chain.
-    CheckingBlock(BlockNumberFuture),
-    /// Gathering messages from the settlement chain.
-    Gathering(GatherFuture),
-}
-
-#[allow(missing_debug_implementations)]
-pub struct EthereumMessaging {
+/// Ethereum settlement chain message collector.
+#[derive(Debug)]
+pub struct EthereumCollector {
     provider: Arc<RootProvider<Ethereum>>,
     messaging_contract_address: Address,
-    chain_id: ChainId,
-    interval: Interval,
-    from_block: u64,
-    phase: Phase,
 }
 
-impl EthereumMessaging {
-    pub async fn new(
-        rpc_url: &str,
-        contract_address: &str,
-        chain_id: ChainId,
-        from_block: u64,
-        poll_interval_secs: u64,
-    ) -> Result<Self> {
+impl EthereumCollector {
+    pub fn new(rpc_url: &str, contract_address: &str) -> Result<Self> {
         let provider = Arc::new(RootProvider::<Ethereum>::new_http(reqwest::Url::parse(rpc_url)?));
         let messaging_contract_address = contract_address.parse::<Address>()?;
-
-        let duration = Duration::from_secs(poll_interval_secs);
-        let mut interval = interval_at(Instant::now() + duration, duration);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-        Ok(Self {
-            provider,
-            messaging_contract_address,
-            chain_id,
-            interval,
-            from_block,
-            phase: Phase::Idle,
-        })
+        Ok(Self { provider, messaging_contract_address })
     }
 
-    /// Fetches logs in given block range.
+    /// Fetches logs in the given block range.
     async fn fetch_logs(
-        provider: Arc<RootProvider<Ethereum>>,
+        provider: &RootProvider<Ethereum>,
         contract_address: Address,
         from_block: u64,
         to_block: u64,
-    ) -> MessengerResult<Vec<Log>> {
-        trace!(target: LOG_TARGET, from_block = ?from_block, to_block = ?to_block, "Fetching logs.");
+    ) -> Result<Vec<Log>, Error> {
+        trace!(target: LOG_TARGET, from_block, to_block, "Fetching ethereum logs.");
 
         let filters = Filter {
             block_option: FilterBlockOption::Range {
@@ -131,134 +92,47 @@ impl EthereumMessaging {
 
         Ok(logs)
     }
+}
 
-    /// Fetch and convert messages from a known block range.
-    async fn gather_messages(
-        provider: Arc<RootProvider<Ethereum>>,
-        contract_address: Address,
-        chain_id: ChainId,
+impl MessageCollector for EthereumCollector {
+    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + '_>> {
+        Box::pin(async { Ok(self.provider.get_block_number().await?) })
+    }
+
+    fn gather(
+        &self,
         from_block: u64,
         to_block: u64,
-    ) -> MessengerResult<(u64, u64, Vec<L1HandlerTx>)> {
-        let mut l1_handler_txs = vec![];
-        let mut last_tx_index: u64 = 0;
+        chain_id: ChainId,
+    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
+        Box::pin(async move {
+            let mut transactions = vec![];
+            let mut tx_index: u64 = 0;
 
-        trace!(target: LOG_TARGET, from_block, to_block, "Fetching logs from {from_block} to {to_block}.");
-        let logs = Self::fetch_logs(provider, contract_address, from_block, to_block).await?;
+            let logs =
+                Self::fetch_logs(&self.provider, self.messaging_contract_address, from_block, to_block)
+                    .await?;
 
-        for log in &logs {
-            debug!(
-                target: LOG_TARGET,
-                log = ?log,
-                "Converting log into L1HandlerTx.",
-            );
+            for log in &logs {
+                debug!(target: LOG_TARGET, log = ?log, "Converting log into L1HandlerTx.");
 
-            if let Some(tx_idx) = log.transaction_index {
-                last_tx_index = tx_idx;
+                if let Some(idx) = log.transaction_index {
+                    tx_index = idx;
+                }
+
+                if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {
+                    transactions.push(tx);
+                }
             }
 
-            if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {
-                l1_handler_txs.push(tx);
-            }
-        }
-
-        Ok((to_block, last_tx_index, l1_handler_txs))
-    }
-
-    /// Returns the capped `to_block` for a gather given the latest chain block.
-    fn to_block(from_block: u64, latest_block: u64) -> u64 {
-        // +1 as the from_block counts as 1 block fetched.
-        if from_block + MAX_BLOCKS_PER_GATHER + 1 < latest_block {
-            from_block + MAX_BLOCKS_PER_GATHER
-        } else {
-            latest_block
-        }
+            Ok(GatherResult { to_block, tx_index, transactions })
+        })
     }
 }
 
-impl Stream for EthereumMessaging {
-    type Item = MessagingOutcome;
+// --- Conversion functions ---
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        loop {
-            match &mut this.phase {
-                Phase::Idle => {
-                    // Wait for the next poll tick before checking for new blocks.
-                    if this.interval.poll_tick(cx).is_ready() {
-                        let provider = this.provider.clone();
-                        this.phase = Phase::CheckingBlock(Box::pin(async move {
-                            let block = provider.get_block_number().await?;
-                            Ok(block)
-                        }));
-                        // Continue the loop to immediately poll the new phase.
-                    } else {
-                        return Poll::Pending;
-                    }
-                }
-
-                Phase::CheckingBlock(fut) => {
-                    match fut.poll_unpin(cx) {
-                        Poll::Ready(Ok(latest_block)) => {
-                            if latest_block < this.from_block {
-                                // No new blocks — go back to idle.
-                                trace!(target: LOG_TARGET, from_block = this.from_block, latest_block, "No new blocks on settlement chain.");
-                                this.phase = Phase::Idle;
-                                return Poll::Pending;
-                            }
-
-                            let to_block = Self::to_block(this.from_block, latest_block);
-                            trace!(target: LOG_TARGET, from_block = this.from_block, to_block, latest_block, "New blocks detected, gathering messages.");
-
-                            this.phase = Phase::Gathering(Box::pin(Self::gather_messages(
-                                this.provider.clone(),
-                                this.messaging_contract_address,
-                                this.chain_id,
-                                this.from_block,
-                                to_block,
-                            )));
-                            // Continue to poll the gather.
-                        }
-                        Poll::Ready(Err(e)) => {
-                            error!(target: LOG_TARGET, error = %e, "Failed to fetch latest block number.");
-                            this.phase = Phase::Idle;
-                            return Poll::Pending;
-                        }
-                        Poll::Pending => return Poll::Pending,
-                    }
-                }
-
-                Phase::Gathering(fut) => {
-                    match fut.poll_unpin(cx) {
-                        Poll::Ready(Ok((last_block, tx_index, transactions))) => {
-                            this.from_block = last_block + 1;
-                            this.phase = Phase::Idle;
-                            return Poll::Ready(Some(MessagingOutcome {
-                                settlement_block: last_block,
-                                tx_index,
-                                transactions,
-                            }));
-                        }
-                        Poll::Ready(Err(e)) => {
-                            error!(
-                                target: LOG_TARGET,
-                                block = %this.from_block,
-                                error = %e,
-                                "Gathering messages for block."
-                            );
-                            this.phase = Phase::Idle;
-                            return Poll::Pending;
-                        }
-                        Poll::Pending => return Poll::Pending,
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1HandlerTx> {
+fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> Result<L1HandlerTx, Error> {
     let log = LogMessageToL2::decode_log(log.as_ref()).unwrap();
 
     let from_address = log.from_address;

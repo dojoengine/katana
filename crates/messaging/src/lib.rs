@@ -2,17 +2,23 @@
 
 //! Messaging module.
 //!
-//! Messaging is the capability of a sequencer to gather messages from a settlement chain and
-//! execute them, and send messages to a settlement chain via a provable mechanism (STARK proof in
-//! the case of Starknet).
+//! The messaging component is decomposed into two orthogonal concerns:
 //!
-//! Each messenger implementation is a [`Stream`] that yields [`MessagingOutcome`] items containing
-//! L1Handler transactions gathered from the settlement chain. The messenger owns its own polling
-//! strategy (timer, subscription, etc).
+//! - **Collector** ([`collector::MessageCollector`]): knows *how* to fetch messages from a
+//!   specific settlement chain (Ethereum logs, Starknet events, etc).
+//! - **Trigger** ([`trigger::MessageTrigger`]): knows *when* to check for new messages
+//!   (fixed interval, block subscription, etc).
+//!
+//! These are composed by [`stream::MessageStream`] into a [`Stream`] that yields
+//! [`MessagingOutcome`] items. The stream is consumed by [`server::MessagingServer`]
+//! which adds transactions to the pool and persists checkpoints.
 
+pub mod collector;
 pub mod ethereum;
 pub mod server;
 pub mod starknet;
+pub mod stream;
+pub mod trigger;
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -24,8 +30,6 @@ use katana_primitives::transaction::L1HandlerTx;
 use serde::{Deserialize, Serialize};
 
 pub(crate) const LOG_TARGET: &str = "messaging";
-
-type MessengerResult<T> = Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -65,8 +69,7 @@ pub struct MessagingOutcome {
 }
 
 /// A messenger is a stream that yields batches of L1Handler transactions
-/// gathered from a settlement chain. Each implementation owns its own
-/// polling strategy (timer, subscription, etc).
+/// gathered from a settlement chain.
 ///
 /// This trait is object-safe, allowing `Box<dyn Messenger>` usage.
 pub trait Messenger: Stream<Item = MessagingOutcome> + Send + Unpin {}
@@ -90,8 +93,8 @@ pub struct MessagingConfig {
     /// The settlement chain configuration.
     #[serde(flatten)]
     pub settlement: SettlementChainConfig,
-    /// The interval, in seconds, at which the messaging service will fetch messages
-    /// from the settlement chain.
+    /// The interval, in seconds, at which the messaging service will poll for
+    /// new blocks on the settlement chain.
     pub interval: u64,
     /// The block on settlement chain from where Katana will start fetching messages.
     /// Used only if no checkpoint exists in the database.

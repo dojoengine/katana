@@ -1,11 +1,9 @@
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::time::Duration;
 
 use alloy_primitives::B256;
 use anyhow::Result;
-use futures::{Future, FutureExt, Stream};
+use futures::Future;
 use katana_primitives::chain::ChainId;
 use katana_primitives::hash::StarkHash;
 use katana_primitives::transaction::L1HandlerTx;
@@ -14,67 +12,28 @@ use starknet::core::types::{BlockId, EmittedEvent, EventFilter};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{AnyProvider, JsonRpcClient, Provider};
-use tokio::time::{interval_at, Instant, Interval};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace};
 use url::Url;
 
-use super::{Error, MessagingOutcome, MessengerResult, LOG_TARGET};
+use crate::collector::{GatherResult, MessageCollector};
+use crate::{Error, LOG_TARGET};
 
 /// TODO: This may come from the configuration.
 pub const MESSAGE_SENT_EVENT_KEY: Felt = selector!("MessageSent");
 
-/// Maximum number of blocks to fetch in a single gather call.
-const MAX_BLOCKS_PER_GATHER: u64 = 200;
-
-type BlockNumberFuture = Pin<Box<dyn Future<Output = MessengerResult<u64>> + Send>>;
-type GatherFuture = Pin<Box<dyn Future<Output = MessengerResult<(u64, u64, Vec<L1HandlerTx>)>> + Send>>;
-
-/// The phase the messenger is currently in.
-enum Phase {
-    /// Idle — waiting for the next poll interval tick.
-    Idle,
-    /// Checking the latest block number on the settlement chain.
-    CheckingBlock(BlockNumberFuture),
-    /// Gathering messages from the settlement chain.
-    Gathering(GatherFuture),
-}
-
-#[allow(missing_debug_implementations)]
-pub struct StarknetMessaging {
+/// Starknet settlement chain message collector.
+pub struct StarknetCollector {
     provider: Arc<AnyProvider>,
     messaging_contract_address: Felt,
-    chain_id: ChainId,
-    interval: Interval,
-    from_block: u64,
-    phase: Phase,
 }
 
-impl StarknetMessaging {
-    pub async fn new(
-        rpc_url: &str,
-        contract_address: &str,
-        chain_id: ChainId,
-        from_block: u64,
-        poll_interval_secs: u64,
-    ) -> Result<Self> {
+impl StarknetCollector {
+    pub fn new(rpc_url: &str, contract_address: &str) -> Result<Self> {
         let provider = Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(
             HttpTransport::new(Url::parse(rpc_url)?),
         )));
-
         let messaging_contract_address = Felt::from_hex(contract_address)?;
-
-        let duration = Duration::from_secs(poll_interval_secs);
-        let mut interval = interval_at(Instant::now() + duration, duration);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-        Ok(Self {
-            provider,
-            messaging_contract_address,
-            chain_id,
-            interval,
-            from_block,
-            phase: Phase::Idle,
-        })
+        Ok(Self { provider, messaging_contract_address })
     }
 
     async fn fetch_events(
@@ -83,7 +42,7 @@ impl StarknetMessaging {
         from_block: BlockId,
         to_block: BlockId,
     ) -> Result<Vec<EmittedEvent>> {
-        trace!(target: LOG_TARGET, from_block = ?from_block, to_block = ?to_block, "Fetching logs.");
+        trace!(target: LOG_TARGET, from_block = ?from_block, to_block = ?to_block, "Fetching starknet events.");
 
         let mut events = vec![];
 
@@ -116,133 +75,47 @@ impl StarknetMessaging {
 
         Ok(events)
     }
+}
 
-    /// Fetch and convert messages from a known block range.
-    async fn gather_messages(
-        provider: Arc<AnyProvider>,
-        contract_address: Felt,
-        chain_id: ChainId,
+impl MessageCollector for StarknetCollector {
+    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + '_>> {
+        Box::pin(async { self.provider.block_number().await.map_err(|_| Error::GatherError) })
+    }
+
+    fn gather(
+        &self,
         from_block: u64,
         to_block: u64,
-    ) -> MessengerResult<(u64, u64, Vec<L1HandlerTx>)> {
-        let mut l1_handler_txs: Vec<L1HandlerTx> = vec![];
-        let mut last_event_index: u64 = 0;
+        chain_id: ChainId,
+    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
+        Box::pin(async move {
+            let mut transactions: Vec<L1HandlerTx> = vec![];
+            let mut tx_index: u64 = 0;
 
-        let events = Self::fetch_events(
-            &provider,
-            contract_address,
-            BlockId::Number(from_block),
-            BlockId::Number(to_block),
-        )
-        .await
-        .map_err(|_| Error::GatherError)?;
+            let events = Self::fetch_events(
+                &self.provider,
+                self.messaging_contract_address,
+                BlockId::Number(from_block),
+                BlockId::Number(to_block),
+            )
+            .await
+            .map_err(|_| Error::GatherError)?;
 
-        for (idx, e) in events.iter().enumerate() {
-            debug!(
-                target: LOG_TARGET,
-                event = ?e,
-                "Converting event into L1HandlerTx."
-            );
+            for (idx, e) in events.iter().enumerate() {
+                debug!(target: LOG_TARGET, event = ?e, "Converting event into L1HandlerTx.");
 
-            if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
-                l1_handler_txs.push(tx);
-                last_event_index = idx as u64;
+                if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
+                    transactions.push(tx);
+                    tx_index = idx as u64;
+                }
             }
-        }
 
-        Ok((to_block, last_event_index, l1_handler_txs))
-    }
-
-    /// Returns the capped `to_block` for a gather given the latest chain block.
-    fn to_block(from_block: u64, latest_block: u64) -> u64 {
-        if from_block + MAX_BLOCKS_PER_GATHER + 1 < latest_block {
-            from_block + MAX_BLOCKS_PER_GATHER
-        } else {
-            latest_block
-        }
+            Ok(GatherResult { to_block, tx_index, transactions })
+        })
     }
 }
 
-impl Stream for StarknetMessaging {
-    type Item = MessagingOutcome;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        loop {
-            match &mut this.phase {
-                Phase::Idle => {
-                    if this.interval.poll_tick(cx).is_ready() {
-                        let provider = this.provider.clone();
-                        this.phase = Phase::CheckingBlock(Box::pin(async move {
-                            provider.block_number().await.map_err(|_| Error::GatherError)
-                        }));
-                    } else {
-                        return Poll::Pending;
-                    }
-                }
-
-                Phase::CheckingBlock(fut) => {
-                    match fut.poll_unpin(cx) {
-                        Poll::Ready(Ok(latest_block)) => {
-                            if latest_block < this.from_block {
-                                trace!(target: LOG_TARGET, from_block = this.from_block, latest_block, "No new blocks on settlement chain.");
-                                this.phase = Phase::Idle;
-                                return Poll::Pending;
-                            }
-
-                            let to_block = Self::to_block(this.from_block, latest_block);
-                            trace!(target: LOG_TARGET, from_block = this.from_block, to_block, latest_block, "New blocks detected, gathering messages.");
-
-                            this.phase = Phase::Gathering(Box::pin(Self::gather_messages(
-                                this.provider.clone(),
-                                this.messaging_contract_address,
-                                this.chain_id,
-                                this.from_block,
-                                to_block,
-                            )));
-                        }
-                        Poll::Ready(Err(_)) => {
-                            warn!(
-                                target: LOG_TARGET,
-                                "Couldn't fetch settlement chain last block number. Skipped, \
-                                 retry at the next tick."
-                            );
-                            this.phase = Phase::Idle;
-                            return Poll::Pending;
-                        }
-                        Poll::Pending => return Poll::Pending,
-                    }
-                }
-
-                Phase::Gathering(fut) => {
-                    match fut.poll_unpin(cx) {
-                        Poll::Ready(Ok((last_block, tx_index, transactions))) => {
-                            this.from_block = last_block + 1;
-                            this.phase = Phase::Idle;
-                            return Poll::Ready(Some(MessagingOutcome {
-                                settlement_block: last_block,
-                                tx_index,
-                                transactions,
-                            }));
-                        }
-                        Poll::Ready(Err(e)) => {
-                            error!(
-                                target: LOG_TARGET,
-                                block = %this.from_block,
-                                error = %e,
-                                "Gathering messages for block."
-                            );
-                            this.phase = Phase::Idle;
-                            return Poll::Pending;
-                        }
-                        Poll::Pending => return Poll::Pending,
-                    }
-                }
-            }
-        }
-    }
-}
+// --- Conversion functions ---
 
 fn l1_handler_tx_from_event(event: &EmittedEvent, chain_id: ChainId) -> Result<L1HandlerTx> {
     if event.keys[0] != MESSAGE_SENT_EVENT_KEY {
