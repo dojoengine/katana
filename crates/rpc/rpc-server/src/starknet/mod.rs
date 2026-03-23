@@ -68,7 +68,7 @@ mod read;
 mod trace;
 mod write;
 
-pub use cache::{RpcCache, RpcCacheConfig};
+pub use cache::RpcCache;
 #[cfg(feature = "cartridge")]
 pub use config::CartridgePaymasterConfig;
 pub use config::StarknetApiConfig;

@@ -54,7 +54,7 @@ use katana_rpc_server::dev::DevApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::starknet::CartridgePaymasterConfig;
-use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
+use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle};
@@ -310,14 +310,6 @@ where
             paymaster: cartridge_paymaster,
         };
 
-        let cache = katana_rpc_server::starknet::RpcCache::new(
-            &katana_rpc_server::starknet::RpcCacheConfig::from_cli(
-                config.rpc.cache_max_blocks,
-                config.rpc.cache_max_transactions,
-                config.rpc.cache_max_classes,
-            ),
-        );
-
         let chain_spec = backend.chain_spec.clone();
 
         let starknet_api = StarknetApi::new(
@@ -328,7 +320,7 @@ where
             gas_oracle.clone(),
             starknet_api_cfg,
             provider.clone(),
-            cache,
+            RpcCache::new(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

@@ -15,13 +15,6 @@ pub const DEFAULT_RPC_MAX_PROOF_KEYS: u64 = 100;
 /// Default maximum gas for the `starknet_call` RPC method.
 pub const DEFAULT_RPC_MAX_CALL_GAS: u64 = 1_000_000_000;
 
-/// Default maximum number of cached blocks in the RPC response cache.
-pub const DEFAULT_RPC_CACHE_MAX_BLOCKS: usize = 128;
-/// Default maximum number of cached transactions in the RPC response cache.
-pub const DEFAULT_RPC_CACHE_MAX_TRANSACTIONS: usize = 1024;
-/// Default maximum number of cached classes in the RPC response cache.
-pub const DEFAULT_RPC_CACHE_MAX_CLASSES: usize = 256;
-
 /// List of RPC modules supported by Katana.
 #[derive(
     Debug,
@@ -64,12 +57,6 @@ pub struct RpcConfig {
     pub max_proof_keys: Option<u64>,
     pub max_event_page_size: Option<u64>,
     pub max_call_gas: Option<u64>,
-    /// Maximum number of cached blocks in the RPC response cache. Set to 0 to disable.
-    pub cache_max_blocks: usize,
-    /// Maximum number of cached transactions in the RPC response cache. Set to 0 to disable.
-    pub cache_max_transactions: usize,
-    /// Maximum number of cached classes in the RPC response cache. Set to 0 to disable.
-    pub cache_max_classes: usize,
 }
 
 impl RpcConfig {
@@ -96,9 +83,6 @@ impl Default for RpcConfig {
             max_event_page_size: Some(DEFAULT_RPC_MAX_EVENT_PAGE_SIZE),
             max_proof_keys: Some(DEFAULT_RPC_MAX_PROOF_KEYS),
             max_call_gas: Some(DEFAULT_RPC_MAX_CALL_GAS),
-            cache_max_blocks: DEFAULT_RPC_CACHE_MAX_BLOCKS,
-            cache_max_transactions: DEFAULT_RPC_CACHE_MAX_TRANSACTIONS,
-            cache_max_classes: DEFAULT_RPC_CACHE_MAX_CLASSES,
         }
     }
 }

@@ -31,7 +31,7 @@ use katana_provider::DbProviderFactory;
 use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_server::cors::Cors;
-use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
+use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_stage::blocks::{BatchBlockDownloader, JsonRpcBlockDownloader};
 use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
@@ -263,14 +263,6 @@ impl Node {
             paymaster: None,
         };
 
-        let cache = katana_rpc_server::starknet::RpcCache::new(
-            &katana_rpc_server::starknet::RpcCacheConfig::from_cli(
-                config.rpc.cache_max_blocks,
-                config.rpc.cache_max_transactions,
-                config.rpc.cache_max_classes,
-            ),
-        );
-
         let chain_spec = match config.network {
             Network::Mainnet => ChainSpec::mainnet(),
             Network::Sepolia => ChainSpec::sepolia(),
@@ -284,7 +276,7 @@ impl Node {
             GasPriceOracle::create_for_testing(),
             starknet_api_cfg,
             storage_provider.clone(),
-            cache,
+            RpcCache::new(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
