@@ -40,26 +40,11 @@ fn main() -> anyhow::Result<()> {
     println!("Opening database at {} (read-only)...", args.path.display());
     let db = Db::open_ro(&args.path)?;
 
-    // Collect receipt samples: read envelope values, extract inner receipt, re-serialize to
-    // postcard bytes (the raw payload that will be compressed).
+    // Collect receipt samples (most recent first)
     println!("\n=== Receipts ===");
     {
-        let tx = db.tx()?;
-        let mut cursor = tx.cursor::<tables::Receipts>()?;
-        let mut samples = Vec::new();
-        let mut walker = cursor.walk(Some(0))?;
-        while let Some(Ok((_key, envelope))) = walker.next() {
-            if samples.len() >= args.max_samples {
-                break;
-            }
-            // Re-serialize the inner receipt to postcard bytes (the compress trait impl).
-            if let Ok(bytes) = envelope.inner.compress() {
-                samples.push(bytes.into());
-            }
-        }
-        drop(walker);
-        drop(cursor);
-        drop(tx);
+        let samples =
+            collect_samples_reverse::<tables::Receipts>(&db, args.max_samples)?;
 
         println!("Collected {} samples", samples.len());
         if samples.is_empty() {
@@ -69,24 +54,11 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Collect transaction samples
+    // Collect transaction samples (most recent first)
     println!("\n=== Transactions ===");
     {
-        let tx = db.tx()?;
-        let mut cursor = tx.cursor::<tables::Transactions>()?;
-        let mut samples = Vec::new();
-        let mut walker = cursor.walk(Some(0))?;
-        while let Some(Ok((_key, envelope))) = walker.next() {
-            if samples.len() >= args.max_samples {
-                break;
-            }
-            if let Ok(bytes) = envelope.inner.compress() {
-                samples.push(bytes.into());
-            }
-        }
-        drop(walker);
-        drop(cursor);
-        drop(tx);
+        let samples =
+            collect_samples_reverse::<tables::Transactions>(&db, args.max_samples)?;
 
         println!("Collected {} samples", samples.len());
         if samples.is_empty() {
@@ -103,6 +75,31 @@ fn main() -> anyhow::Result<()> {
 
     println!("\nDone.");
     Ok(())
+}
+
+/// Walk backwards from the most recent record, collecting raw postcard-serialized samples.
+fn collect_samples_reverse<T>(db: &Db, max_samples: usize) -> anyhow::Result<Vec<Vec<u8>>>
+where
+    T: katana_db::tables::Table,
+    T::Value: Compress,
+{
+    let tx = db.tx()?;
+    let mut cursor = tx.cursor::<T>()?;
+    let mut samples = Vec::new();
+
+    // Start from the last (most recent) entry and walk backwards
+    let mut current = cursor.last()?;
+    while let Some((_key, value)) = current {
+        if samples.len() >= max_samples {
+            break;
+        }
+        if let Ok(bytes) = value.compress() {
+            samples.push(bytes.into());
+        }
+        current = cursor.prev()?;
+    }
+
+    Ok(samples)
 }
 
 fn train_and_write(
