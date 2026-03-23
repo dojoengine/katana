@@ -152,16 +152,18 @@ jobs:
               with:
                   tool: cargo-nextest
 
+            - name: Build binary with all features
+              run: cargo build --bin katana --all-features
+
             # Build and archive test binaries on macOS so the test job can run
             # without recompilation (macOS runners are too slow to compile + test
-            # within a single job timeout).
+            # within a single job timeout). Runs after the binary build so deps
+            # are already compiled. Clean up target dir afterwards to free disk.
             - name: Build and archive test binaries (macOS)
               if: matrix.os == 'macos'
               run: |
                   cargo nextest archive --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --archive-file nextest-archive.tar.zst
-
-            - name: Build binary with all features
-              run: cargo build --bin katana --all-features
+                  rm -rf target/debug/deps target/debug/build target/debug/incremental
 
             - name: Upload binary
               uses: actions/upload-artifact@v4
