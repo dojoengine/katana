@@ -23,7 +23,21 @@ use super::{Error, MessagingOutcome, MessengerResult, LOG_TARGET};
 /// TODO: This may come from the configuration.
 pub const MESSAGE_SENT_EVENT_KEY: Felt = selector!("MessageSent");
 
+/// Maximum number of blocks to fetch in a single gather call.
+const MAX_BLOCKS_PER_GATHER: u64 = 200;
+
+type BlockNumberFuture = Pin<Box<dyn Future<Output = MessengerResult<u64>> + Send>>;
 type GatherFuture = Pin<Box<dyn Future<Output = MessengerResult<(u64, u64, Vec<L1HandlerTx>)>> + Send>>;
+
+/// The phase the messenger is currently in.
+enum Phase {
+    /// Idle — waiting for the next poll interval tick.
+    Idle,
+    /// Checking the latest block number on the settlement chain.
+    CheckingBlock(BlockNumberFuture),
+    /// Gathering messages from the settlement chain.
+    Gathering(GatherFuture),
+}
 
 #[allow(missing_debug_implementations)]
 pub struct StarknetMessaging {
@@ -32,7 +46,7 @@ pub struct StarknetMessaging {
     chain_id: ChainId,
     interval: Interval,
     from_block: u64,
-    gather_fut: Option<GatherFuture>,
+    phase: Phase,
 }
 
 impl StarknetMessaging {
@@ -41,7 +55,7 @@ impl StarknetMessaging {
         contract_address: &str,
         chain_id: ChainId,
         from_block: u64,
-        interval_secs: u64,
+        poll_interval_secs: u64,
     ) -> Result<Self> {
         let provider = Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(
             HttpTransport::new(Url::parse(rpc_url)?),
@@ -49,7 +63,7 @@ impl StarknetMessaging {
 
         let messaging_contract_address = Felt::from_hex(contract_address)?;
 
-        let duration = Duration::from_secs(interval_secs);
+        let duration = Duration::from_secs(poll_interval_secs);
         let mut interval = interval_at(Instant::now() + duration, duration);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -59,7 +73,7 @@ impl StarknetMessaging {
             chain_id,
             interval,
             from_block,
-            gather_fut: None,
+            phase: Phase::Idle,
         })
     }
 
@@ -103,38 +117,14 @@ impl StarknetMessaging {
         Ok(events)
     }
 
-    /// Returns (to_block, last_event_index, transactions).
+    /// Fetch and convert messages from a known block range.
     async fn gather_messages(
         provider: Arc<AnyProvider>,
         contract_address: Felt,
         chain_id: ChainId,
         from_block: u64,
+        to_block: u64,
     ) -> MessengerResult<(u64, u64, Vec<L1HandlerTx>)> {
-        let max_blocks = 200;
-
-        let chain_latest_block: u64 = match provider.block_number().await {
-            Ok(n) => n,
-            Err(_) => {
-                warn!(
-                    target: LOG_TARGET,
-                    "Couldn't fetch settlement chain last block number. \nSkipped, retry at the \
-                     next tick."
-                );
-                return Err(Error::GatherError);
-            }
-        };
-
-        if from_block > chain_latest_block {
-            return Ok((chain_latest_block, 0, vec![]));
-        }
-
-        // +1 as the from_block counts as 1 block fetched.
-        let to_block = if from_block + max_blocks + 1 < chain_latest_block {
-            from_block + max_blocks
-        } else {
-            chain_latest_block
-        };
-
         let mut l1_handler_txs: Vec<L1HandlerTx> = vec![];
         let mut last_event_index: u64 = 0;
 
@@ -162,6 +152,15 @@ impl StarknetMessaging {
 
         Ok((to_block, last_event_index, l1_handler_txs))
     }
+
+    /// Returns the capped `to_block` for a gather given the latest chain block.
+    fn to_block(from_block: u64, latest_block: u64) -> u64 {
+        if from_block + MAX_BLOCKS_PER_GATHER + 1 < latest_block {
+            from_block + MAX_BLOCKS_PER_GATHER
+        } else {
+            latest_block
+        }
+    }
 }
 
 impl Stream for StarknetMessaging {
@@ -170,39 +169,78 @@ impl Stream for StarknetMessaging {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        if this.interval.poll_tick(cx).is_ready() && this.gather_fut.is_none() {
-            this.gather_fut = Some(Box::pin(Self::gather_messages(
-                this.provider.clone(),
-                this.messaging_contract_address,
-                this.chain_id,
-                this.from_block,
-            )));
-        }
+        loop {
+            match &mut this.phase {
+                Phase::Idle => {
+                    if this.interval.poll_tick(cx).is_ready() {
+                        let provider = this.provider.clone();
+                        this.phase = Phase::CheckingBlock(Box::pin(async move {
+                            provider.block_number().await.map_err(|_| Error::GatherError)
+                        }));
+                    } else {
+                        return Poll::Pending;
+                    }
+                }
 
-        if let Some(mut fut) = this.gather_fut.take() {
-            match fut.poll_unpin(cx) {
-                Poll::Ready(Ok((last_block, tx_index, transactions))) => {
-                    this.from_block = last_block + 1;
-                    return Poll::Ready(Some(MessagingOutcome {
-                        settlement_block: last_block,
-                        tx_index,
-                        transactions,
-                    }));
+                Phase::CheckingBlock(fut) => {
+                    match fut.poll_unpin(cx) {
+                        Poll::Ready(Ok(latest_block)) => {
+                            if latest_block < this.from_block {
+                                trace!(target: LOG_TARGET, from_block = this.from_block, latest_block, "No new blocks on settlement chain.");
+                                this.phase = Phase::Idle;
+                                return Poll::Pending;
+                            }
+
+                            let to_block = Self::to_block(this.from_block, latest_block);
+                            trace!(target: LOG_TARGET, from_block = this.from_block, to_block, latest_block, "New blocks detected, gathering messages.");
+
+                            this.phase = Phase::Gathering(Box::pin(Self::gather_messages(
+                                this.provider.clone(),
+                                this.messaging_contract_address,
+                                this.chain_id,
+                                this.from_block,
+                                to_block,
+                            )));
+                        }
+                        Poll::Ready(Err(_)) => {
+                            warn!(
+                                target: LOG_TARGET,
+                                "Couldn't fetch settlement chain last block number. Skipped, \
+                                 retry at the next tick."
+                            );
+                            this.phase = Phase::Idle;
+                            return Poll::Pending;
+                        }
+                        Poll::Pending => return Poll::Pending,
+                    }
                 }
-                Poll::Ready(Err(e)) => {
-                    error!(
-                        target: LOG_TARGET,
-                        block = %this.from_block,
-                        error = %e,
-                        "Gathering messages for block."
-                    );
-                    return Poll::Pending;
+
+                Phase::Gathering(fut) => {
+                    match fut.poll_unpin(cx) {
+                        Poll::Ready(Ok((last_block, tx_index, transactions))) => {
+                            this.from_block = last_block + 1;
+                            this.phase = Phase::Idle;
+                            return Poll::Ready(Some(MessagingOutcome {
+                                settlement_block: last_block,
+                                tx_index,
+                                transactions,
+                            }));
+                        }
+                        Poll::Ready(Err(e)) => {
+                            error!(
+                                target: LOG_TARGET,
+                                block = %this.from_block,
+                                error = %e,
+                                "Gathering messages for block."
+                            );
+                            this.phase = Phase::Idle;
+                            return Poll::Pending;
+                        }
+                        Poll::Pending => return Poll::Pending,
+                    }
                 }
-                Poll::Pending => this.gather_fut = Some(fut),
             }
         }
-
-        Poll::Pending
     }
 }
 
