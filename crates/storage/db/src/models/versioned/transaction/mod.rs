@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::codecs::{Compress, Decompress};
 use crate::error::CodecError;
+use crate::models::dict::{DictRegistry, TX_DICTS};
 use crate::models::envelope::{Envelope, EnvelopePayload};
 
 mod v6;
@@ -55,6 +56,10 @@ impl Decompress for VersionedTx {
 impl EnvelopePayload for VersionedTx {
     const MAGIC: &[u8; 4] = b"KTXN";
     const NAME: &str = "transaction";
+
+    fn dict_registry() -> Option<&'static DictRegistry> {
+        Some(&TX_DICTS)
+    }
 }
 
 impl From<VersionedTx> for Tx {

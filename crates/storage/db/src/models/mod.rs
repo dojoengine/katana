@@ -1,6 +1,7 @@
 pub mod block;
 pub mod class;
 pub mod contract;
+pub mod dict;
 pub mod envelope;
 pub mod list;
 pub mod receipt;

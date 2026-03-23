@@ -1,15 +1,12 @@
 use std::fmt::Debug;
+use std::io::{Read, Write};
 
 use crate::codecs::{Compress, Decompress};
 use crate::error::CodecError;
+use crate::models::dict::DictRegistry;
 
 const ENVELOPE_FORMAT_VERSION: u8 = 1;
 const ENVELOPE_HEADER_LEN: usize = 4 + 1 + 1 + 2; // magic (4) + version (1) + encoding (1) + flags (2)
-
-/// Per-record feature flags. Stored as 2 bytes little-endian in the header.
-///
-/// All 16 bits are reserved for future use (checksum, encryption, etc).
-const ENVELOPE_FLAGS_RESERVED: u16 = 0x0000;
 
 /// Minimum zstd frame size in bytes (magic 4 + frame header 2 + block header 3 + checksum 4).
 ///
@@ -55,6 +52,14 @@ pub enum EnvelopeError {
     #[error("failed to zstd-decompress {name} payload: {reason}")]
     ZstdDecompress { name: &'static str, reason: String },
 
+    /// Dictionary version not found in registry.
+    #[error("{name} envelope requires dictionary version {version} but it is not available")]
+    UnknownDictVersion { name: &'static str, version: u16 },
+
+    /// Dictionary required for `ZstdDict` encoding but no registry is configured.
+    #[error("{name} envelope uses dictionary encoding but no dictionary registry is configured")]
+    MissingDictRegistry { name: &'static str },
+
     /// The first bytes do not match the expected magic prefix for this envelope type.
     #[error("{name} envelope magic mismatch: expected {expected:?}, got {actual:?}")]
     InvalidMagic { name: &'static str, expected: &'static [u8; 4], actual: Vec<u8> },
@@ -71,12 +76,23 @@ impl From<EnvelopeError> for CodecError {
     }
 }
 
+// Re-export for use in envelope-consuming code.
+pub use crate::models::dict::DictVersion;
+
 /// Trait for types that can be stored in a compressed envelope.
 pub trait EnvelopePayload: Compress + Decompress + Debug + Clone + PartialEq + Eq {
     /// 4-byte magic identifier for this payload type.
     const MAGIC: &'static [u8; 4];
     /// Human-readable name for error messages.
     const NAME: &str;
+
+    /// Optional dictionary registry for this payload type.
+    ///
+    /// When `Some`, new writes use `ZstdDict` encoding with the current dictionary version.
+    /// During decompression, the registry is used to look up the correct dictionary by version.
+    fn dict_registry() -> Option<&'static DictRegistry> {
+        None
+    }
 }
 
 /// Generic compressed envelope for on-disk table values.
@@ -109,11 +125,12 @@ pub trait EnvelopePayload: Compress + Decompress + Debug + Clone + PartialEq + E
 /// Identifies the compression algorithm applied to the serialized payload.
 ///   - `0x00` — identity (no compression).
 ///   - `0x01` — zstd (default level, no dictionary).
+///   - `0x02` — zstd with a pre-trained dictionary (version in FLAGS).
 ///
 /// **Flags** (bytes 6–7):
 ///
-/// Reserved 16-bit little-endian field for future per-record features (checksum, encryption, etc).
-/// Currently always `0x0000`.
+/// 16-bit little-endian field. For `ZstdDict` (`0x02`) encoding, stores the dictionary version
+/// used to compress the payload. For other encodings, this field is `0x0000`.
 ///
 /// **Payload** (bytes 8..):
 ///
@@ -136,21 +153,41 @@ impl<T: EnvelopePayload> Envelope<T> {
         let serialized = self.inner.compress().unwrap();
         let serialized_len = serialized.as_ref().len();
 
-        let (encoding, payload) = if serialized_len < ZSTD_MIN_FRAME_SIZE {
-            (Encoding::Identity, serialized.into())
+        let (encoding, flags, payload) = if serialized_len < ZSTD_MIN_FRAME_SIZE {
+            (Encoding::Identity, 0u16, serialized.into())
+        } else if let Some(reg) = T::dict_registry() {
+            // Compress with dictionary
+            let mut output = Vec::new();
+            {
+                let mut encoder = zstd::stream::Encoder::with_prepared_dictionary(
+                    &mut output,
+                    reg.encoder(),
+                )
+                .map_err(|e| EnvelopeError::ZstdCompress {
+                    name: T::NAME,
+                    reason: e.to_string(),
+                })?;
+                encoder.write_all(serialized.as_ref()).map_err(|e| {
+                    EnvelopeError::ZstdCompress { name: T::NAME, reason: e.to_string() }
+                })?;
+                encoder.finish().map_err(|e| EnvelopeError::ZstdCompress {
+                    name: T::NAME,
+                    reason: e.to_string(),
+                })?;
+            }
+            (Encoding::ZstdDict, reg.current_version(), output)
         } else {
             let compressed = zstd::encode_all(serialized.as_ref(), 0).map_err(|e| {
                 EnvelopeError::ZstdCompress { name: T::NAME, reason: e.to_string() }
             })?;
-
-            (Encoding::Zstd, compressed)
+            (Encoding::Zstd, 0u16, compressed)
         };
 
         let mut encoded = Vec::with_capacity(ENVELOPE_HEADER_LEN + payload.len());
         encoded.extend_from_slice(T::MAGIC);
         encoded.push(ENVELOPE_FORMAT_VERSION);
         encoded.push(encoding as u8);
-        encoded.extend_from_slice(&ENVELOPE_FLAGS_RESERVED.to_le_bytes());
+        encoded.extend_from_slice(&flags.to_le_bytes());
         encoded.extend_from_slice(&payload);
 
         Ok(encoded)
@@ -182,14 +219,38 @@ impl<T: EnvelopePayload> Envelope<T> {
         let encoding = Encoding::try_from(encoding)
             .map_err(|source| EnvelopeError::UnsupportedEncoding { name: T::NAME, source })?;
 
-        // bytes 6–7: flags (reserved, read but unused for now)
-        let _flags = u16::from_le_bytes([bytes[6], bytes[7]]);
+        // bytes 6–7: flags — stores dictionary version for ZstdDict encoding
+        let flags = u16::from_le_bytes([bytes[6], bytes[7]]);
 
         let decoded = match encoding {
             Encoding::Identity => bytes[ENVELOPE_HEADER_LEN..].to_vec(),
+
             Encoding::Zstd => zstd::decode_all(&bytes[ENVELOPE_HEADER_LEN..]).map_err(|e| {
                 EnvelopeError::ZstdDecompress { name: T::NAME, reason: e.to_string() }
             })?,
+
+            Encoding::ZstdDict => {
+                let dict_version = flags;
+                let reg = T::dict_registry()
+                    .ok_or(EnvelopeError::MissingDictRegistry { name: T::NAME })?;
+                let dict = reg.decoder(dict_version).ok_or(EnvelopeError::UnknownDictVersion {
+                    name: T::NAME,
+                    version: dict_version,
+                })?;
+                let mut decoder = zstd::stream::Decoder::with_prepared_dictionary(
+                    &bytes[ENVELOPE_HEADER_LEN..],
+                    dict,
+                )
+                .map_err(|e| EnvelopeError::ZstdDecompress {
+                    name: T::NAME,
+                    reason: e.to_string(),
+                })?;
+                let mut output = Vec::new();
+                decoder.read_to_end(&mut output).map_err(|e| {
+                    EnvelopeError::ZstdDecompress { name: T::NAME, reason: e.to_string() }
+                })?;
+                output
+            }
         };
 
         Ok(Self { inner: T::decompress(&decoded).unwrap() })
@@ -228,6 +289,9 @@ enum Encoding {
     Identity = 0x00,
     /// Zstd compression (default level, no dictionary).
     Zstd = 0x01,
+    /// Zstd compression with a pre-trained dictionary. The dictionary version is stored in the
+    /// FLAGS field (bytes 6–7) of the envelope header.
+    ZstdDict = 0x02,
 }
 
 impl TryFrom<u8> for Encoding {
@@ -237,6 +301,7 @@ impl TryFrom<u8> for Encoding {
         match value {
             0x00 => Ok(Encoding::Identity),
             0x01 => Ok(Encoding::Zstd),
+            0x02 => Ok(Encoding::ZstdDict),
             _ => Err(UnknownEncodingError(value)),
         }
     }
@@ -286,7 +351,7 @@ mod tests {
         assert_eq!(&compressed[..4], b"TEST");
         assert_eq!(compressed[4], ENVELOPE_FORMAT_VERSION);
         assert_eq!(compressed[5], Encoding::Zstd as u8);
-        assert_eq!(&compressed[6..8], &ENVELOPE_FLAGS_RESERVED.to_le_bytes());
+        assert_eq!(&compressed[6..8], &[0x00, 0x00]);
 
         let decompressed = Envelope::<TestPayload>::decompress(compressed).expect("decompress");
         assert_eq!(decompressed.inner, payload);
@@ -336,7 +401,7 @@ mod tests {
         let mut encoded = b"TEST".to_vec();
         encoded.push(ENVELOPE_FORMAT_VERSION + 1);
         encoded.push(Encoding::Zstd as u8);
-        encoded.extend_from_slice(&ENVELOPE_FLAGS_RESERVED.to_le_bytes());
+        encoded.extend_from_slice(&0u16.to_le_bytes());
 
         let err = Envelope::<TestPayload>::do_decompress(&encoded).expect_err("must reject");
         assert!(matches!(err, EnvelopeError::UnsupportedVersion { version: 2, .. }));
@@ -347,7 +412,7 @@ mod tests {
         let mut encoded = b"TEST".to_vec();
         encoded.push(ENVELOPE_FORMAT_VERSION);
         encoded.push(0xFF); // bad encoding
-        encoded.extend_from_slice(&ENVELOPE_FLAGS_RESERVED.to_le_bytes());
+        encoded.extend_from_slice(&0u16.to_le_bytes());
 
         let err = Envelope::<TestPayload>::do_decompress(&encoded).expect_err("must reject");
         assert!(matches!(err, EnvelopeError::UnsupportedEncoding { .. }));
@@ -358,7 +423,7 @@ mod tests {
         let mut encoded = b"TEST".to_vec();
         encoded.push(ENVELOPE_FORMAT_VERSION);
         encoded.push(Encoding::Zstd as u8);
-        encoded.extend_from_slice(&ENVELOPE_FLAGS_RESERVED.to_le_bytes());
+        encoded.extend_from_slice(&0u16.to_le_bytes());
         encoded.extend_from_slice(&[1, 2, 3, 4]);
 
         let err = Envelope::<TestPayload>::do_decompress(&encoded).expect_err("must reject");
@@ -373,5 +438,112 @@ mod tests {
 
         let err = Envelope::<TestPayload>::do_decompress(&encoded).expect_err("must reject");
         assert!(matches!(err, EnvelopeError::IncompleteHeader { expected: 8, actual: 5, .. }));
+    }
+
+    // -- ZstdDict tests -------------------------------------------------------
+
+    /// A test payload type that has a dictionary registry, for testing dict-based compression.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DictTestPayload {
+        data: String,
+    }
+
+    impl EnvelopePayload for DictTestPayload {
+        const MAGIC: &[u8; 4] = b"DTST";
+        const NAME: &str = "dict-test";
+
+        fn dict_registry() -> Option<&'static DictRegistry> {
+            use crate::models::dict::RECEIPT_DICTS;
+            Some(&RECEIPT_DICTS)
+        }
+    }
+
+    impl Compress for DictTestPayload {
+        type Compressed = Vec<u8>;
+        fn compress(self) -> Result<Self::Compressed, CodecError> {
+            Ok(self.data.as_bytes().to_vec())
+        }
+    }
+
+    impl Decompress for DictTestPayload {
+        fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, CodecError> {
+            Ok(Self { data: String::from_utf8(bytes.as_ref().to_vec()).unwrap() })
+        }
+    }
+
+    #[test]
+    fn zstd_dict_roundtrip() {
+        let payload = DictTestPayload { data: "x".repeat(128) };
+        let envelope = Envelope::from(payload.clone());
+
+        let compressed = envelope.compress().expect("compress");
+        assert_eq!(&compressed[..4], b"DTST");
+        assert_eq!(compressed[4], ENVELOPE_FORMAT_VERSION);
+        assert_eq!(compressed[5], Encoding::ZstdDict as u8);
+        // flags should contain dictionary version 1 in LE
+        assert_eq!(&compressed[6..8], &1u16.to_le_bytes());
+
+        let decompressed =
+            Envelope::<DictTestPayload>::decompress(compressed).expect("decompress");
+        assert_eq!(decompressed.inner, payload);
+    }
+
+    #[test]
+    fn zstd_dict_encoding_byte_is_0x02() {
+        let payload = DictTestPayload { data: "y".repeat(128) };
+        let envelope = Envelope::from(payload);
+        let compressed = envelope.compress().expect("compress");
+        assert_eq!(compressed[5], 0x02);
+    }
+
+    #[test]
+    fn backward_compat_zstd_still_decompresses() {
+        // Manually construct a Zstd (0x01) encoded envelope and verify it decompresses
+        // even when the payload type has a dict_registry.
+        let raw_data = "z".repeat(128);
+        let zstd_compressed =
+            zstd::encode_all(raw_data.as_bytes(), 0).expect("zstd compress");
+
+        let mut encoded = b"DTST".to_vec();
+        encoded.push(ENVELOPE_FORMAT_VERSION);
+        encoded.push(Encoding::Zstd as u8); // old encoding, no dictionary
+        encoded.extend_from_slice(&0u16.to_le_bytes()); // flags = 0
+        encoded.extend_from_slice(&zstd_compressed);
+
+        let decompressed =
+            Envelope::<DictTestPayload>::decompress(encoded).expect("should decompress Zstd=0x01");
+        assert_eq!(decompressed.inner.data, raw_data);
+    }
+
+    #[test]
+    fn zstd_dict_rejects_missing_registry() {
+        // TestPayload has no dict_registry. Manually craft a ZstdDict envelope for it.
+        let raw_data = "w".repeat(128);
+        let zstd_compressed =
+            zstd::encode_all(raw_data.as_bytes(), 0).expect("zstd compress");
+
+        let mut encoded = b"TEST".to_vec();
+        encoded.push(ENVELOPE_FORMAT_VERSION);
+        encoded.push(Encoding::ZstdDict as u8);
+        encoded.extend_from_slice(&1u16.to_le_bytes());
+        encoded.extend_from_slice(&zstd_compressed);
+
+        let err = Envelope::<TestPayload>::do_decompress(&encoded).expect_err("must reject");
+        assert!(matches!(err, EnvelopeError::MissingDictRegistry { .. }));
+    }
+
+    #[test]
+    fn small_dict_payload_uses_identity() {
+        // Even with a dict registry, payloads smaller than ZSTD_MIN_FRAME_SIZE use Identity.
+        let payload = DictTestPayload { data: "tiny".into() };
+        assert!(payload.data.len() < ZSTD_MIN_FRAME_SIZE);
+        let envelope = Envelope::from(payload.clone());
+
+        let compressed = envelope.compress().expect("compress");
+        assert_eq!(compressed[5], Encoding::Identity as u8);
+
+        let decompressed =
+            Envelope::<DictTestPayload>::decompress(compressed).expect("decompress");
+        assert_eq!(decompressed.inner, payload);
     }
 }

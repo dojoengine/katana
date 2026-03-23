@@ -12,6 +12,7 @@ katana-trie.workspace = true
 katana-metrics.workspace = true
 
 anyhow.workspace = true
+clap = { workspace = true, optional = true }
 indicatif = "0.17.8"
 cairo-lang-starknet-classes.workspace = true
 arbitrary = { workspace = true, optional = true }
@@ -50,6 +51,12 @@ default = [ "postcard" ]
 postcard = [ "dep:postcard" ]
 test-utils = [  ]
 arbitrary = [ "dep:arbitrary" ]
+cli = [ "dep:clap" ]
+
+[[bin]]
+name = "train-dict"
+path = "src/bin/train_dict.rs"
+required-features = [ "cli" ]
 
 [[bench]]
 harness = false

@@ -2,6 +2,9 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+#[cfg(feature = "cli")]
+use clap as _;
+
 use std::fs;
 use std::path::Path;
 
