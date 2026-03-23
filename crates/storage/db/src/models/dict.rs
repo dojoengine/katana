@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::LazyLock;
 
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
@@ -23,6 +24,16 @@ struct DictVersionedEncoder {
 struct DictVersionedDecoder {
     version: DictVersion,
     dict: &'static LazyLock<DecoderDictionary<'static>>,
+}
+
+impl fmt::Debug for DictRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DictRegistry")
+            .field("current_version", &self.current_version)
+            .field("num_encoders", &self.encoders.len())
+            .field("num_decoders", &self.decoders.len())
+            .finish()
+    }
 }
 
 impl DictRegistry {
