@@ -277,6 +277,11 @@ jobs:
               with:
                   tool: cargo-nextest
 
+            # anvil is needed for the messaging integration test
+            - name: Install Foundry (macOS)
+              if: matrix.os == 'macos'
+              uses: foundry-rs/foundry-toolchain@v1
+
             - name: Download test artifacts
               uses: actions/download-artifact@v5
               with:
