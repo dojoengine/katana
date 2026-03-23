@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
-use std::str::FromStr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::Duration;
 
 use alloy_network::Ethereum;
 use alloy_primitives::{Address, U256};
@@ -9,7 +11,7 @@ use alloy_provider::{Provider, RootProvider};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, FilterSet, Log, Topic};
 use alloy_sol_types::{sol, SolEvent};
 use anyhow::Result;
-use async_trait::async_trait;
+use futures::{Future, FutureExt, Stream};
 use katana_primitives::chain::ChainId;
 use katana_primitives::message::L1ToL2Message;
 use katana_primitives::receipt::MessageToL1;
@@ -18,9 +20,10 @@ use katana_primitives::utils::transaction::{
     compute_l1_to_l2_message_hash, compute_l2_to_l1_message_hash,
 };
 use katana_primitives::{ContractAddress, Felt};
-use tracing::{debug, trace};
+use tokio::time::{interval_at, Instant, Interval};
+use tracing::{debug, error, trace};
 
-use super::{MessagingConfig, Messenger, MessengerResult, LOG_TARGET};
+use super::{MessagingOutcome, MessengerResult, LOG_TARGET};
 
 sol! {
     #[sol(rpc, rename_all = "snakecase")]
@@ -41,49 +44,60 @@ sol! {
     );
 }
 
-#[derive(Debug)]
+type GatherFuture = Pin<Box<dyn Future<Output = MessengerResult<(u64, u64, Vec<L1HandlerTx>)>> + Send>>;
+
+#[allow(missing_debug_implementations)]
 pub struct EthereumMessaging {
     provider: Arc<RootProvider<Ethereum>>,
     messaging_contract_address: Address,
+    chain_id: ChainId,
+    interval: Interval,
+    from_block: u64,
+    gather_fut: Option<GatherFuture>,
 }
 
 impl EthereumMessaging {
-    pub async fn new(config: MessagingConfig) -> Result<EthereumMessaging> {
-        Ok(EthereumMessaging {
-            provider: Arc::new(RootProvider::<Ethereum>::new_http(reqwest::Url::parse(
-                &config.rpc_url,
-            )?)),
-            messaging_contract_address: config.contract_address.parse::<Address>()?,
+    pub async fn new(
+        rpc_url: &str,
+        contract_address: &str,
+        chain_id: ChainId,
+        from_block: u64,
+        interval_secs: u64,
+    ) -> Result<Self> {
+        let provider = Arc::new(RootProvider::<Ethereum>::new_http(reqwest::Url::parse(rpc_url)?));
+        let messaging_contract_address = contract_address.parse::<Address>()?;
+
+        let duration = Duration::from_secs(interval_secs);
+        let mut interval = interval_at(Instant::now() + duration, duration);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        Ok(Self {
+            provider,
+            messaging_contract_address,
+            chain_id,
+            interval,
+            from_block,
+            gather_fut: None,
         })
     }
 
-    /// Fetches logs in given block range and returns a `HashMap` with the list of logs mapped to
-    /// their block number.
-    ///
-    /// There is not pagination in ethereum, and no hard limit on block range.
-    /// Fetching too much block may result in RPC request error.
-    /// For this reason, the caller may wisely choose the range.
-    ///
-    /// # Arguments
-    ///
-    /// * `from_block` - The first block of which logs must be fetched.
-    /// * `to_block` - The last block of which logs must be fetched.
-    pub async fn fetch_logs(&self, from_block: u64, to_block: u64) -> MessengerResult<Vec<Log>> {
+    /// Fetches logs in given block range.
+    async fn fetch_logs(
+        provider: Arc<RootProvider<Ethereum>>,
+        contract_address: Address,
+        from_block: u64,
+        to_block: u64,
+    ) -> MessengerResult<Vec<Log>> {
         trace!(target: LOG_TARGET, from_block = ?from_block, to_block = ?to_block, "Fetching logs.");
-
-        let mut logs = vec![];
 
         let filters = Filter {
             block_option: FilterBlockOption::Range {
                 from_block: Some(BlockNumberOrTag::Number(from_block)),
                 to_block: Some(BlockNumberOrTag::Number(to_block)),
             },
-            address: FilterSet::<Address>::from(self.messaging_contract_address),
+            address: FilterSet::<Address>::from(contract_address),
             topics: [
                 Topic::from(
-                    //  LogMessageToL2 (index_topic_1 address fromAddress, index_topic_2 uint256
-                    // toAddress,  index_topic_3 uint256 selector, uint256[]
-                    // payload, uint256 nonce, uint256 fee)
                     "0xdb80dd488acf86d17c747445b0eabb5d57c541d3bd7b6b87af987858e5066b2b"
                         .parse::<U256>()
                         .unwrap(),
@@ -94,31 +108,26 @@ impl EthereumMessaging {
             ],
         };
 
-        self.provider
+        let logs = provider
             .get_logs(&filters)
             .await?
             .into_iter()
             .filter(|log| log.block_number.is_some())
-            .for_each(|log| {
-                logs.push(log);
-            });
+            .collect();
 
         Ok(logs)
     }
-}
 
-#[async_trait]
-impl Messenger for EthereumMessaging {
-    type MessageHash = U256;
-    type MessageTransaction = L1HandlerTx;
-
+    /// Gather messages from the settlement chain.
+    /// Returns (to_block, last_tx_index, transactions).
     async fn gather_messages(
-        &self,
-        from_block: u64,
-        max_blocks: u64,
+        provider: Arc<RootProvider<Ethereum>>,
+        contract_address: Address,
         chain_id: ChainId,
-    ) -> MessengerResult<(u64, Vec<Self::MessageTransaction>)> {
-        let chain_latest_block: u64 = self.provider.get_block_number().await?;
+        from_block: u64,
+    ) -> MessengerResult<(u64, u64, Vec<L1HandlerTx>)> {
+        let max_blocks = 200;
+        let chain_latest_block: u64 = provider.get_block_number().await?;
         trace!(target: LOG_TARGET, from_block, max_blocks, ?chain_id, latest_block = chain_latest_block, "Gathering messages ethereum.");
 
         // +1 as the from_block counts as 1 block fetched.
@@ -129,25 +138,76 @@ impl Messenger for EthereumMessaging {
         };
 
         let mut l1_handler_txs = vec![];
+        let mut last_tx_index: u64 = 0;
 
         trace!(target: LOG_TARGET, from_block, to_block, "Fetching logs from {from_block} to {to_block}.");
-        self.fetch_logs(from_block, to_block).await?.iter().for_each(|l| {
+        let logs = Self::fetch_logs(provider, contract_address, from_block, to_block).await?;
+
+        for log in &logs {
             debug!(
                 target: LOG_TARGET,
-                log = ?l,
+                log = ?log,
                 "Converting log into L1HandlerTx.",
             );
 
-            if let Ok(tx) = l1_handler_tx_from_log(l.clone(), chain_id) {
-                l1_handler_txs.push(tx)
+            if let Some(tx_idx) = log.transaction_index {
+                last_tx_index = tx_idx;
             }
-        });
 
-        Ok((to_block, l1_handler_txs))
+            if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {
+                l1_handler_txs.push(tx);
+            }
+        }
+
+        Ok((to_block, last_tx_index, l1_handler_txs))
     }
 }
 
-// TODO: refactor this as a method of the message log struct
+impl Stream for EthereumMessaging {
+    type Item = MessagingOutcome;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        // Check if it's time to start a new gather
+        if this.interval.poll_tick(cx).is_ready() && this.gather_fut.is_none() {
+            this.gather_fut = Some(Box::pin(Self::gather_messages(
+                this.provider.clone(),
+                this.messaging_contract_address,
+                this.chain_id,
+                this.from_block,
+            )));
+        }
+
+        // Poll the in-flight gather future
+        if let Some(mut fut) = this.gather_fut.take() {
+            match fut.poll_unpin(cx) {
+                Poll::Ready(Ok((last_block, tx_index, transactions))) => {
+                    this.from_block = last_block + 1;
+                    return Poll::Ready(Some(MessagingOutcome {
+                        settlement_block: last_block,
+                        tx_index,
+                        transactions,
+                    }));
+                }
+                Poll::Ready(Err(e)) => {
+                    error!(
+                        target: LOG_TARGET,
+                        block = %this.from_block,
+                        error = %e,
+                        "Gathering messages for block."
+                    );
+                    // Retry on next tick
+                    return Poll::Pending;
+                }
+                Poll::Pending => this.gather_fut = Some(fut),
+            }
+        }
+
+        Poll::Pending
+    }
+}
+
 fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1HandlerTx> {
     let log = LogMessageToL2::decode_log(log.as_ref()).unwrap();
 
@@ -174,8 +234,6 @@ fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1Hand
         message.nonce,
     );
 
-    // In an l1_handler transaction, the first element of the calldata is always the Ethereum
-    // address of the sender (msg.sender). https://docs.starknet.io/documentation/architecture_and_concepts/Network_Architecture/messaging-mechanism/#l1-l2-messages
     let mut calldata = vec![Felt::from_bytes_be_slice(from_address.as_slice())];
     calldata.extend(payload.clone());
 
@@ -207,6 +265,7 @@ fn parse_messages(messages: &[MessageToL1]) -> Vec<U256> {
 }
 
 fn felt_from_u256(v: U256) -> Felt {
+    use std::str::FromStr;
     Felt::from_str(format!("{v:#064x}").as_str()).unwrap()
 }
 
@@ -262,8 +321,6 @@ mod tests {
             nonce.into(),
         );
 
-        // the first element of the calldata is always the Ethereum address of the sender
-        // (msg.sender).
         let calldata = vec![Felt::from_bytes_be_slice(from_address.as_slice())]
             .into_iter()
             .chain(payload.clone())

@@ -22,6 +22,16 @@ pub struct PruningCheckpoint {
     pub block: BlockNumber,
 }
 
+/// Messaging service checkpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
+pub struct MessagingCheckpoint {
+    /// The settlement chain block number that was last successfully processed.
+    pub block: u64,
+    /// The transaction index within `block` up to which messages have been processed.
+    pub tx_index: u64,
+}
+
 /// Checkpoint for a database migration task, storing the next key to process.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]

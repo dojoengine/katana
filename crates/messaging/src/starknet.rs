@@ -1,6 +1,11 @@
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::Duration;
+
 use alloy_primitives::B256;
 use anyhow::Result;
-use async_trait::async_trait;
+use futures::{Future, FutureExt, Stream};
 use katana_primitives::chain::ChainId;
 use katana_primitives::hash::StarkHash;
 use katana_primitives::transaction::L1HandlerTx;
@@ -9,33 +14,58 @@ use starknet::core::types::{BlockId, EmittedEvent, EventFilter};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{AnyProvider, JsonRpcClient, Provider};
+use tokio::time::{interval_at, Instant, Interval};
 use tracing::{debug, error, trace, warn};
 use url::Url;
 
-use super::{Error, MessagingConfig, Messenger, MessengerResult, LOG_TARGET};
+use super::{Error, MessagingOutcome, MessengerResult, LOG_TARGET};
 
 /// TODO: This may come from the configuration.
 pub const MESSAGE_SENT_EVENT_KEY: Felt = selector!("MessageSent");
 
-#[derive(Debug)]
+type GatherFuture = Pin<Box<dyn Future<Output = MessengerResult<(u64, u64, Vec<L1HandlerTx>)>> + Send>>;
+
+#[allow(missing_debug_implementations)]
 pub struct StarknetMessaging {
-    provider: AnyProvider,
+    provider: Arc<AnyProvider>,
     messaging_contract_address: Felt,
+    chain_id: ChainId,
+    interval: Interval,
+    from_block: u64,
+    gather_fut: Option<GatherFuture>,
 }
 
 impl StarknetMessaging {
-    pub async fn new(config: MessagingConfig) -> Result<StarknetMessaging> {
-        let provider = AnyProvider::JsonRpcHttp(JsonRpcClient::new(HttpTransport::new(
-            Url::parse(&config.rpc_url)?,
+    pub async fn new(
+        rpc_url: &str,
+        contract_address: &str,
+        chain_id: ChainId,
+        from_block: u64,
+        interval_secs: u64,
+    ) -> Result<Self> {
+        let provider = Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(
+            HttpTransport::new(Url::parse(rpc_url)?),
         )));
 
-        let messaging_contract_address = Felt::from_hex(&config.contract_address)?;
+        let messaging_contract_address = Felt::from_hex(contract_address)?;
 
-        Ok(StarknetMessaging { provider, messaging_contract_address })
+        let duration = Duration::from_secs(interval_secs);
+        let mut interval = interval_at(Instant::now() + duration, duration);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        Ok(Self {
+            provider,
+            messaging_contract_address,
+            chain_id,
+            interval,
+            from_block,
+            gather_fut: None,
+        })
     }
 
-    pub async fn fetch_events(
-        &self,
+    async fn fetch_events(
+        provider: &AnyProvider,
+        contract_address: Felt,
         from_block: BlockId,
         to_block: BlockId,
     ) -> Result<Vec<EmittedEvent>> {
@@ -46,23 +76,19 @@ impl StarknetMessaging {
         let filter = EventFilter {
             from_block: Some(from_block),
             to_block: Some(to_block),
-            address: Some(self.messaging_contract_address),
+            address: Some(contract_address),
             keys: Some(vec![vec![MESSAGE_SENT_EVENT_KEY]]),
         };
 
-        // TODO: This chunk_size may also come from configuration?
         let chunk_size = 200;
         let mut continuation_token: Option<String> = None;
 
         loop {
             let event_page =
-                self.provider.get_events(filter.clone(), continuation_token, chunk_size).await?;
+                provider.get_events(filter.clone(), continuation_token, chunk_size).await?;
 
             event_page.events.into_iter().for_each(|event| {
-                // We ignore events without the block number
                 if event.block_number.is_some() {
-                    // Blocks are processed in order as retrieved by `get_events`.
-                    // This way we keep the order and ensure the messages are executed in order.
                     events.push(event);
                 }
             });
@@ -76,20 +102,17 @@ impl StarknetMessaging {
 
         Ok(events)
     }
-}
 
-#[async_trait]
-impl Messenger for StarknetMessaging {
-    type MessageHash = Felt;
-    type MessageTransaction = L1HandlerTx;
-
+    /// Returns (to_block, last_event_index, transactions).
     async fn gather_messages(
-        &self,
-        from_block: u64,
-        max_blocks: u64,
+        provider: Arc<AnyProvider>,
+        contract_address: Felt,
         chain_id: ChainId,
-    ) -> MessengerResult<(u64, Vec<Self::MessageTransaction>)> {
-        let chain_latest_block: u64 = match self.provider.block_number().await {
+        from_block: u64,
+    ) -> MessengerResult<(u64, u64, Vec<L1HandlerTx>)> {
+        let max_blocks = 200;
+
+        let chain_latest_block: u64 = match provider.block_number().await {
             Ok(n) => n,
             Err(_) => {
                 warn!(
@@ -102,8 +125,7 @@ impl Messenger for StarknetMessaging {
         };
 
         if from_block > chain_latest_block {
-            // Nothing to fetch, we can skip waiting the next tick.
-            return Ok((chain_latest_block, vec![]));
+            return Ok((chain_latest_block, 0, vec![]));
         }
 
         // +1 as the from_block counts as 1 block fetched.
@@ -114,25 +136,73 @@ impl Messenger for StarknetMessaging {
         };
 
         let mut l1_handler_txs: Vec<L1HandlerTx> = vec![];
+        let mut last_event_index: u64 = 0;
 
-        self.fetch_events(BlockId::Number(from_block), BlockId::Number(to_block))
-            .await
-            .map_err(|_| Error::GatherError)
-            .unwrap()
-            .iter()
-            .for_each(|e| {
-                debug!(
-                    target: LOG_TARGET,
-                    event = ?e,
-                    "Converting event into L1HandlerTx."
-                );
+        let events = Self::fetch_events(
+            &provider,
+            contract_address,
+            BlockId::Number(from_block),
+            BlockId::Number(to_block),
+        )
+        .await
+        .map_err(|_| Error::GatherError)?;
 
-                if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
-                    l1_handler_txs.push(tx)
+        for (idx, e) in events.iter().enumerate() {
+            debug!(
+                target: LOG_TARGET,
+                event = ?e,
+                "Converting event into L1HandlerTx."
+            );
+
+            if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
+                l1_handler_txs.push(tx);
+                last_event_index = idx as u64;
+            }
+        }
+
+        Ok((to_block, last_event_index, l1_handler_txs))
+    }
+}
+
+impl Stream for StarknetMessaging {
+    type Item = MessagingOutcome;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        if this.interval.poll_tick(cx).is_ready() && this.gather_fut.is_none() {
+            this.gather_fut = Some(Box::pin(Self::gather_messages(
+                this.provider.clone(),
+                this.messaging_contract_address,
+                this.chain_id,
+                this.from_block,
+            )));
+        }
+
+        if let Some(mut fut) = this.gather_fut.take() {
+            match fut.poll_unpin(cx) {
+                Poll::Ready(Ok((last_block, tx_index, transactions))) => {
+                    this.from_block = last_block + 1;
+                    return Poll::Ready(Some(MessagingOutcome {
+                        settlement_block: last_block,
+                        tx_index,
+                        transactions,
+                    }));
                 }
-            });
+                Poll::Ready(Err(e)) => {
+                    error!(
+                        target: LOG_TARGET,
+                        block = %this.from_block,
+                        error = %e,
+                        "Gathering messages for block."
+                    );
+                    return Poll::Pending;
+                }
+                Poll::Pending => this.gather_fut = Some(fut),
+            }
+        }
 
-        Ok((to_block, l1_handler_txs))
+        Poll::Pending
     }
 }
 
@@ -150,14 +220,11 @@ fn l1_handler_tx_from_event(event: &EmittedEvent, chain_id: ChainId) -> Result<L
         error!(target: LOG_TARGET, "Event MessageSentToAppchain is not well formatted.");
     }
 
-    // See contrat appchain_messaging.cairo for MessageSentToAppchain event.
     let from_address = event.keys[2];
     let to_address = event.keys[3];
     let entry_point_selector = event.data[0];
     let nonce = event.data[1];
 
-    // Skip the length of the serialized array for the payload which is data[2].
-    // Payload starts at data[3].
     let mut calldata = vec![from_address];
     calldata.extend(&event.data[3..]);
 
@@ -176,8 +243,6 @@ fn l1_handler_tx_from_event(event: &EmittedEvent, chain_id: ChainId) -> Result<L
         calldata,
         chain_id,
         message_hash,
-        // This is the min value paid on L1 for the message to be sent to L2.
-        // This doesn't apply for l2-l3 messaging in the current setting.
         paid_fee_on_l1: 30000_u128,
         entry_point_selector,
         version: Felt::ZERO,
@@ -185,10 +250,6 @@ fn l1_handler_tx_from_event(event: &EmittedEvent, chain_id: ChainId) -> Result<L
     })
 }
 
-/// Computes the hash of a L2 to L3 message.
-///
-/// Piltover uses poseidon hash for all hashes computation.
-/// <https://github.com/keep-starknet-strange/piltover/blob/a9c015eada5082076185a7b1413163a3da247009/src/messaging/hash.cairo#L22>
 fn compute_starknet_to_appchain_message_hash(
     from_address: Felt,
     to_address: Felt,

@@ -57,9 +57,10 @@ async fn test_messaging() {
     let l1_test_contract = Contract1::deploy(&l1_provider, *core_contract.address()).await.unwrap();
 
     let messaging_config = MessagingConfig {
-        chain: "ethereum".to_string(),
-        rpc_url: format!("http://localhost:{}", port),
-        contract_address: core_contract.address().to_string(),
+        settlement: katana_messaging::SettlementChainConfig::Ethereum {
+            rpc_url: format!("http://localhost:{}", port),
+            contract_address: core_contract.address().to_string(),
+        },
         interval: 2,
         from_block: 0,
     };

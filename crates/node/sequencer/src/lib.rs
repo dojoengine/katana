@@ -24,6 +24,8 @@ use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 #[cfg(feature = "grpc")]
 use katana_grpc::{GrpcServer, GrpcServerHandle};
+use katana_messaging::server::{MessagingHandle, MessagingServer};
+use katana_messaging::{NoopMessenger, SettlementChainConfig};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -476,6 +478,7 @@ where
             task_manager,
         })
     }
+
 }
 
 impl Node<DbProviderFactory> {
@@ -626,17 +629,14 @@ where
         };
 
         let pool = self.pool.clone();
-        let backend = self.backend.clone();
         let block_producer = self.block_producer.clone();
 
         // --- build and run sequencing task
 
         let sequencing = Sequencing::new(
             pool.clone(),
-            backend.clone(),
             self.task_manager.task_spawner(),
             block_producer.clone(),
-            self.config.messaging.clone(),
         );
 
         self.task_manager
@@ -688,6 +688,15 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
+        // --- build and start the messaging server
+
+        let messaging_handle = Self::build_and_start_messaging(
+            &self.config,
+            &self.backend,
+            &self.pool,
+        )
+        .await?;
+
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
@@ -695,6 +704,7 @@ where
             #[cfg(feature = "grpc")]
             grpc: grpc_handle,
             metrics: metrics_handle,
+            messaging: messaging_handle,
         })
     }
 
@@ -731,10 +741,54 @@ where
     pub fn block_producer(&self) -> &BlockProducer<P> {
         &self.block_producer
     }
+
+    async fn build_and_start_messaging(
+        config: &Config,
+        backend: &Arc<Backend<P>>,
+        pool: &TxPool,
+    ) -> Result<MessagingHandle> {
+        let messenger: Box<dyn katana_messaging::Messenger> =
+            if let Some(ref msg_config) = config.messaging {
+                let chain_id = backend.chain_spec.id();
+                let from_block = msg_config.from_block;
+                let interval = msg_config.interval;
+
+                match &msg_config.settlement {
+                    SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
+                        let messenger =
+                            katana_messaging::ethereum::EthereumMessaging::new(
+                                rpc_url,
+                                contract_address,
+                                chain_id,
+                                from_block,
+                                interval,
+                            )
+                            .await?;
+                        Box::new(messenger)
+                    }
+                    SettlementChainConfig::Starknet { rpc_url, contract_address } => {
+                        let messenger =
+                            katana_messaging::starknet::StarknetMessaging::new(
+                                rpc_url,
+                                contract_address,
+                                chain_id,
+                                from_block,
+                                interval,
+                            )
+                            .await?;
+                        Box::new(messenger)
+                    }
+                }
+            } else {
+                Box::new(NoopMessenger)
+            };
+
+        let server = MessagingServer::new(messenger).pool(pool.clone());
+        Ok(server.start())
+    }
 }
 
 /// A handle to the launched node.
-#[derive(Debug)]
 pub struct LaunchedNode<P>
 where
     P: ProviderFactory,
@@ -751,6 +805,8 @@ where
     grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
+    /// Handle to the messaging server.
+    messaging: MessagingHandle,
 }
 
 impl<P> LaunchedNode<P>
@@ -788,7 +844,7 @@ where
     /// Stops the node.
     ///
     /// This will instruct the node to stop and wait until it has actually stop.
-    pub async fn stop(self) -> Result<()> {
+    pub async fn stop(mut self) -> Result<()> {
         // TODO: wait for the rpc server to stop instead of just stopping it.
         self.rpc.stop()?;
 
@@ -807,6 +863,9 @@ where
         if let Some(mut handle) = self.metrics {
             handle.stop()?;
         }
+
+        // Stop messaging server
+        self.messaging.stop();
 
         self.node.task_manager.shutdown().await;
         Ok(())
