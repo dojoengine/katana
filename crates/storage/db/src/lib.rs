@@ -4,6 +4,8 @@
 
 #[cfg(feature = "cli")]
 use clap as _;
+#[cfg(feature = "cli")]
+use rand as _;
 
 use std::fs;
 use std::path::Path;
