@@ -1,21 +1,11 @@
 use anyhow::Result;
 use futures::future::BoxFuture;
-use katana_gateway_types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
-use katana_primitives::block::{
-    FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
-};
-use katana_primitives::fee::{FeeInfo, PriceUnit};
-use katana_primitives::receipt::{
-    DeclareTxReceipt, DeployAccountTxReceipt, DeployTxReceipt, InvokeTxReceipt, L1HandlerTxReceipt,
-    Receipt,
-};
-use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::transaction::{Tx, TxWithHash};
+use katana_primitives::chain::ChainId;
 use katana_primitives::Felt;
-use katana_provider::api::block::{BlockHashProvider, BlockWriter};
+use katana_provider::api::block::BlockHashProvider;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
-use num_traits::ToPrimitive;
-use starknet::core::types::ResourcePrice;
+use katana_tasks::TaskSpawner;
+use rayon::prelude::*;
 use tracing::{error, info_span, Instrument};
 
 use crate::{
@@ -24,72 +14,82 @@ use crate::{
 };
 
 mod downloader;
+pub mod hash;
 
-pub use downloader::{BatchBlockDownloader, BlockDownloader};
+pub use downloader::json_rpc::JsonRpcBlockDownloader;
+pub use downloader::{BatchBlockDownloader, BlockData, BlockDownloader};
+
+pub const BLOCKS_STAGE_ID: &str = "Blocks";
 
 /// A stage for syncing blocks.
 #[derive(Debug)]
 pub struct Blocks<B> {
     provider: DbProviderFactory,
     downloader: B,
+    chain_id: ChainId,
+    task_spawner: TaskSpawner,
 }
 
 impl<B> Blocks<B> {
     /// Create a new [`Blocks`] stage.
-    pub fn new(provider: DbProviderFactory, downloader: B) -> Self {
-        Self { provider, downloader }
+    pub fn new(
+        provider: DbProviderFactory,
+        downloader: B,
+        chain_id: ChainId,
+        task_spawner: TaskSpawner,
+    ) -> Self {
+        Self { provider, downloader, chain_id, task_spawner }
+    }
+}
+
+/// Validates that the downloaded blocks form a valid chain.
+///
+/// Checks the chain invariant: block N's parent hash must be block N-1's hash.
+/// For the first block in the list (if not block 0), it fetches the parent hash from storage.
+fn validate_chain_invariant(
+    provider: &DbProviderFactory,
+    blocks: &[BlockData],
+) -> Result<(), Error> {
+    if blocks.is_empty() {
+        return Ok(());
     }
 
-    /// Validates that the downloaded blocks form a valid chain.
-    ///
-    /// This method checks the chain invariant: block N's parent hash must be block N-1's hash.
-    /// For the first block in the list (if not block 0), it fetches the parent hash from storage.
-    fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error> {
-        if blocks.is_empty() {
-            return Ok(());
+    let first_block = &blocks[0].block.block;
+    let first_block_num = first_block.header.number;
+
+    if first_block_num > 0 {
+        let parent_block_num = first_block_num - 1;
+        let expected_parent_hash = provider
+            .provider()
+            .block_hash_by_num(parent_block_num)?
+            .ok_or(ProviderError::MissingBlockHash(parent_block_num))?;
+
+        if first_block.header.parent_hash != expected_parent_hash {
+            return Err(Error::ChainInvariantViolation {
+                block_num: first_block_num,
+                parent_hash: first_block.header.parent_hash,
+                expected_hash: expected_parent_hash,
+            });
         }
-
-        // Validate the first block against its parent in storage (if not block 0)
-        let first_block = &blocks[0].block;
-        let first_block_num =
-            first_block.block_number.expect("only confirmed blocks are synced atm");
-
-        if first_block_num > 0 {
-            let parent_block_num = first_block_num - 1;
-            let expected_parent_hash = self
-                .provider
-                .provider()
-                .block_hash_by_num(parent_block_num)?
-                .ok_or(ProviderError::MissingBlockHash(parent_block_num))?;
-
-            if first_block.parent_block_hash != expected_parent_hash {
-                return Err(Error::ChainInvariantViolation {
-                    block_num: first_block_num,
-                    parent_hash: first_block.parent_block_hash,
-                    expected_hash: expected_parent_hash,
-                });
-            }
-        }
-
-        // Validate the rest of the blocks in the list
-        for window in blocks.windows(2) {
-            let prev_block = &window[0].block;
-            let curr_block = &window[1].block;
-
-            let prev_hash = prev_block.block_hash.unwrap_or_default();
-            let curr_block_num = curr_block.block_number.unwrap_or_default();
-
-            if curr_block.parent_block_hash != prev_hash {
-                return Err(Error::ChainInvariantViolation {
-                    block_num: curr_block_num,
-                    parent_hash: curr_block.parent_block_hash,
-                    expected_hash: prev_hash,
-                });
-            }
-        }
-
-        Ok(())
     }
+
+    for window in blocks.windows(2) {
+        let prev_block = &window[0].block.block;
+        let curr_block = &window[1].block.block;
+
+        let prev_hash = prev_block.hash;
+        let curr_block_num = curr_block.header.number;
+
+        if curr_block.header.parent_hash != prev_hash {
+            return Err(Error::ChainInvariantViolation {
+                block_num: curr_block_num,
+                parent_hash: curr_block.header.parent_hash,
+                expected_hash: prev_hash,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 impl<D> Stage for Blocks<D>
@@ -97,7 +97,7 @@ where
     D: BlockDownloader,
 {
     fn id(&self) -> &'static str {
-        "Blocks"
+        BLOCKS_STAGE_ID
     }
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
@@ -107,182 +107,105 @@ where
                 .download_blocks(input.from(), input.to())
                 .instrument(info_span!(target: "stage", "blocks.download", from = %input.from(), to = %input.to()))
                 .await
-                .map_err(Error::Gateway)?;
+                .map_err(|e| Error::Download(Box::new(e)))?;
 
             let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
             let _enter = span.enter();
 
-            // TODO: spawn onto a blocking thread pool
-            self.validate_chain_invariant(&blocks)?;
+            // Validate chain invariant and compute commitments/hashes in parallel on the CPU pool.
+            let chain_id = self.chain_id;
+            let provider = self.provider.clone();
+            let mut blocks = self
+                .task_spawner
+                .cpu_bound()
+                .spawn(move || {
+                    validate_chain_invariant(&provider, &blocks)?;
 
-            let provider_mut = self.provider.provider_mut();
+                    let mut blocks = blocks;
+                    blocks.par_iter_mut().try_for_each(|block_data| {
+                        let block_hash = block_data.block.block.hash;
+                        let block_num = block_data.block.block.header.number;
 
-            for block in blocks {
-                let (block, receipts, state_updates) = extract_block_data(block)?;
-                let block_number = block.block.header.number;
+                        let verified = hash::patch_and_verify_block_hash(
+                            &mut block_data.block.block,
+                            &block_data.receipts,
+                            &block_data.state_updates.state_updates,
+                            &chain_id,
+                        );
 
-                provider_mut
-                    .insert_block_with_states_and_receipts(
-                        block,
-                        state_updates,
-                        receipts,
-                        Vec::new(),
-                    )
-                    .inspect_err(
-                        |e| error!(error = %e, block = %block_number, "Error storing block."),
-                    )?;
-            }
+                        if verified {
+                            Ok(())
+                        } else {
+                            Err(Error::BlockVerificationFailed {
+                                block_num,
+                                expected_block_hash: block_hash,
+                            })
+                        }
+                    })?;
 
-            provider_mut.commit()?;
+                    Result::<_, Error>::Ok(blocks)
+                })
+                .await
+                .map_err(Error::TaskJoinError)??;
+
+            // Write blocks to the database sequentially.
+            let provider = self.provider.clone();
+            self.task_spawner
+                .spawn_blocking(move || {
+                    let provider_mut = provider.provider_mut();
+
+                    for block_data in blocks.drain(..) {
+                        let BlockData { block, receipts, state_updates } = block_data;
+                        let block_number = block.block.header.number;
+
+                        provider_mut
+                            .insert_block_data(
+                                block,
+                                state_updates,
+                                receipts,
+                                Vec::new(),
+                            )
+                            .inspect_err(
+                                |e| error!(error = %e, block = %block_number, "Error storing block."),
+                            )?;
+                    }
+
+                    provider_mut.commit()?;
+                    Result::<(), Error>::Ok(())
+                })
+                .await
+                .map_err(Error::TaskJoinError)??;
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
         })
     }
 
-    // TODO: implement block pruning
-    fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
-        let _ = input;
+    fn prune<'a>(&'a mut self, _input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
         Box::pin(async move { Ok(PruneOutput::default()) })
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Error returnd by the client used to download the classes from.
+    /// Error returned by the block downloader.
     #[error(transparent)]
-    Gateway(#[from] katana_gateway_client::Error),
+    Download(Box<dyn std::error::Error + Send + Sync>),
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
+
+    #[error(transparent)]
+    Database(#[from] katana_db::error::DatabaseError),
 
     #[error(
         "chain invariant violation: block {block_num} parent hash {parent_hash:#x} does not match \
          previous block hash {expected_hash:#x}"
     )]
     ChainInvariantViolation { block_num: u64, parent_hash: Felt, expected_hash: Felt },
-}
 
-fn extract_block_data(
-    data: StateUpdateWithBlock,
-) -> Result<(SealedBlockWithStatus, Vec<Receipt>, StateUpdatesWithClasses)> {
-    fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
-        let eth = prices.price_in_wei.to_u128().expect("valid u128");
-        let strk = prices.price_in_fri.to_u128().expect("valid u128");
-        // older blocks might have zero gas prices (recent Starknet upgrade has made the minimum gas
-        // prices to 1) we may need to handle this case if we want to be able to compute the
-        // block hash correctly
-        let eth = if eth == 0 { 1 } else { eth };
-        let strk = if strk == 0 { 1 } else { strk };
-        unsafe { GasPrices::new_unchecked(eth, strk) }
-    }
+    #[error("block hash verification failed: block {block_num} hash {expected_block_hash:#x}")]
+    BlockVerificationFailed { block_num: u64, expected_block_hash: Felt },
 
-    let status = match data.block.status {
-        BlockStatus::AcceptedOnL2 => FinalityStatus::AcceptedOnL2,
-        BlockStatus::AcceptedOnL1 => FinalityStatus::AcceptedOnL1,
-        status => panic!("unsupported block status: {status:?}"),
-    };
-
-    let transactions = data
-        .block
-        .transactions
-        .into_iter()
-        .map(|tx| tx.try_into())
-        .collect::<Result<Vec<TxWithHash>, _>>()?;
-
-    let receipts = data
-        .block
-        .transaction_receipts
-        .into_iter()
-        .zip(transactions.iter())
-        .map(|(receipt, tx)| {
-            let events = receipt.body.events;
-            let revert_error = receipt.body.revert_error;
-            let messages_sent = receipt.body.l2_to_l1_messages;
-            let overall_fee = receipt.body.actual_fee.to_u128().expect("valid u128");
-            let execution_resources = receipt.body.execution_resources.unwrap_or_default();
-
-            let unit = if tx.transaction.version() >= Felt::THREE {
-                PriceUnit::Fri
-            } else {
-                PriceUnit::Wei
-            };
-
-            let fee = FeeInfo { unit, overall_fee, ..Default::default() };
-
-            match &tx.transaction {
-                Tx::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
-                    fee,
-                    events,
-                    revert_error,
-                    messages_sent,
-                    execution_resources: execution_resources.into(),
-                }),
-                Tx::Declare(_) => Receipt::Declare(DeclareTxReceipt {
-                    fee,
-                    events,
-                    revert_error,
-                    messages_sent,
-                    execution_resources: execution_resources.into(),
-                }),
-                Tx::L1Handler(_) => Receipt::L1Handler(L1HandlerTxReceipt {
-                    fee,
-                    events,
-                    messages_sent,
-                    revert_error,
-                    message_hash: Default::default(),
-                    execution_resources: execution_resources.into(),
-                }),
-                Tx::DeployAccount(tx) => Receipt::DeployAccount(DeployAccountTxReceipt {
-                    fee,
-                    events,
-                    revert_error,
-                    messages_sent,
-                    contract_address: tx.contract_address(),
-                    execution_resources: execution_resources.into(),
-                }),
-                Tx::Deploy(tx) => Receipt::Deploy(DeployTxReceipt {
-                    fee,
-                    events,
-                    revert_error,
-                    messages_sent,
-                    contract_address: tx.contract_address.into(),
-                    execution_resources: execution_resources.into(),
-                }),
-            }
-        })
-        .collect::<Vec<Receipt>>();
-
-    let transaction_count = transactions.len() as u32;
-    let block = SealedBlock {
-        body: transactions,
-        hash: data.block.block_hash.unwrap_or_default(),
-        header: Header {
-            transaction_count,
-            timestamp: data.block.timestamp,
-            l1_da_mode: data.block.l1_da_mode,
-            events_count: Default::default(),
-            parent_hash: data.block.parent_block_hash,
-            state_diff_length: Default::default(),
-            receipts_commitment: Default::default(),
-            state_diff_commitment: Default::default(),
-            number: data.block.block_number.unwrap_or_default(),
-            l1_gas_prices: to_gas_prices(data.block.l1_gas_price),
-            l2_gas_prices: to_gas_prices(data.block.l2_gas_price),
-            state_root: data.block.state_root.unwrap_or_default(),
-            l1_data_gas_prices: to_gas_prices(data.block.l1_data_gas_price),
-            starknet_version: data.block.starknet_version.unwrap_or_default().try_into().unwrap(),
-            events_commitment: data.block.event_commitment.unwrap_or_default(),
-            sequencer_address: data.block.sequencer_address.unwrap_or_default(),
-            transactions_commitment: data.block.transaction_commitment.unwrap_or_default(),
-        },
-    };
-
-    let state_updates: StateUpdates = match data.state_update {
-        GatewayStateUpdate::Confirmed(update) => update.state_diff.into(),
-        GatewayStateUpdate::PreConfirmed(update) => update.state_diff.into(),
-    };
-
-    let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
-
-    Ok((SealedBlockWithStatus { block, status }, receipts, state_updates))
+    #[error("task join error: {0}")]
+    TaskJoinError(katana_tasks::JoinError),
 }

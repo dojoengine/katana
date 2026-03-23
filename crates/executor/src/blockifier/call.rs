@@ -139,7 +139,6 @@ pub fn get_call_sierra_gas_consumed(
         //
         // https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/entry_point_execution.rs#L475-L479
         TrackedResource::CairoSteps => n_steps_to_gas(info.resources.n_steps, versioned_constant).0,
-
         TrackedResource::SierraGas => info.execution.gas_consumed,
     }
 }

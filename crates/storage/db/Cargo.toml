@@ -12,6 +12,7 @@ katana-trie.workspace = true
 katana-metrics.workspace = true
 
 anyhow.workspace = true
+indicatif = "0.17.8"
 cairo-lang-starknet-classes.workspace = true
 arbitrary = { workspace = true, optional = true }
 metrics.workspace = true
@@ -37,7 +38,10 @@ rev = "b34b0d3"
 [dev-dependencies]
 arbitrary.workspace = true
 criterion.workspace = true
+katana-db = { path = ".", features = ["arbitrary"] }
 proptest = "1.6.0"
+katana-utils.workspace = true
+rand.workspace = true
 rstest.workspace = true
 starknet.workspace = true
 
@@ -50,3 +54,4 @@ arbitrary = [ "dep:arbitrary" ]
 [[bench]]
 harness = false
 name = "codec"
+required-features = ["arbitrary"]

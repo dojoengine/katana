@@ -23,6 +23,7 @@ katana-tasks.workspace = true
 katana-gas-price-oracle.workspace = true
 katana-tracing.workspace = true
 
+quick_cache = "0.6.10"
 anyhow.workspace = true
 auto_impl.workspace = true
 http.workspace = true
@@ -43,16 +44,18 @@ paymaster-rpc = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 katana-tee = { workspace = true, optional = true }
+katana-trie = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 starknet-types-core = { workspace = true, optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
 katana-contracts.workspace = true
+katana-db.workspace = true
 katana-messaging.workspace = true
 katana-sequencer-node = { workspace = true, features = [ "cartridge" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }
-katana-rpc-client.workspace = true
+katana-starknet.workspace = true
 katana-trie.workspace = true
 katana-genesis.workspace = true
 katana-utils = { workspace = true, features = ["node"] }
@@ -69,6 +72,7 @@ cairo-lang-starknet-classes.workspace = true
 indexmap.workspace = true
 jsonrpsee = { workspace = true, features = [ "client" ] }
 num-traits.workspace = true
+proptest.workspace = true
 rand.workspace = true
 rstest.workspace = true
 serde.workspace = true
@@ -79,6 +83,7 @@ stark-vrf.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 url.workspace = true
+tracing-subscriber.workspace = true
 
 [features]
 paymaster = [
@@ -102,6 +107,7 @@ cartridge = [
 explorer = ["dep:katana-explorer"]
 tee = [
 	"dep:katana-tee",
+	"dep:katana-trie",
 	"dep:hex",
 	"dep:starknet-types-core",
 	"katana-rpc-api/tee",

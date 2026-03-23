@@ -75,14 +75,20 @@ impl CpuBlockingTaskPool {
 
     /// Spawns an asynchronous task in this thread pool, returning a handle for waiting on the
     /// result asynchronously.
+    ///
+    /// The closure is executed via [`rayon::ThreadPool::install`] so that any nested rayon
+    /// parallel iterators (e.g., `par_iter`) will use this pool rather than the global
+    /// thread pool.
     pub fn spawn<F, R>(&self, func: F) -> CpuBlockingJoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
+        let pool = self.pool.clone();
         self.pool.spawn(move || {
-            let _ = tx.send(std::panic::catch_unwind(AssertUnwindSafe(func)));
+            let result = std::panic::catch_unwind(AssertUnwindSafe(|| pool.install(func)));
+            let _ = tx.send(result);
         });
         CpuBlockingJoinHandle { inner: rx }
     }

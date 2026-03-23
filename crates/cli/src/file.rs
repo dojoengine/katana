@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use katana_messaging::MessagingConfig;
@@ -13,8 +13,8 @@ pub struct NodeArgsConfig {
     pub no_mining: Option<bool>,
     pub block_time: Option<u64>,
     pub block_cairo_steps_limit: Option<u64>,
-    #[serde(alias = "db_dir")]
-    pub data_dir: Option<PathBuf>,
+    #[serde(flatten)]
+    pub db: Option<DbOptions>,
     pub messaging: Option<MessagingConfig>,
     pub logging: Option<LoggingOptions>,
     pub starknet: Option<StarknetOptions>,
@@ -54,7 +54,7 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
             no_mining: if args.no_mining { Some(true) } else { None },
             block_time: args.block_time,
             block_cairo_steps_limit: args.block_cairo_steps_limit,
-            data_dir: args.data_dir,
+            db: (!args.db.is_default()).then_some(args.db),
             messaging: args.messaging,
             ..Default::default()
         };

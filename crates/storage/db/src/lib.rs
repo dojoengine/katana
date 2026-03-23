@@ -12,6 +12,7 @@ pub mod abstraction;
 pub mod codecs;
 pub mod error;
 pub mod mdbx;
+pub mod migration;
 pub mod models;
 pub mod tables;
 pub mod trie;
@@ -22,11 +23,10 @@ pub mod version;
 use error::DatabaseError;
 use libmdbx::SyncMode;
 use mdbx::{DbEnv, DbEnvBuilder};
-use tracing::debug;
 use utils::is_database_empty;
 use version::{
-    create_db_version_file, get_db_version, is_block_compatible_version, DatabaseVersionError,
-    Version, CURRENT_DB_VERSION,
+    create_db_version_file, ensure_version_is_openable, get_db_version, DatabaseVersionError,
+    Version, LATEST_DB_VERSION,
 };
 
 const GIGABYTE: usize = 1024 * 1024 * 1024;
@@ -44,41 +44,8 @@ impl Db {
     ///
     /// This will create the default tables, if necessary.
     pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let version = if is_database_empty(path.as_ref()) {
-            fs::create_dir_all(&path).with_context(|| {
-                format!("Creating database directory at path {}", path.as_ref().display())
-            })?;
-
-            create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
-                format!("Inserting database version file at path {}", path.as_ref().display())
-            })?
-        } else {
-            match get_db_version(&path) {
-                Ok(version) if version != CURRENT_DB_VERSION => {
-                    if !is_block_compatible_version(&version) {
-                        return Err(anyhow!(DatabaseVersionError::MismatchVersion {
-                            expected: CURRENT_DB_VERSION,
-                            found: version
-                        }));
-                    }
-                    debug!(target: "db", "Using database version {version} with block compatibility mode");
-                    version
-                }
-
-                Ok(version) => version,
-
-                Err(DatabaseVersionError::FileNotFound) => {
-                    create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
-                        format!(
-                            "No database version file found. Inserting version file at path {}",
-                            path.as_ref().display()
-                        )
-                    })?
-                }
-
-                Err(err) => return Err(anyhow!(err)),
-            }
-        };
+        let path = path.as_ref();
+        let version = Self::resolve_or_initialize_version(path)?;
 
         let env = DbEnvBuilder::new().write().build(path)?;
         env.create_default_tables()?;
@@ -100,41 +67,7 @@ impl Db {
         let dir = tempfile::Builder::new().disable_cleanup(true).tempdir()?;
         let path = dir.path();
 
-        let version = if is_database_empty(path) {
-            fs::create_dir_all(path).with_context(|| {
-                format!("Creating database directory at path {}", path.display())
-            })?;
-
-            create_db_version_file(path, CURRENT_DB_VERSION).with_context(|| {
-                format!("Inserting database version file at path {}", path.display())
-            })?
-        } else {
-            match get_db_version(path) {
-                Ok(version) if version != CURRENT_DB_VERSION => {
-                    if !is_block_compatible_version(&version) {
-                        return Err(anyhow!(DatabaseVersionError::MismatchVersion {
-                            expected: CURRENT_DB_VERSION,
-                            found: version
-                        }));
-                    }
-                    debug!(target: "db", "Using database version {version} with block compatibility mode");
-                    version
-                }
-
-                Ok(version) => version,
-
-                Err(DatabaseVersionError::FileNotFound) => {
-                    create_db_version_file(path, CURRENT_DB_VERSION).with_context(|| {
-                        format!(
-                            "No database version file found. Inserting version file at path {}",
-                            path.display()
-                        )
-                    })?
-                }
-
-                Err(err) => return Err(anyhow!(err)),
-            }
-        };
+        let version = Self::resolve_or_initialize_version(path)?;
 
         let env = mdbx::DbEnvBuilder::new()
             .max_size(GIGABYTE * 10)  // 10gb
@@ -153,13 +86,8 @@ impl Db {
     /// This is intended for test scenarios where a pre-populated database snapshot needs to be
     /// loaded quickly without durability guarantees.
     pub fn open_no_sync<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let version = get_db_version(&path)?;
-        if version != CURRENT_DB_VERSION && !is_block_compatible_version(&version) {
-            return Err(anyhow!(DatabaseVersionError::MismatchVersion {
-                expected: CURRENT_DB_VERSION,
-                found: version,
-            }));
-        }
+        let path = path.as_ref();
+        let version = Self::resolve_existing_version(path)?;
 
         let env = mdbx::DbEnvBuilder::new()
             .max_size(GIGABYTE * 10)
@@ -175,36 +103,32 @@ impl Db {
 
     // Open the database at the given `path` in read-write mode.
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        Self::open_inner(path, false)
+        let path = path.as_ref();
+        Self::open_inner(path, false).with_context(|| {
+            format!("Opening database in read-write mode at path {}", path.display())
+        })
     }
 
-    // Open the database at the given `path` in read-write mode.
+    // Open the database at the given `path` in read-only mode.
     pub fn open_ro<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        Self::open_inner(path, true)
+        let path = path.as_ref();
+        Self::open_inner(path, true).with_context(|| {
+            format!("Opening database in read-only mode at path {}", path.display())
+        })
     }
 
     fn open_inner<P: AsRef<Path>>(path: P, read_only: bool) -> anyhow::Result<Self> {
         let path = path.as_ref();
+        let version = Self::resolve_existing_version(path)?;
+
         let builder = DbEnvBuilder::new();
-
-        let env = if read_only {
-            builder.build(path).with_context(|| {
-                format!("Opening database in read-only mode at path {}", path.display())
-            })?
-        } else {
-            builder.write().build(path).with_context(|| {
-                format!("Opening database in read-write mode at path {}", path.display())
-            })?
-        };
-
-        let version = get_db_version(path)
-            .with_context(|| format!("Getting database version at path {}", path.display()))?;
+        let env = if read_only { builder.build(path)? } else { builder.write().build(path)? };
 
         Ok(Self { env, version })
     }
 
     pub fn require_migration(&self) -> bool {
-        self.version != CURRENT_DB_VERSION
+        self.version != LATEST_DB_VERSION
     }
 
     /// Returns the version of the database.
@@ -215,6 +139,45 @@ impl Db {
     /// Returns the path to the directory where the database is located.
     pub fn path(&self) -> &Path {
         self.env.path()
+    }
+
+    fn resolve_or_initialize_version(path: &Path) -> anyhow::Result<Version> {
+        let version = if is_database_empty(path) {
+            fs::create_dir_all(path).with_context(|| {
+                format!("Creating database directory at path {}", path.display())
+            })?;
+
+            create_db_version_file(path, LATEST_DB_VERSION).with_context(|| {
+                format!("Inserting database version file at path {}", path.display())
+            })?
+        } else {
+            match get_db_version(path) {
+                Ok(version) => {
+                    ensure_version_is_openable(version).map_err(anyhow::Error::from)?;
+                    version
+                }
+
+                Err(DatabaseVersionError::FileNotFound) => {
+                    create_db_version_file(path, LATEST_DB_VERSION).with_context(|| {
+                        format!(
+                            "No database version file found. Inserting version file at path {}",
+                            path.display()
+                        )
+                    })?
+                }
+
+                Err(err) => return Err(anyhow!(err)),
+            }
+        };
+
+        Ok(version)
+    }
+
+    fn resolve_existing_version(path: &Path) -> anyhow::Result<Version> {
+        let version = get_db_version(path)
+            .with_context(|| format!("Getting database version at path {}", path.display()))?;
+        ensure_version_is_openable(version)?;
+        Ok(version)
     }
 }
 
@@ -250,7 +213,10 @@ mod tests {
 
     use std::fs;
 
-    use crate::version::{default_version_file_path, get_db_version, CURRENT_DB_VERSION};
+    use crate::version::{
+        create_db_version_file, default_version_file_path, get_db_version, Version,
+        LATEST_DB_VERSION, MIN_OPENABLE_DB_VERSION,
+    };
     use crate::Db;
 
     #[test]
@@ -265,7 +231,7 @@ mod tests {
             version_file.metadata().unwrap().permissions().readonly(),
             "version file should set to read-only"
         );
-        assert_eq!(actual_version, CURRENT_DB_VERSION);
+        assert_eq!(actual_version, LATEST_DB_VERSION);
     }
 
     #[test]
@@ -298,7 +264,7 @@ mod tests {
         fs::write(version_file_path, 99u32.to_be_bytes()).unwrap();
 
         let err = Db::new(path.path()).unwrap_err();
-        assert!(err.to_string().contains("Database version mismatch"));
+        assert!(err.to_string().contains("is not supported"));
     }
 
     #[test]
@@ -310,7 +276,29 @@ mod tests {
 
         Db::new(path.path()).unwrap();
         let actual_version = get_db_version(path.path()).unwrap();
-        assert_eq!(actual_version, CURRENT_DB_VERSION);
+        assert_eq!(actual_version, LATEST_DB_VERSION);
+    }
+
+    #[test]
+    fn open_rejects_version_below_supported_floor() {
+        let path = tempfile::tempdir().unwrap();
+        Db::new(path.path()).unwrap();
+
+        create_db_version_file(path.path(), Version::new(MIN_OPENABLE_DB_VERSION.value() - 1))
+            .unwrap();
+
+        let found = Version::new(MIN_OPENABLE_DB_VERSION.value() - 1);
+        let err = Db::open_ro(path.path()).unwrap_err();
+
+        let expected = format!(
+            "Database version {found} is not supported. Latest supported version is {latest}, \
+             minimum openable version is {minimum_openable}.",
+            found = found,
+            latest = LATEST_DB_VERSION,
+            minimum_openable = MIN_OPENABLE_DB_VERSION,
+        );
+        let err_msg = format!("{err:#}");
+        assert!(err_msg.contains(&expected), "error: {err_msg}");
     }
 
     #[test]

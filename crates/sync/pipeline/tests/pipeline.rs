@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use futures::future::BoxFuture;
-use katana_pipeline::Pipeline;
+use katana_pipeline::{Pipeline, PipelineConfig};
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::test_utils::test_provider;
@@ -444,10 +444,19 @@ async fn run_processes_single_chunk_to_tip() {
     pipeline.add_stage(stage);
 
     // Set tip to 50 (within one chunk)
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(50);
 
     let task_handle = tokio::spawn(async move { pipeline.run().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Wait until the pipeline has processed up to block 50
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 50 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
 
@@ -474,10 +483,19 @@ async fn run_processes_multiple_chunks_to_tip() {
     pipeline.add_stage(stage);
 
     // Set tip to 25 (requires 3 chunks: 10, 20, 25)
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(25);
 
     let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Wait until the pipeline has processed up to block 25
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 25 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
 
@@ -512,18 +530,31 @@ async fn run_processes_new_tip_after_completing_previous() {
     pipeline.add_stage(stage);
 
     // Set initial tip
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(10);
 
     let task_handle = tokio::spawn(async move { pipeline.run().await });
 
     // Wait for first tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 10 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     // Set new tip
     handle.set_tip(25);
 
     // Wait for second tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 25 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
     let result = task_handle.await.unwrap();
@@ -548,18 +579,32 @@ async fn run_should_prune() {
     let prunings = stage.prunes.clone();
 
     pipeline.add_stage(stage);
+
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(10); // Set initial tip
 
     let task_handle = tokio::spawn(async move { pipeline.run().await });
 
     // Wait for first tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 10 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     // Set new tip
     handle.set_tip(25);
 
     // Wait for second tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 25 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
     let result = task_handle.await.unwrap();
@@ -590,18 +635,32 @@ async fn run_should_not_prune_if_pruning_disabled() {
     let prunings = stage.prunes.clone();
 
     pipeline.add_stage(stage);
+
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(10); // Set initial tip
 
     let task_handle = tokio::spawn(async move { pipeline.run().await });
 
     // Wait for first tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 10 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     // Set new tip
     handle.set_tip(25);
 
     // Wait for second tip to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 25 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
     let result = task_handle.await.unwrap();
@@ -790,10 +849,20 @@ async fn chunk_size_one_executes_block_by_block() {
     let stage_clone = stage.clone();
 
     pipeline.add_stage(stage);
+
+    let mut blocks = handle.subscribe_blocks();
     handle.set_tip(3);
 
     let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // Wait until the pipeline has processed up to block 3
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 3 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
 
     handle.stop();
     pipeline_handle.await.unwrap().unwrap();
@@ -1203,4 +1272,153 @@ async fn prune_empty_pipeline_succeeds() {
     // No stages added
     let result = pipeline.prune().await;
     assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn run_caps_tip_when_sync_tip_configured() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 100);
+
+    let stage = TrackingStage::new("Stage1");
+    let stage_clone = stage.clone();
+
+    pipeline.add_stage(stage);
+
+    // Configure the pipeline to stop syncing at block 50
+    pipeline.set_config(PipelineConfig { max_sync_tip: Some(50), ..Default::default() });
+
+    let mut blocks = handle.subscribe_blocks();
+
+    // Set a tip beyond the configured sync_tip
+    handle.set_tip(200);
+
+    let task_handle = tokio::spawn(async move { pipeline.run().await });
+
+    // Wait until the pipeline has processed up to block 50
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 50 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    // Give a brief moment for the pipeline to settle (it should be idle now, not syncing further)
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    handle.stop();
+
+    let result = task_handle.await.unwrap();
+    assert!(result.is_ok());
+
+    // The stage should have been executed with a capped tip of 50, not 200
+    let execs = stage_clone.executions();
+    assert_eq!(execs.len(), 1);
+    assert_eq!(execs[0].from, 0);
+    assert_eq!(execs[0].to, 50);
+
+    // Checkpoint should be at 50
+    assert_eq!(provider_factory.provider_mut().execution_checkpoint("Stage1").unwrap(), Some(50));
+}
+
+#[tokio::test]
+async fn run_ignores_tips_beyond_configured_sync_tip() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 100);
+
+    let stage = TrackingStage::new("Stage1");
+    let stage_clone = stage.clone();
+
+    pipeline.add_stage(stage);
+
+    // Configure sync tip at block 30
+    pipeline.set_config(PipelineConfig { max_sync_tip: Some(30), ..Default::default() });
+
+    let mut blocks = handle.subscribe_blocks();
+
+    // Set initial tip within configured sync_tip
+    handle.set_tip(20);
+
+    let task_handle = tokio::spawn(async move { pipeline.run().await });
+
+    // Wait for block 20
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 20 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    // Now set a new tip beyond the sync_tip — should be capped to 30
+    handle.set_tip(500);
+
+    // Wait for block 30
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 30 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    handle.stop();
+
+    let result = task_handle.await.unwrap();
+    assert!(result.is_ok());
+
+    let execs = stage_clone.executions();
+    assert_eq!(execs.len(), 2);
+
+    // First execution: 0 to 20
+    assert_eq!(execs[0].from, 0);
+    assert_eq!(execs[0].to, 20);
+
+    // Second execution: 21 to 30 (capped from 500)
+    assert_eq!(execs[1].from, 21);
+    assert_eq!(execs[1].to, 30);
+
+    assert_eq!(provider_factory.provider_mut().execution_checkpoint("Stage1").unwrap(), Some(30));
+}
+
+#[tokio::test]
+async fn run_without_sync_tip_does_not_cap() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 100);
+
+    let stage = TrackingStage::new("Stage1");
+    let stage_clone = stage.clone();
+
+    pipeline.add_stage(stage);
+
+    // No sync_tip configured (default)
+    let mut blocks = handle.subscribe_blocks();
+    handle.set_tip(200);
+
+    let task_handle = tokio::spawn(async move { pipeline.run().await });
+
+    loop {
+        match blocks.changed().await {
+            Ok(Some(block)) if block >= 200 => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    handle.stop();
+
+    let result = task_handle.await.unwrap();
+    assert!(result.is_ok());
+
+    // Should process all the way to 200 without capping
+    let execs = stage_clone.executions();
+    assert_eq!(execs.len(), 2);
+    assert_eq!(execs[0].from, 0);
+    assert_eq!(execs[0].to, 100);
+    assert_eq!(execs[1].from, 101);
+    assert_eq!(execs[1].to, 200);
+
+    assert_eq!(provider_factory.provider_mut().execution_checkpoint("Stage1").unwrap(), Some(200));
 }

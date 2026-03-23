@@ -11,6 +11,7 @@ katana-chain-spec.workspace = true
 katana-db.workspace = true
 katana-executor.workspace = true
 katana-gateway-client.workspace = true
+katana-gateway-server.workspace = true
 katana-gateway-types.workspace = true
 katana-gas-price-oracle.workspace = true
 katana-metrics.workspace = true
@@ -23,6 +24,7 @@ katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-types.workspace = true
 katana-stage.workspace = true
+katana-starknet.workspace = true
 katana-tasks.workspace = true
 
 anyhow.workspace = true
@@ -35,6 +37,7 @@ serde.workspace = true
 strum.workspace = true
 tracing.workspace = true
 tokio = { workspace = true, features = [ "time" ] }
+url.workspace = true
 
 [features]
 cartridge = ["katana-node-config/cartridge", "katana-rpc-api/cartridge", "katana-rpc-server/cartridge"]

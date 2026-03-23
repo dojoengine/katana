@@ -3,16 +3,24 @@ use std::process::Command;
 use std::{env, fs};
 
 fn main() {
-    // Track specific source directories and files that should trigger a rebuild
-    // Important: We don't track Scarb.lock as scarb will update it on every `scarb build`
+    // Track specific source directories and files that should trigger a rebuild.
+    // We track individual files instead of whole directories to exclude Scarb.lock files,
+    // which scarb updates on every `scarb build` and would cause unnecessary rebuilds.
     println!("cargo:rerun-if-changed=contracts/Scarb.toml");
-    println!("cargo:rerun-if-changed=contracts/account");
-    println!("cargo:rerun-if-changed=contracts/legacy");
-    println!("cargo:rerun-if-changed=contracts/messaging");
-    println!("cargo:rerun-if-changed=contracts/test-contracts");
-    println!("cargo:rerun-if-changed=contracts/vrf");
-    println!("cargo:rerun-if-changed=contracts/avnu");
     println!("cargo:rerun-if-changed=build.rs");
+
+    let watch_dirs = [
+        "contracts/account",
+        "contracts/legacy",
+        "contracts/messaging",
+        "contracts/test-contracts",
+        "contracts/vrf",
+        "contracts/avnu",
+    ];
+
+    for dir in &watch_dirs {
+        track_dir_excluding_lock(Path::new(dir));
+    }
 
     let contracts_dir = Path::new("contracts");
     let target_dir = contracts_dir.join("target/dev");
@@ -146,6 +154,24 @@ fn build_vrf_contracts(vrf_dir: &Path) {
             "VRF contracts compilation failed. Below are the last 50 lines of `scarb build` \
              output:\n\n{last_n_lines}"
         );
+    }
+}
+
+fn track_dir_excluding_lock(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            // Skip target directories as they are build outputs that change on every build
+            if path.file_name().is_some_and(|name| name == "target") {
+                continue;
+            }
+            track_dir_excluding_lock(&path);
+        } else if path.file_name().is_some_and(|name| name != "Scarb.lock") {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
 }
 

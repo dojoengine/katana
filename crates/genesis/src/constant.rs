@@ -6,7 +6,7 @@ use katana_primitives::{felt, Felt};
 
 /// The default universal deployer contract address.
 pub const DEFAULT_UDC_ADDRESS: ContractAddress =
-    ContractAddress(felt!("0x041a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"));
+    ContractAddress(felt!("0x41a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"));
 
 /// The default ETH fee token contract address.
 /// See https://github.com/starknet-io/starknet-addresses/blob/master/bridged_tokens/mainnet.json

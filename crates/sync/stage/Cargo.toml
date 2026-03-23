@@ -15,7 +15,9 @@ katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-types.workspace = true
+katana-starknet.workspace = true
 katana-tasks.workspace = true
+katana-trie.workspace = true
 
 anyhow.workspace = true
 backon.workspace = true
@@ -32,4 +34,5 @@ tracing.workspace = true
 katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-trie.workspace = true
 rstest.workspace = true
+serde_json.workspace = true
 url.workspace = true

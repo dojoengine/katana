@@ -3,6 +3,7 @@ use std::sync::Arc;
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
+use katana_pool::TxPool;
 use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
 use katana_provider::api::state::StateWriter;
 use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
@@ -17,6 +18,7 @@ where
 {
     backend: Arc<Backend<PF>>,
     block_producer: BlockProducer<PF>,
+    pool: TxPool,
 }
 
 impl<PF> DevApi<PF>
@@ -25,8 +27,8 @@ where
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
-    pub fn new(backend: Arc<Backend<PF>>, block_producer: BlockProducer<PF>) -> Self {
-        Self { backend, block_producer }
+    pub fn new(backend: Arc<Backend<PF>>, block_producer: BlockProducer<PF>, pool: TxPool) -> Self {
+        Self { backend, block_producer, pool }
     }
 
     /// Returns the pending state if the sequencer is running in _interval_ mode. Otherwise `None`.
@@ -105,7 +107,7 @@ where
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     async fn generate_block(&self) -> RpcResult<()> {
-        self.block_producer.force_mine();
+        self.block_producer.force_mine(&self.pool);
         Ok(())
     }
 

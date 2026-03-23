@@ -212,6 +212,9 @@ pub struct Katana {
     enable_cartridge_paymaster: bool,
     cartridge_api_url: Option<String>,
 
+    // Database options
+    auto_migrate: bool,
+
     // Others
     timeout: Option<u64>,
     program: Option<PathBuf>,
@@ -228,7 +231,7 @@ impl Katana {
     /// fn a() {
     ///  let katana = Katana::default().spawn();
     ///
-    ///  println!("Katana running at `{}`", katana.endpoint());
+    ///  println!("Katana running at `http://{}`", katana.rpc_addr());
     /// # }
     /// ```
     pub fn new() -> Self {
@@ -244,7 +247,7 @@ impl Katana {
     /// fn a() {
     ///  let katana = Katana::at("~/.katana/bin/katana").spawn();
     ///
-    ///  println!("Katana running at `{}`", katana.endpoint());
+    ///  println!("Katana running at `http://{}`", katana.rpc_addr());
     /// # }
     /// ```
     pub fn at(path: impl Into<PathBuf>) -> Self {
@@ -420,6 +423,12 @@ impl Katana {
         self
     }
 
+    /// Automatically run pending database migrations without an interactive prompt.
+    pub const fn auto_migrate(mut self, auto_migrate: bool) -> Self {
+        self.auto_migrate = auto_migrate;
+        self
+    }
+
     /// Sets the timeout which will be used when the `katana` instance is launched.
     pub const fn timeout(mut self, timeout: u64) -> Self {
         self.timeout = Some(timeout);
@@ -466,6 +475,10 @@ impl Katana {
 
         if let Some(data_dir) = self.data_dir {
             cmd.arg("--data-dir").arg(data_dir);
+        }
+
+        if self.auto_migrate {
+            cmd.arg("--db.auto-migrate");
         }
 
         if let Some(url) = self.l1_provider {

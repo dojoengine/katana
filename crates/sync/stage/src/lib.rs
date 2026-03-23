@@ -7,11 +7,13 @@ use katana_provider::api::ProviderError;
 pub mod blocks;
 pub mod classes;
 pub mod downloader;
+pub mod index_history;
 mod sequencing;
 pub mod trie;
 
 pub use blocks::Blocks;
 pub use classes::Classes;
+pub use index_history::IndexHistory;
 pub use sequencing::Sequencing;
 pub use trie::StateTrie;
 
@@ -159,6 +161,11 @@ pub enum Error {
     /// Errors that could happen during the execution of the [`Classes`](classes::Classes) stage.
     #[error(transparent)]
     Classes(#[from] classes::Error),
+
+    /// Errors that could happen during the execution of the
+    /// [`IndexHistory`](index_history::IndexHistory) stage.
+    #[error(transparent)]
+    IndexHistory(#[from] index_history::Error),
 
     /// Errors that could happen during the execution of the [`StateTrie`](state_trie::StateTrie)
     /// stage.

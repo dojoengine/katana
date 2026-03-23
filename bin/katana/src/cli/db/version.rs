@@ -2,7 +2,7 @@ use std::path;
 
 use anyhow::{ensure, Result};
 use clap::Args;
-use katana_db::version::{get_db_version, CURRENT_DB_VERSION};
+use katana_db::version::{get_db_version, LATEST_DB_VERSION, MIN_OPENABLE_DB_VERSION};
 
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -16,7 +16,8 @@ pub struct VersionArgs {
 
 impl VersionArgs {
     pub fn execute(self) -> Result<()> {
-        println!("current version: {CURRENT_DB_VERSION}");
+        println!("latest version: {LATEST_DB_VERSION}");
+        println!("minimum openable version: {MIN_OPENABLE_DB_VERSION}");
 
         if let Some(path) = self.path {
             let expanded_path = shellexpand::full(&path)?;

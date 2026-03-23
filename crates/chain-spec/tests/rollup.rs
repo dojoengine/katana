@@ -43,7 +43,6 @@ fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
     let settlement = SettlementLayer::Starknet {
         block: 0,
         id: ChainId::default(),
-        account: Default::default(),
         core_contract: Default::default(),
         rpc_url: Url::parse("http://localhost:5050").unwrap(),
     };

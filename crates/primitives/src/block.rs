@@ -321,7 +321,7 @@ impl Header {
     ///     parent_block_hash
     /// )
     ///
-    /// Based on StarkWare's [Sequencer implementation].
+    /// Based on StarkWare’s [Sequencer implementation].
     ///
     /// [sequencer implementation]: https://github.com/starkware-libs/sequencer/blob/bb361ec67396660d5468fd088171913e11482708/crates/starknet_api/src/block_hash/block_hash_calculator.rs#l62-l93
     pub fn compute_hash(&self) -> Felt {
@@ -370,7 +370,7 @@ impl Header {
     // where, L1 DA mode is 0 for calldata, and 1 for blob.
     //
     // Based on https://github.com/starkware-libs/sequencer/blob/bb361ec67396660d5468fd088171913e11482708/crates/starknet_api/src/block_hash/block_hash_calculator.rs#L135-L164
-    fn concat_counts(
+    pub fn concat_counts(
         transaction_count: u32,
         event_count: u32,
         state_diff_length: u32,
