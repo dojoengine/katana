@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 420" font-family="system-ui,sans-serif">
+<rect width="700" height="420" fill="#fafafa" rx="6"/>
+<text x="350" y="30" text-anchor="middle" font-size="15" font-weight="bold" fill="#1a1a1a">Pareto Frontier: Dictionary Size vs Compression Savings</text>
+<line x1="70" y1="360" x2="610" y2="360" stroke="#e0e0e0"/>
+<text x="62" y="364" text-anchor="end" font-size="11" fill="#666">20%</text>
+<line x1="70" y1="315.7142857142857" x2="610" y2="315.7142857142857" stroke="#e0e0e0"/>
+<text x="62" y="319.7142857142857" text-anchor="end" font-size="11" fill="#666">25%</text>
+<line x1="70" y1="271.42857142857144" x2="610" y2="271.42857142857144" stroke="#e0e0e0"/>
+<text x="62" y="275.42857142857144" text-anchor="end" font-size="11" fill="#666">30%</text>
+<line x1="70" y1="227.14285714285714" x2="610" y2="227.14285714285714" stroke="#e0e0e0"/>
+<text x="62" y="231.14285714285714" text-anchor="end" font-size="11" fill="#666">35%</text>
+<line x1="70" y1="182.85714285714286" x2="610" y2="182.85714285714286" stroke="#e0e0e0"/>
+<text x="62" y="186.85714285714286" text-anchor="end" font-size="11" fill="#666">40%</text>
+<line x1="70" y1="138.57142857142856" x2="610" y2="138.57142857142856" stroke="#e0e0e0"/>
+<text x="62" y="142.57142857142856" text-anchor="end" font-size="11" fill="#666">45%</text>
+<line x1="70" y1="94.28571428571428" x2="610" y2="94.28571428571428" stroke="#e0e0e0"/>
+<text x="62" y="98.28571428571428" text-anchor="end" font-size="11" fill="#666">50%</text>
+<line x1="70" y1="50" x2="610" y2="50" stroke="#e0e0e0"/>
+<text x="62" y="54" text-anchor="end" font-size="11" fill="#666">55%</text>
+<text x="70" y="380" text-anchor="middle" font-size="11" fill="#666">8 KB</text>
+<text x="205" y="380" text-anchor="middle" font-size="11" fill="#666">16 KB</text>
+<text x="340" y="380" text-anchor="middle" font-size="11" fill="#666">32 KB</text>
+<text x="475" y="380" text-anchor="middle" font-size="11" fill="#666">64 KB</text>
+<text x="610" y="380" text-anchor="middle" font-size="11" fill="#666">128 KB</text>
+<text x="340" y="410" text-anchor="middle" font-size="12" fill="#444">Dictionary Size</text>
+<text x="18" y="205" text-anchor="middle" font-size="12" fill="#444" transform="rotate(-90 18 205)">Savings vs Identity (%)</text>
+<path d="M70.0,360.0 L70.0,310.9 L205.0,278.3 L340.0,249.0 L475.0,226.6 L610.0,208.3 L610.0,360.0Z" fill="#2196F3" opacity="0.1"/>
+<path d="M70.0,310.9 L205.0,278.3 L340.0,249.0 L475.0,226.6 L610.0,208.3" fill="none" stroke="#2196F3" stroke-width="2.5"/>
+<circle cx="70" cy="310.94564396570274" r="4" fill="#2196F3"/>
+<circle cx="205" cy="278.2943337132943" r="4" fill="#2196F3"/>
+<circle cx="340" cy="248.97348665914916" r="4" fill="#2196F3"/>
+<circle cx="475" cy="226.59919636218044" r="4" fill="#2196F3"/>
+<circle cx="610" cy="208.281648771732" r="4" fill="#2196F3"/>
+<text x="618" y="212.281648771732" font-size="12" font-weight="bold" fill="#2196F3">37.1%</text>
+<line x1="80" y1="65" x2="100" y2="65" stroke="#2196F3" stroke-width="2.5"/>
+<circle cx="90" cy="65" r="3" fill="#2196F3"/>
+<text x="106" y="69" font-size="11" fill="#333">Receipts</text>
+<path d="M70.0,360.0 L70.0,419.8 L205.0,396.1 L340.0,368.3 L475.0,336.9 L610.0,312.9 L610.0,360.0Z" fill="#FF9800" opacity="0.1"/>
+<path d="M70.0,419.8 L205.0,396.1 L340.0,368.3 L475.0,336.9 L610.0,312.9" fill="none" stroke="#FF9800" stroke-width="2.5"/>
+<circle cx="70" cy="419.7572755218862" r="4" fill="#FF9800"/>
+<circle cx="205" cy="396.14516428674636" r="4" fill="#FF9800"/>
+<circle cx="340" cy="368.2790315606063" r="4" fill="#FF9800"/>
+<circle cx="475" cy="336.9310679233958" r="4" fill="#FF9800"/>
+<circle cx="610" cy="312.9151204991772" r="4" fill="#FF9800"/>
+<text x="618" y="316.9151204991772" font-size="12" font-weight="bold" fill="#FF9800">25.3%</text>
+<line x1="80" y1="87" x2="100" y2="87" stroke="#FF9800" stroke-width="2.5"/>
+<circle cx="90" cy="87" r="3" fill="#FF9800"/>
+<text x="106" y="91" font-size="11" fill="#333">Transactions</text>
+</svg>
