@@ -113,6 +113,15 @@ jobs:
             # Workaround for https://github.com/actions/runner-images/issues/6775
             - run: git config --global --add safe.directory "*"
 
+            - name: Free disk space (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  sudo rm -rf /opt/hostedtoolcache
+                  sudo rm -rf /Users/runner/Library/Android
+                  sudo rm -rf /Applications/Xcode_*.app
+                  brew cleanup -s
+                  df -h
+
             - uses: Swatinem/rust-cache@v2
               with:
                   key: ci-${{ github.job }}-${{ matrix.os }}
@@ -158,12 +167,11 @@ jobs:
             # Build and archive test binaries on macOS so the test job can run
             # without recompilation (macOS runners are too slow to compile + test
             # within a single job timeout). Runs after the binary build so deps
-            # are already compiled. Clean up target dir afterwards to free disk.
+            # are already compiled.
             - name: Build and archive test binaries (macOS)
               if: matrix.os == 'macos'
               run: |
                   cargo nextest archive --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --archive-file nextest-archive.tar.zst
-                  rm -rf target/debug/deps target/debug/build target/debug/incremental
 
             - name: Upload binary
               uses: actions/upload-artifact@v4
