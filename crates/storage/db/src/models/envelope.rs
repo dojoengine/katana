@@ -159,14 +159,12 @@ impl<T: EnvelopePayload> Envelope<T> {
             // Compress with dictionary
             let mut output = Vec::new();
             {
-                let mut encoder = zstd::stream::Encoder::with_prepared_dictionary(
-                    &mut output,
-                    reg.encoder(),
-                )
-                .map_err(|e| EnvelopeError::ZstdCompress {
-                    name: T::NAME,
-                    reason: e.to_string(),
-                })?;
+                let mut encoder =
+                    zstd::stream::Encoder::with_prepared_dictionary(&mut output, reg.encoder())
+                        .map_err(|e| EnvelopeError::ZstdCompress {
+                            name: T::NAME,
+                            reason: e.to_string(),
+                        })?;
                 encoder.write_all(serialized.as_ref()).map_err(|e| {
                     EnvelopeError::ZstdCompress { name: T::NAME, reason: e.to_string() }
                 })?;
@@ -246,8 +244,9 @@ impl<T: EnvelopePayload> Envelope<T> {
                     reason: e.to_string(),
                 })?;
                 let mut output = Vec::new();
-                decoder.read_to_end(&mut output).map_err(|e| {
-                    EnvelopeError::ZstdDecompress { name: T::NAME, reason: e.to_string() }
+                decoder.read_to_end(&mut output).map_err(|e| EnvelopeError::ZstdDecompress {
+                    name: T::NAME,
+                    reason: e.to_string(),
                 })?;
                 output
             }
@@ -483,8 +482,7 @@ mod tests {
         // flags should contain dictionary version 1 in LE
         assert_eq!(&compressed[6..8], &1u16.to_le_bytes());
 
-        let decompressed =
-            Envelope::<DictTestPayload>::decompress(compressed).expect("decompress");
+        let decompressed = Envelope::<DictTestPayload>::decompress(compressed).expect("decompress");
         assert_eq!(decompressed.inner, payload);
     }
 
@@ -501,8 +499,7 @@ mod tests {
         // Manually construct a Zstd (0x01) encoded envelope and verify it decompresses
         // even when the payload type has a dict_registry.
         let raw_data = "z".repeat(128);
-        let zstd_compressed =
-            zstd::encode_all(raw_data.as_bytes(), 0).expect("zstd compress");
+        let zstd_compressed = zstd::encode_all(raw_data.as_bytes(), 0).expect("zstd compress");
 
         let mut encoded = b"DTST".to_vec();
         encoded.push(ENVELOPE_FORMAT_VERSION);
@@ -519,8 +516,7 @@ mod tests {
     fn zstd_dict_rejects_missing_registry() {
         // TestPayload has no dict_registry. Manually craft a ZstdDict envelope for it.
         let raw_data = "w".repeat(128);
-        let zstd_compressed =
-            zstd::encode_all(raw_data.as_bytes(), 0).expect("zstd compress");
+        let zstd_compressed = zstd::encode_all(raw_data.as_bytes(), 0).expect("zstd compress");
 
         let mut encoded = b"TEST".to_vec();
         encoded.push(ENVELOPE_FORMAT_VERSION);
@@ -542,8 +538,7 @@ mod tests {
         let compressed = envelope.compress().expect("compress");
         assert_eq!(compressed[5], Encoding::Identity as u8);
 
-        let decompressed =
-            Envelope::<DictTestPayload>::decompress(compressed).expect("decompress");
+        let decompressed = Envelope::<DictTestPayload>::decompress(compressed).expect("decompress");
         assert_eq!(decompressed.inner, payload);
     }
 }
