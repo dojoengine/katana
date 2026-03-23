@@ -399,6 +399,7 @@ where
 /// )
 /// report_data = commitment_bytes_be ++ [0u8; 32]   // 64 bytes total
 /// ```
+#[allow(clippy::too_many_arguments)]
 fn compute_report_data_sharding(
     prev_state_root: Felt,
     state_root: Felt,
@@ -415,9 +416,9 @@ fn compute_report_data_sharding(
         state_root,
         prev_block_hash,
         block_hash,
-        prev_block_number.into(),
-        block_number.into(),
-        fork_block_number.into(),
+        prev_block_number,
+        block_number,
+        fork_block_number,
         events_commitment,
     ]);
 
