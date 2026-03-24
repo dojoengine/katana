@@ -13,6 +13,7 @@ use std::num::NonZeroU128;
 use std::path::PathBuf;
 
 use clap::Args;
+use katana_full_node::SyncStagesList;
 use katana_genesis::Genesis;
 #[cfg(feature = "server")]
 use katana_node_config::gateway::{
@@ -966,18 +967,6 @@ impl TracerOptions {
     }
 }
 
-#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[command(next_help_heading = "Trie options")]
-pub struct TrieOptions {
-    /// Disable state trie computation.
-    ///
-    /// By default, the node computes and verifies state roots against expected values
-    /// from block headers during synchronization. Use this flag to skip trie computation.
-    #[arg(long = "trie.disable")]
-    #[serde(default)]
-    pub disable: bool,
-}
-
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Sync options")]
 pub struct SyncOptions {
@@ -1015,13 +1004,14 @@ pub struct SyncOptions {
     #[arg(value_parser = clap::value_parser!(u64).range(1..))]
     pub chunk_size: u64,
 
-    /// Number of blocks or classes to download concurrently within each
-    /// chunk.
-    #[arg(long = "sync.download-batch-size")]
-    #[arg(value_name = "COUNT")]
-    #[arg(default_value_t = katana_full_node::DEFAULT_DOWNLOAD_BATCH_SIZE)]
-    #[arg(value_parser = parse_nonzero_usize)]
-    pub download_batch_size: usize,
+    /// Pipeline stages to run during sync.
+    ///
+    /// Comma-separated list of stages. Available stages: blocks, classes,
+    /// indexhistory, statetrie. By default, all stages are enabled.
+    #[arg(long = "sync.stages", value_name = "STAGES")]
+    #[arg(value_parser = SyncStagesList::parse)]
+    #[serde(default)]
+    pub stages: Option<SyncStagesList>,
 }
 
 impl Default for SyncOptions {
@@ -1030,8 +1020,37 @@ impl Default for SyncOptions {
             tip: None,
             gateway: None,
             rpc: None,
+            stages: None,
             chunk_size: katana_full_node::DEFAULT_SYNC_CHUNK_SIZE,
-            download_batch_size: katana_full_node::DEFAULT_DOWNLOAD_BATCH_SIZE,
+        }
+    }
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Stage options")]
+pub struct StageOptions {
+    /// Number of blocks to download concurrently within each chunk
+    /// in the Blocks stage.
+    #[arg(long = "stage.blocks.batch-size")]
+    #[arg(value_name = "COUNT")]
+    #[arg(default_value_t = katana_full_node::DEFAULT_BLOCKS_BATCH_SIZE)]
+    #[arg(value_parser = parse_nonzero_usize)]
+    pub blocks_batch_size: usize,
+
+    /// Number of classes to download concurrently within each chunk
+    /// in the Classes stage.
+    #[arg(long = "stage.classes.batch-size")]
+    #[arg(value_name = "COUNT")]
+    #[arg(default_value_t = katana_full_node::DEFAULT_CLASSES_BATCH_SIZE)]
+    #[arg(value_parser = parse_nonzero_usize)]
+    pub classes_batch_size: usize,
+}
+
+impl Default for StageOptions {
+    fn default() -> Self {
+        Self {
+            blocks_batch_size: katana_full_node::DEFAULT_BLOCKS_BATCH_SIZE,
+            classes_batch_size: katana_full_node::DEFAULT_CLASSES_BATCH_SIZE,
         }
     }
 }

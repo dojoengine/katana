@@ -35,6 +35,8 @@ jsonrpsee.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 strum.workspace = true
+strum_macros.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 tokio = { workspace = true, features = [ "time" ] }
 url.workspace = true

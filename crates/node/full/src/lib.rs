@@ -4,6 +4,7 @@
 
 pub mod config;
 
+use std::collections::HashSet;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
@@ -12,7 +13,6 @@ use config::db::DbConfig;
 use config::gateway::GatewayConfig;
 use config::metrics::MetricsConfig;
 use config::rpc::{RpcConfig, RpcModuleKind};
-use config::trie::TrieConfig;
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
@@ -72,6 +72,86 @@ pub enum Network {
 
 pub use katana_pipeline::{PipelineConfig, PruningConfig};
 
+/// Available sync pipeline stages.
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    strum_macros::EnumString,
+    strum_macros::Display,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum SyncStageKind {
+    Blocks,
+    Classes,
+    IndexHistory,
+    StateTrie,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("invalid sync stage: {0}")]
+pub struct InvalidSyncStageError(String);
+
+/// A set of sync stages to run in the pipeline.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
+pub struct SyncStagesList(HashSet<SyncStageKind>);
+
+impl SyncStagesList {
+    /// Creates an empty stages list.
+    pub fn new() -> Self {
+        Self(HashSet::new())
+    }
+
+    /// Creates a list with all available stages.
+    pub fn all() -> Self {
+        Self(HashSet::from([
+            SyncStageKind::Blocks,
+            SyncStageKind::Classes,
+            SyncStageKind::IndexHistory,
+            SyncStageKind::StateTrie,
+        ]))
+    }
+
+    /// Returns `true` if the list contains the specified `stage`.
+    pub fn contains(&self, stage: &SyncStageKind) -> bool {
+        self.0.contains(stage)
+    }
+
+    /// Used as the value parser for `clap`.
+    pub fn parse(value: &str) -> Result<Self, InvalidSyncStageError> {
+        if value.is_empty() {
+            return Ok(Self::new());
+        }
+
+        let mut stages = HashSet::new();
+        for name in value.split(',') {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let stage: SyncStageKind =
+                trimmed.parse().map_err(|_| InvalidSyncStageError(trimmed.to_string()))?;
+
+            stages.insert(stage);
+        }
+
+        Ok(Self(stages))
+    }
+}
+
+impl Default for SyncStagesList {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
 #[derive(Debug)]
 pub struct Config {
     pub db: DbConfig,
@@ -80,7 +160,6 @@ pub struct Config {
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
     pub network: Network,
-    pub trie: TrieConfig,
     pub gateway: Option<GatewayConfig>,
     pub sync: SyncConfig,
 }
@@ -96,13 +175,33 @@ pub struct SyncConfig {
     /// Maximum number of blocks to process per pipeline iteration.
     /// Defaults to 256 if not set.
     pub chunk_size: Option<u64>,
-    /// Number of blocks or classes to download concurrently within each chunk.
-    /// Defaults to 20 if not set.
-    pub download_batch_size: Option<usize>,
+    /// Which pipeline stages to run. Defaults to all stages.
+    pub stages: SyncStagesList,
+    /// Per-stage configuration.
+    pub stage: StageConfig,
+}
+
+/// Per-stage configuration options.
+#[derive(Debug, Clone)]
+pub struct StageConfig {
+    /// Number of blocks to download concurrently within each chunk.
+    pub blocks_batch_size: usize,
+    /// Number of classes to download concurrently within each chunk.
+    pub classes_batch_size: usize,
+}
+
+impl Default for StageConfig {
+    fn default() -> Self {
+        Self {
+            blocks_batch_size: DEFAULT_BLOCKS_BATCH_SIZE,
+            classes_batch_size: DEFAULT_CLASSES_BATCH_SIZE,
+        }
+    }
 }
 
 pub const DEFAULT_SYNC_CHUNK_SIZE: u64 = 256;
-pub const DEFAULT_DOWNLOAD_BATCH_SIZE: usize = 20;
+pub const DEFAULT_BLOCKS_BATCH_SIZE: usize = 20;
+pub const DEFAULT_CLASSES_BATCH_SIZE: usize = 20;
 
 /// The source from which the node downloads blocks and classes.
 #[derive(Debug, Clone)]
@@ -183,7 +282,8 @@ impl Node {
         // --- build pipeline
 
         let chunk_size = config.sync.chunk_size.unwrap_or(DEFAULT_SYNC_CHUNK_SIZE);
-        let batch_size = config.sync.download_batch_size.unwrap_or(DEFAULT_DOWNLOAD_BATCH_SIZE);
+        let blocks_batch_size = config.sync.stage.blocks_batch_size;
+        let classes_batch_size = config.sync.stage.classes_batch_size;
 
         let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), chunk_size);
 
@@ -198,34 +298,50 @@ impl Node {
             Network::Sepolia => katana_primitives::chain::ChainId::SEPOLIA,
         };
 
+        let stages = &config.sync.stages;
+
         if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync.source {
             let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
-            let block_downloader =
-                JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), batch_size);
-            pipeline.add_stage(Blocks::new(
-                storage_provider.clone(),
-                block_downloader,
-                chain_id,
-                task_spawner.clone(),
-            ));
 
-            let class_downloader = JsonRpcClassDownloader::new(rpc_client, batch_size);
-            pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            if stages.contains(&SyncStageKind::Blocks) {
+                let block_downloader =
+                    JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), blocks_batch_size);
+                pipeline.add_stage(Blocks::new(
+                    storage_provider.clone(),
+                    block_downloader,
+                    chain_id,
+                    task_spawner.clone(),
+                ));
+            }
+
+            if stages.contains(&SyncStageKind::Classes) {
+                let class_downloader = JsonRpcClassDownloader::new(rpc_client, classes_batch_size);
+                pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            }
         } else {
-            let block_downloader =
-                BatchBlockDownloader::new_gateway(gateway_client.clone(), batch_size);
-            pipeline.add_stage(Blocks::new(
-                storage_provider.clone(),
-                block_downloader,
-                chain_id,
-                task_spawner.clone(),
-            ));
+            if stages.contains(&SyncStageKind::Blocks) {
+                let block_downloader =
+                    BatchBlockDownloader::new_gateway(gateway_client.clone(), blocks_batch_size);
+                pipeline.add_stage(Blocks::new(
+                    storage_provider.clone(),
+                    block_downloader,
+                    chain_id,
+                    task_spawner.clone(),
+                ));
+            }
 
-            let class_downloader = GatewayClassDownloader::new(gateway_client.clone(), batch_size);
-            pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            if stages.contains(&SyncStageKind::Classes) {
+                let class_downloader =
+                    GatewayClassDownloader::new(gateway_client.clone(), classes_batch_size);
+                pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            }
         }
-        pipeline.add_stage(IndexHistory::new(storage_provider.clone(), task_spawner.clone()));
-        if config.trie.compute {
+
+        if stages.contains(&SyncStageKind::IndexHistory) {
+            pipeline.add_stage(IndexHistory::new(storage_provider.clone(), task_spawner.clone()));
+        }
+
+        if stages.contains(&SyncStageKind::StateTrie) {
             pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
         }
 
