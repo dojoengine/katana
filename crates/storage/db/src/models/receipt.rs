@@ -1,15 +1,10 @@
 use katana_primitives::receipt::Receipt;
 
-use crate::models::dict::{DictRegistry, RECEIPT_DICTS};
 use crate::models::envelope::{Envelope, EnvelopePayload};
 
 impl EnvelopePayload for Receipt {
     const MAGIC: &[u8; 4] = b"KRCP";
     const NAME: &str = "receipt";
-
-    fn dict_registry() -> Option<&'static DictRegistry> {
-        Some(&RECEIPT_DICTS)
-    }
 }
 
 /// On-disk representation for `Receipts` table values.
@@ -17,7 +12,7 @@ pub type ReceiptEnvelope = Envelope<Receipt>;
 
 impl From<ReceiptEnvelope> for Receipt {
     fn from(value: ReceiptEnvelope) -> Self {
-        value.inner
+        value.payload
     }
 }
 

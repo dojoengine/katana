@@ -289,7 +289,7 @@ fn receipt_envelope_converts_legacy() {
                 .get::<tables::Receipts>(i as u64)
                 .expect("read should succeed")
                 .expect("entry should exist");
-            assert_eq!(&envelope.inner, expected, "receipt {i} mismatch");
+            assert_eq!(&envelope.payload, expected, "receipt {i} mismatch");
         }
         tx.commit().unwrap();
     }

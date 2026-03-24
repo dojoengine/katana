@@ -284,7 +284,7 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
         if let Some(num) = self.0.get::<tables::TxNumbers>(hash)? {
             let res = self.0.get::<tables::Transactions>(num)?;
             let envelope = res.ok_or(ProviderError::MissingTx(num))?;
-            Ok(Some(TxWithHash { hash, transaction: envelope.inner.into() }))
+            Ok(Some(TxWithHash { hash, transaction: envelope.payload.into() }))
         } else {
             Ok(None)
         }
@@ -309,7 +309,7 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
             if let Some(envelope) = self.0.get::<tables::Transactions>(i)? {
                 let res = self.0.get::<tables::TxHashes>(i)?;
                 let hash = res.ok_or(ProviderError::MissingTxHash(i))?;
-                transactions.push(TxWithHash { hash, transaction: envelope.inner.into() });
+                transactions.push(TxWithHash { hash, transaction: envelope.payload.into() });
             };
         }
 
@@ -349,7 +349,7 @@ impl<Tx: DbTx> TransactionProvider for DbProvider<Tx> {
                 let res = self.0.get::<tables::Transactions>(num)?;
                 let envelope = res.ok_or(ProviderError::MissingTx(num))?;
 
-                Ok(Some(TxWithHash { hash, transaction: envelope.inner.into() }))
+                Ok(Some(TxWithHash { hash, transaction: envelope.payload.into() }))
             }
 
             _ => Ok(None),
