@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774293987172,
+  "lastUpdate": 1774388394021,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -13403,6 +13403,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 268,
             "range": "± 7",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "abf9297355d37d70bc5db2e6a66ed1ca81c9c9f7",
+          "message": "feat(db): zstd dictionary compression for Receipts & Transactions (#505)\n\n## Summary\n\n- Add `ZstdDict = 0x02` envelope encoding that compresses with pre-trained zstd dictionaries\n- Train 128KB dictionaries from 100k randomly sampled mainnet records (281M total)\n- Maintain full backward compatibility — `Zstd = 0x01` and `Identity = 0x00` entries still decompress\n- Include `train-dict` CLI binary for training/benchmarking dictionaries from any database\n\n## Why dictionaries?\n\nThe envelope already skips compression for payloads smaller than the zstd frame overhead (13 bytes), but most records are much larger (avg 330–450 bytes) and do get zstd-compressed. The problem is that zstd without a dictionary is ineffective on these small-ish individual records — it can't build enough context within a single few-hundred-byte record to find repetitions, resulting in ~0.98x ratio (slight expansion). A pre-trained dictionary provides shared knowledge of common byte patterns across all records, letting the compressor achieve 1.4–1.9x even on small payloads.\n\n## Design decisions\n\n**Encoding byte + FLAGS field for versioning.** The existing 2-byte FLAGS field (bytes 6–7, previously reserved) stores the dictionary version as `u16` LE when encoding is `ZstdDict`. This lets us embed multiple dictionary generations and always decompress data written with any past version — old dictionaries are never removed.\n\n**`EnvelopePayload::dict_registry()` trait method.** Types opt in to dictionary compression by returning a `&'static DictRegistry`. Types without a registry keep using plain zstd. This avoids any behavioral change for other envelope-encoded tables.\n\n**`DictRegistry` with `LazyLock` statics.** Encoder/decoder dictionaries are initialized lazily on first use to avoid startup cost. Each registry maps version → dictionary, so decompression always finds the right one.\n\n**Full-range training over recent-only.** The pareto benchmark trains dictionaries from 100k samples (out of 281M entries, ~0.035%) drawn from different portions of the key range. We compared 6 training ranges:\n\n| Range | Keys sampled from | Description |\n|-------|-------------------|-------------|\n| `full` | `0..=281519452` | 100k samples uniformly spread across the entire table |\n| `recent-25%` | top 25% of keys | Only the most recent ~70M entries |\n| `recent-10%` | top 10% of keys | Only the most recent ~28M entries |\n| `recent-5%` | top 5% of keys | Only the most recent ~14M entries |\n| `mid-50%` | middle 50% of keys | Entries from the 25th–75th percentile\n|\n| `oldest-25%` | bottom 25% of keys | Only the oldest ~70M entries |\n\n`full` consistently wins because it captures patterns from all transaction/receipt types across the chain's history, not just one era.\n\n**128KB dictionary size.** Pareto frontier shows diminishing returns above 128KB. The 64KB→128KB step still gains ~2% for receipts and ~1% for transactions, which is meaningful over 281M records. Binary size cost: +256KB (both tables combined).\n\n**Seek-based random sampling.** With 281M rows, walking every record is too slow. The training tool generates random keys in the target range and `seek()`s directly to them — collecting 100k samples in seconds.\n\n**Train/test split.** The 100k samples are split 80/20: 80k for training the dictionary, 20k held out for benchmarking. Stats are reported on the held-out set to measure generalisation, not memorisation. Train vs test results are within 1%, confirming no overfitting.\n\n## Backward compatibility\n\nThis change is fully backward compatible in both directions:\n\n- **Reading old data:** Records written with `Identity = 0x00` or `Zstd = 0x01` continue to decompress exactly as before. The decompress path checks the encoding byte and only uses a dictionary when it sees `ZstdDict = 0x02`. No migration is needed — old and new records coexist in the same table.\n\n- **New binary reading old DB:** A node running this code can open any existing database without changes. Existing records decompress through the unchanged `Identity`/`Zstd` code paths.\n\n- **Old binary reading new data:** An older binary that doesn't know about `ZstdDict = 0x02` will return `UnsupportedEncoding` for new records. This is intentional — the encoding enum's `TryFrom<u8>` rejects unknown values, which is the existing forward-compatibility mechanism.\n\n- **Dictionary versioning:** The FLAGS field (bytes 6–7) stores a `u16` dictionary version when encoding is `ZstdDict`. All historical dictionaries are embedded in the binary and indexed by version, so data written with any past dictionary version will always decompress correctly. Old dictionary files must never be removed from the\n`dictionaries/` directory.\n\n## Pareto frontier\n\nEvaluated on 20k held-out random test samples per table. All combinations of training range × dict size × sample count were swept.\n\n**Database snapshot:** 281,519,453 entries in both Receipts and Transactions tables, key range `0..=281519452`.\n\n### Dictionary size vs compression savings\n\n![Dictionary Size vs Compression\nSavings](https://raw.githubusercontent.com/dojoengine/katana/d64ce1b63ee9865cb59ee2a78cefc68610f96d64/crates/storage/db/dictionaries/pareto_dict_size.png)\n\n### Training range impact (128KB dict, 100k samples)\n\n![Training Range\nImpact](https://raw.githubusercontent.com/dojoengine/katana/d64ce1b63ee9865cb59ee2a78cefc68610f96d64/crates/storage/db/dictionaries/pareto_training_range.png)\n\n### Receipts (avg raw payload: 403 B)\n\n| Dict Size | Ratio | vs Identity | vs Zstd (no dict) |\n|-----------|-------|-------------|--------------------|\n| 8 KB | 1.66x | 40.8% | 40.9% |\n| 16 KB | 1.71x | 42.6% | 42.8% |\n| 32 KB | 1.78x | 44.8% | 44.9% |\n| 64 KB | 1.84x | 46.7% | 46.8% |\n| **128 KB** | **1.91x** | **48.7%** | **48.8%** |\n\n### Transactions (avg raw payload: 449 B)\n\n| Dict Size | Ratio | vs Identity | vs Zstd (no dict) |\n|-----------|-------|-------------|--------------------|\n| 8 KB | 1.32x | 25.3% | 25.5% |\n| 16 KB | 1.33x | 26.2% | 26.4% |\n| 32 KB | 1.35x | 26.9% | 27.1% |\n| 64 KB | 1.36x | 27.8% | 27.9% |\n| **128 KB** | **1.38x** | **28.8%** | **29.0%** |\n\nAll pareto-optimal points use `full` range training with 100k samples. Range-restricted variants (e.g. `oldest-25%` at 8.7% for transactions) are strictly dominated.\n\n### Reproducibility\n\nThe pareto exploration is fully reproducible via:\n\n```\ncargo run --release --bin train-dict --features cli -- pareto --path /data/katana-mainnet-data2/\n```\n\nSampling uses a deterministic RNG (`StdRng` seeded with `--seed 42`). Both the test set (20k samples) and all training sets are derived from this seed, so identical database contents will produce identical dictionaries and benchmark numbers.\n\n**Caveat:** If the database is still syncing and new records are appended between runs, the key range changes (e.g. `0..=281519452` → `0..=N`), which shifts the random seek targets and produces different samples. Results are only reproducible against a frozen database snapshot.\n\n**Snapshot used for this PR:**\n- Latest block: **8,050,454**\n- Receipts: 281,519,453 entries (key range `0..=281519452`)\n- Transactions: 281,519,453 entries (key range `0..=281519452`)\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-24T16:11:00-05:00",
+          "tree_id": "ca336e2dab8f22c5d7fffb3f7b079059590481c4",
+          "url": "https://github.com/dojoengine/katana/commit/abf9297355d37d70bc5db2e6a66ed1ca81c9c9f7"
+        },
+        "date": 1774388392834,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2628854,
+            "range": "± 16740",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2902878,
+            "range": "± 45962",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 35,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 26,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 35,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 26,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 676,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 825,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 77,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 35,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 153,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 139,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 152,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 236,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 222,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 269,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 156,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 310,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 142,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 108,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 82,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 58,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 82,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 58,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 82,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 58,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 82,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 58,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 82,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 58,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 48,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 26,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 48,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 27,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 12,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 16385,
+            "range": "± 186",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3704,
+            "range": "± 114",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 365,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 789,
+            "range": "± 28",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 151,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 141,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1511,
+            "range": "± 44",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2225,
+            "range": "± 386",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 648,
+            "range": "± 40",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 889,
+            "range": "± 154",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 28062,
+            "range": "± 355",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6140,
+            "range": "± 193",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 167,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 248,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 294,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 275,
+            "range": "± 10",
             "unit": "ns/iter"
           }
         ]
