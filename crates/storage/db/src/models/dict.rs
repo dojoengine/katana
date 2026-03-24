@@ -26,26 +26,17 @@ pub static DICTIONARY_REGISTRY: LazyLock<DictRegistry> = LazyLock::new(|| {
         decoder: DecoderDictionary::copy(TX_V1_BYTES),
     };
 
-    DictRegistry { dicts: vec![receipts, transactions] }
+    DictRegistry { dicts: [receipts, transactions] }
 });
 
 #[derive(Debug)]
 pub struct DictRegistry {
-    dicts: Vec<Dictionary>,
+    dicts: [Dictionary; 2],
 }
 
 impl DictRegistry {
     pub fn get(&self, name: &str) -> Option<&Dictionary> {
         self.dicts.iter().find(|d| d.name == name)
-    }
-
-    pub fn insert(
-        &mut self,
-        name: &'static str,
-        encoder: EncoderDictionary<'static>,
-        decoder: DecoderDictionary<'static>,
-    ) {
-        self.dicts.push(Dictionary { name, encoder, decoder });
     }
 }
 
