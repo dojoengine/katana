@@ -309,6 +309,10 @@ impl TryFrom<u8> for Encoding {
 
 #[cfg(test)]
 mod tests {
+
+    use arbitrary::{Arbitrary, Unstructured};
+    use katana_primitives::receipt::Receipt;
+
     use super::*;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -468,26 +472,25 @@ mod tests {
 
     #[test]
     fn zstd_dict_roundtrip() {
-        let payload = DictTestPayload { data: "x".repeat(128) };
-        let envelope = Envelope::from(payload.clone());
+        let receipt = {
+            let size_hint = <Receipt as Arbitrary>::size_hint(0).0;
+            let bytes: Vec<u8> =
+                (0..ZSTD_MIN_FRAME_SIZE + size_hint).map(|_| rand::random::<u8>()).collect();
+            let mut data = Unstructured::new(&bytes);
+            <Receipt as Arbitrary>::arbitrary(&mut data).unwrap()
+        };
+
+        let envelope = Envelope::from(receipt.clone());
 
         let compressed = envelope.compress().expect("compress");
-        assert_eq!(&compressed[..4], b"DTST");
+        assert_eq!(&compressed[..4], Receipt::MAGIC);
         assert_eq!(compressed[4], ENVELOPE_FORMAT_VERSION);
         assert_eq!(compressed[5], Encoding::ZstdDict as u8);
         // flags should contain dictionary version 1 in LE
         assert_eq!(&compressed[6..8], &1u16.to_le_bytes());
 
-        let decompressed = Envelope::<DictTestPayload>::decompress(compressed).expect("decompress");
-        assert_eq!(decompressed.payload, payload);
-    }
-
-    #[test]
-    fn zstd_dict_encoding_byte_is_0x02() {
-        let payload = DictTestPayload { data: "y".repeat(128) };
-        let envelope = Envelope::from(payload);
-        let compressed = envelope.compress().expect("compress");
-        assert_eq!(compressed[5], 0x02);
+        let decompressed = Envelope::<Receipt>::decompress(compressed).expect("decompress");
+        assert_eq!(decompressed.payload, receipt);
     }
 
     #[test]
