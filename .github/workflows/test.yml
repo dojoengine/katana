@@ -89,10 +89,19 @@ jobs:
 
     build-katana-binary:
         needs: [fmt, clippy, generate-test-artifacts]
-        runs-on: ubuntu-latest-32-cores
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: ${{ matrix.os == 'macos' && 120 || 30 }}
+        strategy:
+            matrix:
+                include:
+                    - os: ubuntu
+                      runner: ubuntu-latest-32-cores
+                      container: ghcr.io/dojoengine/katana-dev:latest
+                    - os: macos
+                      runner: macos-latest
+                      container: null
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-        container:
-            image: ghcr.io/dojoengine/katana-dev:latest
+        container: ${{ matrix.container }}
         env:
             MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
             LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -104,27 +113,84 @@ jobs:
             # Workaround for https://github.com/actions/runner-images/issues/6775
             - run: git config --global --add safe.directory "*"
 
+            - name: Free disk space (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  sudo rm -rf /opt/hostedtoolcache
+                  sudo rm -rf /Users/runner/Library/Android
+                  sudo rm -rf /Applications/Xcode_*.app
+                  brew cleanup -s
+                  df -h
+
             - uses: Swatinem/rust-cache@v2
               with:
-                  key: ci-${{ github.job }}
-                  shared-key: katana-ci-cache
+                  key: ci-${{ github.job }}-${{ matrix.os }}
+                  shared-key: katana-ci-cache-${{ matrix.os }}
+
+            - name: Install LLVM 19 (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  brew install llvm@19
+                  echo "MLIR_SYS_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+                  echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+                  echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+
+            - name: Install zstd and protobuf (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  brew install zstd pkg-config protobuf
+                  echo "PKG_CONFIG_PATH=$(brew --prefix zstd)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+                  echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+
+            - name: Build Explorer UI (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  curl -fsSL https://bun.sh/install | bash
+                  export BUN_INSTALL="$HOME/.bun"
+                  export PATH="$BUN_INSTALL/bin:$PATH"
+                  make build-explorer
 
             - name: Download contract artifacts
               uses: actions/download-artifact@v5
               with:
                   name: fixtures
 
+            - name: Install cargo-nextest (macOS)
+              if: matrix.os == 'macos'
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-nextest
+
             - name: Build binary with all features
               run: cargo build --bin katana --all-features
+
+            # Build and archive test binaries on macOS so the test job can run
+            # without recompilation (macOS runners are too slow to compile + test
+            # within a single job timeout). Runs after the binary build so deps
+            # are already compiled.
+            - name: Build and archive test binaries (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  cargo nextest archive --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --archive-file nextest-archive.tar.zst
 
             - name: Upload binary
               uses: actions/upload-artifact@v4
               with:
-                  name: binary
+                  name: binary-${{ matrix.os }}
                   overwrite: true
                   retention-days: 1
                   if-no-files-found: error
                   path: ./target/debug/katana
+
+            - name: Upload nextest archive (macOS)
+              if: matrix.os == 'macos'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: nextest-archive-macos
+                  overwrite: true
+                  retention-days: 1
+                  if-no-files-found: error
+                  path: nextest-archive.tar.zst
 
     clippy:
         needs: [generate-test-artifacts]
@@ -158,11 +224,19 @@ jobs:
 
     test:
         needs: [fmt, clippy, generate-test-artifacts, build-katana-binary]
-        runs-on: ubuntu-latest-32-cores
-        timeout-minutes: 30
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: ${{ matrix.os == 'macos' && 60 || 30 }}
+        strategy:
+            matrix:
+                include:
+                    - os: ubuntu
+                      runner: ubuntu-latest-32-cores
+                      container: ghcr.io/dojoengine/katana-dev:latest
+                    - os: macos
+                      runner: macos-latest
+                      container: null
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-        container:
-            image: ghcr.io/dojoengine/katana-dev:latest
+        container: ${{ matrix.container }}
         env:
             MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
             LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -176,9 +250,37 @@ jobs:
             - run: git config --global --add safe.directory "*"
 
             - uses: Swatinem/rust-cache@v2
+              if: matrix.os == 'ubuntu'
               with:
-                  key: ci-${{ github.job }}
-                  shared-key: katana-ci-cache
+                  key: ci-${{ github.job }}-${{ matrix.os }}
+                  shared-key: katana-ci-cache-${{ matrix.os }}
+
+            # LLVM is needed at runtime for cairo-native JIT compilation
+            - name: Install LLVM 19 (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  brew install llvm@19
+                  echo "MLIR_SYS_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+                  echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+                  echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+
+            # zstd is needed at runtime for database compression
+            - name: Install zstd (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  brew install zstd
+                  echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+
+            - name: Install cargo-nextest (macOS)
+              if: matrix.os == 'macos'
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-nextest
+
+            # anvil is needed for the messaging integration test
+            - name: Install Foundry (macOS)
+              if: matrix.os == 'macos'
+              uses: foundry-rs/foundry-toolchain@v1
 
             - name: Download test artifacts
               uses: actions/download-artifact@v5
@@ -188,27 +290,38 @@ jobs:
             - name: Download Katana binary
               uses: actions/download-artifact@v5
               with:
-                  name: binary
+                  name: binary-${{ matrix.os }}
 
             - name: Add binary to PATH
               run: |
                   chmod +x katana
                   echo "$(pwd)" >> $GITHUB_PATH
 
-            - name: Run tests
-              if: github.event_name != 'pull_request'
+            - name: Download nextest archive (macOS)
+              if: matrix.os == 'macos'
+              uses: actions/download-artifact@v5
+              with:
+                  name: nextest-archive-macos
+
+            - name: Run tests from archive (macOS)
+              if: matrix.os == 'macos'
+              run: |
+                  cargo nextest run --archive-file nextest-archive.tar.zst --workspace-remap .
+
+            - name: Run tests (ubuntu)
+              if: matrix.os == 'ubuntu' && github.event_name != 'pull_request'
               run: |
                   cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
 
-            - name: Run tests w/ code coverage
-              if: github.event_name == 'pull_request'
+            - name: Run tests w/ code coverage (ubuntu)
+              if: matrix.os == 'ubuntu' && github.event_name == 'pull_request'
               run: |
                   cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
                   cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Upload code coverage
               uses: codecov/codecov-action@v4
-              if: github.event_name == 'pull_request'
+              if: matrix.os == 'ubuntu' && github.event_name == 'pull_request'
               with:
                   token: ${{ secrets.CODECOV_TOKEN }}
                   files: lcov.info
@@ -271,7 +384,7 @@ jobs:
             - name: Download Katana binary
               uses: actions/download-artifact@v5
               with:
-                  name: binary
+                  name: binary-ubuntu
 
             - name: Setup Katana binary
               run: chmod +x ./katana
@@ -311,7 +424,7 @@ jobs:
             - name: Download Katana binary
               uses: actions/download-artifact@v5
               with:
-                  name: binary
+                  name: binary-ubuntu
 
             - name: Setup Katana binary
               run: chmod +x ./katana
@@ -361,7 +474,7 @@ jobs:
             - name: Download Katana binary
               uses: actions/download-artifact@v5
               with:
-                  name: binary
+                  name: binary-ubuntu
 
             - name: Download test artifacts
               uses: actions/download-artifact@v5

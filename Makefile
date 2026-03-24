@@ -23,6 +23,7 @@ SIMPLE_DB := $(DB_FIXTURES_DIR)/simple
 CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
+AMDSEV_DIR := misc/AMDSEV
 
 VRF_DIR := $(CONTRACTS_DIR)/vrf
 AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
@@ -39,9 +40,12 @@ VRF_SCARB_VERSION := $(shell if [ -f $(VRF_DIR)/.tool-versions ]; then awk '$$1 
 # All scarb versions needed for `make contracts`.
 SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(VRF_SCARB_VERSION))
 
-.DEFAULT_GOAL := usage
+.DEFAULT_GOAL := all
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
+.PHONY: all usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts tee-sev-snp clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
+
+all: fixtures build-explorer
+	@echo "All build artifacts generated successfully."
 
 usage help:
 	@echo "Usage:"
@@ -49,6 +53,7 @@ usage help:
 	@echo "    snos-deps:                 Install SNOS test dependencies (pyenv, Python 3.9.15)."
 	@echo "    build-explorer:            Build the explorer."
 	@echo "    contracts:                 Build the contracts."
+	@echo "    tee-sev-snp:               Build AMD SEV-SNP TEE VM components (prompts y/N to build katana unless KATANA_BINARY is set)."
 	@echo "    fixtures:            	  Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
@@ -92,20 +97,31 @@ build-explorer:
 	@which bun >/dev/null 2>&1 || { echo "Error: bun is required but not installed. Please install bun first."; exit 1; }
 	@$(MAKE) $(EXPLORER_UI_DIST)
 
-contracts: install-scarb $(CONTRACTS_BUILD_DIR)
-
-# Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
-$(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
-	@mkdir -p $@
+contracts: install-scarb
+	@mkdir -p $(CONTRACTS_BUILD_DIR)
 	@echo "Building main contracts..."
 	@cd $(CONTRACTS_DIR) && asdf exec scarb build || { echo "Main contracts build failed!"; exit 1; }
-	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
+	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
 	@echo "Building VRF contracts..."
 	@cd $(VRF_DIR) && asdf exec scarb build || { echo "VRF contracts build failed!"; exit 1; }
-	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
+	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
 	@echo "Building AVNU contracts..."
 	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
-	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
+	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
+
+tee-sev-snp:
+	@echo "Building AMD SEV-SNP TEE VM components..."
+	@if [ -n "$(KATANA_BINARY)" ]; then \
+		echo "Using katana binary: $(KATANA_BINARY)"; \
+		$(AMDSEV_DIR)/build.sh --katana "$(KATANA_BINARY)"; \
+	elif [ ! -t 0 ]; then \
+		echo "Error: non-interactive run requires KATANA_BINARY."; \
+		echo "Example: make tee-sev-snp KATANA_BINARY=/path/to/katana"; \
+		exit 1; \
+	else \
+		$(AMDSEV_DIR)/build.sh; \
+	fi
+
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."

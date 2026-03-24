@@ -64,7 +64,7 @@ impl CheckpointArgs {
 impl GetArgs {
     fn execute(self) -> Result<()> {
         let result = db::open_db_ro(&self.path)?
-            .view(|tx| tx.get::<tables::StageExecutionCheckpoints>(self.stage_id.clone()))??;
+            .view(|tx| tx.get::<tables::StageExecutionCheckpoints>(self.stage_id.clone()))?;
 
         match result {
             Some(checkpoint) => {
@@ -84,7 +84,7 @@ impl SetArgs {
         db::open_db_rw(&self.path)?.update(|tx| {
             let checkpoint = ExecutionCheckpoint { block: self.block_number };
             tx.put::<tables::StageExecutionCheckpoints>(self.stage_id.clone(), checkpoint)
-        })??;
+        })?;
 
         println!("set checkpoint for stage '{}' to block {}", self.stage_id, self.block_number);
 

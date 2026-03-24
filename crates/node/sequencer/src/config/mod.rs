@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 // Re-export shared config types
-pub use katana_node_config::{db, metrics, rpc};
+pub use katana_node_config::{db, gateway, metrics, rpc};
 
 // Sequencer-specific config modules
 pub mod dev;
 pub mod execution;
 pub mod fork;
-pub mod gateway;
 pub mod sequencing;
 
 #[cfg(feature = "paymaster")]

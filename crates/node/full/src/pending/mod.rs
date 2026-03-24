@@ -47,10 +47,8 @@ impl PreconfStateFactory {
         };
 
         tokio::spawn(async move {
-            loop {
-                if let Err(error) = worker.run().await {
-                    error!(%error, "PreconfBlockWatcher returned with an error.");
-                }
+            if let Err(error) = worker.run().await {
+                error!(%error, "PreconfBlockWatcher returned with an error.");
             }
         });
 
@@ -174,8 +172,7 @@ impl PreconfBlockWatcher {
                 }
             } else {
                 if let Err(err) = self.latest_synced_block.changed().await {
-                    error!(error = ?err, "Error receiving latest block number.");
-                    break;
+                    return Err(anyhow!(err));
                 }
 
                 // reset preconf state
@@ -189,7 +186,5 @@ impl PreconfBlockWatcher {
 
             tokio::time::sleep(self.interval).await
         }
-
-        Ok(())
     }
 }

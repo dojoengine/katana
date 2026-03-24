@@ -240,6 +240,10 @@ where
             .max()
             .map(|max_nonce| max_nonce + 1)
     }
+
+    fn take_transactions_snapshot(&self) -> Vec<Arc<T>> {
+        self.inner.transactions.read().iter().map(|tx| Arc::clone(&tx.tx)).collect()
+    }
 }
 
 impl<T, V, O> Clone for Pool<T, V, O>

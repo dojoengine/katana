@@ -28,6 +28,14 @@ pub enum Error {
     /// Server has already been stopped.
     #[error("gRPC server has already been stopped")]
     AlreadyStopped,
+
+    /// IO error from binding the TCP listener.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
+    /// Error from creating the TCP incoming stream.
+    #[error("Failed to create TCP incoming stream: {0}")]
+    Incoming(String),
 }
 
 /// Handle to a running gRPC server.
@@ -102,8 +110,9 @@ impl GrpcServer {
 
     /// Starts the gRPC server.
     ///
-    /// This method spawns the server on a new Tokio task and returns a handle
-    /// that can be used to manage the server.
+    /// This method binds to the given address, spawns the server on a new Tokio task,
+    /// and returns a handle that can be used to manage the server. The server is
+    /// guaranteed to be listening for connections when this method returns.
     pub async fn start(&self, addr: SocketAddr) -> Result<GrpcServerHandle, Error> {
         // Build reflection service for tooling support (grpcurl, Postman, etc.)
         let reflection_service = tonic_reflection::server::Builder::configure()
@@ -114,23 +123,33 @@ impl GrpcServer {
         // Create shutdown channel
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
+        // Bind the TCP listener BEFORE spawning the server task. This ensures:
+        // 1. The port is resolved (important when addr uses port 0 for auto-assignment)
+        // 2. The server is accepting connections when this method returns
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        let actual_addr = listener.local_addr()?;
+
+        let incoming = tonic::transport::server::TcpIncoming::from_listener(listener, true, None)
+            .map_err(|e| Error::Incoming(e.to_string()))?;
+
         let mut builder = Server::builder().timeout(self.timeout);
         let server = builder.add_routes(self.routes.clone()).add_service(reflection_service);
 
-        // Start the server with graceful shutdown
-        let server_future = server.serve_with_shutdown(addr, async move {
-            let _ = shutdown_rx.changed().await;
-        });
-
+        // Start the server with the already-bound listener
         tokio::spawn(async move {
-            if let Err(error) = server_future.await {
+            if let Err(error) = server
+                .serve_with_incoming_shutdown(incoming, async move {
+                    let _ = shutdown_rx.changed().await;
+                })
+                .await
+            {
                 error!(target: "grpc", %error, "gRPC server error");
             }
         });
 
-        info!(target: "grpc", %addr, "gRPC server started.");
+        info!(target: "grpc", addr = %actual_addr, "gRPC server started.");
 
-        Ok(GrpcServerHandle { addr, shutdown_tx: Arc::new(shutdown_tx) })
+        Ok(GrpcServerHandle { addr: actual_addr, shutdown_tx: Arc::new(shutdown_tx) })
     }
 }
 

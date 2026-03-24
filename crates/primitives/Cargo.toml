@@ -56,3 +56,7 @@ serde = [ "alloy-primitives/serde", "blockifier/transaction_serde" ]
 [[bench]]
 harness = false
 name = "class"
+
+[[bench]]
+harness = false
+name = "state"

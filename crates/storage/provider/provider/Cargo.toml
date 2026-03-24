@@ -13,7 +13,7 @@ katana-fork.workspace = true
 katana-primitives.workspace = true
 katana-genesis.workspace = true
 katana-provider-api.workspace = true
-katana-rpc-client.workspace = true
+katana-starknet.workspace = true
 katana-trie.workspace = true
 
 anyhow.workspace = true

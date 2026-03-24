@@ -8,7 +8,13 @@ version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+jsonrpsee = { workspace = true, features = [ "client" ] }
+katana-primitives.workspace = true
+katana-rpc-api = { workspace = true, features = [ "client" ] }
+katana-rpc-types.workspace = true
 reqwest.workspace = true
+thiserror.workspace = true
+url.workspace = true
 
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 alloy-sol-types = { workspace = true, default-features = false, features = [ "json" ] }

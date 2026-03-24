@@ -4,6 +4,7 @@ use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber, Finali
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
+use katana_rpc_types::TxTraceWithHash;
 
 use crate::ProviderResult;
 
@@ -68,7 +69,7 @@ pub trait TransactionTraceProvider: Send + Sync {
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>>;
+    ) -> ProviderResult<Option<Vec<TxTraceWithHash>>>;
 
     /// Retrieves the execution traces for the given range of tx numbers.
     fn transaction_executions_in_range(

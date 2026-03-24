@@ -121,7 +121,10 @@ fn populate_db(db: &TempDb) {
         };
 
         provider
-            .trie_insert_declared_classes(num, state_updates.declared_classes.clone().into_iter())
+            .trie_insert_declared_classes(
+                num,
+                state_updates.declared_classes.clone().into_iter().collect(),
+            )
             .unwrap();
         provider.trie_insert_contract_updates(num, &state_updates).unwrap();
 

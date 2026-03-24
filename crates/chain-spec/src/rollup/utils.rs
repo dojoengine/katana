@@ -8,11 +8,13 @@ use katana_genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce};
+use katana_primitives::da::DataAvailabilityMode;
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::transaction::{
-    DeclareTx, DeclareTxV0, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1,
-    ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV1,
+    DeclareTx, DeclareTxV0, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3,
+    ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3,
 };
-use katana_primitives::utils::transaction::compute_deploy_account_v1_tx_hash;
+use katana_primitives::utils::transaction::compute_deploy_account_v3_tx_hash;
 use katana_primitives::utils::{get_contract_address, split_u256};
 use katana_primitives::{felt, Felt};
 use num_traits::FromPrimitive;
@@ -99,23 +101,32 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 
         let compiled_class_hash = class.clone().compile().unwrap().class_hash().unwrap();
 
-        let mut transaction = DeclareTxV2 {
+        let mut transaction = DeclareTxV3 {
             chain_id: self.chain_spec.id,
             signature: Vec::new(),
             compiled_class_hash,
             sender_address,
             class_hash,
-            max_fee: 0,
             nonce,
+            account_deployment_data: vec![],
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l2_gas: ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
+            paymaster_data: vec![],
+            tip: 0,
         };
 
-        let hash = DeclareTx::V2(transaction.clone()).calculate_hash(false);
+        let hash = DeclareTx::V3(transaction.clone()).calculate_hash(false);
         let signature = self.master_signer.sign(&hash).unwrap();
         transaction.signature = vec![signature.r, signature.s];
 
         self.transactions.borrow_mut().push(ExecutableTxWithHash {
             transaction: ExecutableTx::Declare(DeclareTxWithClass {
-                transaction: DeclareTx::V2(transaction),
+                transaction: DeclareTx::V3(transaction),
                 class: class.into(),
             }),
             hash,
@@ -164,21 +175,30 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             .chain(args)
             .collect();
 
-        let mut transaction = InvokeTxV1 {
+        let mut transaction = InvokeTxV3 {
             chain_id: self.chain_spec.id,
             signature: Vec::new(),
             sender_address,
-            max_fee: 0,
             calldata,
             nonce,
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l2_gas: ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
+            tip: 0,
+            paymaster_data: vec![],
+            account_deployment_data: vec![],
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
         };
 
-        let tx_hash = InvokeTx::V1(transaction.clone()).calculate_hash(false);
+        let tx_hash = InvokeTx::V3(transaction.clone()).calculate_hash(false);
         let signature = self.master_signer.sign(&tx_hash).unwrap();
         transaction.signature = vec![signature.r, signature.s];
 
         self.transactions.borrow_mut().push(ExecutableTxWithHash {
-            transaction: ExecutableTx::Invoke(InvokeTx::V1(transaction)),
+            transaction: ExecutableTx::Invoke(InvokeTx::V3(transaction)),
             hash: tx_hash,
         });
     }
@@ -192,28 +212,42 @@ impl<'c> GenesisTransactionsBuilder<'c> {
         let account_address =
             get_contract_address(account.salt, class_hash, &calldata, ContractAddress::ZERO);
 
-        let tx_hash = compute_deploy_account_v1_tx_hash(
+        let tx_hash = compute_deploy_account_v3_tx_hash(
             account_address,
             &calldata,
             class_hash,
             account.salt,
             0,
+            &ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            &ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+            Some(&ResourceBounds { max_amount: 0, max_price_per_unit: 0 }),
+            &[],
             self.chain_spec.id.into(),
             Felt::ZERO,
+            &DataAvailabilityMode::L1,
+            &DataAvailabilityMode::L1,
             false,
         );
 
         let signature = signer.sign(&tx_hash).unwrap();
 
-        let transaction = ExecutableTx::DeployAccount(DeployAccountTx::V1(DeployAccountTxV1 {
+        let transaction = ExecutableTx::DeployAccount(DeployAccountTx::V3(DeployAccountTxV3 {
             signature: vec![signature.r, signature.s],
             contract_address: account_address.into(),
             constructor_calldata: calldata,
             chain_id: self.chain_spec.id,
             contract_address_salt: account.salt,
             nonce: Felt::ZERO,
-            max_fee: 0,
             class_hash,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            paymaster_data: vec![],
+            tip: 0,
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l2_gas: ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
         }));
 
         let tx_hash = transaction.calculate_hash(false);
@@ -237,28 +271,42 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 
         self.master_address.set(master_address.into()).expect("must be uninitialized");
 
-        let deploy_account_tx_hash = compute_deploy_account_v1_tx_hash(
+        let deploy_account_tx_hash = compute_deploy_account_v3_tx_hash(
             master_address,
             &calldata,
             account_class_hash,
             salt,
             0,
+            &ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            &ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+            Some(&ResourceBounds { max_amount: 0, max_price_per_unit: 0 }),
+            &[],
             self.chain_spec.id.into(),
             Felt::ZERO,
+            &DataAvailabilityMode::L1,
+            &DataAvailabilityMode::L1,
             false,
         );
 
         let signature = self.master_signer.sign(&deploy_account_tx_hash).unwrap();
 
-        let transaction = ExecutableTx::DeployAccount(DeployAccountTx::V1(DeployAccountTxV1 {
+        let transaction = ExecutableTx::DeployAccount(DeployAccountTx::V3(DeployAccountTxV3 {
             signature: vec![signature.r, signature.s],
             nonce: Felt::ZERO,
-            max_fee: 0,
             contract_address_salt: salt,
             contract_address: master_address.into(),
             constructor_calldata: calldata,
             class_hash: account_class_hash,
             chain_id: self.chain_spec.id,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            paymaster_data: vec![],
+            tip: 0,
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l2_gas: ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
         }));
 
         let tx_hash = transaction.calculate_hash(false);
@@ -331,5 +379,157 @@ impl<'c> GenesisTransactionsBuilder<'c> {
         self.build_core_contracts();
         self.build_allocated_accounts();
         self.transactions.into_inner()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use alloy_primitives::U256;
+    use katana_contracts::contracts;
+    use katana_genesis::allocation::{
+        DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
+    };
+    use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+    use katana_genesis::Genesis;
+    use katana_primitives::chain::ChainId;
+    use katana_primitives::class::ClassHash;
+    use katana_primitives::transaction::TxType;
+    use katana_primitives::Felt;
+    use url::Url;
+
+    use super::GenesisTransactionsBuilder;
+    use crate::rollup::{ChainSpec, FeeContracts};
+    use crate::SettlementLayer;
+
+    fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
+        let accounts = if with_balance {
+            DevAllocationsGenerator::new(n_dev_accounts)
+                .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
+                .generate()
+        } else {
+            DevAllocationsGenerator::new(n_dev_accounts).generate()
+        };
+
+        let mut genesis = Genesis::default();
+        genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
+
+        let id = ChainId::parse("KATANA").unwrap();
+        let fee_contracts = FeeContracts::default();
+
+        let settlement = SettlementLayer::Starknet {
+            block: 0,
+            id: ChainId::default(),
+            core_contract: Default::default(),
+            rpc_url: Url::parse("http://localhost:5050").unwrap(),
+        };
+
+        ChainSpec { id, genesis, settlement, fee_contracts }
+    }
+
+    #[test]
+    fn transaction_order() {
+        let chain_spec = chain_spec(1, true);
+        let transactions = GenesisTransactionsBuilder::new(&chain_spec).build();
+
+        let expected_order = vec![
+            TxType::Declare,       // Master account class declare
+            TxType::DeployAccount, // Master account
+            TxType::Declare,       // UDC declare
+            TxType::Invoke,        // UDC deploy
+            TxType::Declare,       // ERC20 declare
+            TxType::Invoke,        // ERC20 deploy
+            TxType::Declare,       // Account class declare (V2)
+            TxType::DeployAccount, // Dev account
+            TxType::Invoke,        // Balance transfer
+        ];
+
+        assert_eq!(transactions.len(), expected_order.len());
+        for (tx, expected) in transactions.iter().zip(expected_order) {
+            assert_eq!(tx.transaction.r#type(), expected);
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::with_balance(true)]
+    #[case::no_balance(false)]
+    fn predeployed_acccounts(#[case] with_balance: bool) {
+        fn inner(n_accounts: usize, with_balance: bool) {
+            let mut chain_spec = chain_spec(0, with_balance);
+
+            // add non-dev allocations
+            for i in 0..n_accounts {
+                const CLASS_HASH: ClassHash = contracts::Account::HASH;
+                let salt = Felt::from(i);
+                let pk = Felt::from(1337);
+
+                let mut account = GenesisAccount::new_with_salt(pk, CLASS_HASH, salt);
+
+                if with_balance {
+                    account.balance = Some(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE));
+                }
+
+                chain_spec.genesis.extend_allocations([(
+                    account.address(),
+                    GenesisAllocation::Account(GenesisAccountAlloc::Account(account)),
+                )]);
+            }
+
+            let mut transactions = GenesisTransactionsBuilder::new(&chain_spec).build();
+
+            // We only want to check that for each predeployed accounts, there should be a deploy
+            // account and transfer balance (invoke) transactions. So we skip the first 7
+            // transactions (master account, UDC, ERC20, etc).
+            let account_transactions = &transactions.split_off(7);
+
+            if with_balance {
+                assert_eq!(account_transactions.len(), n_accounts * 2);
+                for txs in account_transactions.chunks(2) {
+                    assert_eq!(txs[0].transaction.r#type(), TxType::Invoke); // deploy
+                    assert_eq!(txs[1].transaction.r#type(), TxType::Invoke); // transfer
+                }
+            } else {
+                assert_eq!(account_transactions.len(), n_accounts);
+                for txs in account_transactions.chunks(2) {
+                    assert_eq!(txs[0].transaction.r#type(), TxType::Invoke); // deploy
+                }
+            }
+        }
+
+        for i in 0..10 {
+            inner(i, with_balance);
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::with_balance(true)]
+    #[case::no_balance(false)]
+    fn dev_predeployed_acccounts(#[case] with_balance: bool) {
+        fn inner(n_accounts: u16, with_balance: bool) {
+            let chain_spec = chain_spec(n_accounts, with_balance);
+            let mut transactions = GenesisTransactionsBuilder::new(&chain_spec).build();
+
+            // We only want to check that for each predeployed accounts, there should be a deploy
+            // account and transfer balance (invoke) transactions. So we skip the first 7
+            // transactions (master account, UDC, ERC20, etc).
+            let account_transactions = &transactions.split_off(7);
+
+            if with_balance {
+                assert_eq!(account_transactions.len(), n_accounts as usize * 2);
+                for txs in account_transactions.chunks(2) {
+                    assert_eq!(txs[0].transaction.r#type(), TxType::DeployAccount);
+                    assert_eq!(txs[1].transaction.r#type(), TxType::Invoke); // transfer
+                }
+            } else {
+                assert_eq!(account_transactions.len(), n_accounts as usize);
+                for txs in account_transactions.chunks(2) {
+                    assert_eq!(txs[0].transaction.r#type(), TxType::DeployAccount);
+                }
+            }
+        }
+
+        for i in 0..10 {
+            inner(i, with_balance);
+        }
     }
 }

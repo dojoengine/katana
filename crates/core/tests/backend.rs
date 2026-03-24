@@ -24,6 +24,7 @@ fn executor(chain_spec: Arc<ChainSpec>) -> Arc<dyn katana_executor::ExecutorFact
             validate_max_n_steps: Some(u32::MAX),
             invoke_tx_max_n_steps: Some(u32::MAX),
             max_recursion_depth: Some(usize::MAX),
+            is_l3: false,
         }),
         Default::default(),
         BlockLimits::default(),
@@ -66,7 +67,6 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
     let settlement = SettlementLayer::Starknet {
         block: 0,
         id: ChainId::default(),
-        account: Default::default(),
         core_contract: Default::default(),
         rpc_url: Url::parse("http://localhost:5050").unwrap(),
     };

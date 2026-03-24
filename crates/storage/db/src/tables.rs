@@ -2,18 +2,21 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
-use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
 use crate::models::block::StoredBlockBodyIndices;
 use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractInfoChangeList, ContractNonceChange};
-use crate::models::list::BlockList;
-use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint, StageId};
+use crate::models::list::BlockChangeList;
+use crate::models::stage::{
+    ExecutionCheckpoint, MigrationCheckpoint, MigrationStageId, PruningCheckpoint, StageId,
+};
+use crate::models::state::HistoricalStateRetention;
+use crate::models::state_update::StateUpdateEnvelope;
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-use crate::models::{VersionedContractClass, VersionedHeader, VersionedTx};
+use crate::models::{ReceiptEnvelope, TxEnvelope, VersionedContractClass, VersionedHeader};
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -43,7 +46,7 @@ pub trait Trie: Table<Key = TrieDatabaseKey, Value = TrieDatabaseValue> {
     /// Table for storing the trie entries according to the block its was committed.
     type History: DupSort<Key = BlockNumber, SubKey = TrieDatabaseKey, Value = TrieHistoryEntry>;
     /// Table for storing the trie change set.
-    type Changeset: Table<Key = TrieDatabaseKey, Value = BlockList>;
+    type Changeset: Table<Key = TrieDatabaseKey, Value = BlockChangeList>;
 }
 
 /// Enum for the types of tables present in libmdbx.
@@ -55,7 +58,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 34;
+pub const NUM_TABLES: usize = 37;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -157,6 +160,7 @@ macro_rules! dupsort {
 
 define_tables_enum! {[
     (Headers, TableType::Table),
+    (BlockStateUpdates, TableType::Table),
     (BlockHashes, TableType::Table),
     (BlockNumbers, TableType::Table),
     (BlockBodyIndices, TableType::Table),
@@ -181,6 +185,7 @@ define_tables_enum! {[
     (StorageChangeSet, TableType::Table),
     (StageExecutionCheckpoints, TableType::Table),
     (StagePruningCheckpoints, TableType::Table),
+    (StateHistoryRetention, TableType::Table),
     (ClassesTrie, TableType::Table),
     (ContractsTrie, TableType::Table),
     (StoragesTrie, TableType::Table),
@@ -189,7 +194,8 @@ define_tables_enum! {[
     (StoragesTrieHistory, TableType::DupSort),
     (ClassesTrieChangeSet, TableType::Table),
     (ContractsTrieChangeSet, TableType::Table),
-    (StoragesTrieChangeSet, TableType::Table)
+    (StoragesTrieChangeSet, TableType::Table),
+    (MigrationCheckpoints, TableType::Table)
 ]}
 
 tables! {
@@ -197,9 +203,13 @@ tables! {
     StageExecutionCheckpoints: (StageId) => ExecutionCheckpoint,
     /// Pipeline stages prune checkpoint
     StagePruningCheckpoints: (StageId) => PruningCheckpoint,
+    /// Provider-owned historical state retention watermark
+    StateHistoryRetention: (u64) => HistoricalStateRetention,
 
     /// Store canonical block headers
     Headers: (BlockNumber) => VersionedHeader,
+    /// Stores canonical state updates by block number.
+    BlockStateUpdates: (BlockNumber) => StateUpdateEnvelope,
     /// Stores block hashes according to its block number
     BlockHashes: (BlockNumber) => BlockHash,
     /// Stores block numbers according to its block hash
@@ -214,13 +224,14 @@ tables! {
     /// Transaction hash based on its number
     TxHashes: (TxNumber) => TxHash,
     /// Store canonical transactions
-    Transactions: (TxNumber) => VersionedTx,
+    Transactions: (TxNumber) => TxEnvelope,
     /// Stores the block number of a transaction.
     TxBlocks: (TxNumber) => BlockNumber,
     /// Stores the transaction's traces.
     TxTraces: (TxNumber) => TypedTransactionExecutionInfo,
-    /// Store transaction receipts
-    Receipts: (TxNumber) => Receipt,
+    /// Store transaction receipts as envelopes so table encoding can evolve independently from
+    /// the in-memory `Receipt` type.
+    Receipts: (TxNumber) => ReceiptEnvelope,
     /// Store compiled classes
     CompiledClassHashes: (ClassHash) => CompiledClassHash,
     /// Store contract classes according to its class hash
@@ -247,7 +258,7 @@ tables! {
     /// Contract class hash changes by block.
     ClassChangeHistory: (BlockNumber, ContractAddress) => ContractClassChange,
     /// storage change set
-    StorageChangeSet: (ContractStorageKey) => BlockList,
+    StorageChangeSet: (ContractStorageKey) => BlockChangeList,
     /// Account storage change set
     StorageChangeHistory: (BlockNumber, ContractStorageKey) => ContractStorageEntry,
 
@@ -266,11 +277,14 @@ tables! {
     StoragesTrieHistory: (BlockNumber, TrieDatabaseKey) => TrieHistoryEntry,
 
     /// Class trie change set
-    ClassesTrieChangeSet: (TrieDatabaseKey) => BlockList,
+    ClassesTrieChangeSet: (TrieDatabaseKey) => BlockChangeList,
     /// contract trie change set
-    ContractsTrieChangeSet: (TrieDatabaseKey) => BlockList,
+    ContractsTrieChangeSet: (TrieDatabaseKey) => BlockChangeList,
     /// contract storage trie change set
-    StoragesTrieChangeSet: (TrieDatabaseKey) => BlockList
+    StoragesTrieChangeSet: (TrieDatabaseKey) => BlockChangeList,
+
+    /// Migration task checkpoints for crash-recoverable migrations.
+    MigrationCheckpoints: (MigrationStageId) => MigrationCheckpoint
 }
 
 impl Trie for ClassesTrie {
@@ -297,41 +311,45 @@ mod tests {
 
         assert_eq!(Tables::ALL.len(), NUM_TABLES);
         assert_eq!(Tables::ALL[0].name(), Headers::NAME);
-        assert_eq!(Tables::ALL[1].name(), BlockHashes::NAME);
-        assert_eq!(Tables::ALL[2].name(), BlockNumbers::NAME);
-        assert_eq!(Tables::ALL[3].name(), BlockBodyIndices::NAME);
-        assert_eq!(Tables::ALL[4].name(), BlockStatusses::NAME);
-        assert_eq!(Tables::ALL[5].name(), TxNumbers::NAME);
-        assert_eq!(Tables::ALL[6].name(), TxBlocks::NAME);
-        assert_eq!(Tables::ALL[7].name(), TxHashes::NAME);
-        assert_eq!(Tables::ALL[8].name(), TxTraces::NAME);
-        assert_eq!(Tables::ALL[9].name(), Transactions::NAME);
-        assert_eq!(Tables::ALL[10].name(), Receipts::NAME);
-        assert_eq!(Tables::ALL[11].name(), CompiledClassHashes::NAME);
-        assert_eq!(Tables::ALL[12].name(), Classes::NAME);
-        assert_eq!(Tables::ALL[13].name(), ContractInfo::NAME);
-        assert_eq!(Tables::ALL[14].name(), ContractStorage::NAME);
-        assert_eq!(Tables::ALL[15].name(), ClassDeclarationBlock::NAME);
-        assert_eq!(Tables::ALL[16].name(), ClassDeclarations::NAME);
-        assert_eq!(Tables::ALL[17].name(), MigratedCompiledClassHashes::NAME);
-        assert_eq!(Tables::ALL[18].name(), ContractInfoChangeSet::NAME);
-        assert_eq!(Tables::ALL[19].name(), NonceChangeHistory::NAME);
-        assert_eq!(Tables::ALL[20].name(), ClassChangeHistory::NAME);
-        assert_eq!(Tables::ALL[21].name(), StorageChangeHistory::NAME);
-        assert_eq!(Tables::ALL[22].name(), StorageChangeSet::NAME);
-        assert_eq!(Tables::ALL[23].name(), StageExecutionCheckpoints::NAME);
-        assert_eq!(Tables::ALL[24].name(), StagePruningCheckpoints::NAME);
-        assert_eq!(Tables::ALL[25].name(), ClassesTrie::NAME);
-        assert_eq!(Tables::ALL[26].name(), ContractsTrie::NAME);
-        assert_eq!(Tables::ALL[27].name(), StoragesTrie::NAME);
-        assert_eq!(Tables::ALL[28].name(), ClassesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[29].name(), ContractsTrieHistory::NAME);
-        assert_eq!(Tables::ALL[30].name(), StoragesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[31].name(), ClassesTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[32].name(), ContractsTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[33].name(), StoragesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[1].name(), BlockStateUpdates::NAME);
+        assert_eq!(Tables::ALL[2].name(), BlockHashes::NAME);
+        assert_eq!(Tables::ALL[3].name(), BlockNumbers::NAME);
+        assert_eq!(Tables::ALL[4].name(), BlockBodyIndices::NAME);
+        assert_eq!(Tables::ALL[5].name(), BlockStatusses::NAME);
+        assert_eq!(Tables::ALL[6].name(), TxNumbers::NAME);
+        assert_eq!(Tables::ALL[7].name(), TxBlocks::NAME);
+        assert_eq!(Tables::ALL[8].name(), TxHashes::NAME);
+        assert_eq!(Tables::ALL[9].name(), TxTraces::NAME);
+        assert_eq!(Tables::ALL[10].name(), Transactions::NAME);
+        assert_eq!(Tables::ALL[11].name(), Receipts::NAME);
+        assert_eq!(Tables::ALL[12].name(), CompiledClassHashes::NAME);
+        assert_eq!(Tables::ALL[13].name(), Classes::NAME);
+        assert_eq!(Tables::ALL[14].name(), ContractInfo::NAME);
+        assert_eq!(Tables::ALL[15].name(), ContractStorage::NAME);
+        assert_eq!(Tables::ALL[16].name(), ClassDeclarationBlock::NAME);
+        assert_eq!(Tables::ALL[17].name(), ClassDeclarations::NAME);
+        assert_eq!(Tables::ALL[18].name(), MigratedCompiledClassHashes::NAME);
+        assert_eq!(Tables::ALL[19].name(), ContractInfoChangeSet::NAME);
+        assert_eq!(Tables::ALL[20].name(), NonceChangeHistory::NAME);
+        assert_eq!(Tables::ALL[21].name(), ClassChangeHistory::NAME);
+        assert_eq!(Tables::ALL[22].name(), StorageChangeHistory::NAME);
+        assert_eq!(Tables::ALL[23].name(), StorageChangeSet::NAME);
+        assert_eq!(Tables::ALL[24].name(), StageExecutionCheckpoints::NAME);
+        assert_eq!(Tables::ALL[25].name(), StagePruningCheckpoints::NAME);
+        assert_eq!(Tables::ALL[26].name(), StateHistoryRetention::NAME);
+        assert_eq!(Tables::ALL[27].name(), ClassesTrie::NAME);
+        assert_eq!(Tables::ALL[28].name(), ContractsTrie::NAME);
+        assert_eq!(Tables::ALL[29].name(), StoragesTrie::NAME);
+        assert_eq!(Tables::ALL[30].name(), ClassesTrieHistory::NAME);
+        assert_eq!(Tables::ALL[31].name(), ContractsTrieHistory::NAME);
+        assert_eq!(Tables::ALL[32].name(), StoragesTrieHistory::NAME);
+        assert_eq!(Tables::ALL[33].name(), ClassesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[34].name(), ContractsTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[35].name(), StoragesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[36].name(), MigrationCheckpoints::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
+        assert_eq!(Tables::BlockStateUpdates.table_type(), TableType::Table);
         assert_eq!(Tables::BlockHashes.table_type(), TableType::Table);
         assert_eq!(Tables::BlockNumbers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockBodyIndices.table_type(), TableType::Table);
@@ -356,6 +374,7 @@ mod tests {
         assert_eq!(Tables::StorageChangeSet.table_type(), TableType::Table);
         assert_eq!(Tables::StageExecutionCheckpoints.table_type(), TableType::Table);
         assert_eq!(Tables::StagePruningCheckpoints.table_type(), TableType::Table);
+        assert_eq!(Tables::StateHistoryRetention.table_type(), TableType::Table);
         assert_eq!(Tables::ClassesTrie.table_type(), TableType::Table);
         assert_eq!(Tables::ContractsTrie.table_type(), TableType::Table);
         assert_eq!(Tables::StoragesTrie.table_type(), TableType::Table);
@@ -365,6 +384,7 @@ mod tests {
         assert_eq!(Tables::ClassesTrieChangeSet.table_type(), TableType::Table);
         assert_eq!(Tables::ContractsTrieChangeSet.table_type(), TableType::Table);
         assert_eq!(Tables::StoragesTrieChangeSet.table_type(), TableType::Table);
+        assert_eq!(Tables::MigrationCheckpoints.table_type(), TableType::Table);
     }
 
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
@@ -381,12 +401,14 @@ mod tests {
     use crate::models::contract::{
         ContractClassChange, ContractInfoChangeList, ContractNonceChange,
     };
-    use crate::models::list::BlockList;
+    use crate::models::list::BlockChangeList;
     use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
     use crate::models::trie::{
         TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
     };
-    use crate::models::{VersionedHeader, VersionedTx};
+    use crate::models::{
+        ReceiptEnvelope, StateUpdateEnvelope, TxEnvelope, VersionedHeader, VersionedTx,
+    };
 
     macro_rules! assert_key_encode_decode {
 	    { $( ($name:ty, $key:expr) ),* } => {
@@ -435,13 +457,14 @@ mod tests {
     fn test_value_compress_decompress() {
         assert_value_compress_decompress! {
             (VersionedHeader, VersionedHeader::default()),
+            (StateUpdateEnvelope, StateUpdateEnvelope::from(katana_primitives::state::StateUpdates::default())),
             (BlockHash, BlockHash::default()),
             (BlockNumber, BlockNumber::default()),
             (FinalityStatus, FinalityStatus::AcceptedOnL1),
             (StoredBlockBodyIndices, StoredBlockBodyIndices::default()),
             (TxNumber, 77),
             (TxHash, felt!("0x123456789")),
-            (VersionedTx, VersionedTx::from(Tx::Invoke(InvokeTx::V1(Default::default())))),
+            (TxEnvelope, TxEnvelope::from(VersionedTx::from(Tx::Invoke(InvokeTx::V1(Default::default()))))),
             (BlockNumber, 99),
             (TypedTransactionExecutionInfo, TypedTransactionExecutionInfo::default()),
             (CompiledClassHash, felt!("211")),
@@ -452,15 +475,15 @@ mod tests {
             (ContractInfoChangeList, ContractInfoChangeList::default()),
             (ContractNonceChange, ContractNonceChange::default()),
             (ContractClassChange, ContractClassChange::default()),
-            (BlockList, BlockList::default()),
+            (BlockChangeList, BlockChangeList::default()),
             (ContractStorageEntry, ContractStorageEntry::default()),
-            (Receipt, Receipt::Invoke(InvokeTxReceipt {
+            (ReceiptEnvelope, ReceiptEnvelope::from(Receipt::Invoke(InvokeTxReceipt {
                 revert_error: None,
                 events: Vec::new(),
                 fee: Default::default(),
                 messages_sent: Vec::new(),
                 execution_resources: Default::default(),
-            })),
+            }))),
             (TrieDatabaseValue, TrieDatabaseValue::default()),
             (TrieHistoryEntry, TrieHistoryEntry {
                 value: TrieDatabaseValue::default(),

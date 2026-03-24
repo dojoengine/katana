@@ -9,10 +9,12 @@ use crate::ProviderResult;
 
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait StateUpdateProvider: Send + Sync {
-    /// Returns the state update at the given block.
+    /// Returns the canonical state update at the given block.
+    ///
+    /// This is the exact per-block diff and is independent from historical state retention.
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>>;
 
-    /// Returns all declared class hashes at the given block.
+    /// Returns the declared Sierra class hashes at the given block.
     fn declared_classes(
         &self,
         block_id: BlockHashOrNumber,

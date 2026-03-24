@@ -40,7 +40,7 @@ use url::Url;
 
 use crate::file::NodeArgsConfig;
 use crate::options::*;
-use crate::utils::{self, parse_chain_config_dir, parse_seed};
+use crate::utils::{self, parse_chain_config_dir, parse_seed, prompt_db_migration};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
 
@@ -70,14 +70,6 @@ pub struct SequencerNodeArgs {
     #[arg(value_name = "TOTAL")]
     pub block_cairo_steps_limit: Option<u64>,
 
-    /// Directory path of the database to initialize from.
-    ///
-    /// The path must either be an empty directory or a directory which already contains a
-    /// previously initialized Katana database.
-    #[arg(long, alias = "db-dir")]
-    #[arg(value_name = "PATH")]
-    pub data_dir: Option<PathBuf>,
-
     /// Configuration file
     #[arg(long)]
     pub config: Option<PathBuf>,
@@ -96,6 +88,9 @@ pub struct SequencerNodeArgs {
     #[arg(help = "The Ethereum RPC provider to sample the gas prices from to enable the gas \
                   price oracle.")]
     pub l1_provider_url: Option<Url>,
+
+    #[command(flatten)]
+    pub db: DbOptions,
 
     #[command(flatten)]
     pub logging: LoggingOptions,
@@ -169,8 +164,9 @@ impl SequencerNodeArgs {
         let config = self.config()?;
 
         if config.forking.is_some() {
-            let node =
-                Node::build_forked(config.clone()).await.context("failed to build forked node")?;
+            // Pass config by value: build_forked needs exclusive Arc access to mutate chain_spec.
+            // Cloning would create a second Arc reference and cause Arc::get_mut to panic.
+            let node = Node::build_forked(config).await.context("failed to build forked node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
@@ -184,7 +180,7 @@ impl SequencerNodeArgs {
 
                 let paymaster = bootstrap_paymaster(
                     &self.paymaster,
-                    config.paymaster.unwrap().url.clone(),
+                    handle.node().config().paymaster.as_ref().unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
@@ -307,7 +303,7 @@ impl SequencerNodeArgs {
     }
 
     pub fn config(&self) -> Result<Config> {
-        let db = self.db_config();
+        let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
         let (chain, cs_messaging) = self.chain_spec()?;
@@ -518,15 +514,29 @@ impl SequencerNodeArgs {
 
     fn forking_config(&self) -> Result<Option<ForkingConfig>> {
         if let Some(ref url) = self.forking.fork_provider {
-            let cfg = ForkingConfig { url: url.clone(), block: self.forking.fork_block };
+            let cfg = ForkingConfig {
+                url: url.clone(),
+                block: self.forking.fork_block,
+                init_dev_genesis: !self.forking.no_dev_genesis,
+            };
             return Ok(Some(cfg));
         }
 
         Ok(None)
     }
 
-    fn db_config(&self) -> DbConfig {
-        DbConfig { dir: self.data_dir.clone() }
+    fn db_config(&self) -> Result<DbConfig> {
+        let mut migrate = self.db.migrate;
+
+        if !migrate {
+            if let Some(ref path) = self.db.dir {
+                if path.exists() {
+                    migrate = prompt_db_migration(path)?;
+                }
+            }
+        }
+
+        Ok(DbConfig { dir: self.db.dir.clone(), migrate })
     }
 
     fn metrics_config(&self) -> Option<MetricsConfig> {
@@ -543,7 +553,7 @@ impl SequencerNodeArgs {
 
     fn gateway_config(&self) -> Option<GatewayConfig> {
         #[cfg(feature = "server")]
-        if self.gateway.gateway_enable {
+        if self.gateway.enable {
             use std::time::Duration;
 
             Some(GatewayConfig {
@@ -675,7 +685,9 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "tee")]
     fn tee_config(&self) -> Option<TeeConfig> {
-        self.tee.tee_provider.map(|provider_type| TeeConfig { provider_type })
+        self.tee
+            .tee_provider
+            .map(|provider_type| TeeConfig { provider_type, fork_block_number: None })
     }
 
     /// Parse the node config from the command line arguments and the config file,
@@ -699,9 +711,7 @@ impl SequencerNodeArgs {
             self.block_time = config.block_time;
         }
 
-        if self.data_dir.is_none() {
-            self.data_dir = config.data_dir;
-        }
+        self.db.merge(config.db.as_ref());
 
         if self.logging == LoggingOptions::default() {
             if let Some(logging) = config.logging {

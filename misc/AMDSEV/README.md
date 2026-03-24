@@ -26,7 +26,7 @@ Output is written to `misc/AMDSEV/output/qemu/`.
 
 ### Katana Binary
 
-If `--katana` is not provided, `build.sh` automatically builds a statically linked katana binary using musl libc via `scripts/build-musl.sh`.
+If `--katana` is not provided, `build.sh` prompts for confirmation (`y/N`) before building a statically linked katana binary using musl libc via `scripts/build-musl.sh`.
 
 **Important:** The initrd is minimal and contains no libc or shared libraries. Only statically linked binaries will work. If providing a custom binary with `--katana`, ensure it is statically linked (e.g., built with musl).
 
@@ -39,8 +39,9 @@ If `--katana` is not provided, `build.sh` automatically builds a statically link
 | `build-ovmf.sh` | Builds OVMF firmware from AMD's fork with SEV-SNP support |
 | `build-kernel.sh` | Downloads and extracts Ubuntu kernel (`vmlinuz`) |
 | `build-initrd.sh` | Creates minimal initrd with busybox, SEV-SNP modules, and katana |
+| `test-initrd.sh` | Runs isolated initrd boot smoke test in plain QEMU |
 | `build-config` | Pinned versions and checksums for reproducible builds |
-| `start-vm.sh` | Starts a TEE VM with SEV-SNP enabled using QEMU |
+| `start-vm.sh` | Starts a TEE VM with SEV-SNP and launches Katana asynchronously |
 
 ## SNP Tools
 
@@ -69,6 +70,9 @@ cargo build -p snp-tools
 
 ## Running
 
+The QEMU command below boots the VM but does not automatically start Katana.  
+Katana must be started asynchronously via the control channel.
+
 ```sh
 qemu-system-x86_64 \
     # Use KVM hardware virtualization (required for SEV-SNP)
@@ -93,9 +97,40 @@ qemu-system-x86_64 \
     # Initial ramdisk containing katana (measured when kernel-hashes=on)
     -initrd output/qemu/initrd.img \
     # Kernel command line (measured when kernel-hashes=on)
-    # katana.args passes arguments to katana via init script
-    -append "console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp" \
+    -append "console=ttyS0" \
+    # Katana control channel (used to start Katana asynchronously after boot)
+    -device virtio-serial-pci,id=virtio-serial0 \
+    -chardev socket,id=katanactl,path=/tmp/katana-control.sock,server=on,wait=off \
+    -device virtserialport,chardev=katanactl,name=org.katana.control.0 \
     ..
+```
+
+### Start Katana via Control Channel
+
+In the QEMU example above, this line defines the host-side control channel endpoint:
+
+```sh
+-chardev socket,id=katanactl,path=/tmp/katana-control.sock,server=on,wait=off
+```
+
+The `path=/tmp/katana-control.sock` value is the Unix socket file on the host.  
+That socket is connected to the guest virtio-serial port:
+
+```sh
+-device virtserialport,chardev=katanactl,name=org.katana.control.0
+```
+
+So writes to that Unix socket become control commands inside the VM (`start`, `status`).
+
+Example:
+
+```sh
+# Start Katana with comma-separated CLI args
+printf 'start --http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp\n' \
+  | socat - UNIX-CONNECT:/tmp/katana-control.sock
+
+# Check launcher status
+printf 'status\n' | socat - UNIX-CONNECT:/tmp/katana-control.sock
 ```
 
 ## Running the VM
@@ -108,13 +143,30 @@ sudo ./misc/AMDSEV/start-vm.sh
 
 # Or specify a custom boot components directory
 sudo ./misc/AMDSEV/start-vm.sh /path/to/boot-components
+
+# Or customize Katana runtime flags (comma-separated)
+sudo ./misc/AMDSEV/start-vm.sh --katana-args "--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp,--dev"
 ```
 
 The script:
 - Starts QEMU with SEV-SNP confidential computing enabled
 - Uses direct kernel boot with kernel-hashes=on for attestation
+- Keeps kernel cmdline stable (`console=ttyS0`) for deterministic measurement
+- Starts Katana asynchronously via virtio-serial control channel
 - Forwards RPC port 5050 to host port 15051
 - Outputs serial log to a temp file and follows it
+
+## Isolated Initrd Testing
+
+Use `test-initrd.sh` for focused initrd boot validation without the full SEV-SNP launch path:
+
+```sh
+# Run plain-QEMU boot smoke test
+./misc/AMDSEV/test-initrd.sh
+
+# Custom timeout/output directory
+./misc/AMDSEV/test-initrd.sh --output-dir ./misc/AMDSEV/output/qemu --timeout 300
+```
 
 ### Launch Measurement Verification
 
@@ -129,7 +181,7 @@ cargo build -p snp-tools
     --ovmf output/qemu/OVMF.fd \
     --kernel output/qemu/vmlinuz \
     --initrd output/qemu/initrd.img \
-    --append "console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp" \
+    --append "console=ttyS0" \
     --vcpus 1 \
     --cpu epyc-v4 \
     --vmm qemu \
@@ -171,7 +223,7 @@ Use `snp-report` to decode the `quote` field:
 # Or pipe from jq
 curl -s -X POST http://localhost:15051 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tee_generatQuote","params":[]}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tee_generateQuote","params":[0,1]}' \
   | jq -r '.result.quote' \
   | ./target/debug/snp-report
 ```

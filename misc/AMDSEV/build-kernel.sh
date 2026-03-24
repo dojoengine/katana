@@ -51,7 +51,16 @@ if [[ $# -lt 1 ]] || [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
     usage
 fi
 
-DEST="$1"
+to_abs_path() {
+    local path="$1"
+    if [[ "$path" = /* ]]; then
+        printf '%s\n' "$path"
+    else
+        printf '%s/%s\n' "$(pwd -P)" "$path"
+    fi
+}
+
+DEST="$(to_abs_path "$1")"
 
 # Validate required environment variables
 KERNEL_VER="${KERNEL_VERSION:?KERNEL_VERSION not set - source build-config first}"

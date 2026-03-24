@@ -101,7 +101,24 @@ fi
 
 # Build katana if needed for initrd and not provided
 if [ $BUILD_INITRD -eq 1 ] && [ -z "$KATANA_BINARY" ]; then
-	echo "No --katana provided, building katana with musl..."
+	echo "No --katana provided."
+	if [ ! -t 0 ]; then
+		echo "ERROR: Cannot prompt without an interactive terminal."
+		echo "Pass --katana /path/to/katana to use a pre-built binary."
+		exit 1
+	fi
+
+	read -r -p "Build katana from source with musl now? [y/N] " CONFIRM_BUILD_KATANA
+	case "$CONFIRM_BUILD_KATANA" in
+		[yY]|[yY][eE][sS])
+			echo "Building katana with musl..."
+			;;
+		*)
+			echo "Aborting. Provide --katana /path/to/katana to use a pre-built binary."
+			exit 1
+			;;
+	esac
+
 	PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 	"${PROJECT_ROOT}/scripts/build-musl.sh"
 	if [ $? -ne 0 ]; then

@@ -9,12 +9,16 @@ use katana_provider::api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
 };
 use katana_provider::api::env::BlockEnvProvider;
-use katana_provider::api::state::{StateFactoryProvider, StateRootProvider};
+use katana_provider::api::stage::StageCheckpointProvider;
+use katana_provider::api::state::{
+    HistoricalStateRetentionProvider, StateFactoryProvider, StateRootProvider,
+};
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
 };
-use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
+use katana_rpc_types::{TxTrace, TxTraceWithHash};
 use rstest_reuse::{self, *};
 
 mod fixtures;
@@ -140,11 +144,20 @@ where
             assert_eq!(actual_tx, Some(tx.clone()));
         }
 
-        assert_eq!(actual_block_env, Some(expected_block_env));
+        let expected_executions: Vec<TxTraceWithHash> = expected_block
+            .body
+            .iter()
+            .zip(executions.iter())
+            .map(|(tx, exec)| TxTraceWithHash {
+                transaction_hash: tx.hash,
+                trace_root: TxTrace::from(exec.clone()),
+            })
+            .collect();
 
+        assert_eq!(actual_block_env, Some(expected_block_env));
         assert_eq!(actual_receipts.as_ref().map(|r| r.len()), Some(expected_block.body.len()));
         assert_eq!(actual_receipts, Some(receipts));
-        assert_eq!(actual_executions, Some(executions));
+        assert_eq!(actual_executions, Some(expected_executions));
 
         assert_eq!(actual_block_tx_count, Some(expected_block.body.len() as u64));
         assert_eq!(actual_state_root, Some(expected_block.header.state_root));
@@ -267,6 +280,75 @@ where
         assert_eq!(actual_block_hash, Some(expected_block_hash));
         assert_eq!(actual_block, Some(expected_block));
     }
+
+    Ok(())
+}
+
+#[test]
+fn historical_state_retention_is_provider_owned() -> Result<()> {
+    let provider_factory = fixtures::provider_with_states(DbProviderFactory::new_in_memory());
+
+    // Stage prune checkpoints should not control provider historical availability.
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut.set_prune_checkpoint("Blocks", 4)?;
+    provider_mut.commit()?;
+    assert!(provider_factory.provider().historical(4.into())?.is_some());
+
+    // Provider-owned retention watermark controls historical availability.
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut.set_earliest_available_state_block(5)?;
+    provider_mut.commit()?;
+
+    assert!(matches!(
+        provider_factory.provider().historical(4.into()),
+        Err(ProviderError::HistoricalStatePruned { requested: 4, earliest_available: 5 })
+    ));
+    assert!(provider_factory.provider().historical(5.into())?.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn state_updates_are_independent_from_historical_state_retention() -> Result<()> {
+    let provider_factory = fixtures::provider_with_states(DbProviderFactory::new_in_memory());
+
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut.set_earliest_available_state_block(5)?;
+    provider_mut.commit()?;
+
+    let provider = provider_factory.provider();
+    assert_eq!(
+        provider.state_update(1u64.into())?,
+        Some(mock_state_updates()[0].state_updates.clone())
+    );
+    assert_eq!(
+        provider.declared_classes(1u64.into())?,
+        Some(mock_state_updates()[0].state_updates.declared_classes.clone())
+    );
+    assert_eq!(
+        provider.deployed_contracts(1u64.into())?,
+        Some(mock_state_updates()[0].state_updates.deployed_contracts.clone())
+    );
+
+    Ok(())
+}
+
+#[test]
+fn state_trie_retention_is_independent_from_state_retention() -> Result<()> {
+    let provider_factory = fixtures::provider_with_states(DbProviderFactory::new_in_memory());
+
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut.set_earliest_available_state_trie_block(10)?;
+    provider_mut.commit()?;
+
+    // State and trie retention are tracked independently.
+    let provider = provider_factory.provider_mut();
+    assert_eq!(provider.earliest_available_state_block()?, Some(0));
+    assert_eq!(provider.earliest_available_state_trie_block()?, Some(10));
+    provider.commit()?;
+
+    // Historical provider is still available because state retention index is independent.
+    assert!(provider_factory.provider().historical(5.into())?.is_some());
 
     Ok(())
 }

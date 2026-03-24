@@ -8,11 +8,11 @@ use futures::FutureExt;
 pub use katana_primitives::block::FinalityStatus;
 use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_client::starknet::{Client as StarknetClient, Error as StarknetClientError};
 use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
 use katana_rpc_types::TxStatus;
+use katana_starknet::rpc::{Client as StarknetClient, Error as StarknetClientError};
 use tokio::time::{Instant, Interval};
 
 type GetTxStatusResult = Result<TxStatus, StarknetClientError>;

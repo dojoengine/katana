@@ -4,7 +4,7 @@ use katana_db::abstraction::Database;
 use katana_fork::Backend;
 use katana_primitives::block::BlockNumber;
 pub use katana_provider_api::{ProviderError, ProviderResult};
-use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_starknet::rpc::Client as StarknetClient;
 
 // Re-export the API module
 pub mod api {
@@ -15,7 +15,7 @@ use crate::api::block::{BlockIdReader, BlockProvider, BlockWriter};
 use crate::api::contract::ContractClassWriter;
 use crate::api::env::BlockEnvProvider;
 use crate::api::stage::StageCheckpointProvider;
-use crate::api::state::{StateFactoryProvider, StateWriter};
+use crate::api::state::{HistoricalStateRetentionProvider, StateFactoryProvider, StateWriter};
 use crate::api::state_update::StateUpdateProvider;
 use crate::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
@@ -49,6 +49,7 @@ pub trait ProviderRW:
     + ContractClassWriter
     + TrieWriter
     + StageCheckpointProvider
+    + HistoricalStateRetentionProvider
 {
 }
 
@@ -78,6 +79,7 @@ impl<T> ProviderRW for T where
         + ContractClassWriter
         + TrieWriter
         + StageCheckpointProvider
+        + HistoricalStateRetentionProvider
 {
 }
 

@@ -16,6 +16,7 @@ use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
+use katana_db::migration;
 use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
@@ -45,7 +46,6 @@ use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, Starkn
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(feature = "tee")]
 use katana_rpc_api::tee::TeeApiServer;
-use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::cors::Cors;
@@ -54,12 +54,13 @@ use katana_rpc_server::dev::DevApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::starknet::CartridgePaymasterConfig;
-use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
+use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
+use katana_starknet::rpc::Client as StarknetClient;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
 use tracing::info;
@@ -87,7 +88,7 @@ where
     task_manager: TaskManager,
     backend: Arc<Backend<P>>,
     block_producer: BlockProducer<P>,
-    gateway_server: Option<GatewayServer<TxPool, P>>,
+    gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
 }
 
@@ -115,11 +116,18 @@ where
 
         // --- build executor factory
 
+        let is_l3 = match config.chain.as_ref() {
+            ChainSpec::Dev(_) => false,
+            ChainSpec::FullNode(_) => false,
+            ChainSpec::Rollup(cs) => matches!(cs.settlement, SettlementLayer::Starknet { .. }),
+        };
+
         // Create versioned constants overrides from config
         let overrides = Some(VersionedConstantsOverrides {
             invoke_tx_max_n_steps: Some(config.execution.invocation_max_steps),
             validate_max_n_steps: Some(config.execution.validation_max_steps),
             max_recursion_depth: Some(config.execution.max_recursion_depth),
+            is_l3,
         });
 
         let execution_flags = ExecutionFlags::new()
@@ -127,16 +135,21 @@ where
             .with_fee(config.dev.fee);
 
         let executor_factory = {
-            #[allow(unused_mut)]
-            let mut class_cache = ClassCache::builder();
+            let global_class_cache = match ClassCache::try_global() {
+                Ok(cache) => cache,
+                Err(_) => {
+                    #[allow(unused_mut)]
+                    let mut class_cache = ClassCache::builder();
 
-            #[cfg(feature = "native")]
-            {
-                info!(enabled = config.execution.compile_native, "Cairo native compilation");
-                class_cache = class_cache.compile_native(config.execution.compile_native);
-            }
+                    #[cfg(feature = "native")]
+                    {
+                        info!(enabled = config.execution.compile_native, "Cairo native");
+                        class_cache = class_cache.compile_native(config.execution.compile_native);
+                    }
 
-            let global_class_cache = class_cache.build_global()?;
+                    class_cache.build_global()?
+                }
+            };
 
             let factory = BlockifierFactory::new(
                 overrides,
@@ -188,7 +201,10 @@ where
             chain_spec: config.chain.clone(),
         });
 
-        backend.init_genesis(config.forking.is_some()).context("failed to initialize genesis")?;
+        let skip_dev_genesis =
+            config.forking.as_ref().is_some_and(|forking| !forking.init_dev_genesis);
+
+        backend.init_genesis(skip_dev_genesis).context("failed to initialize genesis")?;
 
         // --- build block producer
 
@@ -304,6 +320,7 @@ where
             gas_oracle.clone(),
             starknet_api_cfg,
             provider.clone(),
+            RpcCache::new(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -322,8 +339,13 @@ where
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
-            let api = DevApi::new(backend.clone(), block_producer.clone());
+            let api = DevApi::new(backend.clone(), block_producer.clone(), pool.clone());
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
+        }
+
+        if config.rpc.apis.contains(&RpcModuleKind::TxPool) {
+            let api = katana_rpc_server::txpool::TxPoolApi::new(pool.clone());
+            rpc_modules.merge(katana_rpc_api::txpool::TxPoolApiServer::into_rpc(api))?;
         }
 
         // --- build tee api (if configured)
@@ -350,7 +372,7 @@ where
                     }
                 };
 
-                let api = TeeApi::new(provider.clone(), tee_provider);
+                let api = TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
                 rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 
                 info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
@@ -461,6 +483,11 @@ impl Node<DbProviderFactory> {
         let (provider, db) = if let Some(path) = &config.db.dir {
             info!(target: "node", path = %path.display(), "Initializing database.");
             let db = katana_db::Db::new(path)?;
+
+            if config.db.migrate {
+                migration::Migration::new_v9(&db).run()?;
+            }
+
             let factory = DbProviderFactory::new(db.clone());
             (factory, db)
         } else {
@@ -525,6 +552,12 @@ impl Node<ForkProviderFactory> {
 
         let block_num = forked_block.block_number;
         let genesis_block_num = block_num + 1;
+
+        // Store fork block number in TEE config so report_data includes it
+        #[cfg(feature = "tee")]
+        if let Some(ref mut tee_config) = config.tee {
+            tee_config.fork_block_number = Some(block_num);
+        }
 
         chain_spec.id = chain_id.into();
 

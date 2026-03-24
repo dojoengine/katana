@@ -1,5 +1,7 @@
 use katana_primitives::block::{Block, BlockHash, FinalityStatus, Header, SealedBlockWithStatus};
-use katana_primitives::execution::TypedTransactionExecutionInfo;
+use katana_primitives::execution::{
+    CallEntryPointVariant, CallInfo, TransactionExecutionInfo, TypedTransactionExecutionInfo,
+};
 use katana_primitives::fee::FeeInfo;
 use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
 use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxWithHash};
@@ -19,14 +21,27 @@ pub fn generate_dummy_txs_and_receipts(
             transaction: Tx::Invoke(InvokeTx::V1(Default::default())),
         });
 
-        receipts.push(Receipt::Invoke(InvokeTxReceipt {
+        let receipt = InvokeTxReceipt {
             revert_error: None,
             events: Vec::new(),
             messages_sent: Vec::new(),
             fee: FeeInfo::default(),
             execution_resources: Default::default(),
-        }));
-        executions.push(TypedTransactionExecutionInfo::default());
+        };
+        receipts.push(Receipt::Invoke(receipt));
+
+        let info = TransactionExecutionInfo {
+            revert_error: None,
+            execute_call_info: Some(CallInfo {
+                call: CallEntryPointVariant {
+                    class_hash: Some(Default::default()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        executions.push(TypedTransactionExecutionInfo::Invoke(info));
     }
 
     (txs, receipts, executions)

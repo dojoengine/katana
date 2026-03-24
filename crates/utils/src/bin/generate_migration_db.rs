@@ -33,7 +33,9 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         let dst_path = dst.join(entry.file_name());
         if entry.file_type()?.is_dir() {
             copy_dir_all(&entry.path(), &dst_path)?;
-        } else {
+        } else if entry.file_name() != "mdbx.lck" {
+            // Skip mdbx.lck as it contains platform-specific data (pthread mutexes,
+            // process IDs) that is not portable. MDBX creates a fresh lock file on open.
             std::fs::copy(entry.path(), dst_path)?;
         }
     }
@@ -82,8 +84,16 @@ fn create_tar_gz(db_dir: &Path, output: &Path) -> std::io::Result<()> {
 async fn main() {
     let args = Args::parse();
 
-    println!("Starting node with test_config()...");
-    let node = TestNode::new_with_config(test_config()).await;
+    // Use a persistent database directory with SyncMode::Durable instead of the default
+    // in-memory database (which uses SyncMode::UtterlyNoSync). UtterlyNoSync doesn't
+    // guarantee that committed data is flushed to disk, which can produce corrupted
+    // snapshots when the database files are archived.
+    let db_dir = tempfile::tempdir().expect("failed to create temp dir for database");
+    let mut config = test_config();
+    config.db.dir = Some(db_dir.path().to_path_buf());
+
+    println!("Starting node with persistent database at {}...", db_dir.path().display());
+    let node = TestNode::new_with_config(config).await;
 
     println!("Migrating example '{}'...", args.example);
     match args.example.as_str() {
@@ -99,8 +109,13 @@ async fn main() {
         }
     }
 
-    // Get the database path from the running node
+    // Get the database path before stopping the node.
     let db_path = node.handle().node().db().path().to_path_buf();
+
+    // Stop the node to properly close the MDBX environment and ensure all writes are
+    // flushed to disk before archiving.
+    println!("Stopping node...");
+    node.stop().await.expect("failed to stop node");
 
     println!("Creating archive at {}...", args.output.display());
     let output_abs = std::env::current_dir().unwrap().join(&args.output);

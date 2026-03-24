@@ -74,6 +74,9 @@ pub trait TransactionPool: Send + Sync {
     /// where nonce is the next expected nonce (highest pending nonce + 1).
     /// Returns `None` if no pending transactions exist for this account.
     fn get_nonce(&self, address: ContractAddress) -> Option<Nonce>;
+
+    /// Returns a point-in-time snapshot of all transactions currently in the pool.
+    fn take_transactions_snapshot(&self) -> Vec<Arc<Self::Transaction>>;
 }
 
 // the transaction type is recommended to implement a cheap clone (eg ref-counting) so that it
