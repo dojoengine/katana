@@ -413,6 +413,7 @@ impl SequencerNodeArgs {
                 max_event_page_size: Some(self.server.max_event_page_size),
                 max_proof_keys: Some(self.server.max_proof_keys),
                 max_call_gas: Some(self.server.max_call_gas),
+                ..Default::default()
             })
         }
 

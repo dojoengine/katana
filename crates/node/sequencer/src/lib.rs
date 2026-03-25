@@ -336,32 +336,51 @@ where
         // Versioned paths (/rpc/v0_9, /rpc/v0_10) only expose starknet APIs.
         // Non-starknet APIs (Katana, Dev, TxPool, TEE) are only on the root (/).
 
-        let mut v09_starknet = RpcModule::new(());
-        let mut v010_starknet = RpcModule::new(());
+        use katana_node_config::rpc::StarknetApiVersion;
+
+        // Build a starknet module for each configured version.
+        let mut starknet_modules: Vec<(StarknetApiVersion, RpcModule<()>)> = Vec::new();
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            #[cfg(feature = "explorer")]
-            if config.rpc.explorer {
-                v09_starknet.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
-                v010_starknet.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
+            for &version in config.rpc.starknet_api_versions.iter() {
+                let mut module = RpcModule::new(());
+
+                #[cfg(feature = "explorer")]
+                if config.rpc.explorer {
+                    module.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
+                }
+
+                match version {
+                    StarknetApiVersion::V0_9 => {
+                        module.merge(StarknetApiServerV09::into_rpc(starknet_api.clone()))?;
+                        module.merge(StarknetWriteApiServerV09::into_rpc(starknet_api.clone()))?;
+                        module.merge(StarknetTraceApiServerV09::into_rpc(starknet_api.clone()))?;
+                    }
+                    StarknetApiVersion::V0_10 => {
+                        module.merge(StarknetApiServerV010::into_rpc(starknet_api.clone()))?;
+                        module.merge(StarknetWriteApiServerV010::into_rpc(starknet_api.clone()))?;
+                        module.merge(StarknetTraceApiServerV010::into_rpc(starknet_api.clone()))?;
+                    }
+                }
+
+                starknet_modules.push((version, module));
             }
-
-            v09_starknet.merge(StarknetApiServerV09::into_rpc(starknet_api.clone()))?;
-            v09_starknet.merge(StarknetWriteApiServerV09::into_rpc(starknet_api.clone()))?;
-            v09_starknet.merge(StarknetTraceApiServerV09::into_rpc(starknet_api.clone()))?;
-
-            v010_starknet.merge(StarknetApiServerV010::into_rpc(starknet_api.clone()))?;
-            v010_starknet.merge(StarknetWriteApiServerV010::into_rpc(starknet_api.clone()))?;
-            v010_starknet.merge(StarknetTraceApiServerV010::into_rpc(starknet_api.clone()))?;
         }
 
         // --- build root module (all APIs) ---
         //
         // `rpc_modules` already contains paymaster/cartridge modules merged above.
-        // We add starknet v0.9 (the default version) plus all non-starknet APIs.
+        // We add the default starknet version plus all non-starknet APIs.
+
+        let default_version = config.rpc.default_starknet_api_version;
+        let default_starknet = starknet_modules
+            .iter()
+            .find(|(v, _)| *v == default_version)
+            .map(|(_, m)| m.clone())
+            .unwrap_or_else(|| RpcModule::new(()));
 
         let mut root_module = rpc_modules;
-        root_module.merge(v09_starknet.clone())?;
+        root_module.merge(default_starknet)?;
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             root_module.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
@@ -408,10 +427,12 @@ where
         }
 
         // Build RPC server with path-based routing.
-        let router = RpcRouter::new().route("/", root_module).nest(
-            "/rpc",
-            RpcRouter::new().route("/v0_9", v09_starknet).route("/v0_10", v010_starknet),
-        );
+        let mut versioned_router = RpcRouter::new();
+        for (version, module) in starknet_modules {
+            versioned_router = versioned_router.route(version.path_segment(), module);
+        }
+
+        let router = RpcRouter::new().route("/", root_module).nest("/rpc", versioned_router);
 
         #[allow(unused_mut)]
         let mut rpc_server =

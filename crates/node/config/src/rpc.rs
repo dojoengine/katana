@@ -15,6 +15,39 @@ pub const DEFAULT_RPC_MAX_PROOF_KEYS: u64 = 100;
 /// Default maximum gas for the `starknet_call` RPC method.
 pub const DEFAULT_RPC_MAX_CALL_GAS: u64 = 1_000_000_000;
 
+/// Supported Starknet JSON-RPC spec versions.
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    strum_macros::EnumString,
+    strum_macros::Display,
+    Serialize,
+    Deserialize,
+)]
+pub enum StarknetApiVersion {
+    #[strum(serialize = "v0.9", serialize = "v0_9", serialize = "0.9")]
+    #[serde(rename = "v0.9")]
+    V0_9,
+
+    #[strum(serialize = "v0.10", serialize = "v0_10", serialize = "0.10")]
+    #[serde(rename = "v0.10")]
+    V0_10,
+}
+
+impl StarknetApiVersion {
+    /// Returns the URL path segment for this version (e.g., `/v0_9`).
+    pub fn path_segment(&self) -> &'static str {
+        match self {
+            Self::V0_9 => "/v0_9",
+            Self::V0_10 => "/v0_10",
+        }
+    }
+}
+
 /// List of RPC modules supported by Katana.
 #[derive(
     Debug,
@@ -40,6 +73,69 @@ pub enum RpcModuleKind {
     Tee,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("invalid starknet api version: {0}")]
+pub struct InvalidStarknetApiVersionError(String);
+
+/// A set of [`StarknetApiVersion`]s to expose.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct StarknetApiVersionsList(HashSet<StarknetApiVersion>);
+
+impl StarknetApiVersionsList {
+    /// Creates an empty list.
+    pub fn new() -> Self {
+        Self(HashSet::new())
+    }
+
+    /// Creates a list with all supported versions.
+    pub fn all() -> Self {
+        Self(HashSet::from([StarknetApiVersion::V0_9, StarknetApiVersion::V0_10]))
+    }
+
+    pub fn add(&mut self, version: StarknetApiVersion) {
+        self.0.insert(version);
+    }
+
+    pub fn contains(&self, version: &StarknetApiVersion) -> bool {
+        self.0.contains(version)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &StarknetApiVersion> {
+        self.0.iter()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Used as the value parser for `clap`.
+    pub fn parse(value: &str) -> Result<Self, InvalidStarknetApiVersionError> {
+        if value.is_empty() {
+            return Ok(Self::new());
+        }
+
+        let mut versions = HashSet::new();
+        for v in value.split(',') {
+            let trimmed = v.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let version: StarknetApiVersion = trimmed
+                .parse()
+                .map_err(|_| InvalidStarknetApiVersionError(trimmed.to_string()))?;
+            versions.insert(version);
+        }
+        Ok(Self(versions))
+    }
+}
+
+impl Default for StarknetApiVersionsList {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
 /// Configuration for the RPC server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RpcConfig {
@@ -57,6 +153,12 @@ pub struct RpcConfig {
     pub max_proof_keys: Option<u64>,
     pub max_event_page_size: Option<u64>,
     pub max_call_gas: Option<u64>,
+    /// Which Starknet API versions to expose at `/rpc/<version>`.
+    /// Defaults to all supported versions.
+    pub starknet_api_versions: StarknetApiVersionsList,
+    /// The default Starknet API version served at the root path `/`.
+    /// Defaults to V0_9.
+    pub default_starknet_api_version: StarknetApiVersion,
 }
 
 impl RpcConfig {
@@ -83,6 +185,8 @@ impl Default for RpcConfig {
             max_event_page_size: Some(DEFAULT_RPC_MAX_EVENT_PAGE_SIZE),
             max_proof_keys: Some(DEFAULT_RPC_MAX_PROOF_KEYS),
             max_call_gas: Some(DEFAULT_RPC_MAX_CALL_GAS),
+            starknet_api_versions: StarknetApiVersionsList::default(),
+            default_starknet_api_version: StarknetApiVersion::V0_9,
         }
     }
 }
