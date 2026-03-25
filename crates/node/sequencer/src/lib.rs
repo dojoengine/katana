@@ -413,16 +413,18 @@ where
             }
         }
 
-        // Build RPC server with path-mounted modules.
+        // Build RPC server with path-based routing.
         // Default (/) routes to v0.9, explicit paths for each version.
+        let router = katana_rpc_server::RpcRouter::new()
+            .route("/", v09_module.clone())
+            .route("/rpc/v0_9", v09_module)
+            .route("/rpc/v0_10", v010_module);
+
         #[allow(unused_mut)]
-        let mut rpc_server = RpcServer::new()
+        let mut rpc_server = RpcServer::new(router)
             .metrics(true)
             .health_check(true)
-            .cors(cors)
-            .module(v09_module.clone())?
-            .module_at("/rpc/v0_9", v09_module)?
-            .module_at("/rpc/v0_10", v010_module)?;
+            .cors(cors);
 
         #[cfg(feature = "explorer")]
         {
