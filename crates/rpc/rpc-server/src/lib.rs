@@ -28,7 +28,6 @@ pub mod metrics;
 pub mod permit;
 pub mod starknet;
 pub mod txpool;
-pub mod versioned;
 
 mod logger;
 mod utils;
@@ -37,7 +36,6 @@ use health::HealthCheck;
 pub use jsonrpsee::http_client::HttpClient;
 pub use katana_rpc_api as api;
 use metrics::RpcServerMetricsLayer;
-pub use versioned::VersionedRpcModules;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -100,9 +98,17 @@ impl RpcServerHandle {
 
 /// Builder for the RPC server.
 ///
-/// Supports both single-module and versioned-module configurations through the
-/// same code path. A single module on `/` is the trivial case of versioned
-/// routing where all requests go to the same methods.
+/// Modules can be mounted at specific URL path prefixes via [`module_at`](Self::module_at),
+/// or merged into the default module (served at `/`) via [`module`](Self::module).
+/// The server routes each request by matching the URL path against registered
+/// prefixes (longest match wins), falling back to the default module.
+///
+/// ```rust,ignore
+/// let server = RpcServer::new()
+///     .module(shared_module)?          // served at `/` (default)
+///     .module_at("/rpc/v0_9", v09)?    // served at `/rpc/v0_9`
+///     .module_at("/rpc/v0_10", v010)?; // served at `/rpc/v0_10`
+/// ```
 #[derive(Debug)]
 pub struct RpcServer {
     metrics: bool,
@@ -110,7 +116,11 @@ pub struct RpcServer {
     health_check: bool,
     explorer: bool,
 
-    modules: VersionedRpcModules,
+    /// The default module — serves requests that don't match any path-mounted module.
+    default_module: RpcModule<()>,
+    /// Modules mounted at specific URL path prefixes.
+    routes: Vec<(String, RpcModule<()>)>,
+
     max_connections: u32,
     max_request_body_size: u32,
     max_response_body_size: u32,
@@ -124,7 +134,8 @@ impl RpcServer {
             metrics: false,
             explorer: false,
             health_check: false,
-            modules: VersionedRpcModules::new(RpcModule::new(())),
+            default_module: RpcModule::new(()),
+            routes: Vec::new(),
             max_connections: 100,
             max_request_body_size: TEN_MB_SIZE_BYTES,
             max_response_body_size: TEN_MB_SIZE_BYTES,
@@ -181,28 +192,31 @@ impl RpcServer {
         self
     }
 
-    /// Adds a new RPC module to the default (unversioned) module set.
+    /// Merges a module into the default module set (served at `/`).
     ///
-    /// This can be chained with other calls to `module` to add multiple modules.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let server = RpcServer::new().module(module_a()).unwrap().module(module_b()).unwrap();
-    /// ```
+    /// Methods registered this way are available on all unmatched paths.
     pub fn module(mut self, module: RpcModule<()>) -> Result<Self, Error> {
-        self.modules.default.merge(module)?;
+        self.default_module.merge(module)?;
         Ok(self)
     }
 
-    /// Set versioned RPC modules for path-based routing.
+    /// Mounts a module at a specific URL path prefix.
     ///
-    /// Requests to version-specific paths (e.g., `/rpc/v0_9`, `/rpc/v0_10`)
-    /// are routed to the corresponding module. Requests that don't match any
-    /// version prefix use the default module.
-    pub fn versioned_modules(mut self, modules: VersionedRpcModules) -> Self {
-        self.modules = modules;
-        self
+    /// Requests whose path starts with `prefix` will be dispatched to this
+    /// module's methods instead of the default module's.
+    ///
+    /// ```rust,ignore
+    /// server
+    ///     .module_at("/rpc/v0_9", v09_module)?
+    ///     .module_at("/rpc/v0_10", v010_module)?;
+    /// ```
+    pub fn module_at(
+        mut self,
+        prefix: impl Into<String>,
+        module: RpcModule<()>,
+    ) -> Result<Self, Error> {
+        self.routes.push((prefix.into(), module));
+        Ok(self)
     }
 
     pub async fn start(&self, addr: SocketAddr) -> Result<RpcServerHandle, Error> {
@@ -213,28 +227,26 @@ impl RpcServer {
         use tower::ServiceBuilder;
         use tower_http::trace::TraceLayer;
 
-        // Merge health check into all modules
-        let mut modules = self.modules.clone();
+        // Clone and merge health check into all modules
+        let mut default_module = self.default_module.clone();
+        let mut routes: Vec<(String, RpcModule<()>)> = self.routes.clone();
+
         if self.health_check {
-            modules.default.merge(HealthCheck)?;
-            for (_, module) in &mut modules.versioned {
+            default_module.merge(HealthCheck)?;
+            for (_, module) in &mut routes {
                 let _ = module.merge(HealthCheck);
             }
         }
 
-        // Build RPC middleware (logging, metrics) — must happen before converting
-        // modules to Methods, since metrics layer needs &RpcModule.
-        let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules.default));
+        // Build RPC middleware — must happen before converting to Methods.
+        let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&default_module));
 
-        // Convert to Methods (the flat method map used at dispatch time)
-        let default_methods: Methods = modules.default.into();
-        let versioned_methods: Vec<(String, Methods)> = modules
-            .versioned
-            .into_iter()
-            .map(|(path, module)| (path, module.into()))
-            .collect();
+        // Convert to Methods
+        let default_methods: Methods = default_module.into();
+        let route_methods: Vec<(String, Methods)> =
+            routes.into_iter().map(|(path, module)| (path, module.into())).collect();
 
-        // Build HTTP middleware (tracing, CORS, health check proxy, timeout, explorer)
+        // Build HTTP middleware
         let http_tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
         let health_check_proxy = self.health_check.then(|| HealthCheck::proxy());
 
@@ -262,7 +274,6 @@ impl RpcServer {
             .build();
 
         // Create the service builder with HTTP middleware baked in.
-        // RPC middleware is set per-connection inside the service_fn.
         let svc_builder = jsonrpsee::server::Server::builder()
             .set_http_middleware(http_middleware)
             .set_config(cfg)
@@ -273,11 +284,10 @@ impl RpcServer {
         let (stop_hdl, server_handle) = stop_channel();
 
         // Per-connection state — cloned for every accepted connection.
-        // All fields are Arc-wrapped or cheap to clone.
         #[derive(Clone)]
         struct PerConnection<RpcMiddleware, HttpMiddleware> {
             default_methods: Arc<Methods>,
-            versioned_methods: Arc<Vec<(String, Methods)>>,
+            route_methods: Arc<Vec<(String, Methods)>>,
             stop_handle: StopHandle,
             svc_builder: TowerServiceBuilder<RpcMiddleware, HttpMiddleware>,
             rpc_metrics: Option<RpcServerMetricsLayer>,
@@ -285,7 +295,7 @@ impl RpcServer {
 
         let per_conn = PerConnection {
             default_methods: Arc::new(default_methods),
-            versioned_methods: Arc::new(versioned_methods),
+            route_methods: Arc::new(route_methods),
             stop_handle: stop_hdl.clone(),
             svc_builder,
             rpc_metrics,
@@ -309,27 +319,23 @@ impl RpcServer {
                 let per_conn = per_conn.clone();
                 let stop_handle = per_conn.stop_handle.clone();
 
-                // Per-connection service: each incoming request is routed to the
-                // appropriate Methods set based on the URL path.
                 let svc = tower::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
                     let PerConnection {
                         default_methods,
-                        versioned_methods,
+                        route_methods,
                         stop_handle,
                         svc_builder,
                         rpc_metrics,
                     } = per_conn.clone();
 
-                    // Select methods based on request path
+                    // Route by path prefix — first match wins.
                     let path = req.uri().path();
-                    let methods = versioned_methods
+                    let methods = route_methods
                         .iter()
                         .find(|(prefix, _)| path.starts_with(prefix.as_str()))
                         .map(|(_, m)| m.clone())
                         .unwrap_or_else(|| (*default_methods).clone());
 
-                    // Build the RPC middleware per-connection (same as jsonrpsee's
-                    // internal pattern — allows per-connection state like headers).
                     let rpc_middleware = RpcServiceBuilder::new()
                         .option_layer(rpc_metrics)
                         .layer(logger::RpcLoggerLayer::new());
@@ -352,8 +358,8 @@ impl RpcServer {
 
         info!(target: "rpc", addr = %handle.addr, "RPC server started.");
 
-        for (path, _) in self.modules.versioned.iter() {
-            info!(target: "rpc", path = %path, "Versioned RPC endpoint registered.");
+        for (path, _) in self.routes.iter() {
+            info!(target: "rpc", path = %path, "RPC module mounted at path.");
         }
 
         if self.explorer {
@@ -384,13 +390,11 @@ mod tests {
     async fn test_rpc_server_timeout() {
         use jsonrpsee::core::client::ClientT;
 
-        // Create a method that never returns to simulate a long running request
         let mut module = RpcModule::new(());
         module.register_async_method("test_timeout", |_, _, _| pending::<()>()).unwrap();
 
         let server = RpcServer::new().timeout(Duration::from_millis(200)).module(module).unwrap();
 
-        // Start the server
         let addr = "127.0.0.1:0".parse().unwrap();
         let server_handle = server.start(addr).await.unwrap();
 

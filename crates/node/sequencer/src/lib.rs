@@ -413,18 +413,16 @@ where
             }
         }
 
-        // Build versioned RPC server.
+        // Build RPC server with path-mounted modules.
         // Default (/) routes to v0.9, explicit paths for each version.
-        let versioned_modules = katana_rpc_server::VersionedRpcModules::new(v09_module.clone())
-            .add_version("/rpc/v0_9", v09_module)
-            .add_version("/rpc/v0_10", v010_module);
-
         #[allow(unused_mut)]
         let mut rpc_server = RpcServer::new()
             .metrics(true)
             .health_check(true)
             .cors(cors)
-            .versioned_modules(versioned_modules);
+            .module(v09_module.clone())?
+            .module_at("/rpc/v0_9", v09_module)?
+            .module_at("/rpc/v0_10", v010_module)?;
 
         #[cfg(feature = "explorer")]
         {
