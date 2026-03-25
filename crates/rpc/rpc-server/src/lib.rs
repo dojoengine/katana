@@ -267,8 +267,10 @@ impl RpcServer {
             None
         };
 
-        // Convert router to Methods, merging health check into each route.
-        let route_methods: Vec<(String, Methods)> = self
+        // Convert router to Methods, merging health check and building per-route
+        // metrics. Each route gets its own RpcServerMetricsLayer labelled with the
+        // path so that method call metrics are distinguishable by route.
+        let routes: Vec<(String, Methods, Option<RpcServerMetricsLayer>)> = self
             .router
             .routes
             .iter()
@@ -277,16 +279,16 @@ impl RpcServer {
                 if let Some(ref hc) = health_module {
                     let _ = m.merge(hc.clone());
                 }
-                (path.clone(), m.into())
+
+                let metrics = if self.metrics {
+                    Some(RpcServerMetricsLayer::new_with_path(module, path))
+                } else {
+                    None
+                };
+
+                (path.clone(), m.into(), metrics)
             })
             .collect();
-
-        // Use the first route's module for metrics registration (typically "/").
-        let rpc_metrics = if self.metrics {
-            self.router.routes.first().map(|(_, module)| RpcServerMetricsLayer::new(module))
-        } else {
-            None
-        };
 
         // HTTP middleware
         let http_tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
@@ -327,17 +329,15 @@ impl RpcServer {
         // Per-connection state.
         #[derive(Clone)]
         struct PerConnection<RpcMiddleware, HttpMiddleware> {
-            routes: Arc<Vec<(String, Methods)>>,
+            routes: Arc<Vec<(String, Methods, Option<RpcServerMetricsLayer>)>>,
             stop_handle: StopHandle,
             svc_builder: TowerServiceBuilder<RpcMiddleware, HttpMiddleware>,
-            rpc_metrics: Option<RpcServerMetricsLayer>,
         }
 
         let per_conn = PerConnection {
             svc_builder,
-            rpc_metrics,
             stop_handle: stop_hdl.clone(),
-            routes: Arc::new(route_methods),
+            routes: Arc::new(routes),
         };
 
         tokio::spawn(async move {
@@ -360,15 +360,15 @@ impl RpcServer {
                 let stop_handle = per_conn.stop_handle.clone();
 
                 let svc = tower::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
-                    let PerConnection { routes, stop_handle, svc_builder, rpc_metrics } =
-                        per_conn.clone();
+                    let PerConnection { routes, stop_handle, svc_builder } = per_conn.clone();
 
-                    // Route: first prefix match wins.
+                    // Route: first prefix match wins. Each route carries its own
+                    // metrics layer so that method calls are labelled with the path.
                     let path = req.uri().path();
-                    let methods = routes
+                    let (methods, rpc_metrics) = routes
                         .iter()
-                        .find(|(prefix, _)| path.starts_with(prefix.as_str()))
-                        .map(|(_, m)| m.clone())
+                        .find(|(prefix, _, _)| path.starts_with(prefix.as_str()))
+                        .map(|(_, m, metrics)| (m.clone(), metrics.clone()))
                         .unwrap_or_default();
 
                     let rpc_middleware = RpcServiceBuilder::new()

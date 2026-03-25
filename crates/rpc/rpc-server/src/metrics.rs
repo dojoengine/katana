@@ -43,8 +43,21 @@ impl RpcServerMetrics {
     /// Creates a new instance of `RpcServerMetrics` for the given `RpcModule`.
     /// This will create metrics for each method in the module.
     pub fn new(module: &RpcModule<()>) -> Self {
+        Self::new_with_path(module, "/")
+    }
+
+    /// Creates a new instance of `RpcServerMetrics` for the given `RpcModule` at
+    /// the given path. All method call metrics are labelled with both the method
+    /// name and the path prefix they are served at.
+    pub fn new_with_path(module: &RpcModule<()>, path: &str) -> Self {
+        // Leak the path string to get a 'static lifetime, which is required by
+        // the metrics label API. This is fine because routes are registered once
+        // at startup and live for the lifetime of the process.
+        let path: &'static str = Box::leak(path.to_string().into_boxed_str());
+
         let call_metrics = HashMap::from_iter(module.method_names().map(|method| {
-            let metrics = RpcServerCallMetrics::new_with_labels(&[("method", method)]);
+            let metrics =
+                RpcServerCallMetrics::new_with_labels(&[("method", method), ("path", path)]);
             (method, metrics)
         }));
 
@@ -105,6 +118,10 @@ pub struct RpcServerMetricsLayer {
 impl RpcServerMetricsLayer {
     pub fn new(module: &RpcModule<()>) -> Self {
         Self { metrics: RpcServerMetrics::new(module) }
+    }
+
+    pub fn new_with_path(module: &RpcModule<()>, path: &str) -> Self {
+        Self { metrics: RpcServerMetrics::new_with_path(module, path) }
     }
 }
 
