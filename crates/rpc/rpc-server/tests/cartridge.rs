@@ -112,10 +112,9 @@ async fn start_mock_paymaster() -> url::Url {
             &self,
             _req: ExecuteRawRequest,
         ) -> RpcResult<paymaster_rpc::ExecuteRawResponse> {
-            let response: paymaster_rpc::ExecuteRawResponse = serde_json::from_str(
-                r#"{"transaction_hash": "0xcafe", "tracking_id": "0x0"}"#,
-            )
-            .unwrap();
+            let response: paymaster_rpc::ExecuteRawResponse =
+                serde_json::from_str(r#"{"transaction_hash": "0xcafe", "tracking_id": "0x0"}"#)
+                    .unwrap();
             Ok(response)
         }
         async fn get_supported_tokens(&self) -> RpcResult<Vec<TokenPrice>> {
@@ -250,17 +249,13 @@ async fn controller_deployment_middleware() {
         assert_eq!(api_requests.len(), 1, "Cartridge API should have been queried once");
 
         // Pool should contain 1 deploy tx.
-        let status: TxPoolStatus = client
-            .request("txpool_status", Vec::<serde_json::Value>::new())
-            .await
-            .unwrap();
+        let status: TxPoolStatus =
+            client.request("txpool_status", Vec::<serde_json::Value>::new()).await.unwrap();
         assert_eq!(status.pending, 1, "pool should contain 1 deploy transaction");
 
         // Deploy tx should be from the deployer address.
-        let content: katana_rpc_types::txpool::TxPoolContent = client
-            .request("txpool_contentFrom", vec![json!(deployer)])
-            .await
-            .unwrap();
+        let content: katana_rpc_types::txpool::TxPoolContent =
+            client.request("txpool_contentFrom", vec![json!(deployer)]).await.unwrap();
         assert_eq!(content.pending.len(), 1, "deploy tx should be from the deployer");
     }
 
@@ -285,10 +280,8 @@ async fn controller_deployment_middleware() {
         );
 
         // Pool should still contain only the 1 deploy tx from case 1.
-        let status: TxPoolStatus = client
-            .request("txpool_status", Vec::<serde_json::Value>::new())
-            .await
-            .unwrap();
+        let status: TxPoolStatus =
+            client.request("txpool_status", Vec::<serde_json::Value>::new()).await.unwrap();
         assert_eq!(status.pending, 1, "pool should still have only 1 tx");
     }
 
@@ -313,10 +306,8 @@ async fn controller_deployment_middleware() {
         );
 
         // Pool should still have only 1 tx (no deploy for non-controller).
-        let status: TxPoolStatus = client
-            .request("txpool_status", Vec::<serde_json::Value>::new())
-            .await
-            .unwrap();
+        let status: TxPoolStatus =
+            client.request("txpool_status", Vec::<serde_json::Value>::new()).await.unwrap();
         assert_eq!(status.pending, 1, "pool should still have only 1 tx");
     }
 
