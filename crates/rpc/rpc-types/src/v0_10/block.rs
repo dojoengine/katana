@@ -14,13 +14,12 @@ use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 use starknet::core::types::ResourcePrice;
 
-use crate::transaction::RpcTxWithHash;
-
 // Re-export types that are identical to v0.9.
 pub use crate::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, PreConfirmedBlockWithReceipts,
     PreConfirmedBlockWithTxHashes, PreConfirmedBlockWithTxs, RpcTxWithReceipt,
 };
+use crate::transaction::RpcTxWithHash;
 
 // ---------- BlockWithTxs ----------
 

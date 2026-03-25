@@ -20,11 +20,6 @@ use katana_rpc_types::trace::{
 };
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{
-    CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag,
-    SyncingResponse, TxStatus,
-};
-
 // v0.10-specific types
 use katana_rpc_types::v0_10::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, GetBlockWithReceiptsResponse,
@@ -32,6 +27,10 @@ use katana_rpc_types::v0_10::block::{
 };
 use katana_rpc_types::v0_10::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::v0_10::state_update::StateUpdate;
+use katana_rpc_types::{
+    CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag,
+    SyncingResponse, TxStatus,
+};
 
 pub const RPC_SPEC_VERSION: &str = "0.10.0";
 

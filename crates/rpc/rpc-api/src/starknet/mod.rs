@@ -7,8 +7,8 @@
 //!
 //! Spec: <https://github.com/starkware-libs/starknet-specs>
 
-pub mod v0_9;
 pub mod v0_10;
+pub mod v0_9;
 
 // Backward-compatible re-exports: default to v0.9 (the current spec version).
 pub use v0_9::*;

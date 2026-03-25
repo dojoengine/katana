@@ -23,10 +23,10 @@ pub mod transaction;
 pub mod trie;
 pub mod txpool;
 
-/// Versioned types for Starknet JSON-RPC spec v0.9.0.
-pub mod v0_9;
 /// Versioned types for Starknet JSON-RPC spec v0.10.0.
 pub mod v0_10;
+/// Versioned types for Starknet JSON-RPC spec v0.9.0.
+pub mod v0_9;
 
 pub use block::*;
 pub use broadcasted::*;

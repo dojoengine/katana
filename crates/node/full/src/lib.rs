@@ -416,7 +416,7 @@ impl Node {
 
         #[allow(unused_mut)]
         let mut rpc_server =
-            RpcServer::new(rpc_modules).metrics(true).health_check(true).cors(cors);
+            RpcServer::new().metrics(true).health_check(true).cors(cors).router(rpc_modules);
 
         #[cfg(feature = "explorer")]
         {

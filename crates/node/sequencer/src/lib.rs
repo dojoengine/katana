@@ -408,15 +408,14 @@ where
         }
 
         // Build RPC server with path-based routing.
-        let router = RpcRouter::new()
-            .route("/", root_module)
-            .nest("/rpc", RpcRouter::new()
-                .route("/v0_9", v09_starknet)
-                .route("/v0_10", v010_starknet)
-            );
+        let router = RpcRouter::new().route("/", root_module).nest(
+            "/rpc",
+            RpcRouter::new().route("/v0_9", v09_starknet).route("/v0_10", v010_starknet),
+        );
 
         #[allow(unused_mut)]
-        let mut rpc_server = RpcServer::new(router).metrics(true).health_check(true).cors(cors);
+        let mut rpc_server =
+            RpcServer::new().metrics(true).health_check(true).cors(cors).router(router);
 
         #[cfg(feature = "explorer")]
         {

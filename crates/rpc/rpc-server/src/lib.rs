@@ -139,9 +139,9 @@ pub struct RpcServer {
 }
 
 impl RpcServer {
-    pub fn new(router: impl Into<RpcRouter>) -> Self {
+    pub fn new() -> Self {
         Self {
-            router: router.into(),
+            router: RpcRouter::default(),
             cors: None,
             metrics: false,
             explorer: false,
@@ -197,6 +197,11 @@ impl RpcServer {
 
     pub fn cors(mut self, cors: Cors) -> Self {
         self.cors = Some(cors);
+        self
+    }
+
+    pub fn router(mut self, router: impl Into<RpcRouter>) -> Self {
+        self.router = router.into();
         self
     }
 
@@ -284,11 +289,8 @@ impl RpcServer {
             svc_builder: TowerServiceBuilder<RpcMiddleware, HttpMiddleware>,
         }
 
-        let per_conn = PerConnection {
-            svc_builder,
-            stop_handle: stop_hdl.clone(),
-            routes: Arc::new(routes),
-        };
+        let per_conn =
+            PerConnection { svc_builder, stop_handle: stop_hdl.clone(), routes: Arc::new(routes) };
 
         tokio::spawn(async move {
             loop {
@@ -369,7 +371,7 @@ mod tests {
         module.register_async_method("test_timeout", |_, _, _| pending::<()>()).unwrap();
 
         let router = RpcRouter::new().route("/", module);
-        let server = RpcServer::new(router).timeout(Duration::from_millis(200));
+        let server = RpcServer::new().timeout(Duration::from_millis(200)).router(router);
 
         let addr = "127.0.0.1:0".parse().unwrap();
         let handle = server.start(addr).await.unwrap();
