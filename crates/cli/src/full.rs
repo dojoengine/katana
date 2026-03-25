@@ -193,17 +193,18 @@ impl FullNodeArgs {
                 port: self.server.http_port,
                 addr: self.server.http_addr,
                 max_connections: self.server.max_connections,
-                max_concurrent_estimate_fee_requests: None,
                 max_request_body_size: None,
                 max_response_body_size: None,
                 timeout: self.server.timeout.map(Duration::from_secs),
                 cors_origins,
                 #[cfg(feature = "explorer")]
                 explorer: self.explorer.explorer,
-                max_event_page_size: Some(self.server.max_event_page_size),
-                max_proof_keys: Some(self.server.max_proof_keys),
-                max_call_gas: Some(self.server.max_call_gas),
-                ..Default::default()
+                starknet: katana_node_config::rpc::StarknetApiConfig {
+                    max_event_page_size: Some(self.server.max_event_page_size),
+                    max_proof_keys: Some(self.server.max_proof_keys),
+                    max_call_gas: Some(self.server.max_call_gas),
+                    ..Default::default()
+                },
             })
         }
 

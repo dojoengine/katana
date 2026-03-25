@@ -308,10 +308,10 @@ where
         // --- build starknet api
 
         let starknet_api_cfg = StarknetApiConfig {
-            max_event_page_size: config.rpc.max_event_page_size,
-            max_proof_keys: config.rpc.max_proof_keys,
-            max_call_gas: config.rpc.max_call_gas,
-            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            max_event_page_size: config.rpc.starknet.max_event_page_size,
+            max_proof_keys: config.rpc.starknet.max_proof_keys,
+            max_call_gas: config.rpc.starknet.max_call_gas,
+            max_concurrent_estimate_fee_requests: config.rpc.starknet.max_concurrent_estimate_fee_requests,
             simulation_flags: execution_flags,
             versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
@@ -342,7 +342,7 @@ where
         let mut starknet_modules: Vec<(StarknetApiVersion, RpcModule<()>)> = Vec::new();
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            for &version in config.rpc.starknet_api_versions.iter() {
+            for &version in config.rpc.starknet.versions.iter() {
                 let mut module = RpcModule::new(());
 
                 #[cfg(feature = "explorer")]
@@ -372,7 +372,7 @@ where
         // `rpc_modules` already contains paymaster/cartridge modules merged above.
         // We add the default starknet version plus all non-starknet APIs.
 
-        let default_version = config.rpc.default_starknet_api_version;
+        let default_version = config.rpc.starknet.default_version;
         let default_starknet = starknet_modules
             .iter()
             .find(|(v, _)| *v == default_version)

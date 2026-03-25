@@ -121,11 +121,14 @@ impl StarknetApiVersionsList {
             if trimmed.is_empty() {
                 continue;
             }
-            let version: StarknetApiVersion = trimmed
-                .parse()
+
+            let version = trimmed
+                .parse::<StarknetApiVersion>()
                 .map_err(|_| InvalidStarknetApiVersionError(trimmed.to_string()))?;
+
             versions.insert(version);
         }
+
         Ok(Self(versions))
     }
 }
@@ -133,6 +136,41 @@ impl StarknetApiVersionsList {
 impl Default for StarknetApiVersionsList {
     fn default() -> Self {
         Self::all()
+    }
+}
+
+/// Starknet API-specific configuration within the RPC server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StarknetApiConfig {
+    /// Which spec versions to expose at `/rpc/<version>`.
+    pub versions: StarknetApiVersionsList,
+
+    /// The default version served at the root path `/`.
+    pub default_version: StarknetApiVersion,
+
+    /// Maximum page size for `starknet_getEvents`.
+    pub max_event_page_size: Option<u64>,
+
+    /// Maximum number of keys for `starknet_getStorageProof`.
+    pub max_proof_keys: Option<u64>,
+
+    /// Maximum gas for `starknet_call`.
+    pub max_call_gas: Option<u64>,
+
+    /// Maximum concurrent `starknet_estimateFee` requests.
+    pub max_concurrent_estimate_fee_requests: Option<u32>,
+}
+
+impl Default for StarknetApiConfig {
+    fn default() -> Self {
+        Self {
+            versions: StarknetApiVersionsList::default(),
+            default_version: StarknetApiVersion::V0_9,
+            max_event_page_size: Some(DEFAULT_RPC_MAX_EVENT_PAGE_SIZE),
+            max_proof_keys: Some(DEFAULT_RPC_MAX_PROOF_KEYS),
+            max_call_gas: Some(DEFAULT_RPC_MAX_CALL_GAS),
+            max_concurrent_estimate_fee_requests: None,
+        }
     }
 }
 
@@ -146,19 +184,11 @@ pub struct RpcConfig {
     pub apis: RpcModulesList,
     pub cors_origins: Vec<HeaderValue>,
     pub max_connections: Option<u32>,
-    pub max_concurrent_estimate_fee_requests: Option<u32>,
     pub max_request_body_size: Option<u32>,
     pub max_response_body_size: Option<u32>,
     pub timeout: Option<Duration>,
-    pub max_proof_keys: Option<u64>,
-    pub max_event_page_size: Option<u64>,
-    pub max_call_gas: Option<u64>,
-    /// Which Starknet API versions to expose at `/rpc/<version>`.
-    /// Defaults to all supported versions.
-    pub starknet_api_versions: StarknetApiVersionsList,
-    /// The default Starknet API version served at the root path `/`.
-    /// Defaults to V0_9.
-    pub default_starknet_api_version: StarknetApiVersion,
+    /// Starknet API-specific configuration.
+    pub starknet: StarknetApiConfig,
 }
 
 impl RpcConfig {
@@ -177,16 +207,11 @@ impl Default for RpcConfig {
             addr: DEFAULT_RPC_ADDR,
             port: DEFAULT_RPC_PORT,
             max_connections: None,
-            max_concurrent_estimate_fee_requests: None,
             max_request_body_size: None,
             max_response_body_size: None,
             timeout: None,
             apis: RpcModulesList::default(),
-            max_event_page_size: Some(DEFAULT_RPC_MAX_EVENT_PAGE_SIZE),
-            max_proof_keys: Some(DEFAULT_RPC_MAX_PROOF_KEYS),
-            max_call_gas: Some(DEFAULT_RPC_MAX_CALL_GAS),
-            starknet_api_versions: StarknetApiVersionsList::default(),
-            default_starknet_api_version: StarknetApiVersion::V0_9,
+            starknet: StarknetApiConfig::default(),
         }
     }
 }
