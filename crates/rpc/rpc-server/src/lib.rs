@@ -69,17 +69,19 @@ pub enum Error {
 
 /// Maps URL path prefixes to JSON-RPC modules.
 ///
-/// The router matches incoming requests by path prefix (first match wins)
-/// and dispatches to the associated [`RpcModule`]. Designed after axum's
-/// `Router` — all module registration goes through `.route()`.
+/// Routes are matched by prefix in registration order (first match wins).
+/// Use [`nest`](Self::nest) to group routes under a common prefix.
 ///
 /// ```rust,ignore
 /// use jsonrpsee::RpcModule;
 ///
 /// let router = RpcRouter::new()
-///     .route("/", v09_module)
-///     .route("/rpc/v0_9", v09_module)
-///     .route("/rpc/v0_10", v010_module);
+///     .route("/", v09_module.clone())
+///     .nest("/rpc", RpcRouter::new()
+///         .route("/v0_9", v09_module)
+///         .route("/v0_10", v010_module)
+///     );
+/// // Equivalent to: "/", "/rpc/v0_9", "/rpc/v0_10"
 /// ```
 #[derive(Debug, Default, Clone)]
 pub struct RpcRouter {
@@ -92,16 +94,29 @@ impl RpcRouter {
     }
 
     /// Register a module at the given path prefix.
-    ///
-    /// Requests whose URL path starts with `path` are dispatched to this
-    /// module. Routes are matched in the order they are registered — first
-    /// match wins.
     pub fn route(mut self, path: impl Into<String>, module: RpcModule<()>) -> Self {
         self.routes.push((path.into(), module));
         self
     }
 
-    /// Merge another router's routes into this one.
+    /// Nest another router under a path prefix.
+    ///
+    /// All routes in `router` are prepended with `prefix`:
+    ///
+    /// ```rust,ignore
+    /// // These two are equivalent:
+    /// RpcRouter::new().nest("/rpc", RpcRouter::new().route("/v0_9", m));
+    /// RpcRouter::new().route("/rpc/v0_9", m);
+    /// ```
+    pub fn nest(mut self, prefix: impl Into<String>, router: RpcRouter) -> Self {
+        let prefix = prefix.into();
+        for (path, module) in router.routes {
+            self.routes.push((format!("{prefix}{path}"), module));
+        }
+        self
+    }
+
+    /// Merge another router's routes into this one (no prefix prepended).
     pub fn merge(mut self, other: RpcRouter) -> Self {
         self.routes.extend(other.routes);
         self

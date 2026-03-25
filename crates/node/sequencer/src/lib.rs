@@ -417,8 +417,10 @@ where
         // Default (/) routes to v0.9, explicit paths for each version.
         let router = katana_rpc_server::RpcRouter::new()
             .route("/", v09_module.clone())
-            .route("/rpc/v0_9", v09_module)
-            .route("/rpc/v0_10", v010_module);
+            .nest("/rpc", katana_rpc_server::RpcRouter::new()
+                .route("/v0_9", v09_module)
+                .route("/v0_10", v010_module)
+            );
 
         #[allow(unused_mut)]
         let mut rpc_server = RpcServer::new(router)
