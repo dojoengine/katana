@@ -34,7 +34,8 @@ use katana_sequencer_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRI
 use katana_sequencer_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
 #[cfg(feature = "server")]
 use katana_sequencer_node::config::rpc::{
-    DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
+    StarknetApiVersion, StarknetApiVersionsList, DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS,
+    DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
 };
 use katana_tracing::{default_log_file_directory, gcloud, otlp, LogColor, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
@@ -233,6 +234,18 @@ pub struct ServerOptions {
     #[arg(default_value_t = DEFAULT_RPC_MAX_CALL_GAS)]
     #[serde(default = "default_max_call_gas")]
     pub max_call_gas: u64,
+
+    /// Starknet API spec versions to expose (comma-separated).
+    /// Available versions: v0.9, v0.10
+    #[arg(long = "rpc.starknet-versions", value_name = "VERSIONS")]
+    #[arg(value_parser = StarknetApiVersionsList::parse)]
+    #[serde(default)]
+    pub starknet_api_versions: Option<StarknetApiVersionsList>,
+
+    /// Default Starknet API spec version served at the root path (/).
+    #[arg(long = "rpc.starknet-default-version", value_name = "VERSION")]
+    #[serde(default)]
+    pub starknet_default_version: Option<StarknetApiVersion>,
 }
 
 #[cfg(feature = "server")]
@@ -250,6 +263,8 @@ impl Default for ServerOptions {
             max_response_body_size: None,
             timeout: None,
             max_call_gas: DEFAULT_RPC_MAX_CALL_GAS,
+            starknet_api_versions: None,
+            starknet_default_version: None,
         }
     }
 }

@@ -409,11 +409,20 @@ impl SequencerNodeArgs {
                 cors_origins,
                 #[cfg(feature = "explorer")]
                 explorer: self.explorer.explorer,
-                starknet: katana_node_config::rpc::StarknetApiConfig {
-                    max_event_page_size: Some(self.server.max_event_page_size),
-                    max_proof_keys: Some(self.server.max_proof_keys),
-                    max_call_gas: Some(self.server.max_call_gas),
-                    ..Default::default()
+                starknet: {
+                    let mut sn = katana_node_config::rpc::StarknetApiConfig {
+                        max_event_page_size: Some(self.server.max_event_page_size),
+                        max_proof_keys: Some(self.server.max_proof_keys),
+                        max_call_gas: Some(self.server.max_call_gas),
+                        ..Default::default()
+                    };
+                    if let Some(versions) = self.server.starknet_api_versions.clone() {
+                        sn.versions = versions;
+                    }
+                    if let Some(version) = self.server.starknet_default_version {
+                        sn.default_version = version;
+                    }
+                    sn
                 },
             })
         }
