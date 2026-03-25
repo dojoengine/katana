@@ -35,6 +35,21 @@ pub struct BlockWithTxs {
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
     pub transactions: Vec<RpcTxWithHash>,
+    // Commitment fields — populated from Header but not serialized in v0.9.
+    #[serde(skip)]
+    pub event_commitment: Felt,
+    #[serde(skip)]
+    pub event_count: u32,
+    #[serde(skip)]
+    pub receipt_commitment: Felt,
+    #[serde(skip)]
+    pub state_diff_commitment: Felt,
+    #[serde(skip)]
+    pub state_diff_length: u32,
+    #[serde(skip)]
+    pub transaction_commitment: Felt,
+    #[serde(skip)]
+    pub transaction_count: u32,
 }
 
 impl BlockWithTxs {
@@ -70,6 +85,13 @@ impl BlockWithTxs {
             status: finality_status,
             l1_da_mode: block.header.l1_da_mode,
             l1_data_gas_price,
+            event_commitment: block.header.events_commitment,
+            event_count: block.header.events_count,
+            receipt_commitment: block.header.receipts_commitment,
+            state_diff_commitment: block.header.state_diff_commitment,
+            state_diff_length: block.header.state_diff_length,
+            transaction_commitment: block.header.transactions_commitment,
+            transaction_count: block.header.transaction_count,
         }
     }
 }
@@ -142,6 +164,20 @@ pub struct BlockWithTxHashes {
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
     pub transactions: Vec<TxHash>,
+    #[serde(skip)]
+    pub event_commitment: Felt,
+    #[serde(skip)]
+    pub event_count: u32,
+    #[serde(skip)]
+    pub receipt_commitment: Felt,
+    #[serde(skip)]
+    pub state_diff_commitment: Felt,
+    #[serde(skip)]
+    pub state_diff_length: u32,
+    #[serde(skip)]
+    pub transaction_commitment: Felt,
+    #[serde(skip)]
+    pub transaction_count: u32,
 }
 
 impl BlockWithTxHashes {
@@ -179,6 +215,13 @@ impl BlockWithTxHashes {
             status: finality_status,
             l1_da_mode: block.header.l1_da_mode,
             l1_data_gas_price,
+            event_commitment: block.header.events_commitment,
+            event_count: block.header.events_count,
+            receipt_commitment: block.header.receipts_commitment,
+            state_diff_commitment: block.header.state_diff_commitment,
+            state_diff_length: block.header.state_diff_length,
+            transaction_commitment: block.header.transactions_commitment,
+            transaction_count: block.header.transaction_count,
         }
     }
 }
@@ -326,6 +369,13 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
                 l1_da_mode,
                 starknet_version,
                 transactions,
+                event_commitment: Felt::ZERO,
+                event_count: 0,
+                receipt_commitment: Felt::ZERO,
+                state_diff_commitment: Felt::ZERO,
+                state_diff_length: 0,
+                transaction_commitment: Felt::ZERO,
+                transaction_count: 0,
             }))
         } else {
             Ok(GetBlockWithReceiptsResponse::PreConfirmed(PreConfirmedBlockWithReceipts {
@@ -358,6 +408,20 @@ pub struct BlockWithReceipts {
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
     pub transactions: Vec<RpcTxWithReceipt>,
+    #[serde(skip)]
+    pub event_commitment: Felt,
+    #[serde(skip)]
+    pub event_count: u32,
+    #[serde(skip)]
+    pub receipt_commitment: Felt,
+    #[serde(skip)]
+    pub state_diff_commitment: Felt,
+    #[serde(skip)]
+    pub state_diff_length: u32,
+    #[serde(skip)]
+    pub transaction_commitment: Felt,
+    #[serde(skip)]
+    pub transaction_count: u32,
 }
 
 impl BlockWithReceipts {
@@ -404,6 +468,13 @@ impl BlockWithReceipts {
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             starknet_version: header.starknet_version.to_string(),
             transactions,
+            event_commitment: header.events_commitment,
+            event_count: header.events_count,
+            receipt_commitment: header.receipts_commitment,
+            state_diff_commitment: header.state_diff_commitment,
+            state_diff_length: header.state_diff_length,
+            transaction_commitment: header.transactions_commitment,
+            transaction_count: header.transaction_count,
         }
     }
 }

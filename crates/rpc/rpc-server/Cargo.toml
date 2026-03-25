@@ -26,7 +26,9 @@ katana-tracing.workspace = true
 quick_cache = "0.6.10"
 anyhow.workspace = true
 auto_impl.workspace = true
+futures.workspace = true
 http.workspace = true
+hyper = { version = "1", features = ["server"] }
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
 serde_json.workspace = true

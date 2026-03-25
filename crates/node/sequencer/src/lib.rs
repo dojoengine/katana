@@ -41,7 +41,16 @@ use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::katana::KatanaApiServer;
 #[cfg(feature = "paymaster")]
 use katana_rpc_api::paymaster::PaymasterApiServer;
-use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
+use katana_rpc_api::starknet::v0_9::{
+    StarknetApiServer as StarknetApiServerV09,
+    StarknetTraceApiServer as StarknetTraceApiServerV09,
+    StarknetWriteApiServer as StarknetWriteApiServerV09,
+};
+use katana_rpc_api::starknet::v0_10::{
+    StarknetApiServer as StarknetApiServerV010,
+    StarknetTraceApiServer as StarknetTraceApiServerV010,
+    StarknetWriteApiServer as StarknetWriteApiServerV010,
+};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(feature = "tee")]
@@ -323,29 +332,52 @@ where
             RpcCache::new(),
         );
 
+        // --- build versioned RPC modules ---
+        //
+        // `rpc_modules` already contains paymaster/cartridge modules merged above.
+        // We build v0.9 and v0.10 modules starting from a clone of `rpc_modules`
+        // so that shared modules are available on all versioned paths.
+
+        let mut v09_module = rpc_modules.clone();
+        let mut v010_module = rpc_modules;
+
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             #[cfg(feature = "explorer")]
             if config.rpc.explorer {
-                rpc_modules.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
+                // Explorer extension only on v0.9 (default) for now
+                v09_module.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
+                v010_module.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
             }
 
-            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
-            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
-            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
+            // v0.9 starknet APIs
+            v09_module.merge(StarknetApiServerV09::into_rpc(starknet_api.clone()))?;
+            v09_module.merge(StarknetWriteApiServerV09::into_rpc(starknet_api.clone()))?;
+            v09_module.merge(StarknetTraceApiServerV09::into_rpc(starknet_api.clone()))?;
+
+            // v0.10 starknet APIs
+            v010_module.merge(StarknetApiServerV010::into_rpc(starknet_api.clone()))?;
+            v010_module.merge(StarknetWriteApiServerV010::into_rpc(starknet_api.clone()))?;
+            v010_module.merge(StarknetTraceApiServerV010::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
+            let katana_module = KatanaApiServer::into_rpc(starknet_api.clone());
+            v09_module.merge(katana_module.clone())?;
+            v010_module.merge(katana_module)?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
             let api = DevApi::new(backend.clone(), block_producer.clone(), pool.clone());
-            rpc_modules.merge(DevApiServer::into_rpc(api))?;
+            let dev_module = DevApiServer::into_rpc(api);
+            v09_module.merge(dev_module.clone())?;
+            v010_module.merge(dev_module)?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::TxPool) {
             let api = katana_rpc_server::txpool::TxPoolApi::new(pool.clone());
-            rpc_modules.merge(katana_rpc_api::txpool::TxPoolApiServer::into_rpc(api))?;
+            let txpool_module = katana_rpc_api::txpool::TxPoolApiServer::into_rpc(api);
+            v09_module.merge(txpool_module.clone())?;
+            v010_module.merge(txpool_module)?;
         }
 
         // --- build tee api (if configured)
@@ -373,15 +405,26 @@ where
                 };
 
                 let api = TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
-                rpc_modules.merge(TeeApiServer::into_rpc(api))?;
+                let tee_module = TeeApiServer::into_rpc(api);
+                v09_module.merge(tee_module.clone())?;
+                v010_module.merge(tee_module)?;
 
                 info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
             }
         }
 
+        // Build versioned RPC server.
+        // Default (/) routes to v0.9, explicit paths for each version.
+        let versioned_modules = katana_rpc_server::VersionedRpcModules::new(v09_module.clone())
+            .add_version("/rpc/v0_9", v09_module)
+            .add_version("/rpc/v0_10", v010_module);
+
         #[allow(unused_mut)]
-        let mut rpc_server =
-            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+        let mut rpc_server = RpcServer::new()
+            .metrics(true)
+            .health_check(true)
+            .cors(cors)
+            .versioned_modules(versioned_modules);
 
         #[cfg(feature = "explorer")]
         {
