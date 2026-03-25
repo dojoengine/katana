@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use jsonrpsee::core::middleware::RpcServiceBuilder;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
-use jsonrpsee::server::{ServerConfig, ServerHandle, StopHandle, TowerServiceBuilder};
+use jsonrpsee::server::{Server, ServerConfig, ServerHandle, StopHandle, TowerServiceBuilder};
 use jsonrpsee::{Methods, RpcModule};
-use tracing::info;
+use tracing::{error, info};
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
@@ -229,13 +229,10 @@ impl RpcServer {
 
         // Clone and merge health check into all modules
         let mut default_module = self.default_module.clone();
-        let mut routes: Vec<(String, RpcModule<()>)> = self.routes.clone();
+        let routes: Vec<(String, RpcModule<()>)> = self.routes.clone();
 
         if self.health_check {
             default_module.merge(HealthCheck)?;
-            for (_, module) in &mut routes {
-                let _ = module.merge(HealthCheck);
-            }
         }
 
         // Build RPC middleware — must happen before converting to Methods.
@@ -274,7 +271,7 @@ impl RpcServer {
             .build();
 
         // Create the service builder with HTTP middleware baked in.
-        let svc_builder = jsonrpsee::server::Server::builder()
+        let svc_builder = Server::builder()
             .set_http_middleware(http_middleware)
             .set_config(cfg)
             .to_service_builder();
@@ -294,11 +291,11 @@ impl RpcServer {
         }
 
         let per_conn = PerConnection {
-            default_methods: Arc::new(default_methods),
-            route_methods: Arc::new(route_methods),
-            stop_handle: stop_hdl.clone(),
             svc_builder,
             rpc_metrics,
+            stop_handle: stop_hdl.clone(),
+            route_methods: Arc::new(route_methods),
+            default_methods: Arc::new(default_methods),
         };
 
         tokio::spawn(async move {
@@ -308,11 +305,12 @@ impl RpcServer {
                         match res {
                             Ok((stream, _)) => stream,
                             Err(e) => {
-                                tracing::error!(target: "rpc", "failed to accept connection: {e:?}");
+                                error!(target: "rpc", "failed to accept connection: {e:?}");
                                 continue;
                             }
                         }
                     }
+
                     _ = per_conn.stop_handle.clone().shutdown() => break,
                 };
 
@@ -346,28 +344,18 @@ impl RpcServer {
                     async move { tower::Service::call(&mut svc, req).await }.boxed()
                 });
 
-                tokio::spawn(serve_with_graceful_shutdown(
-                    stream,
-                    svc,
-                    stop_handle.shutdown(),
-                ));
+                tokio::spawn(serve_with_graceful_shutdown(stream, svc, stop_handle.shutdown()));
             }
         });
 
-        let handle = RpcServerHandle { handle: server_handle, addr: actual_addr };
-
-        info!(target: "rpc", addr = %handle.addr, "RPC server started.");
-
-        for (path, _) in self.routes.iter() {
-            info!(target: "rpc", path = %path, "RPC module mounted at path.");
-        }
+        info!(target: "rpc", addr = %actual_addr, "RPC server started.");
 
         if self.explorer {
-            let addr = format!("{}/explorer", handle.addr);
+            let addr = format!("{}/explorer", actual_addr);
             info!(target: "explorer", %addr, "Explorer started.");
         }
 
-        Ok(handle)
+        Ok(RpcServerHandle { handle: server_handle, addr: actual_addr })
     }
 }
 
