@@ -41,23 +41,42 @@ pub struct RpcServerMetrics {
 
 impl RpcServerMetrics {
     /// Creates a new instance of `RpcServerMetrics` for the given `RpcModule`.
-    /// This will create metrics for each method in the module.
     pub fn new(module: &RpcModule<()>) -> Self {
-        Self::new_with_path(module, "/")
+        let call_metrics = HashMap::from_iter(module.method_names().map(|method| {
+            let metrics = RpcServerCallMetrics::new_with_labels(&[("method", method)]);
+            (method, metrics)
+        }));
+
+        Self {
+            inner: Arc::new(RpcServerMetricsInner {
+                call_metrics,
+                connection_metrics: RpcServerConnectionMetrics::default(),
+            }),
+        }
     }
 
-    /// Creates a new instance of `RpcServerMetrics` for the given `RpcModule` at
-    /// the given path. All method call metrics are labelled with both the method
-    /// name and the path prefix they are served at.
-    pub fn new_with_path(module: &RpcModule<()>, path: &str) -> Self {
-        // Leak the path string to get a 'static lifetime, which is required by
-        // the metrics label API. This is fine because routes are registered once
-        // at startup and live for the lifetime of the process.
-        let path: &'static str = Box::leak(path.to_string().into_boxed_str());
+    /// Creates a new instance of `RpcServerMetrics` with additional labels
+    /// on each method's metrics.
+    ///
+    /// ```rust,ignore
+    /// RpcServerMetrics::new_with_labels(module, &[("version", "v0_9")]);
+    /// ```
+    pub fn new_with_labels(module: &RpcModule<()>, extra_labels: &[(&str, &str)]) -> Self {
+        // Leak label strings to get 'static lifetimes, required by the metrics
+        // API. This is fine because labels are registered once at startup.
+        let extra: Vec<(&'static str, &'static str)> = extra_labels
+            .iter()
+            .map(|(k, v)| {
+                let k: &'static str = Box::leak(k.to_string().into_boxed_str());
+                let v: &'static str = Box::leak(v.to_string().into_boxed_str());
+                (k, v)
+            })
+            .collect();
 
         let call_metrics = HashMap::from_iter(module.method_names().map(|method| {
-            let metrics =
-                RpcServerCallMetrics::new_with_labels(&[("method", method), ("path", path)]);
+            let mut labels = vec![("method", method)];
+            labels.extend_from_slice(&extra);
+            let metrics = RpcServerCallMetrics::new_with_labels(&labels);
             (method, metrics)
         }));
 
@@ -120,8 +139,8 @@ impl RpcServerMetricsLayer {
         Self { metrics: RpcServerMetrics::new(module) }
     }
 
-    pub fn new_with_path(module: &RpcModule<()>, path: &str) -> Self {
-        Self { metrics: RpcServerMetrics::new_with_path(module, path) }
+    pub fn new_with_labels(module: &RpcModule<()>, labels: &[(&str, &str)]) -> Self {
+        Self { metrics: RpcServerMetrics::new_with_labels(module, labels) }
     }
 }
 

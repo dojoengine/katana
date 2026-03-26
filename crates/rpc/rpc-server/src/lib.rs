@@ -223,8 +223,8 @@ impl RpcServer {
         };
 
         // Convert router to Methods, merging health check and building per-route
-        // metrics. Each route gets its own RpcServerMetricsLayer labelled with the
-        // path so that method call metrics are distinguishable by route.
+        // metrics. Versioned routes get a `version` label on their metrics (e.g.,
+        // "v0_9"), the root route uses unlabelled metrics.
         let routes: Vec<(String, Methods, Option<RpcServerMetricsLayer>)> = self
             .router
             .routes
@@ -236,7 +236,21 @@ impl RpcServer {
                 }
 
                 let metrics = if self.metrics {
-                    Some(RpcServerMetricsLayer::new_with_path(module, path))
+                    // Extract a version label from the path. For paths like
+                    // "/rpc/v0_9" we use "v0_9"; for "/" we use no version label.
+                    let version = path
+                        .rsplit('/')
+                        .find(|s| !s.is_empty());
+
+                    match version {
+                        Some(v) if path != "/" => {
+                            Some(RpcServerMetricsLayer::new_with_labels(
+                                module,
+                                &[("version", v)],
+                            ))
+                        }
+                        _ => Some(RpcServerMetricsLayer::new(module)),
+                    }
                 } else {
                     None
                 };
