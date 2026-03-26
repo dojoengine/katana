@@ -31,3 +31,6 @@ pub mod avnu {
 
     contract!(AvnuForwarder, "{CARGO_MANIFEST_DIR}/build/avnu_Forwarder.contract_class.json");
 }
+
+#[rustfmt::skip]
+pub mod controller;

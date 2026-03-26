@@ -1,5 +1,5 @@
-pub use cartridge::controller::*;
 use katana_contracts::avnu::AvnuForwarder;
+pub use katana_contracts::controller::*;
 use katana_contracts::vrf::{CartridgeVrfAccount, CartridgeVrfConsumer, CartridgeVrfProvider};
 use katana_genesis::Genesis;
 

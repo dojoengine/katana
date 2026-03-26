@@ -2889,7 +2889,6 @@ dependencies = [
  "katana-genesis",
  "katana-primitives",
  "katana-rpc-types",
- "lazy_static",
  "reqwest",
  "serde",
  "serde_json",
@@ -6913,7 +6912,6 @@ dependencies = [
 name = "katana-slot-controller"
 version = "1.7.0"
 dependencies = [
- "cartridge",
  "katana-contracts",
  "katana-genesis",
  "katana-primitives",
