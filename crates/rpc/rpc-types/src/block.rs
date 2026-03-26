@@ -15,6 +15,7 @@ pub type BlockTxCount = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum MaybePreConfirmedBlock {
     Confirmed(BlockWithTxs),
     PreConfirmed(PreConfirmedBlockWithTxs),
@@ -144,6 +145,7 @@ impl PreConfirmedBlockWithTxs {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum GetBlockWithTxHashesResponse {
     Block(BlockWithTxHashes),
     PreConfirmed(PreConfirmedBlockWithTxHashes),
@@ -310,6 +312,7 @@ impl BlockHashAndNumberResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum GetBlockWithReceiptsResponse {
     Block(BlockWithReceipts),
     PreConfirmed(PreConfirmedBlockWithReceipts),

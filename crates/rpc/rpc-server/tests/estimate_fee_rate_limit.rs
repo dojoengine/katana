@@ -17,7 +17,8 @@ async fn test_estimate_fee_rate_limiting() -> Result<()> {
     let mut config = katana_utils::node::test_config();
 
     let max_concurrent_estimate_fee_requests = 2;
-    config.rpc.starknet.max_concurrent_estimate_fee_requests = Some(max_concurrent_estimate_fee_requests);
+    config.rpc.starknet.max_concurrent_estimate_fee_requests =
+        Some(max_concurrent_estimate_fee_requests);
 
     let sequencer = TestNode::new_with_config(config).await;
 

@@ -238,16 +238,11 @@ impl RpcServer {
                 let metrics = if self.metrics {
                     // Extract a version label from the path. For paths like
                     // "/rpc/v0_9" we use "v0_9"; for "/" we use no version label.
-                    let version = path
-                        .rsplit('/')
-                        .find(|s| !s.is_empty());
+                    let version = path.rsplit('/').find(|s| !s.is_empty());
 
                     match version {
                         Some(v) if path != "/" => {
-                            Some(RpcServerMetricsLayer::new_with_labels(
-                                module,
-                                &[("version", v)],
-                            ))
+                            Some(RpcServerMetricsLayer::new_with_labels(module, &[("version", v)]))
                         }
                         _ => Some(RpcServerMetricsLayer::new(module)),
                     }

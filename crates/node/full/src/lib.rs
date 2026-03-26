@@ -372,7 +372,10 @@ impl Node {
             max_event_page_size: config.rpc.starknet.max_event_page_size,
             max_proof_keys: config.rpc.starknet.max_proof_keys,
             max_call_gas: config.rpc.starknet.max_call_gas,
-            max_concurrent_estimate_fee_requests: config.rpc.starknet.max_concurrent_estimate_fee_requests,
+            max_concurrent_estimate_fee_requests: config
+                .rpc
+                .starknet
+                .max_concurrent_estimate_fee_requests,
             simulation_flags: ExecutionFlags::default(),
             versioned_constant_overrides: None,
             #[cfg(feature = "cartridge")]

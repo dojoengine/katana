@@ -25,6 +25,7 @@ use crate::transaction::RpcTxWithHash;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum MaybePreConfirmedBlock {
     Confirmed(BlockWithTxs),
     PreConfirmed(PreConfirmedBlockWithTxs),
@@ -98,6 +99,7 @@ impl From<crate::block::MaybePreConfirmedBlock> for MaybePreConfirmedBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum GetBlockWithTxHashesResponse {
     Block(BlockWithTxHashes),
     PreConfirmed(PreConfirmedBlockWithTxHashes),
@@ -171,6 +173,7 @@ impl From<crate::block::GetBlockWithTxHashesResponse> for GetBlockWithTxHashesRe
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum GetBlockWithReceiptsResponse {
     Block(BlockWithReceipts),
     PreConfirmed(PreConfirmedBlockWithReceipts),
