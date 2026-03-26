@@ -40,7 +40,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/contracts/build
-          key: bench-contracts-${{ hashFiles('Makefile', 'crates/contracts/contracts/**') }}
+          key: bench-contracts-${{ hashFiles('Makefile', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/Scarb.toml') }}
 
       - name: Build contracts
         if: steps.cache.outputs.cache-hit != 'true'
