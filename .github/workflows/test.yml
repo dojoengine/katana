@@ -368,16 +368,10 @@ jobs:
               with:
                   name: fixtures
 
-            - name: Build paymaster-service binary
-              run: cargo build --release --manifest-path crates/contracts/contracts/avnu/crates/paymaster-service/Cargo.toml
-
-            - name: Build vrf-server binary
-              run: cargo build --release --manifest-path crates/contracts/contracts/vrf/server/Cargo.toml
-
-            - name: Add sidecar binaries to PATH
+            - name: Install paymaster-service and vrf-server binaries
               run: |
-                  cp crates/contracts/contracts/avnu/target/release/paymaster-service /usr/local/bin/
-                  cp crates/contracts/contracts/vrf/server/target/release/vrf-server /usr/local/bin/
+                  cargo install --git https://github.com/avnu-labs/paymaster --rev 04c6bb8e76ca347debbeff3433d06954b4a09a1b paymaster-service
+                  cargo install --git https://github.com/cartridge-gg/vrf.git --rev 6d1c0f60a53558f19618b2bff81c3da0849db270 vrf-server
 
             - name: Run cartridge e2e test
               run: cargo nextest run -p katana-rpc-server --test cartridge_e2e --all-features --build-jobs 20
