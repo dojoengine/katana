@@ -370,8 +370,8 @@ jobs:
 
             - name: Install paymaster-service and vrf-server binaries
               run: |
-                  cargo install --git https://github.com/avnu-labs/paymaster --rev 04c6bb8e76ca347debbeff3433d06954b4a09a1b paymaster-service
-                  cargo install --git https://github.com/cartridge-gg/vrf.git --rev 6d1c0f60a53558f19618b2bff81c3da0849db270 vrf-server
+                  cargo install --locked --git https://github.com/avnu-labs/paymaster --rev 04c6bb8e76ca347debbeff3433d06954b4a09a1b paymaster-service
+                  cargo install --locked --git https://github.com/cartridge-gg/vrf.git --rev 6d1c0f60a53558f19618b2bff81c3da0849db270 vrf-server
 
             - name: Run cartridge e2e test
               run: cargo run -p cartridge-e2e-test
