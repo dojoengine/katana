@@ -6,22 +6,22 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-node-config.workspace = true
 katana-chain-spec.workspace = true
 katana-db.workspace = true
 katana-executor.workspace = true
+katana-gas-price-oracle.workspace = true
 katana-gateway-client.workspace = true
 katana-gateway-server.workspace = true
 katana-gateway-types.workspace = true
-katana-gas-price-oracle.workspace = true
 katana-metrics.workspace = true
+katana-node-config.workspace = true
 katana-pipeline.workspace = true
 katana-pool.workspace = true
 katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
+katana-rpc-server.workspace = true
 katana-rpc-types.workspace = true
 katana-stage.workspace = true
 katana-starknet.workspace = true
@@ -37,10 +37,14 @@ serde.workspace = true
 strum.workspace = true
 strum_macros.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 tokio = { workspace = true, features = [ "time" ] }
+tracing.workspace = true
 url.workspace = true
 
 [features]
-cartridge = ["katana-node-config/cartridge", "katana-rpc-api/cartridge", "katana-rpc-server/cartridge"]
-explorer = ["katana-node-config/explorer", "katana-rpc-server/explorer"]
+cartridge = [
+	"katana-node-config/cartridge",
+	"katana-rpc-api/cartridge",
+	"katana-rpc-server/cartridge",
+]
+explorer = [ "katana-node-config/explorer", "katana-rpc-server/explorer" ]

@@ -6,44 +6,36 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-node-config.workspace = true
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-db.workspace = true
 katana-executor.workspace = true
-katana-gateway-server.workspace = true
 katana-gas-price-oracle.workspace = true
+katana-gateway-server.workspace = true
 katana-grpc = { workspace = true, optional = true }
 katana-messaging.workspace = true
 katana-metrics.workspace = true
+katana-node-config.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
-katana-starknet.workspace = true
+katana-rpc-server.workspace = true
 katana-rpc-types.workspace = true
 katana-stage.workspace = true
+katana-starknet.workspace = true
 katana-tasks.workspace = true
 katana-tee = { workspace = true, optional = true }
 
 anyhow.workspace = true
-num-traits.workspace = true
 futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
+num-traits.workspace = true
 tracing.workspace = true
 url.workspace = true
 
 [features]
-paymaster = [
-	"katana-rpc-api/paymaster",
-	"katana-rpc-server/paymaster",
-]
-vrf = [
-	"katana-rpc-server/vrf",
-	"cartridge",
-]
 cartridge = [
 	"katana-node-config/cartridge",
 	"katana-rpc-api/cartridge",
@@ -51,11 +43,18 @@ cartridge = [
 	"paymaster",
 	"vrf",
 ]
-explorer = ["katana-node-config/explorer", "katana-rpc-server/explorer"]
-grpc = ["dep:katana-grpc"]
-native = ["katana-executor/native"]
-tee = ["katana-node-config/tee", "dep:katana-tee", "katana-rpc-api/tee", "katana-rpc-server/tee"]
-tee-snp = ["tee", "katana-tee/snp"]
+explorer = [ "katana-node-config/explorer", "katana-rpc-server/explorer" ]
+grpc = [ "dep:katana-grpc" ]
+native = [ "katana-executor/native" ]
+paymaster = [ "katana-rpc-api/paymaster", "katana-rpc-server/paymaster" ]
+tee = [
+	"dep:katana-tee",
+	"katana-node-config/tee",
+	"katana-rpc-api/tee",
+	"katana-rpc-server/tee",
+]
+tee-snp = [ "katana-tee/snp", "tee" ]
+vrf = [ "cartridge", "katana-rpc-server/vrf" ]
 
 [dev-dependencies]
 tempfile.workspace = true

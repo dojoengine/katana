@@ -9,12 +9,12 @@ version.workspace = true
 [dependencies]
 katana-chain-spec.workspace = true
 katana-cli.workspace = true
-katana-provider.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-genesis.workspace = true
 katana-primitives.workspace = true
-katana-starknet.workspace = true
+katana-provider.workspace = true
 katana-rpc-types.workspace = true
+katana-starknet.workspace = true
 katana-utils.workspace = true
 
 crossterm = "0.28"
@@ -30,7 +30,7 @@ comfy-table = "7.1.1"
 const_format = "0.2.33"
 indicatif = "0.17.8"
 inquire = "0.7.5"
-jsonrpsee = { workspace = true, features = ["http-client"] }
+jsonrpsee = { workspace = true, features = [ "http-client" ] }
 piltover.workspace = true
 rand.workspace = true
 shellexpand = "3.1.0"
@@ -52,20 +52,20 @@ vergen-gitcl = { version = "1.0.0", features = [ "build", "cargo", "rustc", "si"
 
 [dev-dependencies]
 arbitrary.workspace = true
-similar-asserts.workspace = true
 assert_matches.workspace = true
 proptest = "1.0"
 rstest.workspace = true
+similar-asserts.workspace = true
 tempfile.workspace = true
 
 [features]
 default = [
 	"cartridge",
 	"client",
+	"init-custom-settlement-chain",
 	"init-slot",
 	"jemalloc",
 	"katana-cli/explorer",
-	"init-custom-settlement-chain",
 ]
 
 cartridge = [ "katana-cli/cartridge" ]

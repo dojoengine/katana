@@ -16,4 +16,12 @@ if echo "$STAGED_FILES" | grep -qE '\.rs$|^Cargo\.(toml|lock)$|^rust-toolchain\.
 fi
 
 
+# TOML
+if echo "$STAGED_FILES" | grep -qE '\.toml$'; then
+  echo 'Formatting TOML files...'
+  TOML_FILES=$(echo "$STAGED_FILES" | grep -E '\.toml$')
+  echo "$TOML_FILES" | xargs taplo fmt
+  echo "$TOML_FILES" | xargs git add
+fi
+
 echo 'Pre-commit checks complete.'

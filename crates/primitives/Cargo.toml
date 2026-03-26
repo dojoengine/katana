@@ -9,10 +9,10 @@ version.workspace = true
 [dependencies]
 katana-primitives-macro.workspace = true
 
-cairo-vm.workspace = true
 cairo-lang-sierra.workspace = true
-cairo-lang-utils.workspace = true
 cairo-lang-starknet-classes.workspace = true
+cairo-lang-utils.workspace = true
+cairo-vm.workspace = true
 
 anyhow.workspace = true
 arbitrary = { workspace = true, optional = true }

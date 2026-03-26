@@ -7,19 +7,19 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+katana-metrics.workspace = true
 katana-primitives = { workspace = true, features = [ "arbitrary" ] }
 katana-trie.workspace = true
-katana-metrics.workspace = true
 
 anyhow.workspace = true
-clap = { workspace = true, optional = true }
-rand = { workspace = true, optional = true }
-indicatif = "0.17.8"
-cairo-lang-starknet-classes.workspace = true
 arbitrary = { workspace = true, optional = true }
+cairo-lang-starknet-classes.workspace = true
+clap = { workspace = true, optional = true }
+indicatif = "0.17.8"
 metrics.workspace = true
 page_size = "0.6.0"
 parking_lot.workspace = true
+rand = { workspace = true, optional = true }
 roaring = { version = "0.10.3", features = [ "serde" ] }
 serde.workspace = true
 serde_json.workspace = true
@@ -40,19 +40,19 @@ rev = "b34b0d3"
 [dev-dependencies]
 arbitrary.workspace = true
 criterion.workspace = true
-katana-db = { path = ".", features = ["arbitrary"] }
-proptest = "1.6.0"
+katana-db = { path = ".", features = [ "arbitrary" ] }
 katana-utils.workspace = true
+proptest = "1.6.0"
 rand.workspace = true
 rstest.workspace = true
 starknet.workspace = true
 
 [features]
+arbitrary = [ "dep:arbitrary" ]
+cli = [ "dep:clap", "dep:rand" ]
 default = [ "postcard" ]
 postcard = [ "dep:postcard" ]
 test-utils = [  ]
-arbitrary = [ "dep:arbitrary" ]
-cli = [ "dep:clap", "dep:rand" ]
 
 [[bin]]
 name = "train-dict"
@@ -62,4 +62,4 @@ required-features = [ "cli" ]
 [[bench]]
 harness = false
 name = "codec"
-required-features = ["arbitrary"]
+required-features = [ "arbitrary" ]

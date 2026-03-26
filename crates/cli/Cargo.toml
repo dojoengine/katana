@@ -6,22 +6,22 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+cartridge = { path = "../cartridge", optional = true }
 katana-chain-spec.workspace = true
 katana-core.workspace = true
-katana-messaging.workspace = true
-katana-node-config.workspace = true
-katana-sequencer-node.workspace = true
 katana-full-node.workspace = true
 katana-genesis.workspace = true
+katana-messaging.workspace = true
+katana-node-config.workspace = true
+katana-paymaster = { workspace = true, optional = true }
 katana-primitives.workspace = true
 katana-rpc-server.workspace = true
+katana-sequencer-node.workspace = true
 katana-slot-controller = { workspace = true, optional = true }
 katana-tee = { workspace = true, optional = true }
 katana-tracing.workspace = true
-katana-paymaster = { workspace = true, optional = true }
 katana-utils.workspace = true
 serde-utils.workspace = true
-cartridge = { path = "../cartridge", optional = true }
 
 katana-db.workspace = true
 
@@ -44,27 +44,36 @@ katana-gas-price-oracle.workspace = true
 starknet.workspace = true
 
 [features]
+cartridge = [
+	"katana-full-node/cartridge",
+	"katana-rpc-server/cartridge",
+	"katana-sequencer-node/cartridge",
+	"paymaster",
+]
+default = [ "cartridge", "grpc", "paymaster", "server", "tee", "vrf" ]
+explorer = [
+	"katana-full-node/explorer",
+	"katana-sequencer-node/explorer",
+	"katana-utils/explorer",
+]
+grpc = [ "katana-sequencer-node/grpc" ]
+native = [ "katana-sequencer-node/native" ]
 paymaster = [
 	"dep:katana-paymaster",
 	"dep:katana-slot-controller",
-	"katana-sequencer-node/paymaster",
 	"katana-rpc-server/paymaster",
+	"katana-sequencer-node/paymaster",
+]
+server = [  ]
+tee = [
+	"dep:katana-tee",
+	"katana-sequencer-node/tee",
+	"katana-sequencer-node/tee-snp",
+	"katana-tee/snp",
 ]
 vrf = [
 	"cartridge",
 	"dep:cartridge",
-	"katana-sequencer-node/vrf",
 	"katana-rpc-server/vrf",
+	"katana-sequencer-node/vrf",
 ]
-cartridge = [
-	"katana-sequencer-node/cartridge",
-	"katana-full-node/cartridge",
-	"katana-rpc-server/cartridge",
-	"paymaster",
-]
-grpc = [ "katana-sequencer-node/grpc" ]
-default = ["server", "tee", "vrf", "paymaster", "cartridge", "grpc"]
-explorer = ["katana-sequencer-node/explorer", "katana-full-node/explorer", "katana-utils/explorer"]
-native = ["katana-sequencer-node/native"]
-server = []
-tee = ["dep:katana-tee", "katana-sequencer-node/tee", "katana-sequencer-node/tee-snp", "katana-tee/snp"]
