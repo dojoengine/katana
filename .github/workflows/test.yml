@@ -341,6 +341,47 @@ jobs:
                   echo "=== Last 50 lines of Katana logs ==="
                   tail -n 50 katana.log
 
+    cartridge-e2e:
+        needs: [fmt, clippy, generate-test-artifacts]
+        runs-on: ubuntu-latest-32-cores
+        timeout-minutes: 30
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+            LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+            TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            - run: git config --global --add safe.directory "*"
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache
+
+            - name: Download test artifacts
+              uses: actions/download-artifact@v5
+              with:
+                  name: fixtures
+
+            - name: Build paymaster-service binary
+              run: cargo build --release --manifest-path crates/contracts/contracts/avnu/crates/paymaster-service/Cargo.toml
+
+            - name: Build vrf-server binary
+              run: cargo build --release --manifest-path crates/contracts/contracts/vrf/server/Cargo.toml
+
+            - name: Add sidecar binaries to PATH
+              run: |
+                  cp crates/contracts/contracts/avnu/target/release/paymaster-service /usr/local/bin/
+                  cp crates/contracts/contracts/vrf/server/target/release/vrf-server /usr/local/bin/
+
+            - name: Run cartridge e2e test
+              run: cargo nextest run -p katana-rpc-server --test cartridge_e2e --all-features --build-jobs 20
+
     db-compatibility-check:
         needs: [fmt, clippy, build-katana-binary]
         runs-on: ubuntu-latest-4-cores
