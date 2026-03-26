@@ -58,6 +58,9 @@ katana-starknet.workspace = true
 katana-trie.workspace = true
 katana-genesis.workspace = true
 katana-utils = { workspace = true, features = ["node"] }
+katana-paymaster.workspace = true
+katana-slot-controller.workspace = true
+cartridge.workspace = true
 
 alloy-contract = { workspace = true, default-features = false }
 alloy-node-bindings = "1.0.24"
