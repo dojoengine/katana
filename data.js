@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774552973300,
+  "lastUpdate": 1774556810595,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -14411,6 +14411,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 275,
             "range": "± 9",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "149f483f1effa118c2527f0c526226ba06930668",
+          "message": "refactor(utils): simplify `TxWaiter` (#512)\n\nReplace the manual Future state machine in TxWaiter with a straightforward async loop and IntoFuture trait implementation. This removes ~100 lines of polling boilerplate (pinned boxed futures, manual poll state, interval tick management) while preserving the same builder API, behavior, and all existing tests. Also removes the now-unused\n`futures` crate dependency from katana-utils.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-26T15:09:00-05:00",
+          "tree_id": "a59f942eb00d20c23d88e4f9df309c3a2f16542c",
+          "url": "https://github.com/dojoengine/katana/commit/149f483f1effa118c2527f0c526226ba06930668"
+        },
+        "date": 1774556809425,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2652614,
+            "range": "± 54547",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2910540,
+            "range": "± 12159",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 32,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 26,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 31,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 27,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 686,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 821,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 79,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 36,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 146,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 139,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 146,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 232,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 207,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 268,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 159,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 310,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 148,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 111,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 83,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 54,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 82,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 54,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 83,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 54,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 81,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 54,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 81,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 54,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 27,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 47,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 26,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 12,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 18304,
+            "range": "± 136",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3602,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 368,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 767,
+            "range": "± 27",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 154,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 143,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1722,
+            "range": "± 40",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2213,
+            "range": "± 377",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 742,
+            "range": "± 71",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 899,
+            "range": "± 156",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 28206,
+            "range": "± 267",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6010,
+            "range": "± 218",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 170,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 248,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 294,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 290,
+            "range": "± 10",
             "unit": "ns/iter"
           }
         ]
