@@ -16,7 +16,6 @@ anyhow.workspace = true
 arbitrary.workspace = true
 assert_matches.workspace = true
 async-trait.workspace = true
-futures.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [ "macros", "rt-multi-thread", "signal", "time" ], default-features = false }
