@@ -237,13 +237,13 @@ pub struct ServerOptions {
 
     /// Starknet API spec versions to expose (comma-separated).
     /// Available versions: v0.9, v0.10
-    #[arg(long = "rpc.starknet-versions", value_name = "VERSIONS")]
+    #[arg(long = "rpc.starknet.versions", value_name = "VERSIONS")]
     #[arg(value_parser = StarknetApiVersionsList::parse)]
     #[serde(default)]
     pub starknet_api_versions: Option<StarknetApiVersionsList>,
 
-    /// Default Starknet API spec version served at the root path (/).
-    #[arg(long = "rpc.starknet-default-version", value_name = "VERSION")]
+    /// Starknet API spec version served at the root path (/).
+    #[arg(long = "rpc.starknet.root-version", value_name = "VERSION")]
     #[serde(default)]
     pub starknet_default_version: Option<StarknetApiVersion>,
 }
