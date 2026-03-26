@@ -256,7 +256,7 @@ impl RpcServer {
 
         // HTTP middleware
         let http_tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
-        let health_check_proxy = self.health_check.then(|| HealthCheck::proxy());
+        let health_check_proxy = self.health_check.then(HealthCheck::proxy);
 
         let http_middleware = ServiceBuilder::new()
             .layer(http_tracer)
@@ -355,11 +355,17 @@ impl RpcServer {
         }
 
         if self.explorer {
-            let addr = format!("{}/explorer", actual_addr);
+            let addr = format!("{actual_addr}/explorer");
             info!(target: "explorer", %addr, "Explorer started.");
         }
 
         Ok(RpcServerHandle { handle: server_handle, addr: actual_addr })
+    }
+}
+
+impl Default for RpcServer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

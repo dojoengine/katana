@@ -391,6 +391,7 @@ impl Backend {
 /// RPC request is made to the remote provider. When that request completes, the same response
 /// needs to be distributed to all waiting senders, which requires cloning the response for each
 /// sender in the deduplication vector.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 enum BackendResponse {
     Receipt(BackendResult<TxReceiptWithBlockInfo>),
