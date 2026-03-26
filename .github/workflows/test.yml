@@ -198,12 +198,12 @@ jobs:
             - name: Run tests
               if: github.event_name != 'pull_request'
               run: |
-                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
+                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude cartridge-e2e-test --build-jobs 20
 
             - name: Run tests w/ code coverage
               if: github.event_name == 'pull_request'
               run: |
-                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
+                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude cartridge-e2e-test --build-jobs 20
                   cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Upload code coverage
@@ -374,7 +374,7 @@ jobs:
                   cargo install --git https://github.com/cartridge-gg/vrf.git --rev 6d1c0f60a53558f19618b2bff81c3da0849db270 vrf-server
 
             - name: Run cartridge e2e test
-              run: cargo nextest run -p katana-rpc-server --test cartridge_e2e --all-features --build-jobs 20
+              run: cargo run -p cartridge-e2e-test
 
     db-compatibility-check:
         needs: [fmt, clippy, build-katana-binary]

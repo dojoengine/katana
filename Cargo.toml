@@ -49,6 +49,7 @@ members = [
 	"crates/tracing",
 	"crates/trie",
 	"crates/utils",
+	"tests/cartridge",
 	"tests/db-compat",
 	"tests/reverse-proxy",
 	"crates/paymaster",

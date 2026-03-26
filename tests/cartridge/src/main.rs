@@ -1,14 +1,10 @@
-#![cfg(feature = "cartridge")]
-
-//! Full end-to-end tests for the Cartridge RPC flow with real paymaster and VRF
+//! Full end-to-end test for the Cartridge RPC flow with real paymaster and VRF
 //! server binaries.
 //!
-//! Requires `paymaster-service` and `vrf-server` binaries to be installed and
-//! available in PATH. Skips gracefully if binaries are not found.
+//! Requires `paymaster-service` and `vrf-server` binaries in PATH.
 //!
-//! Uses instant mining so bootstrap transactions (forwarder deploy, VRF account
-//! deploy, etc.) are mined immediately. Assertions check on-chain state and
-//! RPC responses rather than pool contents.
+//! Uses instant mining so bootstrap transactions are mined immediately.
+//! Assertions check on-chain state and RPC responses.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -25,8 +21,6 @@ use katana_utils::TestNode;
 use serde_json::json;
 use starknet::macros::selector;
 use starknet::providers::Provider;
-
-mod common;
 
 const PAYMASTER_API_KEY: &str = "paymaster_katana";
 
@@ -116,39 +110,61 @@ fn prefunded_account(
     (*address, pk)
 }
 
-/// Check if a binary is available in PATH.
-fn binary_available(name: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(name)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+fn make_execute_outside_params(address: &str) -> Vec<serde_json::Value> {
+    vec![
+        json!(address),
+        json!({
+            "caller": "0x414e595f43414c4c4552",
+            "nonce": "0x1",
+            "execute_after": "0x0",
+            "execute_before": "0xffffffffffffffff",
+            "calls": [{
+                "to": "0x1",
+                "selector": "0x2",
+                "calldata": ["0x3"]
+            }]
+        }),
+        json!(["0x0", "0x0"]),
+        json!(null),
+    ]
+}
+
+fn make_vrf_execute_outside_params(
+    player_address: &str,
+    vrf_account_address: &str,
+) -> Vec<serde_json::Value> {
+    vec![
+        json!(player_address),
+        json!({
+            "caller": "0x414e595f43414c4c4552",
+            "nonce": "0x3",
+            "execute_after": "0x0",
+            "execute_before": "0xffffffffffffffff",
+            "calls": [
+                {
+                    "to": vrf_account_address,
+                    "selector": format!("{:#x}", selector!("request_random")),
+                    "calldata": ["0x1", "0x2"]
+                },
+                {
+                    "to": "0xaaa",
+                    "selector": "0xbbb",
+                    "calldata": []
+                }
+            ]
+        }),
+        json!(["0x0", "0x0"]),
+        json!(null),
+    ]
 }
 
 // ---------------------------------------------------------------------------
-// Test
+// Main
 // ---------------------------------------------------------------------------
 
-/// Full e2e test with real paymaster-service and vrf-server binaries.
-///
-/// Exercises:
-/// 1. Controller deployment middleware → deploy tx mined on-chain
-/// 2. Already-deployed address → no deployment, Cartridge API not queried
-/// 3. Non-controller address → no deployment
-/// 4. VRF delegation → VRF server processes request, paymaster relays on-chain
-/// 5. VRF error: wrong target → VrfInvalidTarget
-/// 6. VRF error: no follow-up call → VrfMissingFollowUpCall
-#[tokio::test(flavor = "multi_thread")]
-async fn cartridge_e2e_with_real_services() {
-    // Skip if binaries are not installed.
-    if !binary_available("paymaster-service") {
-        eprintln!("SKIPPED: paymaster-service not found in PATH");
-        return;
-    }
-    if !binary_available("vrf-server") {
-        eprintln!("SKIPPED: vrf-server not found in PATH");
-        return;
-    }
+#[tokio::main]
+async fn main() {
+    println!("=== Cartridge E2E Test ===");
 
     // -- Pre-allocate ports --
     let paymaster_port = find_free_port();
@@ -213,6 +229,8 @@ async fn cartridge_e2e_with_real_services() {
     let client = node.rpc_http_client();
     let provider = node.starknet_provider();
 
+    // -- Bootstrap paymaster --
+    println!("Bootstrapping paymaster...");
     let paymaster_config = PaymasterServiceConfigBuilder::new()
         .rpc(rpc_addr)
         .port(paymaster_port)
@@ -227,9 +245,11 @@ async fn cartridge_e2e_with_real_services() {
 
     let mut paymaster = PaymasterService::new(paymaster_config);
     paymaster.bootstrap().await.expect("paymaster bootstrap");
-    let mut _paymaster_process = paymaster.start().await.expect("paymaster start");
+    let mut paymaster_process = paymaster.start().await.expect("paymaster start");
+    println!("Paymaster started on port {paymaster_port}");
 
     // -- Bootstrap VRF --
+    println!("Bootstrapping VRF...");
     let rpc_url = url::Url::parse(&format!("http://{rpc_addr}")).unwrap();
     let vrf_result =
         bootstrap_vrf(rpc_url, deployer_address, deployer_pk).await.expect("VRF bootstrap");
@@ -239,13 +259,14 @@ async fn cartridge_e2e_with_real_services() {
         vrf_account_address: vrf_result.vrf_account_address,
         vrf_private_key: vrf_result.vrf_account_private_key,
     });
-    let mut _vrf_process = vrf_server.start().await.expect("VRF server start");
+    let mut vrf_process = vrf_server.start().await.expect("VRF server start");
+    println!("VRF server started on port {VRF_SERVER_PORT}");
 
     // -----------------------------------------------------------------------
     // Case 1: Controller deployment — undeployed controller gets deployed
     // -----------------------------------------------------------------------
+    println!("\n--- Case 1: Controller deployment ---");
     {
-        // Verify controller is NOT deployed yet.
         let class_hash = provider
             .get_class_hash_at(
                 starknet::core::types::BlockId::Tag(starknet::core::types::BlockTag::PreConfirmed),
@@ -260,18 +281,14 @@ async fn cartridge_e2e_with_real_services() {
             .await
             .expect("execute outside should succeed");
 
-        // Response should contain a transaction hash from the paymaster.
         assert!(
             response.get("transaction_hash").is_some(),
             "response should contain transaction_hash: {response:?}"
         );
 
-        // Cartridge API should have been queried.
         let api_requests = mock_api_state.received_requests.lock().unwrap();
         assert!(!api_requests.is_empty(), "Cartridge API should have been queried");
 
-        // Controller should now be deployed (deploy tx was mined).
-        // Give it a moment for the block to be produced.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         let class_hash = provider
@@ -282,10 +299,12 @@ async fn cartridge_e2e_with_real_services() {
             .await;
         assert!(class_hash.is_ok(), "controller should be deployed after execute_outside");
     }
+    println!("PASSED");
 
     // -----------------------------------------------------------------------
     // Case 2: Already-deployed address → no deployment
     // -----------------------------------------------------------------------
+    println!("\n--- Case 2: Already-deployed address ---");
     {
         let prev_count = mock_api_state.received_requests.lock().unwrap().len();
         let genesis_addr = format!("{:#x}", Felt::from(deployer_address));
@@ -296,7 +315,6 @@ async fn cartridge_e2e_with_real_services() {
             .await
             .expect("should succeed for deployed address");
 
-        // Cartridge API should NOT have been queried again.
         let api_requests = mock_api_state.received_requests.lock().unwrap();
         assert_eq!(
             api_requests.len(),
@@ -304,10 +322,12 @@ async fn cartridge_e2e_with_real_services() {
             "Cartridge API should not be queried for already-deployed accounts"
         );
     }
+    println!("PASSED");
 
     // -----------------------------------------------------------------------
     // Case 3: Non-controller address → no deployment
     // -----------------------------------------------------------------------
+    println!("\n--- Case 3: Non-controller address ---");
     {
         let prev_count = mock_api_state.received_requests.lock().unwrap().len();
         let non_controller = "0xbeef";
@@ -318,11 +338,9 @@ async fn cartridge_e2e_with_real_services() {
             .await
             .expect("should succeed for non-controller");
 
-        // Cartridge API WAS queried (undeployed address).
         let api_requests = mock_api_state.received_requests.lock().unwrap();
         assert_eq!(api_requests.len(), prev_count + 1, "Cartridge API should be queried");
 
-        // But address is still not deployed (not a controller).
         let class_hash = provider
             .get_class_hash_at(
                 starknet::core::types::BlockId::Tag(starknet::core::types::BlockTag::PreConfirmed),
@@ -331,10 +349,12 @@ async fn cartridge_e2e_with_real_services() {
             .await;
         assert!(class_hash.is_err(), "non-controller should not be deployed");
     }
+    println!("PASSED");
 
     // -----------------------------------------------------------------------
     // Case 4: VRF flow — request_random triggers VRF delegation
     // -----------------------------------------------------------------------
+    println!("\n--- Case 4: VRF delegation ---");
     {
         let genesis_addr = format!("{:#x}", Felt::from(deployer_address));
         let vrf_addr = format!("{:#x}", Felt::from(vrf_account_address));
@@ -350,10 +370,12 @@ async fn cartridge_e2e_with_real_services() {
             "VRF response should contain transaction_hash: {response:?}"
         );
     }
+    println!("PASSED");
 
     // -----------------------------------------------------------------------
     // Case 5: VRF wrong target → error
     // -----------------------------------------------------------------------
+    println!("\n--- Case 5: VRF wrong target ---");
     {
         let genesis_addr = format!("{:#x}", Felt::from(deployer_address));
 
@@ -385,10 +407,12 @@ async fn cartridge_e2e_with_real_services() {
             client.request("cartridge_addExecuteOutsideTransaction", params).await;
         assert!(result.is_err(), "should fail with VrfInvalidTarget");
     }
+    println!("PASSED");
 
     // -----------------------------------------------------------------------
     // Case 6: VRF no follow-up call → error
     // -----------------------------------------------------------------------
+    println!("\n--- Case 6: VRF no follow-up call ---");
     {
         let genesis_addr = format!("{:#x}", Felt::from(deployer_address));
         let vrf_addr = format!("{:#x}", Felt::from(vrf_account_address));
@@ -414,60 +438,11 @@ async fn cartridge_e2e_with_real_services() {
             client.request("cartridge_addExecuteOutsideTransaction", params).await;
         assert!(result.is_err(), "should fail with VrfMissingFollowUpCall");
     }
+    println!("PASSED");
 
     // -- Cleanup --
-    let _ = _paymaster_process.shutdown().await;
-    let _ = _vrf_process.shutdown().await;
-}
+    let _ = paymaster_process.shutdown().await;
+    let _ = vrf_process.shutdown().await;
 
-// ---------------------------------------------------------------------------
-// Param builders
-// ---------------------------------------------------------------------------
-
-fn make_execute_outside_params(address: &str) -> Vec<serde_json::Value> {
-    vec![
-        json!(address),
-        json!({
-            "caller": "0x414e595f43414c4c4552",
-            "nonce": "0x1",
-            "execute_after": "0x0",
-            "execute_before": "0xffffffffffffffff",
-            "calls": [{
-                "to": "0x1",
-                "selector": "0x2",
-                "calldata": ["0x3"]
-            }]
-        }),
-        json!(["0x0", "0x0"]),
-        json!(null),
-    ]
-}
-
-fn make_vrf_execute_outside_params(
-    player_address: &str,
-    vrf_account_address: &str,
-) -> Vec<serde_json::Value> {
-    vec![
-        json!(player_address),
-        json!({
-            "caller": "0x414e595f43414c4c4552",
-            "nonce": "0x3",
-            "execute_after": "0x0",
-            "execute_before": "0xffffffffffffffff",
-            "calls": [
-                {
-                    "to": vrf_account_address,
-                    "selector": format!("{:#x}", selector!("request_random")),
-                    "calldata": ["0x1", "0x2"]
-                },
-                {
-                    "to": "0xaaa",
-                    "selector": "0xbbb",
-                    "calldata": []
-                }
-            ]
-        }),
-        json!(["0x0", "0x0"]),
-        json!(null),
-    ]
+    println!("\n=== All cartridge e2e tests passed ===");
 }
