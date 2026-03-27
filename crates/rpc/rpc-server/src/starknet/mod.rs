@@ -66,6 +66,9 @@ mod list;
 mod pending;
 mod read;
 mod trace;
+mod v0_10_read;
+mod v0_10_trace;
+mod v0_10_write;
 mod write;
 
 pub use cache::RpcCache;

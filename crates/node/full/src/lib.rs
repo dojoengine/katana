@@ -369,10 +369,13 @@ impl Node {
         // // --- build starknet api
 
         let starknet_api_cfg = StarknetApiConfig {
-            max_event_page_size: config.rpc.max_event_page_size,
-            max_proof_keys: config.rpc.max_proof_keys,
-            max_call_gas: config.rpc.max_call_gas,
-            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            max_event_page_size: config.rpc.starknet.max_event_page_size,
+            max_proof_keys: config.rpc.starknet.max_proof_keys,
+            max_call_gas: config.rpc.starknet.max_call_gas,
+            max_concurrent_estimate_fee_requests: config
+                .rpc
+                .starknet
+                .max_concurrent_estimate_fee_requests,
             simulation_flags: ExecutionFlags::default(),
             versioned_constant_overrides: None,
             #[cfg(feature = "cartridge")]
@@ -416,7 +419,7 @@ impl Node {
 
         #[allow(unused_mut)]
         let mut rpc_server =
-            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+            RpcServer::new().metrics(true).health_check(true).cors(cors).router(rpc_modules);
 
         #[cfg(feature = "explorer")]
         {

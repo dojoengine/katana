@@ -41,7 +41,15 @@ use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::katana::KatanaApiServer;
 #[cfg(feature = "paymaster")]
 use katana_rpc_api::paymaster::PaymasterApiServer;
-use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
+use katana_rpc_api::starknet::v0_10::{
+    StarknetApiServer as StarknetApiServerV010,
+    StarknetTraceApiServer as StarknetTraceApiServerV010,
+    StarknetWriteApiServer as StarknetWriteApiServerV010,
+};
+use katana_rpc_api::starknet::v0_9::{
+    StarknetApiServer as StarknetApiServerV09, StarknetTraceApiServer as StarknetTraceApiServerV09,
+    StarknetWriteApiServer as StarknetWriteApiServerV09,
+};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(feature = "tee")]
@@ -57,7 +65,7 @@ use katana_rpc_server::starknet::CartridgePaymasterConfig;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
-use katana_rpc_server::{RpcServer, RpcServerHandle};
+use katana_rpc_server::{RpcRouter, RpcServer, RpcServerHandle};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_starknet::rpc::Client as StarknetClient;
@@ -300,10 +308,13 @@ where
         // --- build starknet api
 
         let starknet_api_cfg = StarknetApiConfig {
-            max_event_page_size: config.rpc.max_event_page_size,
-            max_proof_keys: config.rpc.max_proof_keys,
-            max_call_gas: config.rpc.max_call_gas,
-            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            max_event_page_size: config.rpc.starknet.max_event_page_size,
+            max_proof_keys: config.rpc.starknet.max_proof_keys,
+            max_call_gas: config.rpc.starknet.max_call_gas,
+            max_concurrent_estimate_fee_requests: config
+                .rpc
+                .starknet
+                .max_concurrent_estimate_fee_requests,
             simulation_flags: execution_flags,
             versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
@@ -323,32 +334,71 @@ where
             RpcCache::new(),
         );
 
-        if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            #[cfg(feature = "explorer")]
-            if config.rpc.explorer {
-                rpc_modules.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
-            }
+        // --- build versioned starknet modules ---
+        //
+        // Versioned paths (/rpc/v0_9, /rpc/v0_10) only expose starknet APIs.
+        // Non-starknet APIs (Katana, Dev, TxPool, TEE) are only on the root (/).
 
-            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
-            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
-            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
+        use katana_node_config::rpc::StarknetApiVersion;
+
+        // Build a starknet module for each configured version.
+        let mut starknet_modules: Vec<(StarknetApiVersion, RpcModule<()>)> = Vec::new();
+
+        if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
+            for &version in config.rpc.starknet.versions.iter() {
+                let mut module = RpcModule::new(());
+
+                #[cfg(feature = "explorer")]
+                if config.rpc.explorer {
+                    module.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
+                }
+
+                match version {
+                    StarknetApiVersion::V0_9 => {
+                        module.merge(StarknetApiServerV09::into_rpc(starknet_api.clone()))?;
+                        module.merge(StarknetWriteApiServerV09::into_rpc(starknet_api.clone()))?;
+                        module.merge(StarknetTraceApiServerV09::into_rpc(starknet_api.clone()))?;
+                    }
+                    StarknetApiVersion::V0_10 => {
+                        module.merge(StarknetApiServerV010::into_rpc(starknet_api.clone()))?;
+                        module.merge(StarknetWriteApiServerV010::into_rpc(starknet_api.clone()))?;
+                        module.merge(StarknetTraceApiServerV010::into_rpc(starknet_api.clone()))?;
+                    }
+                }
+
+                starknet_modules.push((version, module));
+            }
         }
 
+        // --- build root module (all APIs) ---
+        //
+        // `rpc_modules` already contains paymaster/cartridge modules merged above.
+        // We add the default starknet version plus all non-starknet APIs.
+
+        let default_version = config.rpc.starknet.default_version;
+        let default_starknet = starknet_modules
+            .iter()
+            .find(|(v, _)| *v == default_version)
+            .map(|(_, m)| m.clone())
+            .unwrap_or_else(|| RpcModule::new(()));
+
+        let mut root_module = rpc_modules;
+        root_module.merge(default_starknet)?;
+
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
+            root_module.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
             let api = DevApi::new(backend.clone(), block_producer.clone(), pool.clone());
-            rpc_modules.merge(DevApiServer::into_rpc(api))?;
+            root_module.merge(DevApiServer::into_rpc(api))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::TxPool) {
             let api = katana_rpc_server::txpool::TxPoolApi::new(pool.clone());
-            rpc_modules.merge(katana_rpc_api::txpool::TxPoolApiServer::into_rpc(api))?;
+            root_module.merge(katana_rpc_api::txpool::TxPoolApiServer::into_rpc(api))?;
         }
 
-        // --- build tee api (if configured)
         #[cfg(feature = "tee")]
         if config.rpc.apis.contains(&RpcModuleKind::Tee) {
             if let Some(ref tee_config) = config.tee {
@@ -373,15 +423,23 @@ where
                 };
 
                 let api = TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
-                rpc_modules.merge(TeeApiServer::into_rpc(api))?;
+                root_module.merge(TeeApiServer::into_rpc(api))?;
 
                 info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
             }
         }
 
+        // Build RPC server with path-based routing.
+        let mut versioned_router = RpcRouter::new();
+        for (version, module) in starknet_modules {
+            versioned_router = versioned_router.route(version.path_segment(), module);
+        }
+
+        let router = RpcRouter::new().route("/", root_module).nest("/rpc", versioned_router);
+
         #[allow(unused_mut)]
         let mut rpc_server =
-            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+            RpcServer::new().metrics(true).health_check(true).cors(cors).router(router);
 
         #[cfg(feature = "explorer")]
         {

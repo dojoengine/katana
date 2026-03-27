@@ -436,6 +436,7 @@ pub mod json_rpc {
                 l1_da_mode,
                 starknet_version,
                 transactions: tx_with_receipts,
+                ..
             } = match block_resp {
                 GetBlockWithReceiptsResponse::Block(b) => b,
                 GetBlockWithReceiptsResponse::PreConfirmed(_) => {

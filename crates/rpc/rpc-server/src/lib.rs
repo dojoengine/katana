@@ -4,16 +4,14 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use jsonrpsee::core::middleware::RpcServiceBuilder;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
-use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
-use jsonrpsee::RpcModule;
-use katana_tracing::gcloud::GoogleStackDriverMakeSpan;
-use tower::ServiceBuilder;
-use tower_http::trace::TraceLayer;
-use tracing::info;
+use jsonrpsee::server::{Server, ServerConfig, ServerHandle, StopHandle, TowerServiceBuilder};
+use jsonrpsee::{Methods, RpcModule};
+use tracing::{error, info};
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
@@ -28,6 +26,7 @@ pub mod dev;
 pub mod health;
 pub mod metrics;
 pub mod permit;
+mod router;
 pub mod starknet;
 pub mod txpool;
 
@@ -38,6 +37,7 @@ use health::HealthCheck;
 pub use jsonrpsee::http_client::HttpClient;
 pub use katana_rpc_api as api;
 use metrics::RpcServerMetricsLayer;
+pub use router::RpcRouter;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -64,6 +64,10 @@ pub enum Error {
     #[error(transparent)]
     Client(#[from] jsonrpsee::core::ClientError),
 }
+
+// ---------------------------------------------------------------------------
+// RpcServerHandle
+// ---------------------------------------------------------------------------
 
 /// The RPC server handle.
 #[derive(Debug, Clone)]
@@ -98,14 +102,36 @@ impl RpcServerHandle {
     }
 }
 
+// ---------------------------------------------------------------------------
+// RpcServer
+// ---------------------------------------------------------------------------
+
+/// JSON-RPC server with path-based module routing.
+///
+/// Accepts an [`RpcRouter`] that maps URL paths to modules, and handles
+/// server configuration (CORS, timeouts, metrics, etc.).
+///
+/// ```rust,ignore
+/// let router = RpcRouter::new()
+///     .route("/", v09_module.clone())
+///     .route("/rpc/v0_9", v09_module)
+///     .route("/rpc/v0_10", v010_module);
+///
+/// let handle = RpcServer::new(router)
+///     .cors(cors)
+///     .health_check(true)
+///     .metrics(true)
+///     .start(addr)
+///     .await?;
+/// ```
 #[derive(Debug)]
 pub struct RpcServer {
+    router: RpcRouter,
+
     metrics: bool,
     cors: Option<Cors>,
     health_check: bool,
     explorer: bool,
-
-    module: RpcModule<()>,
     max_connections: u32,
     max_request_body_size: u32,
     max_response_body_size: u32,
@@ -115,11 +141,11 @@ pub struct RpcServer {
 impl RpcServer {
     pub fn new() -> Self {
         Self {
+            router: RpcRouter::default(),
             cors: None,
             metrics: false,
             explorer: false,
             health_check: false,
-            module: RpcModule::new(()),
             max_connections: 100,
             max_request_body_size: TEN_MB_SIZE_BYTES,
             max_response_body_size: TEN_MB_SIZE_BYTES,
@@ -152,20 +178,18 @@ impl RpcServer {
     }
 
     /// Collect metrics about the RPC server.
-    ///
-    /// See top level module of [`crate::metrics`] to see what metrics are collected.
     pub fn metrics(mut self, enable: bool) -> Self {
         self.metrics = enable;
         self
     }
 
-    /// Enables health checking endpoint via HTTP `GET /health`
+    /// Enables health checking endpoint via HTTP `GET /health`.
     pub fn health_check(mut self, enable: bool) -> Self {
         self.health_check = enable;
         self
     }
 
-    /// Enables explorer.
+    /// Enables the embedded explorer UI.
     pub fn explorer(mut self, enable: bool) -> Self {
         self.explorer = enable;
         self
@@ -176,40 +200,63 @@ impl RpcServer {
         self
     }
 
-    /// Adds a new RPC module to the server.
-    ///
-    /// This can be chained with other calls to `module` to add multiple modules.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// let server = RpcServer::new().module(module_a()).unwrap().module(module_b()).unwrap();
-    /// ```
-    pub fn module(mut self, module: RpcModule<()>) -> Result<Self, Error> {
-        self.module.merge(module)?;
-        Ok(self)
+    pub fn router(mut self, router: impl Into<RpcRouter>) -> Self {
+        self.router = router.into();
+        self
     }
 
     pub async fn start(&self, addr: SocketAddr) -> Result<RpcServerHandle, Error> {
-        let mut modules = self.module.clone();
+        use futures::FutureExt;
+        use jsonrpsee::server::{serve_with_graceful_shutdown, stop_channel};
+        use katana_tracing::gcloud::GoogleStackDriverMakeSpan;
+        use tokio::net::TcpListener;
+        use tower::ServiceBuilder;
+        use tower_http::trace::TraceLayer;
 
-        let health_check_proxy = if self.health_check {
-            modules.merge(HealthCheck)?;
-            Some(HealthCheck::proxy())
+        // Prepare health check module
+        let health_module: Option<Methods> = if self.health_check {
+            let mut m = RpcModule::new(());
+            m.merge(HealthCheck)?;
+            Some(m.into())
         } else {
             None
         };
 
-        #[cfg(feature = "explorer")]
-        let explorer_layer = if self.explorer {
-            let layer = katana_explorer::ExplorerLayer::builder().embedded().build().unwrap();
-            Some(layer)
-        } else {
-            None
-        };
+        // Convert router to Methods, merging health check and building per-route
+        // metrics. Versioned routes get a `version` label on their metrics (e.g.,
+        // "v0_9"), the root route uses unlabelled metrics.
+        let routes: Vec<(String, Methods, Option<RpcServerMetricsLayer>)> = self
+            .router
+            .routes
+            .iter()
+            .map(|(path, module)| {
+                let mut m = module.clone();
+                if let Some(ref hc) = health_module {
+                    let _ = m.merge(hc.clone());
+                }
 
-        let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
+                let metrics = if self.metrics {
+                    // Extract a version label from the path. For paths like
+                    // "/rpc/v0_9" we use "v0_9"; for "/" we use no version label.
+                    let version = path.rsplit('/').find(|s| !s.is_empty());
+
+                    match version {
+                        Some(v) if path != "/" => {
+                            Some(RpcServerMetricsLayer::new_with_labels(module, &[("version", v)]))
+                        }
+                        _ => Some(RpcServerMetricsLayer::new(module)),
+                    }
+                } else {
+                    None
+                };
+
+                (path.clone(), m.into(), metrics)
+            })
+            .collect();
+
+        // HTTP middleware
         let http_tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
+        let health_check_proxy = self.health_check.then(HealthCheck::proxy);
 
         let http_middleware = ServiceBuilder::new()
             .layer(http_tracer)
@@ -218,41 +265,101 @@ impl RpcServer {
             .timeout(self.timeout);
 
         #[cfg(feature = "explorer")]
-        let http_middleware = http_middleware.option_layer(explorer_layer);
+        let http_middleware = {
+            let explorer_layer = if self.explorer {
+                Some(katana_explorer::ExplorerLayer::builder().embedded().build().unwrap())
+            } else {
+                None
+            };
+            http_middleware.option_layer(explorer_layer)
+        };
 
-        let rpc_middleware =
-            RpcServiceBuilder::new().option_layer(rpc_metrics).layer(logger::RpcLoggerLayer::new());
-
+        // Server config
         let cfg = ServerConfig::builder()
             .max_connections(self.max_connections)
             .max_request_body_size(self.max_request_body_size)
             .max_response_body_size(self.max_response_body_size)
             .build();
 
-        let server = Server::builder()
+        let svc_builder = Server::builder()
             .set_http_middleware(http_middleware)
-            .set_rpc_middleware(rpc_middleware)
             .set_config(cfg)
-            .build(addr)
-            .await?;
+            .to_service_builder();
 
-        let actual_addr = server.local_addr()?;
-        let handle = server.start(modules);
+        let listener = TcpListener::bind(addr).await?;
+        let actual_addr = listener.local_addr()?;
+        let (stop_hdl, server_handle) = stop_channel();
 
-        let handle = RpcServerHandle { handle, addr: actual_addr };
+        // Per-connection state.
+        #[derive(Clone)]
+        struct PerConnection<RpcMiddleware, HttpMiddleware> {
+            routes: Arc<Vec<(String, Methods, Option<RpcServerMetricsLayer>)>>,
+            stop_handle: StopHandle,
+            svc_builder: TowerServiceBuilder<RpcMiddleware, HttpMiddleware>,
+        }
 
-        // The socket address that we log out must be from the RPC handle, in the case that the
-        // `addr` passed to this method has port number 0. As the 0 port will be resolved to
-        // a free port during the call to `ServerBuilder::build(addr)`.
+        let per_conn =
+            PerConnection { svc_builder, stop_handle: stop_hdl.clone(), routes: Arc::new(routes) };
 
-        info!(target: "rpc", addr = %handle.addr, "RPC server started.");
+        tokio::spawn(async move {
+            loop {
+                let stream = tokio::select! {
+                    res = listener.accept() => {
+                        match res {
+                            Ok((stream, _)) => stream,
+                            Err(e) => {
+                                error!(target: "rpc", "failed to accept connection: {e:?}");
+                                continue;
+                            }
+                        }
+                    }
+
+                    _ = per_conn.stop_handle.clone().shutdown() => break,
+                };
+
+                let per_conn = per_conn.clone();
+                let stop_handle = per_conn.stop_handle.clone();
+
+                let svc = tower::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                    let PerConnection { routes, stop_handle, svc_builder } = per_conn.clone();
+
+                    // Route: first prefix match wins. Each route carries its own
+                    // metrics layer so that method calls are labelled with the path.
+                    let path = req.uri().path();
+                    let (methods, rpc_metrics) = routes
+                        .iter()
+                        .find(|(prefix, _, _)| path.starts_with(prefix.as_str()))
+                        .map(|(_, m, metrics)| (m.clone(), metrics.clone()))
+                        .unwrap_or_default();
+
+                    let rpc_middleware = RpcServiceBuilder::new()
+                        .option_layer(rpc_metrics)
+                        .layer(logger::RpcLoggerLayer::new());
+
+                    let mut svc =
+                        svc_builder.set_rpc_middleware(rpc_middleware).build(methods, stop_handle);
+
+                    async move { tower::Service::call(&mut svc, req).await }.boxed()
+                });
+
+                tokio::spawn(serve_with_graceful_shutdown(stream, svc, stop_handle.shutdown()));
+            }
+        });
+
+        info!(target: "rpc", addr = %actual_addr, "RPC server started.");
+
+        for (path, _) in &self.router.routes {
+            if path != "/" {
+                info!(target: "rpc", path = %path, "RPC module mounted.");
+            }
+        }
 
         if self.explorer {
-            let addr = format!("{}/explorer", handle.addr);
+            let addr = format!("{actual_addr}/explorer");
             info!(target: "explorer", %addr, "Explorer started.");
         }
 
-        Ok(handle)
+        Ok(RpcServerHandle { handle: server_handle, addr: actual_addr })
     }
 }
 
@@ -269,23 +376,22 @@ mod tests {
 
     use jsonrpsee::{rpc_params, RpcModule};
 
-    use crate::RpcServer;
+    use crate::{RpcRouter, RpcServer};
 
     #[tokio::test]
     async fn test_rpc_server_timeout() {
         use jsonrpsee::core::client::ClientT;
 
-        // Create a method that never returns to simulate a long running request
         let mut module = RpcModule::new(());
         module.register_async_method("test_timeout", |_, _, _| pending::<()>()).unwrap();
 
-        let server = RpcServer::new().timeout(Duration::from_millis(200)).module(module).unwrap();
+        let router = RpcRouter::new().route("/", module);
+        let server = RpcServer::new().timeout(Duration::from_millis(200)).router(router);
 
-        // Start the server
         let addr = "127.0.0.1:0".parse().unwrap();
-        let server_handle = server.start(addr).await.unwrap();
+        let handle = server.start(addr).await.unwrap();
 
-        let client = server_handle.http_client().unwrap();
+        let client = handle.http_client().unwrap();
         let result = client.request::<String, _>("test_timeout", rpc_params![]).await;
 
         assert!(result.is_err(), "the request failed due to timeout");
