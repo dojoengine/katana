@@ -97,33 +97,30 @@ impl StateUpdatesWithClasses {
     }
 }
 
-pub fn compute_state_diff_hash(states: StateUpdates) -> Felt {
+pub fn compute_state_diff_hash(states: &StateUpdates) -> Felt {
     let replaced_classes_len = states.replaced_classes.len();
     let deployed_contracts_len = states.deployed_contracts.len();
     let updated_contracts_len = Felt::from(deployed_contracts_len + replaced_classes_len);
     // flatten the updated contracts into a single list of Felt values
-    let updated_contracts = states.deployed_contracts.into_iter().chain(states.replaced_classes);
-    let updated_contracts = updated_contracts.flat_map(|(addr, hash)| vec![addr.into(), hash]);
+    let updated_contracts = states.deployed_contracts.iter().chain(states.replaced_classes.iter());
+    let updated_contracts = updated_contracts.flat_map(|(addr, hash)| [(*addr).into(), *hash]);
 
-    let declared_classes = states.declared_classes;
-    let declared_classes_len = Felt::from(declared_classes.len());
-    let declared_classes = declared_classes.into_iter().flat_map(|e| vec![e.0, e.1]);
+    let declared_classes_len = Felt::from(states.declared_classes.len());
+    let declared_classes = states.declared_classes.iter().flat_map(|(k, v)| [*k, *v]);
 
-    let deprecated_declared_classes = states.deprecated_declared_classes;
-    let deprecated_declared_classes_len = Felt::from(deprecated_declared_classes.len());
+    let deprecated_declared_classes_len = Felt::from(states.deprecated_declared_classes.len());
 
-    let storage_updates = states.storage_updates;
-    let storage_updates_len = Felt::from(storage_updates.len());
-    let storage_updates = storage_updates.into_iter().flat_map(|update| {
-        let address = Felt::from(update.0);
-        let storage_entries_len = Felt::from(update.1.len());
-        let storage_entries = update.1.into_iter().flat_map(|entries| vec![entries.0, entries.1]);
+    let storage_updates_len = Felt::from(states.storage_updates.len());
+    let storage_updates = states.storage_updates.iter().flat_map(|(addr, entries)| {
+        let address = Felt::from(*addr);
+        let storage_entries_len = Felt::from(entries.len());
+        let storage_entries = entries.iter().flat_map(|(k, v)| [*k, *v]);
         iter::once(address).chain(iter::once(storage_entries_len)).chain(storage_entries)
     });
 
-    let nonce_updates = states.nonce_updates;
-    let nonces_len = Felt::from(nonce_updates.len());
-    let nonce_updates = nonce_updates.into_iter().flat_map(|nonce| vec![nonce.0.into(), nonce.1]);
+    let nonces_len = Felt::from(states.nonce_updates.len());
+    let nonce_updates =
+        states.nonce_updates.iter().flat_map(|(addr, nonce)| [(*addr).into(), *nonce]);
 
     let magic = ShortString::from_ascii("STARKNET_STATE_DIFF0");
     let elements: Vec<Felt> = iter::once(Felt::from(magic))
@@ -132,7 +129,7 @@ pub fn compute_state_diff_hash(states: StateUpdates) -> Felt {
         .chain(iter::once(declared_classes_len))
         .chain(declared_classes)
         .chain(iter::once(deprecated_declared_classes_len))
-        .chain(deprecated_declared_classes)
+        .chain(states.deprecated_declared_classes.iter().copied())
         .chain(iter::once(Felt::ONE))
         .chain(iter::once(Felt::ZERO))
         .chain(iter::once(storage_updates_len))

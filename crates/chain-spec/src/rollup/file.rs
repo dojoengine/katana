@@ -284,7 +284,7 @@ impl LocalChainConfigDir {
     }
 }
 
-/// ```
+/// ```text
 /// | -------- | --------------------------------------------- |
 /// | Platform | Path                                          |
 /// | -------- | --------------------------------------------- |
@@ -357,7 +357,6 @@ mod tests {
             settlement: SettlementLayer::Starknet {
                 block: 0,
                 id: ChainId::default(),
-                account: ContractAddress::default(),
                 core_contract: ContractAddress::default(),
                 rpc_url: Url::parse("http://localhost:5050").expect("valid url"),
             },

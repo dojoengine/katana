@@ -1,4 +1,4 @@
-use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -63,10 +63,49 @@ pub trait StateFactoryProvider: Send + Sync {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>>;
 
     /// Returns a state provider for retrieving historical state at the given block.
+    ///
+    /// Returns [`ProviderError::HistoricalStatePruned`](crate::error::ProviderError::HistoricalStatePruned)
+    /// if the block exists but its historical state has been pruned.
     fn historical(
         &self,
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<Box<dyn StateProvider>>>;
+}
+
+/// A type that manages retention metadata for historical state availability.
+#[auto_impl::auto_impl(&, Box, Arc)]
+pub trait HistoricalStateRetentionProvider: Send + Sync {
+    /// Returns the first block number for which historical state is still available.
+    ///
+    /// # Returns
+    ///
+    /// - `None` if no blocks have been stored in the database yet.
+    /// - `Some(0)` if blocks exist but no pruning has ever been performed, meaning all historical
+    ///   state since genesis is available.
+    /// - `Some(n)` if pruning has been performed, where `n` is the earliest block for which
+    ///   historical state is still retained. Blocks before `n` have been pruned.
+    fn earliest_available_state_block(&self) -> ProviderResult<Option<BlockNumber>>;
+
+    /// Sets the first block number for which historical state is still available.
+    fn set_earliest_available_state_block(&self, block_number: BlockNumber) -> ProviderResult<()>;
+
+    /// Returns the first block number for which historical state trie snapshots are still
+    /// available.
+    ///
+    /// # Returns
+    ///
+    /// - `None` if no blocks have been stored in the database yet.
+    /// - `Some(0)` if blocks exist but no pruning has ever been performed, meaning all historical
+    ///   trie snapshots since genesis are available.
+    /// - `Some(n)` if pruning has been performed, where `n` is the earliest block for which
+    ///   historical trie snapshots are still retained. Blocks before `n` have been pruned.
+    fn earliest_available_state_trie_block(&self) -> ProviderResult<Option<BlockNumber>>;
+
+    /// Sets the first block number for which historical state trie snapshots are still available.
+    fn set_earliest_available_state_trie_block(
+        &self,
+        block_number: BlockNumber,
+    ) -> ProviderResult<()>;
 }
 
 // TEMP: added mainly for compatibility reason. it might be removed in the future.

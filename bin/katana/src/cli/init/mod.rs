@@ -231,7 +231,6 @@ impl RollupArgs {
         };
 
         let settlement = SettlementLayer::Starknet {
-            account: output.account,
             rpc_url: output.rpc_url.clone(),
             id: ChainId::parse(&output.settlement_id)?,
             block: output.deployment_outcome.block_number,
@@ -354,7 +353,6 @@ impl RollupArgs {
                 id,
                 deployment_outcome,
                 rpc_url: settlement_provider.url().clone(),
-                account: settlement_account_address,
                 settlement_id: ShortString::try_from(l1_chain_id).unwrap(),
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
@@ -423,10 +421,6 @@ struct SovereignOutcome {
 
 #[derive(Debug)]
 struct PersistentOutcome {
-    /// the account address that is used to send the transactions for contract
-    /// deployment/initialization.
-    pub account: ContractAddress,
-
     // the id of the new chain to be initialized.
     pub id: ShortString,
 

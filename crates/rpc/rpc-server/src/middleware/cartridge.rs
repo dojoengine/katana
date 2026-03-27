@@ -288,10 +288,10 @@ where
                 },
             )?;
 
-        let deploy_tx = dbg!(self
-            .get_controller_deployment_tx(address, nonce)
-            .await
-            .map_err(|err| Self::controller_deployment_error(err.to_string()))?);
+        let deploy_tx =
+            dbg!(self.get_controller_deployment_tx(address, nonce).await.map_err(|err| {
+                CartridgeApiError::ControllerDeployment { reason: err.to_string() }
+            })?);
 
         // None means the address is not of a Controller
         if let Some(tx) = deploy_tx {

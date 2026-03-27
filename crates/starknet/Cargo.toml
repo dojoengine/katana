@@ -1,8 +1,8 @@
 [package]
-name = "katana-starknet"
 edition.workspace = true
 license.workspace = true
 license-file.workspace = true
+name = "katana-starknet"
 repository.workspace = true
 version.workspace = true
 

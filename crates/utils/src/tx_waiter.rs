@@ -1,10 +1,8 @@
-use std::future::Future;
+use std::future::IntoFuture;
 use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use anyhow::Result;
-use futures::FutureExt;
 pub use katana_primitives::block::FinalityStatus;
 use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
@@ -12,16 +10,7 @@ use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
 use katana_rpc_types::TxStatus;
-use katana_starknet::rpc::{
-    StarknetRpcClient as StarknetClient, StarknetRpcClientError as StarknetClientError,
-};
-use tokio::time::{Instant, Interval};
-
-type GetTxStatusResult = Result<TxStatus, StarknetClientError>;
-type GetTxReceiptResult = Result<TxReceiptWithBlockInfo, StarknetClientError>;
-
-type GetTxStatusFuture<'a> = Pin<Box<dyn Future<Output = GetTxStatusResult> + Send + 'a>>;
-type GetTxReceiptFuture<'a> = Pin<Box<dyn Future<Output = GetTxReceiptResult> + Send + 'a>>;
+use katana_starknet::rpc::{StarknetRpcClient, StarknetRpcClientError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TxWaitingError {
@@ -32,7 +21,7 @@ pub enum TxWaitingError {
     TransactionReverted(String),
 
     #[error(transparent)]
-    Client(StarknetClientError),
+    Client(StarknetRpcClientError),
 }
 
 /// Utility for waiting on a transaction.
@@ -74,20 +63,13 @@ pub struct TxWaiter<'a> {
     must_succeed: bool,
     /// Poll the transaction every `interval` milliseconds. Milliseconds are used so that
     /// we can be more precise with the polling interval. Defaults to 2.5 seconds.
-    interval: Interval,
+    interval: Duration,
     /// The maximum amount of time to wait for the transaction to achieve the desired status. An
     /// error will be returned if it is unable to finish within the `timeout` duration. Defaults to
     /// 300 seconds.
     timeout: Duration,
     /// The provider to use for polling the transaction.
-    rpc_client: &'a StarknetClient,
-
-    /// The future that gets the transaction status.
-    tx_status_request_fut: Option<GetTxStatusFuture<'a>>,
-    /// The future that gets the transaction receipt.
-    tx_receipt_request_fut: Option<GetTxReceiptFuture<'a>>,
-    /// The time when the transaction waiter was first polled.
-    started_at: Option<Instant>,
+    rpc_client: &'a StarknetRpcClient,
 }
 
 impl<'a> TxWaiter<'a> {
@@ -99,26 +81,19 @@ impl<'a> TxWaiter<'a> {
     /// Interval for use with 3rd party provider without burning the API rate limit.
     const DEFAULT_INTERVAL: Duration = Duration::from_millis(2500);
 
-    pub fn new(tx: Felt, rpc_client: &'a StarknetClient) -> Self {
+    pub fn new(tx: Felt, rpc_client: &'a StarknetRpcClient) -> Self {
         Self {
             rpc_client,
             tx_hash: tx,
-            started_at: None,
             must_succeed: true,
             tx_finality_status: None,
-            tx_status_request_fut: None,
-            tx_receipt_request_fut: None,
             timeout: Self::DEFAULT_TIMEOUT,
-            interval: tokio::time::interval_at(
-                Instant::now() + Self::DEFAULT_INTERVAL,
-                Self::DEFAULT_INTERVAL,
-            ),
+            interval: Self::DEFAULT_INTERVAL,
         }
     }
 
     pub fn with_interval(self, milisecond: u64) -> Self {
-        let interval = Duration::from_millis(milisecond);
-        Self { interval: tokio::time::interval_at(Instant::now() + interval, interval), ..self }
+        Self { interval: Duration::from_millis(milisecond), ..self }
     }
 
     pub fn with_tx_status(self, status: FinalityStatus) -> Self {
@@ -127,6 +102,56 @@ impl<'a> TxWaiter<'a> {
 
     pub fn with_timeout(self, timeout: Duration) -> Self {
         Self { timeout, ..self }
+    }
+
+    async fn wait(self) -> Result<TxReceiptWithBlockInfo, TxWaitingError> {
+        tokio::time::timeout(self.timeout, self.poll_loop())
+            .await
+            .map_err(|_| TxWaitingError::Timeout)?
+    }
+
+    async fn poll_loop(&self) -> Result<TxReceiptWithBlockInfo, TxWaitingError> {
+        let mut interval =
+            tokio::time::interval_at(tokio::time::Instant::now() + self.interval, self.interval);
+
+        loop {
+            interval.tick().await;
+
+            // Phase 1: Check transaction status
+            let status = match self.rpc_client.get_transaction_status(self.tx_hash).await {
+                Ok(status) => status,
+                Err(StarknetRpcClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {
+                    continue
+                }
+                Err(e) => return Err(TxWaitingError::Client(e)),
+            };
+
+            // Only fetch receipt once the transaction has been included
+            match status {
+                TxStatus::Received | TxStatus::Candidate => continue,
+                TxStatus::PreConfirmed(_)
+                | TxStatus::AcceptedOnL2(_)
+                | TxStatus::AcceptedOnL1(_) => {}
+            }
+
+            // Phase 2: Fetch receipt
+            let receipt = match self.rpc_client.get_transaction_receipt(self.tx_hash).await {
+                Ok(receipt) => receipt,
+                Err(StarknetRpcClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {
+                    continue
+                }
+                Err(e) => return Err(TxWaitingError::Client(e)),
+            };
+
+            // Phase 3: Evaluate receipt against configured expectations
+            if let Some(result) = Self::evaluate_receipt_from_params(
+                receipt,
+                self.tx_finality_status,
+                self.must_succeed,
+            ) {
+                return result;
+            }
+        }
     }
 
     // Helper function to evaluate if the transaction receipt should be accepted yet or not, based
@@ -185,87 +210,12 @@ impl<'a> TxWaiter<'a> {
     }
 }
 
-impl Future for TxWaiter<'_> {
+impl<'a> IntoFuture for TxWaiter<'a> {
     type Output = Result<TxReceiptWithBlockInfo, TxWaitingError>;
+    type IntoFuture = Pin<Box<dyn std::future::Future<Output = Self::Output> + Send + 'a>>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-
-        if this.started_at.is_none() {
-            this.started_at = Some(Instant::now());
-        }
-
-        loop {
-            if let Some(started_at) = this.started_at {
-                if started_at.elapsed() > this.timeout {
-                    return Poll::Ready(Err(TxWaitingError::Timeout));
-                }
-            }
-
-            if let Some(mut fut) = this.tx_status_request_fut.take() {
-                match fut.poll_unpin(cx) {
-                    Poll::Ready(res) => match res {
-                        Ok(status) => match status {
-                            TxStatus::PreConfirmed(_)
-                            | TxStatus::AcceptedOnL2(_)
-                            | TxStatus::AcceptedOnL1(_) => {
-                                this.tx_receipt_request_fut = Some(Box::pin(
-                                    this.rpc_client.get_transaction_receipt(this.tx_hash),
-                                ));
-                            }
-
-                            TxStatus::Candidate | TxStatus::Received => {}
-                        },
-
-                        Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
-
-                        Err(e) => {
-                            return Poll::Ready(Err(TxWaitingError::Client(e)));
-                        }
-                    },
-
-                    Poll::Pending => {
-                        this.tx_status_request_fut = Some(fut);
-                        return Poll::Pending;
-                    }
-                }
-            }
-
-            if let Some(mut fut) = this.tx_receipt_request_fut.take() {
-                match fut.poll_unpin(cx) {
-                    Poll::Pending => {
-                        this.tx_receipt_request_fut = Some(fut);
-                        return Poll::Pending;
-                    }
-
-                    Poll::Ready(res) => match res {
-                        Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
-                        Err(e) => {
-                            return Poll::Ready(Err(TxWaitingError::Client(e)));
-                        }
-
-                        Ok(res) => {
-                            if let Some(res) = Self::evaluate_receipt_from_params(
-                                res,
-                                this.tx_finality_status,
-                                this.must_succeed,
-                            ) {
-                                return Poll::Ready(res);
-                            }
-                        }
-                    },
-                }
-            }
-
-            if this.interval.poll_tick(cx).is_ready() {
-                this.tx_status_request_fut =
-                    Some(Box::pin(this.rpc_client.get_transaction_status(this.tx_hash)));
-            } else {
-                break;
-            }
-        }
-
-        Poll::Pending
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.wait())
     }
 }
 
@@ -277,10 +227,6 @@ impl std::fmt::Debug for TxWaiter<'_> {
             .field("must_succeed", &self.must_succeed)
             .field("interval", &self.interval)
             .field("timeout", &self.timeout)
-            .field("provider", &"..")
-            .field("tx_status_request_fut", &"..")
-            .field("tx_receipt_request_fut", &"..")
-            .field("started_at", &self.started_at)
             .finish()
     }
 }

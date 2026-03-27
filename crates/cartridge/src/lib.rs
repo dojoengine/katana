@@ -10,6 +10,3 @@ pub use vrf::server::{
     VrfServiceProcess, VRF_ACCOUNT_SALT, VRF_CONSUMER_SALT, VRF_HARDCODED_SECRET_KEY,
     VRF_SERVER_PORT,
 };
-
-#[rustfmt::skip]
-pub mod controller;

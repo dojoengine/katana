@@ -15,7 +15,7 @@ use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
 use spinoff::{spinners, Color, Spinner};
 use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAccount};
-use starknet::contract::ContractFactory;
+use starknet::contract::{ContractFactory, UdcSelector};
 use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
 use starknet::providers::{Provider, ProviderError};
@@ -32,9 +32,9 @@ type SettlementInitializerAccount = SingleOwnerAccount<SettlementChainProvider, 
 /// This program hash is required to be known by the settlement contract in order to
 /// only accept a new state from a valid SNOS program.
 ///
-/// This program can be found here: <https://github.com/starkware-libs/cairo-lang/blob/a86e92bfde9c171c0856d7b46580c66e004922f3/src/starkware/starknet/core/os/os.cairo>.
+/// This program can be found here: <https://github.com/starkware-libs/sequencer/blob/v0.16.0-rc.0/crates/apollo_starknet_os_program/src/cairo/starkware/starknet/core/os/os.cairo>.
 const SNOS_PROGRAM_HASH: Felt =
-    felt!("0x054d3603ed14fb897d0925c48f26330ea9950bd4ca95746dad4f7f09febffe0d");
+    felt!("0x10e5341a417427d140af8f5def7d2cc687d84591ff8ec241623c590b5ca8c80");
 
 /// To execute the SNOS program, a specific layout named "all_cairo" is required.
 /// However, this layout can't be verified by the Cairo verifier that lives on Starknet.
@@ -50,7 +50,7 @@ const SNOS_PROGRAM_HASH: Felt =
 ///
 /// This program can be found here: <https://github.com/starkware-libs/cairo-lang/blob/8276ac35830148a397e1143389f23253c8b80e93/src/starkware/cairo/cairo_verifier/layouts/all_cairo/cairo_verifier.cairo>.
 const LAYOUT_BRIDGE_PROGRAM_HASH: Felt =
-    felt!("0x193641eb151b0f41674641089952e60bc3aded26e3cf42793655c562b8c3aa0");
+    felt!("0x43c5c4cc37c4614d2cf3a833379052c3a38cd18d688b617e2c720e8f941cb8");
 
 /// The bootloader program hash is the program hash of the bootloader program.
 ///
@@ -126,9 +126,7 @@ pub async fn deploy_settlement_contract(
         sp.update_text("Deploying contract...");
 
         let salt = Felt::from(rand::random::<u64>());
-
-        #[allow(deprecated)]
-        let factory = ContractFactory::new(class_hash, &account);
+        let factory = ContractFactory::new_with_udc(class_hash, &account, UdcSelector::Legacy);
 
         const INITIAL_STATE_ROOT: Felt = Felt::ZERO;
         /// When updating the piltover contract with the genesis block (ie block number 0), in the
@@ -402,24 +400,14 @@ fn prepare_contract_declaration_params(
 // NOTE: The reason why we're using the same address for both fee tokens is because we don't yet
 // support having native fee token on the chain.
 fn compute_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
-    compute_starknet_os_config_hash(chain_id, fee_token, fee_token)
+    compute_starknet_os_config_hash(chain_id, fee_token)
 }
 
-// https://github.com/starkware-libs/cairo-lang/blob/a86e92bfde9c171c0856d7b46580c66e004922f3/src/starkware/starknet/core/os/os_config/os_config.cairo#L1-L39
-fn compute_starknet_os_config_hash(
-    chain_id: Felt,
-    deprecated_fee_token: Felt,
-    fee_token: Felt,
-) -> Felt {
+// https://github.com/starkware-libs/sequencer/blob/e13acc4c582352e777f5beae3476d157e6bdf4cf/crates/apollo_starknet_os_program/src/cairo/starkware/starknet/core/os/os_config/os_config.cairo#L10
+fn compute_starknet_os_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
     // A constant representing the StarkNet OS config version.
-    const STARKNET_OS_CONFIG_VERSION: ShortString = ShortString::from_ascii("StarknetOsConfig2");
-
-    compute_hash_on_elements(&[
-        STARKNET_OS_CONFIG_VERSION.into(),
-        chain_id,
-        deprecated_fee_token,
-        fee_token,
-    ])
+    const STARKNET_OS_CONFIG_VERSION: ShortString = ShortString::from_ascii("StarknetOsConfig3");
+    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION.into(), chain_id, fee_token])
 }
 
 #[cfg(test)]
@@ -429,20 +417,18 @@ mod tests {
 
     use super::compute_starknet_os_config_hash;
 
-    const ETH_FEE_TOKEN: Felt =
-        felt!("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7");
     const STRK_FEE_TOKEN: Felt =
         felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d");
 
     // Source:
     //
-    // - https://github.com/starkware-libs/cairo-lang/blob/8e11b8cc65ae1d0959328b1b4a40b92df8b58595/src/starkware/starknet/core/os/os_config/os_config_hash.json#L4
+    // - https://github.com/starkware-libs/cairo-lang/blob/v0.14.0.1/src/starkware/starknet/core/os/os_config/os_config_hash.json
     // - https://docs.starknet.io/tools/important-addresses/#fee_tokens
     #[rstest::rstest]
-    #[case::mainnet(felt!("0x5ba2078240f1585f96424c2d1ee48211da3b3f9177bf2b9880b4fc91d59e9a2"), MAINNET)]
-    #[case::testnet(felt!("0x504fa6e5eb930c0d8329d4a77d98391f2730dab8516600aeaf733a6123432"), SEPOLIA)]
+    #[case::mainnet(felt!("0x70c7b342f93155315d1cb2da7a4e13a3c2430f51fb5696c1b224c3da5508dfb"), MAINNET)]
+    #[case::testnet(felt!("0x1b9900f77ff5923183a7795fcfbb54ed76917bc1ddd4160cc77fa96e36cf8c5"), SEPOLIA)]
     fn calculate_config_hash(#[case] config_hash: Felt, #[case] chain: Felt) {
-        let computed = compute_starknet_os_config_hash(chain, ETH_FEE_TOKEN, STRK_FEE_TOKEN);
+        let computed = compute_starknet_os_config_hash(chain, STRK_FEE_TOKEN);
         assert_eq!(computed, config_hash);
     }
 }

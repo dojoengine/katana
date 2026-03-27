@@ -1,9 +1,6 @@
 [submodule "crates/contracts/messaging/solidity/lib/forge-std"]
 	path = crates/contracts/messaging/solidity/lib/forge-std
 	url = https://github.com/foundry-rs/forge-std.git
-[submodule "crates/contracts/piltover"]
-	path = crates/contracts/piltover
-	url = https://github.com/keep-starknet-strange/piltover.git
 [submodule "tests/snos/snos"]
 	path = tests/snos/snos
 	url = https://github.com/cartridge-gg/snos
@@ -12,12 +9,12 @@
 	path = crates/explorer/ui
 	url = https://github.com/cartridge-gg/explorer
 	branch = main
-[submodule "crates/cartridge/controller"]
-	path = crates/cartridge/controller
-	url = https://github.com/cartridge-gg/controller-rs.git
 [submodule "crates/contracts/contracts/vrf"]
 	path = crates/contracts/contracts/vrf
 	url = https://github.com/cartridge-gg/vrf.git
 [submodule "crates/contracts/contracts/avnu"]
 	path = crates/contracts/contracts/avnu
 	url = https://github.com/avnu-labs/paymaster
+[submodule "crates/contracts/contracts/controller"]
+	path = crates/contracts/contracts/controller
+	url = https://github.com/cartridge-gg/controller-rs.git

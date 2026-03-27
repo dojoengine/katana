@@ -1,15 +1,15 @@
-use std::path::PathBuf;
-
 use anyhow::{Context, Result};
 pub use clap::Parser;
 use katana_full_node::config::db::DbConfig;
+use katana_full_node::config::gateway::GatewayConfig;
 use katana_full_node::config::metrics::MetricsConfig;
 use katana_full_node::config::rpc::RpcConfig;
-use katana_full_node::Network;
+use katana_full_node::{Network, SyncConfig, SyncSource};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::options::*;
+use crate::utils::prompt_db_migration;
 
 pub(crate) const LOG_TARGET: &str = "katana::cli::full";
 
@@ -20,14 +20,6 @@ pub struct FullNodeArgs {
     #[arg(long)]
     pub silent: bool,
 
-    /// Directory path of the database to initialize from.
-    ///
-    /// The path must either be an empty directory or a directory which already contains a
-    /// previously initialized Katana database.
-    #[arg(long)]
-    #[arg(value_name = "PATH")]
-    pub db_dir: PathBuf,
-
     #[arg(long)]
     pub network: Network,
 
@@ -35,6 +27,9 @@ pub struct FullNodeArgs {
     #[arg(long)]
     #[arg(value_name = "KEY")]
     pub gateway_api_key: Option<String>,
+
+    #[command(flatten)]
+    pub db: DbOptions,
 
     #[command(flatten)]
     pub logging: LoggingOptions,
@@ -54,8 +49,18 @@ pub struct FullNodeArgs {
     #[command(flatten)]
     pub explorer: ExplorerOptions,
 
+    #[cfg(feature = "server")]
+    #[command(flatten)]
+    pub gateway: GatewayOptions,
+
     #[command(flatten)]
     pub pruning: PruningOptions,
+
+    #[command(flatten)]
+    pub sync: SyncOptions,
+
+    #[command(flatten)]
+    pub stage: StageOptions,
 }
 
 impl FullNodeArgs {
@@ -102,19 +107,39 @@ impl FullNodeArgs {
     }
 
     fn config(&self) -> Result<katana_full_node::Config> {
-        let db = self.db_config();
+        let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
         let pruning = self.pruning_config();
+        let gateway = self.gateway_config();
 
         Ok(katana_full_node::Config {
             db,
             rpc,
             metrics,
             pruning,
+            gateway,
             network: self.network,
             gateway_api_key: self.gateway_api_key.clone(),
+            sync: SyncConfig {
+                max_tip: self.sync.tip,
+                source: self.sync_source(),
+                chunk_size: Some(self.sync.chunk_size),
+                stages: self.sync.stages.clone().unwrap_or_default(),
+                stage: katana_full_node::StageConfig {
+                    blocks_batch_size: self.stage.blocks_batch_size,
+                    classes_batch_size: self.stage.classes_batch_size,
+                },
+            },
         })
+    }
+
+    fn sync_source(&self) -> Option<SyncSource> {
+        if let Some(ref url) = self.sync.rpc {
+            Some(SyncSource::JsonRpc(url.clone()))
+        } else {
+            self.sync.gateway.clone().map(SyncSource::Gateway)
+        }
     }
 
     fn pruning_config(&self) -> katana_full_node::PruningConfig {
@@ -129,8 +154,31 @@ impl FullNodeArgs {
         katana_full_node::PruningConfig { distance }
     }
 
-    fn db_config(&self) -> DbConfig {
-        DbConfig { dir: Some(self.db_dir.clone()) }
+    fn gateway_config(&self) -> Option<GatewayConfig> {
+        #[cfg(feature = "server")]
+        if self.gateway.enable {
+            return Some(GatewayConfig {
+                addr: self.gateway.gateway_addr,
+                port: self.gateway.gateway_port,
+                timeout: Some(std::time::Duration::from_secs(self.gateway.gateway_timeout)),
+            });
+        }
+
+        None
+    }
+
+    fn db_config(&self) -> Result<DbConfig> {
+        let mut migrate = self.db.migrate;
+
+        if !migrate {
+            if let Some(ref path) = self.db.dir {
+                if path.exists() {
+                    migrate = prompt_db_migration(path)?;
+                }
+            }
+        }
+
+        Ok(DbConfig { dir: self.db.dir.clone(), migrate })
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {

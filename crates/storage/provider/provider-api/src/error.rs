@@ -37,6 +37,10 @@ pub enum ProviderError {
     #[error("Missing block status for block number {0}")]
     MissingBlockStatus(BlockNumber),
 
+    /// Error when the canonical state update is not found but the block exists.
+    #[error("Missing canonical state update for block number {0}")]
+    MissingBlockStateUpdate(BlockNumber),
+
     /// Error when a full transaction data is not found but its hash/number exists.
     #[error("Missing transaction for tx number {0}")]
     MissingTx(TxNumber),
@@ -127,6 +131,23 @@ pub enum ProviderError {
 
     #[error("State root not found")]
     StateRootNotFound,
+
+    /// Error when the historical state trie snapshot is unexpectedly missing.
+    #[error("Missing historical state trie snapshot for block {0}")]
+    MissingHistoricalStateTrieSnapshot(BlockNumber),
+
+    /// Error when historical state exists at the requested block, but has been pruned according
+    /// to the configured state retention policy.
+    #[error(
+        "Historical state at block {requested} has been pruned; earliest available block is \
+         {earliest_available}"
+    )]
+    HistoricalStatePruned {
+        /// The block number whose historical state was requested.
+        requested: BlockNumber,
+        /// The first block number for which historical state is still available.
+        earliest_available: BlockNumber,
+    },
 
     #[error(transparent)]
     ContractClassCompilation(#[from] ContractClassCompilationError),

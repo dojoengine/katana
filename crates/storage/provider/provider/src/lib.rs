@@ -15,7 +15,7 @@ use crate::api::block::{BlockIdReader, BlockProvider, BlockWriter};
 use crate::api::contract::ContractClassWriter;
 use crate::api::env::BlockEnvProvider;
 use crate::api::stage::StageCheckpointProvider;
-use crate::api::state::{StateFactoryProvider, StateWriter};
+use crate::api::state::{HistoricalStateRetentionProvider, StateFactoryProvider, StateWriter};
 use crate::api::state_update::StateUpdateProvider;
 use crate::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
@@ -49,6 +49,7 @@ pub trait ProviderRW:
     + ContractClassWriter
     + TrieWriter
     + StageCheckpointProvider
+    + HistoricalStateRetentionProvider
 {
 }
 
@@ -78,6 +79,7 @@ impl<T> ProviderRW for T where
         + ContractClassWriter
         + TrieWriter
         + StageCheckpointProvider
+        + HistoricalStateRetentionProvider
 {
 }
 

@@ -364,7 +364,9 @@ mod setup {
     use katana_primitives::Felt;
     use katana_provider::test_utils::test_provider;
     use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
-    use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi, StarknetApiConfig};
+    use katana_rpc_server::starknet::{
+        PendingBlockProvider, RpcCache, StarknetApi, StarknetApiConfig,
+    };
     use katana_rpc_types::*;
     use katana_tasks::TaskManager;
     use serde_json::json;
@@ -436,6 +438,7 @@ mod setup {
             gas_oracle,
             config,
             storage,
+            RpcCache::new(),
         );
 
         let cartridge_api = ::cartridge::CartridgeApiClient::new(mock_url);

@@ -6,6 +6,7 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
+use katana_provider::api::state::HistoricalStateRetentionProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
@@ -17,6 +18,8 @@ use crate::{
     PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
     StageResult,
 };
+
+pub const STATE_TRIE_STAGE_ID: &str = "StateTrie";
 
 /// A stage for computing and validating state tries.
 ///
@@ -41,7 +44,7 @@ impl StateTrie {
 
 impl Stage for StateTrie {
     fn id(&self) -> &'static str {
-        "StateTrie"
+        STATE_TRIE_STAGE_ID
     }
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
@@ -63,38 +66,40 @@ impl Stage for StateTrie {
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
                 let provider_mut_clone = provider_mut.clone();
-                let (computed_contract_trie_root, computed_class_trie_root) =
-                    self.task_spawner
-                        .cpu_bound()
-                        .spawn(move || {
-                            let computed_contract_trie_root = provider_mut_clone
-                                .trie_insert_contract_updates(block_number, &state_update)?;
+                let (computed_contract_trie_root, computed_class_trie_root) = self
+                    .task_spawner
+                    .cpu_bound()
+                    .spawn(move || {
+                        let computed_contract_trie_root = provider_mut_clone
+                            .trie_insert_contract_updates(block_number, &state_update)?;
 
-                            debug!(
-                                contract_trie_root = format!("{computed_contract_trie_root:#x}"),
-                                "Computed contract trie root."
-                            );
+                        debug!(
+                            contract_trie_root = format!("{computed_contract_trie_root:#x}"),
+                            "Computed contract trie root."
+                        );
 
-                            let class_updates =
-                                state_update.declared_classes.clone().into_iter().chain(
-                                    state_update.migrated_compiled_classes.clone().into_iter(),
-                                );
+                        let class_updates: Vec<_> = state_update
+                            .declared_classes
+                            .clone()
+                            .into_iter()
+                            .chain(state_update.migrated_compiled_classes.clone().into_iter())
+                            .collect();
 
-                            let computed_class_trie_root = provider_mut_clone
-                                .trie_insert_declared_classes(block_number, class_updates)?;
+                        let computed_class_trie_root = provider_mut_clone
+                            .trie_insert_declared_classes(block_number, class_updates)?;
 
-                            debug!(
-                                classes_tri_root = format!("{computed_class_trie_root:#x}"),
-                                "Computed classes trie root."
-                            );
+                        debug!(
+                            classes_tri_root = format!("{computed_class_trie_root:#x}"),
+                            "Computed classes trie root."
+                        );
 
-                            Result::<(Felt, Felt), crate::Error>::Ok((
-                                computed_contract_trie_root,
-                                computed_class_trie_root,
-                            ))
-                        })
-                        .await
-                        .map_err(Error::StateComputationTaskJoinError)??;
+                        Result::<(Felt, Felt), crate::Error>::Ok((
+                            computed_contract_trie_root,
+                            computed_class_trie_root,
+                        ))
+                    })
+                    .await
+                    .map_err(Error::StateComputationTaskJoinError)??;
 
                 let computed_state_root = if computed_class_trie_root == Felt::ZERO {
                     computed_contract_trie_root
@@ -141,6 +146,8 @@ impl Stage for StateTrie {
                 return Ok(PruneOutput::default());
             };
 
+            let keep_from = range.end;
+
             let tx = self.storage_provider.db().tx_mut().map_err(Error::Database)?;
 
             let pruned_count = self
@@ -180,6 +187,19 @@ impl Stage for StateTrie {
                 })
                 .await
                 .map_err(Error::StateComputationTaskJoinError)??;
+
+            // set historical retention marker
+            {
+                let provider_mut = self.storage_provider.provider_mut();
+
+                let current = provider_mut.earliest_available_state_trie_block()?;
+                let next = current.map_or(keep_from, |current| current.max(keep_from));
+
+                if current != Some(next) {
+                    provider_mut.set_earliest_available_state_trie_block(next)?;
+                    provider_mut.commit()?;
+                }
+            }
 
             debug!(target: "stage", %pruned_count, "Pruned trie snapshots");
 

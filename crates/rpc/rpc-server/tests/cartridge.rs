@@ -38,7 +38,7 @@ use paymaster_rpc::{
     TokenPrice,
 };
 use serde::Deserialize;
-use starknet::accounts::{Account, AccountError, ExecutionEncoding, SingleOwnerAccount};
+use starknet::accounts::{AccountError, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::StarknetError;
 use starknet::providers::ProviderError;
 use starknet::signers::{LocalWallet, SigningKey};
@@ -213,7 +213,7 @@ async fn no_deployment_for_non_controller_account() {
         .unwrap();
 
     let api_requests = mock_api_state.received_requests.lock();
-    assert!(!api_requests.contains(&sender), "should query api bcs account is undeployed");
+    assert!(api_requests.contains(&sender), "should query api bcs account is undeployed");
 
     let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
     assert_eq!(status.pending, 0, "no deploy tx for non-Controller account");
@@ -398,55 +398,7 @@ async fn start_mock_cartridge_api() -> (url::Url, MockCartridgeApiState) {
     (url, state)
 }
 
-#[derive(Clone)]
-struct MockPaymaster {
-    // track execute_raw_transaction requests
-    requests: Arc<Mutex<HashMap<ContractAddress, Vec<RawInvokeParameters>>>>,
-}
-
 async fn start_mock_paymaster() -> (Url, MockPaymaster) {
-    #[async_trait]
-    impl PaymasterApiServer for MockPaymaster {
-        async fn health(&self) -> RpcResult<bool> {
-            Ok(true)
-        }
-
-        async fn is_available(&self) -> RpcResult<bool> {
-            Ok(true)
-        }
-
-        async fn build_transaction(
-            &self,
-            req: BuildTransactionRequest,
-        ) -> RpcResult<BuildTransactionResponse> {
-            let _ = req;
-            unimplemented!()
-        }
-
-        async fn execute_transaction(&self, req: ExecuteRequest) -> RpcResult<ExecuteResponse> {
-            let _ = req;
-            unimplemented!()
-        }
-
-        async fn execute_raw_transaction(
-            &self,
-            req: ExecuteRawRequest,
-        ) -> RpcResult<ExecuteRawResponse> {
-            match req.transaction {
-                ExecuteRawTransactionParameters::RawInvoke { invoke } => {
-                    let sender_address = invoke.user_address;
-                    self.requests.lock().entry(sender_address.into()).or_default().push(invoke);
-                }
-            }
-
-            Ok(ExecuteRawResponse { transaction_hash: felt!("0xcafe"), tracking_id: Felt::ZERO })
-        }
-
-        async fn get_supported_tokens(&self) -> RpcResult<Vec<TokenPrice>> {
-            Ok(vec![])
-        }
-    }
-
     let mock = MockPaymaster { requests: Default::default() };
 
     let server = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
@@ -455,4 +407,52 @@ async fn start_mock_paymaster() -> (Url, MockPaymaster) {
     std::mem::forget(handle);
 
     (url::Url::parse(&format!("http://{addr}")).unwrap(), mock)
+}
+
+#[derive(Clone)]
+struct MockPaymaster {
+    // track execute_raw_transaction requests
+    requests: Arc<Mutex<HashMap<ContractAddress, Vec<RawInvokeParameters>>>>,
+}
+
+#[async_trait]
+impl PaymasterApiServer for MockPaymaster {
+    async fn health(&self) -> RpcResult<bool> {
+        Ok(true)
+    }
+
+    async fn is_available(&self) -> RpcResult<bool> {
+        Ok(true)
+    }
+
+    async fn build_transaction(
+        &self,
+        req: BuildTransactionRequest,
+    ) -> RpcResult<BuildTransactionResponse> {
+        let _ = req;
+        unimplemented!()
+    }
+
+    async fn execute_transaction(&self, req: ExecuteRequest) -> RpcResult<ExecuteResponse> {
+        let _ = req;
+        unimplemented!()
+    }
+
+    async fn execute_raw_transaction(
+        &self,
+        req: ExecuteRawRequest,
+    ) -> RpcResult<ExecuteRawResponse> {
+        match req.transaction {
+            ExecuteRawTransactionParameters::RawInvoke { invoke } => {
+                let sender_address = invoke.user_address;
+                self.requests.lock().entry(sender_address.into()).or_default().push(invoke);
+            }
+        }
+
+        Ok(ExecuteRawResponse { transaction_hash: felt!("0xcafe"), tracking_id: Felt::ZERO })
+    }
+
+    async fn get_supported_tokens(&self) -> RpcResult<Vec<TokenPrice>> {
+        Ok(vec![])
+    }
 }

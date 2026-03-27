@@ -5,7 +5,8 @@ use clap::{Args, Subcommand};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
-
+mod inspect;
+mod migrate;
 mod prune;
 mod stats;
 mod trie;
@@ -27,20 +28,28 @@ enum Commands {
     /// Shows database version information
     Version(version::VersionArgs),
 
+    /// Run database migrations.
+    Migrate(migrate::MigrateArgs),
+
     /// Prune historical trie data.
     Prune(prune::PruneArgs),
 
     /// Inspect trie roots stored in the database.
     Trie(trie::TrieArgs),
+
+    /// Interactively inspect database table contents.
+    Inspect(inspect::InspectArgs),
 }
 
 impl DbArgs {
     pub fn execute(self) -> Result<()> {
         match self.commands {
+            Commands::Migrate(args) => args.execute(),
             Commands::Prune(args) => args.execute(),
             Commands::Stats(args) => args.execute(),
             Commands::Version(args) => args.execute(),
             Commands::Trie(args) => args.execute(),
+            Commands::Inspect(args) => args.execute(),
         }
     }
 }

@@ -40,6 +40,7 @@ crates/contracts/build/
 !crates/contracts/build/legacy/
 
 **/.claude/settings.local.json
+.cargo/
 
 vendor
 katana-tee

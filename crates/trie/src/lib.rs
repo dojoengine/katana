@@ -1,6 +1,7 @@
 use bitvec::view::AsBits;
 pub use bonsai::{BitVec, MultiProof, Path, ProofNode};
 pub use bonsai_trie::databases::HashMapDb;
+pub use bonsai_trie::trie::trees::{FullMerkleTrees, PartialMerkleTrees};
 use bonsai_trie::BonsaiStorage;
 pub use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, BonsaiStorageConfig};
 use katana_primitives::block::BlockNumber;
@@ -17,7 +18,7 @@ mod storages;
 pub use classes::*;
 pub use contracts::*;
 pub use id::CommitId;
-pub use storages::StoragesTrie;
+pub use storages::{PartialStoragesTrie, StoragesTrie};
 
 /// A lightweight shim for [`BonsaiStorage`].
 ///
@@ -25,21 +26,24 @@ pub use storages::StoragesTrie;
 /// having to handle how to transform the keys into the internal keys used by the trie.
 /// This struct is not meant to be used directly, and instead use the specific tries that have
 /// been derived from it, [`ClassesTrie`], [`ContractsTrie`], or [`StoragesTrie`].
-pub struct BonsaiTrie<DB, Hash = Pedersen>
+pub struct BonsaiTrie<DB, Hash = Pedersen, T = FullMerkleTrees<Hash, DB, CommitId>>
 where
     DB: BonsaiDatabase,
     Hash: StarkHash + Send + Sync,
 {
-    storage: BonsaiStorage<CommitId, DB, Hash>,
+    storage: BonsaiStorage<CommitId, DB, Hash, T>,
 }
 
-impl<DB, Hash> BonsaiTrie<DB, Hash>
+pub type PartialBonsaiTrie<DB, Hash = Pedersen> =
+    BonsaiTrie<DB, Hash, PartialMerkleTrees<Hash, DB, CommitId>>;
+
+impl<DB, Hash, T> BonsaiTrie<DB, Hash, T>
 where
     DB: BonsaiDatabase,
     Hash: StarkHash + Send + Sync,
 {
-    pub fn new(db: DB) -> Self {
-        let config = BonsaiStorageConfig {
+    fn bonsai_config() -> BonsaiStorageConfig {
+        BonsaiStorageConfig {
             // This field controls what's the oldest block we can revert to.
             //
             // The value 5 is chosen arbitrarily as a placeholder. This value should be
@@ -58,13 +62,37 @@ where
 
             // creates a snapshot for every block
             snapshot_interval: 1,
-        };
-
-        Self { storage: BonsaiStorage::new(db, config, 251) }
+        }
     }
+}
 
+impl<DB, Hash> BonsaiTrie<DB, Hash, FullMerkleTrees<Hash, DB, CommitId>>
+where
+    DB: BonsaiDatabase,
+    Hash: StarkHash + Send + Sync,
+{
     pub fn root(&self, id: &[u8]) -> Felt {
         self.storage.root_hash(id).expect("failed to get trie root")
+    }
+}
+
+impl<DB, Hash> BonsaiTrie<DB, Hash, PartialMerkleTrees<Hash, DB, CommitId>>
+where
+    DB: BonsaiDatabase,
+    Hash: StarkHash + Send + Sync,
+{
+    pub fn root(&self, id: &[u8]) -> Felt {
+        self.storage.root_hash(id).expect("failed to get trie root")
+    }
+}
+
+impl<DB, Hash> BonsaiTrie<DB, Hash, FullMerkleTrees<Hash, DB, CommitId>>
+where
+    DB: BonsaiDatabase,
+    Hash: StarkHash + Send + Sync,
+{
+    pub fn new(db: DB) -> Self {
+        Self { storage: BonsaiStorage::new(db, Self::bonsai_config(), 251) }
     }
 
     pub fn multiproof(&mut self, id: &[u8], keys: Vec<Felt>) -> MultiProof {
@@ -77,7 +105,35 @@ where
     }
 }
 
-impl<DB, Hash> BonsaiTrie<DB, Hash>
+impl<DB, Hash> BonsaiTrie<DB, Hash, PartialMerkleTrees<Hash, DB, CommitId>>
+where
+    DB: BonsaiDatabase,
+    Hash: StarkHash + Send + Sync,
+{
+    pub fn new_partial(db: DB) -> Self {
+        Self { storage: BonsaiStorage::new_partial(db, Self::bonsai_config(), 251) }
+    }
+
+    pub fn multiproof(&mut self, id: &[u8], keys: Vec<Felt>) -> MultiProof {
+        let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
+        self.storage.get_multi_proof(id, keys, None, None).expect("failed to get multiproof")
+    }
+
+    pub fn partial_multiproof(
+        &mut self,
+        id: &[u8],
+        keys: Vec<Felt>,
+        rpc_proof: Option<MultiProof>,
+        rpc_root: Option<Felt>,
+    ) -> MultiProof {
+        let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
+        self.storage
+            .get_multi_proof(id, keys, rpc_proof, rpc_root)
+            .expect("failed to get multiproof")
+    }
+}
+
+impl<DB, Hash> BonsaiTrie<DB, Hash, FullMerkleTrees<Hash, DB, CommitId>>
 where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
     Hash: StarkHash + Send + Sync,
@@ -92,13 +148,45 @@ where
     }
 }
 
-impl<DB, Hash> std::fmt::Debug for BonsaiTrie<DB, Hash>
+impl<DB, Hash> BonsaiTrie<DB, Hash, PartialMerkleTrees<Hash, DB, CommitId>>
+where
+    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
+    Hash: StarkHash + Send + Sync,
+{
+    pub fn insert_with_proof(
+        &mut self,
+        id: &[u8],
+        key: Felt,
+        value: Felt,
+        proof: &MultiProof,
+        original_root: Felt,
+    ) {
+        let key: BitVec = key.to_bytes_be().as_bits()[5..].to_owned();
+        self.storage.insert_with_proof(id, &key, &value, proof, original_root).unwrap();
+    }
+
+    pub fn commit(&mut self, id: CommitId) {
+        self.storage.commit(id).expect("failed to commit trie");
+    }
+}
+
+impl<DB, Hash> std::fmt::Debug for BonsaiTrie<DB, Hash, FullMerkleTrees<Hash, DB, CommitId>>
 where
     DB: BonsaiDatabase,
     Hash: StarkHash + Send + Sync,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BonsaiTrie").field("storage", &self.storage).finish()
+        f.debug_struct("BonsaiTrie").field("storage", &"<BonsaiStorage>").finish()
+    }
+}
+
+impl<DB, Hash> std::fmt::Debug for BonsaiTrie<DB, Hash, PartialMerkleTrees<Hash, DB, CommitId>>
+where
+    DB: BonsaiDatabase,
+    Hash: StarkHash + Send + Sync,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BonsaiTrie").field("storage", &"<BonsaiStorage>").finish()
     }
 }
 
@@ -125,6 +213,43 @@ where
     bs.commit(id).unwrap();
 
     Ok(bs.root_hash(IDENTIFIER).unwrap())
+}
+
+/// Build a Merkle trie from `values` (same as `compute_merkle_root`) and return
+/// the root hash together with a Merkle proof for the element at `proof_index`.
+pub fn compute_merkle_root_with_proof<H>(
+    values: &[Felt],
+    proof_index: usize,
+) -> anyhow::Result<(Felt, MultiProof)>
+where
+    H: StarkHash + Send + Sync,
+{
+    use bonsai_trie::id::BasicId;
+    use bonsai_trie::{databases, BonsaiStorage, BonsaiStorageConfig};
+
+    anyhow::ensure!(proof_index < values.len(), "proof_index out of bounds");
+
+    const IDENTIFIER: &[u8] = b"1";
+
+    let config = BonsaiStorageConfig::default();
+    let bonsai_db = databases::HashMapDb::<BasicId>::default();
+    let mut bs = BonsaiStorage::<_, _, H>::new(bonsai_db, config, 64);
+
+    for (id, value) in values.iter().enumerate() {
+        let key = BitVec::from_iter(id.to_be_bytes());
+        bs.insert(IDENTIFIER, key.as_bitslice(), value).unwrap();
+    }
+
+    let id = bonsai_trie::id::BasicIdBuilder::new().new_id();
+    bs.commit(id).unwrap();
+
+    let root = bs.root_hash(IDENTIFIER).unwrap();
+
+    let proof_key = BitVec::from_iter(proof_index.to_be_bytes());
+    let proof =
+        bs.get_multi_proof(IDENTIFIER, vec![proof_key]).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+    Ok((root, proof))
 }
 
 // H(H(H(class_hash, storage_root), nonce), 0), where H is the pedersen hash
@@ -232,5 +357,42 @@ mod tests {
 
         // After revert, root should match block 0
         assert_eq!(root_after_second_revert, root_at_block_0);
+    }
+
+    #[test]
+    fn compute_contract_state_hash_with_nonzero_nonce() {
+        use starknet_types_core::hash::StarkHash;
+
+        // H(H(H(class_hash, storage_root), nonce), 0) with non-zero nonce
+        let class_hash = felt!("0x1234");
+        let storage_root = felt!("0x5678");
+        let nonce = felt!("0x42");
+
+        let expected = {
+            let h1 = hash::Pedersen::hash(&class_hash, &storage_root);
+            let h2 = hash::Pedersen::hash(&h1, &nonce);
+            hash::Pedersen::hash(&h2, &Felt::ZERO)
+        };
+
+        let result = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn compute_contract_state_hash_all_zeros() {
+        use starknet_types_core::hash::StarkHash;
+
+        let result = compute_contract_state_hash(&Felt::ZERO, &Felt::ZERO, &Felt::ZERO);
+
+        // H(H(H(0, 0), 0), 0)
+        let expected = {
+            let h1 = hash::Pedersen::hash(&Felt::ZERO, &Felt::ZERO);
+            let h2 = hash::Pedersen::hash(&h1, &Felt::ZERO);
+            hash::Pedersen::hash(&h2, &Felt::ZERO)
+        };
+
+        assert_eq!(result, expected);
+        // Pedersen hash of zeros is not zero
+        assert_ne!(result, Felt::ZERO);
     }
 }

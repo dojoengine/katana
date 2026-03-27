@@ -4,20 +4,24 @@
 
 pub mod config;
 
+use std::collections::HashSet;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
 use config::db::DbConfig;
+use config::gateway::GatewayConfig;
 use config::metrics::MetricsConfig;
 use config::rpc::{RpcConfig, RpcModuleKind};
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::ChainSpec;
+use katana_db::{migration, Db};
 use katana_executor::ExecutionFlags;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
+use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -27,12 +31,15 @@ use katana_provider::DbProviderFactory;
 use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_server::middleware::cors::Cors;
+use katana_rpc_server::starknet::RpcCache;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
-use katana_stage::blocks::BatchBlockDownloader;
-use katana_stage::{Blocks, Classes, StateTrie};
+use katana_stage::blocks::{BatchBlockDownloader, JsonRpcBlockDownloader};
+use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
+use katana_stage::{Blocks, Classes, IndexHistory, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
+use url::Url;
 
 use crate::pending::PreconfStateFactory;
 
@@ -57,13 +64,94 @@ use crate::pool::{FullNodePool, GatewayProxyValidator};
     strum::Display,
     strum::EnumString,
 )]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum Network {
     #[default]
     Mainnet,
     Sepolia,
 }
 
-pub use katana_pipeline::PruningConfig;
+pub use katana_pipeline::{PipelineConfig, PruningConfig};
+
+/// Available sync pipeline stages.
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    strum_macros::EnumString,
+    strum_macros::Display,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[strum(ascii_case_insensitive)]
+pub enum SyncStageKind {
+    Blocks,
+    Classes,
+    IndexHistory,
+    StateTrie,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("invalid sync stage: {0}")]
+pub struct InvalidSyncStageError(String);
+
+/// A set of sync stages to run in the pipeline.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
+pub struct SyncStagesList(HashSet<SyncStageKind>);
+
+impl SyncStagesList {
+    /// Creates an empty stages list.
+    pub fn new() -> Self {
+        Self(HashSet::new())
+    }
+
+    /// Creates a list with all available stages.
+    pub fn all() -> Self {
+        Self(HashSet::from([
+            SyncStageKind::Blocks,
+            SyncStageKind::Classes,
+            SyncStageKind::IndexHistory,
+            SyncStageKind::StateTrie,
+        ]))
+    }
+
+    /// Returns `true` if the list contains the specified `stage`.
+    pub fn contains(&self, stage: &SyncStageKind) -> bool {
+        self.0.contains(stage)
+    }
+
+    /// Used as the value parser for `clap`.
+    pub fn parse(value: &str) -> Result<Self, InvalidSyncStageError> {
+        if value.is_empty() {
+            return Ok(Self::new());
+        }
+
+        let mut stages = HashSet::new();
+        for name in value.split(',') {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let stage: SyncStageKind =
+                trimmed.parse().map_err(|_| InvalidSyncStageError(trimmed.to_string()))?;
+
+            stages.insert(stage);
+        }
+
+        Ok(Self(stages))
+    }
+}
+
+impl Default for SyncStagesList {
+    fn default() -> Self {
+        Self::all()
+    }
+}
 
 #[derive(Debug)]
 pub struct Config {
@@ -73,17 +161,68 @@ pub struct Config {
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
     pub network: Network,
+    pub gateway: Option<GatewayConfig>,
+    pub sync: SyncConfig,
+}
+
+/// Configuration for the sync pipeline.
+#[derive(Debug, Default)]
+pub struct SyncConfig {
+    /// The maximum block number the pipeline will sync to. When set, the pipeline
+    /// will stop syncing after reaching this block while the node remains running.
+    pub max_tip: Option<u64>,
+    /// The source to sync blocks and classes from.
+    pub source: Option<SyncSource>,
+    /// Maximum number of blocks to process per pipeline iteration.
+    /// Defaults to 256 if not set.
+    pub chunk_size: Option<u64>,
+    /// Which pipeline stages to run. Defaults to all stages.
+    pub stages: SyncStagesList,
+    /// Per-stage configuration.
+    pub stage: StageConfig,
+}
+
+/// Per-stage configuration options.
+#[derive(Debug, Clone)]
+pub struct StageConfig {
+    /// Number of blocks to download concurrently within each chunk.
+    pub blocks_batch_size: usize,
+    /// Number of classes to download concurrently within each chunk.
+    pub classes_batch_size: usize,
+}
+
+impl Default for StageConfig {
+    fn default() -> Self {
+        Self {
+            blocks_batch_size: DEFAULT_BLOCKS_BATCH_SIZE,
+            classes_batch_size: DEFAULT_CLASSES_BATCH_SIZE,
+        }
+    }
+}
+
+pub const DEFAULT_SYNC_CHUNK_SIZE: u64 = 256;
+pub const DEFAULT_BLOCKS_BATCH_SIZE: usize = 20;
+pub const DEFAULT_CLASSES_BATCH_SIZE: usize = 20;
+
+/// The source from which the node downloads blocks and classes.
+#[derive(Debug, Clone)]
+pub enum SyncSource {
+    /// Custom feeder gateway base URL instead of the default network gateway.
+    Gateway(Url),
+    /// JSON-RPC endpoint URL.
+    JsonRpc(Url),
 }
 
 #[derive(Debug)]
 pub struct Node {
     pub provider: DbProviderFactory,
-    pub db: katana_db::Db,
+    pub db: Db,
     pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
     pub pipeline: Pipeline,
     pub rpc_server: RpcServer,
+    pub gateway_server: Option<GatewayServer<FullNodePool, PreconfStateFactory, DbProviderFactory>>,
     pub gateway_client: SequencerGateway,
     pub metrics_server: Option<MetricsServer<Prometheus>>,
     pub chain_tip_watcher: ChainTipWatcher<SequencerGateway>,
@@ -108,14 +247,26 @@ impl Node {
 
         info!(target: "node", path = %path.display(), "Initializing database.");
 
-        let db = katana_db::Db::new(path)?;
+        let db = Db::new(path)?;
+
+        // --- Perform database migration, if needed
+        if config.db.migrate {
+            migration::Migration::new_v9(&db).run()?;
+        }
+
         let storage_provider = DbProviderFactory::new(db.clone());
 
         // --- build gateway client
 
-        let gateway_client = match config.network {
-            Network::Mainnet => SequencerGateway::mainnet(),
-            Network::Sepolia => SequencerGateway::sepolia(),
+        let gateway_client = if let Some(SyncSource::Gateway(ref base_url)) = config.sync.source {
+            let gateway = base_url.join("gateway").expect("valid URL join");
+            let feeder_gateway = base_url.join("feeder_gateway").expect("valid URL join");
+            SequencerGateway::new(gateway, feeder_gateway)
+        } else {
+            match config.network {
+                Network::Mainnet => SequencerGateway::mainnet(),
+                Network::Sepolia => SequencerGateway::sepolia(),
+            }
         };
 
         let gateway_client = if let Some(ref key) = config.gateway_api_key {
@@ -131,15 +282,69 @@ impl Node {
 
         // --- build pipeline
 
-        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 256);
+        let chunk_size = config.sync.chunk_size.unwrap_or(DEFAULT_SYNC_CHUNK_SIZE);
+        let blocks_batch_size = config.sync.stage.blocks_batch_size;
+        let classes_batch_size = config.sync.stage.classes_batch_size;
 
-        // Configure pruning
-        pipeline.set_pruning_config(config.pruning.clone());
+        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), chunk_size);
 
-        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
-        pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader));
-        pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
-        pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
+        // Configure pipeline
+        pipeline.set_config(PipelineConfig {
+            max_sync_tip: config.sync.max_tip,
+            pruning: config.pruning.clone(),
+        });
+
+        let chain_id = match config.network {
+            Network::Mainnet => katana_primitives::chain::ChainId::MAINNET,
+            Network::Sepolia => katana_primitives::chain::ChainId::SEPOLIA,
+        };
+
+        let stages = &config.sync.stages;
+
+        if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync.source {
+            let rpc_client = katana_starknet::rpc::StarknetRpcClient::new(rpc_url.clone());
+
+            if stages.contains(&SyncStageKind::Blocks) {
+                let block_downloader =
+                    JsonRpcBlockDownloader::new_json_rpc(rpc_client.clone(), blocks_batch_size);
+                pipeline.add_stage(Blocks::new(
+                    storage_provider.clone(),
+                    block_downloader,
+                    chain_id,
+                    task_spawner.clone(),
+                ));
+            }
+
+            if stages.contains(&SyncStageKind::Classes) {
+                let class_downloader = JsonRpcClassDownloader::new(rpc_client, classes_batch_size);
+                pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            }
+        } else {
+            if stages.contains(&SyncStageKind::Blocks) {
+                let block_downloader =
+                    BatchBlockDownloader::new_gateway(gateway_client.clone(), blocks_batch_size);
+                pipeline.add_stage(Blocks::new(
+                    storage_provider.clone(),
+                    block_downloader,
+                    chain_id,
+                    task_spawner.clone(),
+                ));
+            }
+
+            if stages.contains(&SyncStageKind::Classes) {
+                let class_downloader =
+                    GatewayClassDownloader::new(gateway_client.clone(), classes_batch_size);
+                pipeline.add_stage(Classes::new(storage_provider.clone(), class_downloader));
+            }
+        }
+
+        if stages.contains(&SyncStageKind::IndexHistory) {
+            pipeline.add_stage(IndexHistory::new(storage_provider.clone(), task_spawner.clone()));
+        }
+
+        if stages.contains(&SyncStageKind::StateTrie) {
+            pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
+        }
 
         // -- build chain tip watcher using gateway client
 
@@ -186,6 +391,7 @@ impl Node {
             GasPriceOracle::create_for_testing(),
             starknet_api_cfg,
             storage_provider.clone(),
+            RpcCache::new(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -232,6 +438,22 @@ impl Node {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        // --- build feeder gateway server (optional)
+
+        let gateway_server = if let Some(gw_config) = &config.gateway {
+            let mut server = GatewayServer::new(starknet_api)
+                .health_check(true)
+                .metered(config.metrics.is_some());
+
+            if let Some(timeout) = gw_config.timeout {
+                server = server.timeout(timeout);
+            }
+
+            Some(server)
+        } else {
+            None
+        };
+
         // --- build metrics server (optional)
 
         let metrics_server = if config.metrics.is_some() {
@@ -253,6 +475,7 @@ impl Node {
             pool,
             pipeline,
             rpc_server,
+            gateway_server,
             task_manager,
             gateway_client,
             metrics_server,
@@ -322,6 +545,16 @@ impl Node {
 
         let rpc = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
 
+        // --- start the feeder gateway server (if configured)
+
+        let gateway_handle = match &self.gateway_server {
+            Some(server) => {
+                let config = self.config.gateway.as_ref().expect("qed; must exist");
+                Some(server.start(config.socket_addr()).await?)
+            }
+            None => None,
+        };
+
         Ok(LaunchedNode {
             db: self.db,
             config: self.config,
@@ -329,6 +562,7 @@ impl Node {
             pipeline: pipeline_handle,
             metrics: metrics_handle,
             rpc,
+            gateway: gateway_handle,
         })
     }
 }
@@ -340,6 +574,8 @@ pub struct LaunchedNode {
     pub config: Arc<Config>,
     pub rpc: RpcServerHandle,
     pub pipeline: PipelineHandle,
+    /// Handle to the gateway server (if enabled).
+    pub gateway: Option<GatewayServerHandle>,
     /// Handle to the metrics server (if enabled).
     pub metrics: Option<MetricsServerHandle>,
 }
@@ -347,6 +583,12 @@ pub struct LaunchedNode {
 impl LaunchedNode {
     pub async fn stop(&self) -> Result<()> {
         self.rpc.stop()?;
+
+        // Stop feeder gateway server if it's running
+        if let Some(handle) = &self.gateway {
+            handle.stop()?;
+        }
+
         self.pipeline.stop();
 
         self.pipeline.stopped().await;

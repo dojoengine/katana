@@ -11,10 +11,13 @@ Katana is a fast and lightweight local Starknet-based sequencer, part of the Doj
 
 ## Essential Commands
 
+Make sure to run `make` to generate all necessary artifacts required for building the entire workspace and binaries.
+
+
 ### Build
 - `cargo build` - Build the project in debug mode
 - `cargo build --release` - Build optimized release version
-- `make build-explorer` - Build the Explorer UI (requires Bun)
+- `make` - Build all necessary artifacts (i.e., contracts, assets, test fixtures, etc) 
 
 ### Test
 - `make fixtures` - **MUST RUN FIRST** - Prepares test artifacts

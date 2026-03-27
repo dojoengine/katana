@@ -209,7 +209,7 @@ async fn deploy_account(
     let contract = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &funding_account);
 
     // send enough tokens to the new_account's address just to send the deploy account tx
-    let amount = Uint256 { low: felt!("0x5ea0fb889c9400"), high: Felt::ZERO };
+    let amount = Uint256 { low: felt!("0xde0b6b3a7640000"), high: Felt::ZERO };
     let res = contract.transfer(&account_address, &amount).send().await.unwrap();
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 

@@ -11,7 +11,8 @@ use katana_db::tables;
 use katana_db::trie::{SnapshotTrieDb, TrieDbMut};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::DbProviderFactory;
+use katana_provider::api::state::HistoricalStateRetentionProvider;
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_stage::trie::StateTrie;
 use katana_stage::{PruneInput, Stage};
 use katana_tasks::TaskManager;
@@ -208,6 +209,7 @@ async fn prune_removes_snapshots_in_range() {
     assert!(result.is_ok());
     let output = result.unwrap();
     assert_eq!(output.pruned_count, 4); // blocks 0, 1, 2, 3
+    assert_eq!(provider.provider_mut().earliest_available_state_trie_block().unwrap(), Some(4));
 
     // Verify blocks 0-3 snapshots are removed
     for block in 0..=3 {
@@ -461,4 +463,23 @@ async fn prune_handles_nonexistent_snapshots_gracefully() {
     for block in 5..=9 {
         assert!(snapshot_exists::<tables::ClassesTrie>(&provider, block));
     }
+}
+
+#[tokio::test]
+async fn prune_does_not_decrease_existing_retention_boundary() {
+    let provider = DbProviderFactory::new_in_memory();
+    let task_manager = TaskManager::current();
+    let mut stage = StateTrie::new(provider.clone(), task_manager.task_spawner());
+
+    // Existing retention boundary from another state stage.
+    let provider_mut = provider.provider_mut();
+    provider_mut.set_earliest_available_state_trie_block(10).unwrap();
+    provider_mut.commit().unwrap();
+
+    // Current prune would compute keep_from=4, which must not decrease retention.
+    create_trie_snapshots(&provider, &(0..=9).collect::<Vec<_>>());
+    let result = stage.prune(&PruneInput::new(9, Some(5), None)).await;
+    assert!(result.is_ok());
+
+    assert_eq!(provider.provider_mut().earliest_available_state_trie_block().unwrap(), Some(10));
 }

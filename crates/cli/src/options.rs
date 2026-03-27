@@ -13,7 +13,12 @@ use std::num::NonZeroU128;
 use std::path::PathBuf;
 
 use clap::Args;
+use katana_full_node::SyncStagesList;
 use katana_genesis::Genesis;
+#[cfg(feature = "server")]
+use katana_node_config::gateway::{
+    DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
+};
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
 #[cfg(feature = "vrf")]
@@ -22,10 +27,6 @@ use katana_primitives::ContractAddress;
 use katana_rpc_server::middleware::cors::HeaderValue;
 use katana_sequencer_node::config::execution::{
     DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
-};
-#[cfg(feature = "server")]
-use katana_sequencer_node::config::gateway::{
-    DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
 };
 #[cfg(feature = "server")]
 use katana_sequencer_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
@@ -47,6 +48,44 @@ use crate::utils::{parse_block_hash_or_number, parse_genesis};
 const DEFAULT_DEV_SEED: &str = "0";
 const DEFAULT_DEV_ACCOUNTS: u16 = 10;
 const DEFAULT_LOG_FILE_MAX_FILES: usize = 7;
+
+/// Shared database-related node options.
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[command(next_help_heading = "Database options")]
+pub struct DbOptions {
+    /// Directory path of the database to initialize from.
+    ///
+    /// The path must either be an empty directory or a directory which already contains a
+    /// previously initialized Katana database.
+    #[arg(long = "data-dir", alias = "db-dir")]
+    #[arg(value_name = "PATH")]
+    #[serde(default, alias = "db_dir")]
+    pub dir: Option<PathBuf>,
+
+    /// Run pending database migrations non-interactively.
+    ///
+    /// This is a no-op if the database is already on the latest version.
+    #[arg(long = "db.auto-migrate")]
+    #[serde(default)]
+    pub migrate: bool,
+}
+
+impl DbOptions {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.dir.is_none() {
+                self.dir = other.dir.clone();
+            }
+            if !self.migrate {
+                self.migrate = other.migrate;
+            }
+        }
+    }
+}
 
 #[cfg(feature = "server")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,9 +130,9 @@ impl Default for MetricsOptions {
 #[command(next_help_heading = "Gateway options")]
 pub struct GatewayOptions {
     /// Enable the gateway server.
-    #[arg(long = "gateway")]
+    #[arg(long = "gateway", id = "gateway_enable")]
     #[serde(default)]
-    pub gateway_enable: bool,
+    pub enable: bool,
 
     /// Gateway server listening interface.
     #[arg(requires = "gateway_enable")]
@@ -121,7 +160,7 @@ pub struct GatewayOptions {
 impl Default for GatewayOptions {
     fn default() -> Self {
         GatewayOptions {
-            gateway_enable: false,
+            enable: false,
             gateway_addr: DEFAULT_GATEWAY_ADDR,
             gateway_port: DEFAULT_GATEWAY_PORT,
             gateway_timeout: DEFAULT_GATEWAY_TIMEOUT_SECS,
@@ -434,6 +473,14 @@ pub struct ForkingOptions {
     #[arg(long = "fork.block", value_name = "BLOCK", requires = "fork_provider")]
     #[arg(value_parser = parse_block_hash_or_number)]
     pub fork_block: Option<BlockHashOrNumber>,
+
+    /// Disable local dev genesis bootstrap when forking.
+    ///
+    /// By default Katana overlays the forked state with dev genesis allocations so predeployed
+    /// dev accounts are available. Enable this flag for strict lazy-fetch forking where local
+    /// state roots must stay aligned with the forked network.
+    #[arg(long = "fork.no-dev-genesis", requires = "fork_provider")]
+    pub no_dev_genesis: bool,
 }
 
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -921,6 +968,94 @@ impl TracerOptions {
 }
 
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Sync options")]
+pub struct SyncOptions {
+    /// The maximum block number to sync to. Once reached, the pipeline stops
+    /// syncing but the node and RPC server remain running. By default, the
+    /// pipeline syncs to the head of the chain.
+    #[arg(long = "sync.tip")]
+    #[arg(value_name = "BLOCK_NUMBER")]
+    pub tip: Option<u64>,
+
+    /// Custom feeder gateway base URL to sync from instead of the default
+    /// network gateway. Useful for syncing from another katana node's
+    /// feeder gateway.
+    #[arg(long = "sync.gateway")]
+    #[arg(value_name = "URL")]
+    #[arg(conflicts_with = "rpc")]
+    pub gateway: Option<Url>,
+
+    /// JSON-RPC endpoint URL to use as the block download source instead of
+    /// the feeder gateway. When set, blocks and classes are fetched via
+    /// JSON-RPC (`starknet_getBlockWithReceipts`, `starknet_getStateUpdate`,
+    /// `starknet_getClass`).
+    ///
+    /// This is mainly intended for development and testing purposes.
+    #[arg(long = "sync.rpc")]
+    #[arg(value_name = "URL")]
+    #[arg(conflicts_with = "gateway")]
+    pub rpc: Option<Url>,
+
+    /// Maximum number of blocks to process per pipeline iteration before
+    /// advancing to the next chunk.
+    #[arg(long = "sync.chunk-size")]
+    #[arg(value_name = "COUNT")]
+    #[arg(default_value_t = katana_full_node::DEFAULT_SYNC_CHUNK_SIZE)]
+    #[arg(value_parser = clap::value_parser!(u64).range(1..))]
+    pub chunk_size: u64,
+
+    /// Pipeline stages to run during sync.
+    ///
+    /// Comma-separated list of stages. Available stages: blocks, classes,
+    /// indexhistory, statetrie. By default, all stages are enabled.
+    #[arg(long = "sync.stages", value_name = "STAGES")]
+    #[arg(value_parser = SyncStagesList::parse)]
+    #[serde(default)]
+    pub stages: Option<SyncStagesList>,
+}
+
+impl Default for SyncOptions {
+    fn default() -> Self {
+        Self {
+            tip: None,
+            gateway: None,
+            rpc: None,
+            stages: None,
+            chunk_size: katana_full_node::DEFAULT_SYNC_CHUNK_SIZE,
+        }
+    }
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Stage options")]
+pub struct StageOptions {
+    /// Number of blocks to download concurrently within each chunk
+    /// in the Blocks stage.
+    #[arg(long = "stage.blocks.batch-size")]
+    #[arg(value_name = "COUNT")]
+    #[arg(default_value_t = katana_full_node::DEFAULT_BLOCKS_BATCH_SIZE)]
+    #[arg(value_parser = parse_nonzero_usize)]
+    pub blocks_batch_size: usize,
+
+    /// Number of classes to download concurrently within each chunk
+    /// in the Classes stage.
+    #[arg(long = "stage.classes.batch-size")]
+    #[arg(value_name = "COUNT")]
+    #[arg(default_value_t = katana_full_node::DEFAULT_CLASSES_BATCH_SIZE)]
+    #[arg(value_parser = parse_nonzero_usize)]
+    pub classes_batch_size: usize,
+}
+
+impl Default for StageOptions {
+    fn default() -> Self {
+        Self {
+            blocks_batch_size: katana_full_node::DEFAULT_BLOCKS_BATCH_SIZE,
+            classes_batch_size: katana_full_node::DEFAULT_CLASSES_BATCH_SIZE,
+        }
+    }
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Pruning options")]
 pub struct PruningOptions {
     /// State pruning mode
@@ -944,6 +1079,15 @@ impl Default for PruningOptions {
 pub enum PruningMode {
     Archive,
     Full(u64),
+}
+
+fn parse_nonzero_usize(s: &str) -> Result<usize, String> {
+    let n: usize = s.parse().map_err(|e| format!("{e}"))?;
+    if n == 0 {
+        Err("value must be greater than 0".to_string())
+    } else {
+        Ok(n)
+    }
 }
 
 fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {

@@ -1,3 +1,4 @@
+use jsonrpsee::core::client;
 use jsonrpsee::http_client::HttpClient;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
@@ -40,7 +41,15 @@ pub struct StarknetRpcClient {
 
 impl StarknetRpcClient {
     pub fn new(url: Url) -> Self {
-        StarknetRpcClient::new_with_client(HttpClient::builder().build(url).unwrap())
+        // Some blocks can have very large responses (e.g., getBlockWithReceipts for mainnet blocks
+        // 1256131 (~19MB) and 1256132 (~16MB) exceed the default 10MB limit).
+        const MAX_RESPONSE_SIZE: u32 = 50 * 1024 * 1024;
+
+        HttpClient::builder()
+            .max_response_size(MAX_RESPONSE_SIZE)
+            .build(url)
+            .map(Self::new_with_client)
+            .unwrap()
     }
 
     pub fn new_with_client(client: HttpClient) -> Self {
@@ -359,20 +368,35 @@ pub enum StarknetRpcClientError {
 
     /// Transport or other client-level error.
     #[error(transparent)]
-    Client(jsonrpsee::core::client::Error),
+    Client(client::Error),
 }
 
-impl From<jsonrpsee::core::client::Error> for StarknetRpcClientError {
-    fn from(err: jsonrpsee::core::client::Error) -> Self {
+impl StarknetRpcClientError {
+    /// Returns `true` if the error is transient and the request may succeed on retry.
+    ///
+    /// Transport errors (network issues) and request timeouts are considered retryable.
+    /// Parse errors, API errors, and other client errors are not.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Starknet(_) => false,
+            Self::Client(inner) => {
+                matches!(inner, client::Error::Transport(_) | client::Error::RequestTimeout)
+            }
+        }
+    }
+}
+
+impl From<client::Error> for StarknetRpcClientError {
+    fn from(err: client::Error) -> Self {
         match err {
-            jsonrpsee::core::client::Error::Call(ref err_obj) => {
+            client::Error::Call(ref err_obj) => {
                 if let Some(sn_err) = StarknetApiError::from_error_object(err_obj) {
-                    StarknetRpcClientError::Starknet(sn_err)
+                    Self::Starknet(sn_err)
                 } else {
-                    StarknetRpcClientError::Client(err)
+                    Self::Client(err)
                 }
             }
-            _ => StarknetRpcClientError::Client(err),
+            _ => Self::Client(err),
         }
     }
 }

@@ -1,21 +1,28 @@
+#[allow(unused)]
+mod common;
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
+use common::{
+    create_provider_with_block_range, create_provider_with_blocks, create_stored_block,
+    get_stored_block_numbers,
+};
 use katana_gateway_client::Client as SequencerGateway;
 use katana_gateway_types::{
-    Block, BlockStatus, ConfirmedStateUpdate, ErrorCode, GatewayError, StateDiff, StateUpdate,
-    StateUpdateWithBlock,
+    Block, BlockStatus, ConfirmedStateUpdate, StateDiff, StateUpdate, StateUpdateWithBlock,
 };
-use katana_primitives::block::{
-    BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
-};
+use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::{felt, ContractAddress, Felt};
-use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
-use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
-use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
+use katana_provider::api::block::BlockNumberProvider;
+use katana_provider::ProviderFactory;
+use katana_stage::blocks::hash::compute_hash;
+use katana_stage::blocks::{BatchBlockDownloader, BlockData, BlockDownloader, Blocks};
 use katana_stage::{Stage, StageExecutionInput};
+use katana_tasks::TaskManager;
 use rstest::rstest;
 use starknet::core::types::ResourcePrice;
 
@@ -50,6 +57,14 @@ impl MockBlockDownloader {
         self
     }
 
+    fn with_blocks<I>(self, iter: I) -> Self
+    where
+        I: IntoIterator<Item = (BlockNumber, StateUpdateWithBlock)>,
+    {
+        self.responses.lock().unwrap().extend(iter.into_iter().map(|(k, v)| (k, Ok(v))));
+        self
+    }
+
     /// Configure an error response for a specific block number.
     fn with_error(self, block_number: BlockNumber, error: String) -> Self {
         self.responses.lock().unwrap().insert(block_number, Err(error));
@@ -72,15 +87,20 @@ impl MockBlockDownloader {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct MockError(String);
+
 // We're only testing the stage business logic so we don't really care about using the
 // BatchDownloader/Downloader combination.
 impl BlockDownloader for MockBlockDownloader {
+    type Error = MockError;
+
     fn download_blocks(
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
-    {
+    ) -> impl Future<Output = Result<Vec<BlockData>, Self::Error>> + Send {
         async move {
             let block_numbers: Vec<BlockNumber> = (from..=to).collect();
 
@@ -92,20 +112,15 @@ impl BlockDownloader for MockBlockDownloader {
 
             for block_num in block_numbers {
                 match responses.get(&block_num) {
-                    Some(Ok(block_data)) => results.push(block_data.clone()),
+                    Some(Ok(block_data)) => results.push(BlockData::from(block_data.clone())),
                     Some(Err(error)) => {
-                        return Err(katana_gateway_client::Error::Sequencer(GatewayError {
-                            code: ErrorCode::BlockNotFound,
-                            message: error.clone(),
-                            problems: None,
-                        }))
+                        return Err(MockError(error.clone()));
                     }
                     None => {
-                        return Err(katana_gateway_client::Error::Sequencer(GatewayError {
-                            code: ErrorCode::BlockNotFound,
-                            message: format!("No response configured for block {}", block_num),
-                            problems: None,
-                        }))
+                        return Err(MockError(format!(
+                            "No response configured for block {}",
+                            block_num
+                        )));
                     }
                 }
             }
@@ -115,69 +130,8 @@ impl BlockDownloader for MockBlockDownloader {
     }
 }
 
-/// Creates a new in-memory provider with an initial block stored.
-fn create_provider_with_block(block: SealedBlockWithStatus) -> DbProviderFactory {
-    let provider_factory = DbProviderFactory::new_in_memory();
-    let provider_mut = provider_factory.provider_mut();
-    provider_mut
-        .insert_block_with_states_and_receipts(block, Default::default(), Vec::new(), Vec::new())
-        .expect("failed to insert initial block");
-    provider_mut.commit().expect("failed to commit");
-    provider_factory
-}
-
-/// Gets all stored block numbers from the provider by checking which blocks actually exist.
-fn get_stored_block_numbers(
-    provider: &DbProviderFactory,
-    expected_range: std::ops::RangeInclusive<BlockNumber>,
-) -> Vec<BlockNumber> {
-    let p = provider.provider();
-    expected_range.filter(|&num| p.block_hash_by_num(num).ok().flatten().is_some()).collect()
-}
-
-/// Helper function to create a minimal test `SealedBlockWithStatus`.
-///
-/// Creates a block with the given number and automatically sets the parent hash
-/// to the hash of block N-1 (using `Felt::from(block_number - 1)`).
-fn create_stored_block(block_number: BlockNumber) -> SealedBlockWithStatus {
-    let header = Header {
-        number: block_number,
-        parent_hash: Felt::from(block_number.saturating_sub(1)),
-        timestamp: block_number,
-        sequencer_address: ContractAddress::default(),
-        l1_gas_prices: Default::default(),
-        l1_data_gas_prices: Default::default(),
-        l2_gas_prices: Default::default(),
-        l1_da_mode: L1DataAvailabilityMode::Calldata,
-        starknet_version: Default::default(),
-        state_root: Felt::ZERO,
-        state_diff_commitment: Felt::ZERO,
-        transactions_commitment: Felt::ZERO,
-        receipts_commitment: Felt::ZERO,
-        events_commitment: Felt::ZERO,
-        transaction_count: 0,
-        events_count: 0,
-        state_diff_length: 0,
-    };
-
-    SealedBlockWithStatus {
-        block: SealedBlock { hash: Felt::from(block_number), header, body: Vec::new() },
-        status: FinalityStatus::AcceptedOnL2,
-    }
-}
-
-/// Helper function to create a minimal test block. The created block has a parent hash == block
-/// number - 1 for simplicity sake
-fn create_downloaded_block(block_number: BlockNumber) -> StateUpdateWithBlock {
-    create_downloaded_block_with_parent(block_number, Felt::from(block_number.saturating_sub(1)))
-}
-
-/// Helper function to create a test block with a specific parent hash.
-fn create_downloaded_block_with_parent(
-    block_number: BlockNumber,
-    parent_hash: Felt,
-) -> StateUpdateWithBlock {
-    StateUpdateWithBlock {
+fn create_downloaded_block(block_number: BlockNumber, parent_hash: Felt) -> StateUpdateWithBlock {
+    let mut downloaded_block = StateUpdateWithBlock {
         block: Block {
             status: BlockStatus::AcceptedOnL2,
             block_hash: Some(Felt::from(block_number)),
@@ -193,8 +147,10 @@ fn create_downloaded_block_with_parent(
             transaction_receipts: Vec::new(),
             starknet_version: Some("0.13.0".to_string()),
             transaction_commitment: Some(Felt::ZERO),
+            receipt_commitment: Some(Felt::ZERO),
             event_commitment: Some(Felt::ZERO),
             state_diff_commitment: Some(Felt::ZERO),
+            state_diff_length: None,
             state_root: Some(Felt::ZERO),
         },
         state_update: StateUpdate::Confirmed(ConfirmedStateUpdate {
@@ -203,7 +159,13 @@ fn create_downloaded_block_with_parent(
             old_root: Felt::ZERO,
             state_diff: StateDiff::default(),
         }),
-    }
+    };
+
+    let block: BlockData = downloaded_block.clone().into();
+    let actual_block_hash = compute_hash(&block.block.block.header, &ChainId::SEPOLIA);
+
+    downloaded_block.block.block_hash = Some(actual_block_hash);
+    downloaded_block
 }
 
 #[rstest]
@@ -216,14 +178,30 @@ async fn download_and_store_blocks(
     #[case] to_block: BlockNumber,
     #[case] expected_blocks: Vec<BlockNumber>,
 ) {
-    let provider = create_provider_with_block(create_stored_block(from_block - 1));
-    let mut downloader = MockBlockDownloader::new();
+    let genesis = create_stored_block(from_block - 1, BlockHash::ZERO);
+    let mut downloaded_blocks: Vec<(BlockNumber, StateUpdateWithBlock)> = Vec::new();
 
-    for block_num in from_block..=to_block {
-        downloader = downloader.with_block(block_num, create_downloaded_block(block_num));
+    for i in from_block..=to_block {
+        let idx = (i % from_block) as usize;
+
+        let parent_hash = if idx == 0 {
+            genesis.block.hash
+        } else {
+            downloaded_blocks[idx - 1].1.block.block_hash.unwrap()
+        };
+
+        downloaded_blocks.push((i, create_downloaded_block(i, parent_hash)));
     }
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let provider = create_provider_with_blocks(vec![genesis]);
+    let downloader = MockBlockDownloader::new().with_blocks(downloaded_blocks);
+
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
     let input = StageExecutionInput::new(from_block, to_block);
 
     let result = stage.execute(&input).await;
@@ -242,11 +220,18 @@ async fn download_failure_returns_error() {
     let block_number = 100;
     let error_msg = "Network error".to_string();
 
-    let downloader = MockBlockDownloader::new().with_error(block_number, error_msg.clone());
-    // Create provider with initial block at block_number - 1
-    let provider = create_provider_with_block(create_stored_block(block_number - 1));
+    // Create provider with initial block number 99
+    let genesis = create_stored_block(99, BlockHash::ZERO);
+    let provider = create_provider_with_blocks(vec![genesis]);
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let downloader = MockBlockDownloader::new().with_error(block_number, error_msg.clone());
+
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
     let input = StageExecutionInput::new(block_number, block_number);
 
     let result = stage.execute(&input).await;
@@ -274,14 +259,32 @@ async fn partial_download_failure_stops_execution() {
     let to_block = 105;
 
     // Configure first 3 blocks to succeed, 4th to fail
-    let mut downloader = MockBlockDownloader::new();
-    for block_num in from_block..=102 {
-        downloader = downloader.with_block(block_num, create_downloaded_block(block_num));
-    }
-    downloader = downloader.with_error(103, "Block not found".to_string());
+    let mut downloaded_blocks: Vec<(BlockNumber, StateUpdateWithBlock)> = Vec::new();
 
-    let provider = create_provider_with_block(create_stored_block(from_block - 1));
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    for block_num in from_block..=102 {
+        let idx = (block_num % from_block) as usize;
+
+        let parent_hash = if idx == 0 {
+            BlockHash::ZERO
+        } else {
+            downloaded_blocks[idx - 1].1.block.block_hash.unwrap()
+        };
+
+        let block = create_downloaded_block(block_num, parent_hash);
+        downloaded_blocks.push((block_num, block));
+    }
+
+    let downloader = MockBlockDownloader::new()
+        .with_blocks(downloaded_blocks)
+        .with_error(103, "Block not found".to_string());
+
+    let provider = create_provider_with_block_range(99..=99, Default::default());
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
 
     let input = StageExecutionInput::new(from_block, to_block);
     let result = stage.execute(&input).await;
@@ -300,13 +303,18 @@ async fn fetch_blocks_from_gateway() {
     let from_block = 308919;
     let to_block = from_block + 2;
 
-    // Create provider with initial block before the test range
-    // The parent hash must match what the network returns for block from_block
-    let provider = create_provider_with_block(create_stored_block(from_block - 1));
+    let genesis = create_stored_block(from_block - 1, BlockHash::ZERO);
+    let provider = create_provider_with_blocks(vec![genesis]);
+
     let feeder_gateway = SequencerGateway::sepolia();
     let downloader = BatchBlockDownloader::new_gateway(feeder_gateway, 10);
 
-    let mut stage = Blocks::new(provider.clone(), downloader);
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader,
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
 
     let input = StageExecutionInput::new(from_block, to_block);
     stage.execute(&input).await.expect("failed to execute stage");
@@ -321,11 +329,21 @@ async fn fetch_blocks_from_gateway() {
 async fn downloaded_blocks_do_not_form_valid_chain_with_stored_blocks() {
     use katana_stage::blocks;
 
-    let provider = create_provider_with_block(create_stored_block(99));
-    let downloader = MockBlockDownloader::new()
-        .with_block(100, create_downloaded_block_with_parent(100, felt!("0x1337")));
+    let genesis = create_stored_block(99, BlockHash::ZERO);
+    let expected_parent_hash = genesis.block.hash;
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let provider = create_provider_with_blocks(vec![genesis]);
+
+    // download a block with an invalid parent hash
+    let block1 = create_downloaded_block(100, felt!("0x1337"));
+    let downloader = MockBlockDownloader::new().with_block(100, block1);
+
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
     let input = StageExecutionInput::new(100, 100);
 
     let result = stage.execute(&input).await;
@@ -333,7 +351,7 @@ async fn downloaded_blocks_do_not_form_valid_chain_with_stored_blocks() {
     let expected_error = blocks::Error::ChainInvariantViolation {
         block_num: 100,
         parent_hash: felt!("0x1337"),
-        expected_hash: felt!("99"),
+        expected_hash: expected_parent_hash,
     };
 
     // Should fail with chain invariant violation
@@ -356,15 +374,25 @@ async fn downloaded_blocks_do_not_form_valid_chain_with_stored_blocks() {
 async fn downloaded_blocks_do_not_form_valid_chain() {
     use katana_stage::blocks;
 
-    let provider = create_provider_with_block(create_stored_block(99));
-    let downloader = MockBlockDownloader::new()
-        .with_block(100, create_downloaded_block(100))
-        .with_block(101, create_downloaded_block(101))
-        // Create blocks where block 102 has an invalid parent hash
-        // Block 102 with incorrect parent hash (should be 101)
-        .with_block(102, create_downloaded_block_with_parent(102, Felt::from(999)));
+    let genesis = create_stored_block(99, BlockHash::ZERO);
+    let block1 = create_downloaded_block(100, genesis.block.hash);
+    let block2 = create_downloaded_block(101, block1.block.block_hash.unwrap());
 
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let expected_prev_block_hash = block2.block.block_hash.clone().unwrap();
+
+    let provider = create_provider_with_blocks(vec![genesis]);
+    let downloader = MockBlockDownloader::new()
+        .with_block(100, block1)
+        .with_block(101, block2)
+        // block 102 has an invalid parent hash
+        .with_block(102, create_downloaded_block(102, Felt::from(999)));
+
+    let mut stage = Blocks::new(
+        provider.clone(),
+        downloader.clone(),
+        ChainId::SEPOLIA,
+        TaskManager::current().task_spawner(),
+    );
     let input = StageExecutionInput::new(100, 102);
 
     let result = stage.execute(&input).await;
@@ -372,7 +400,7 @@ async fn downloaded_blocks_do_not_form_valid_chain() {
     let expected_error = blocks::Error::ChainInvariantViolation {
         block_num: 102,
         parent_hash: felt!("999"),
-        expected_hash: felt!("101"),
+        expected_hash: expected_prev_block_hash,
     };
 
     // Should fail with chain invariant violation

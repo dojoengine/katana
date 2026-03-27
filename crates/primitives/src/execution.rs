@@ -4,7 +4,7 @@ pub use blockifier::execution::call_info::{
     CallExecution, CallInfo, ExecutionSummary, OrderedEvent,
 };
 pub use blockifier::execution::contract_class::TrackedResource;
-pub use blockifier::execution::entry_point::{CallEntryPoint, CallType};
+pub use blockifier::execution::entry_point::{CallEntryPoint, CallEntryPointVariant, CallType};
 pub use blockifier::execution::stack_trace::ErrorStack;
 pub use blockifier::fee::fee_checks::FeeCheckError;
 pub use blockifier::fee::receipt::TransactionReceipt;

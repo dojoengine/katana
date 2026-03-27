@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 750 420" font-family="system-ui,sans-serif">
+<rect width="750" height="420" fill="#fafafa" rx="6"/>
+<text x="375" y="30" text-anchor="middle" font-size="15" font-weight="bold" fill="#1a1a1a">Training Range Impact (128 KB dict, 100k samples)</text>
+<line x1="70" y1="350" x2="720" y2="350" stroke="#e0e0e0"/>
+<text x="62" y="354" text-anchor="end" font-size="11" fill="#666">0%</text>
+<line x1="70" y1="290" x2="720" y2="290" stroke="#e0e0e0"/>
+<text x="62" y="294" text-anchor="end" font-size="11" fill="#666">11%</text>
+<line x1="70" y1="230" x2="720" y2="230" stroke="#e0e0e0"/>
+<text x="62" y="234" text-anchor="end" font-size="11" fill="#666">22%</text>
+<line x1="70" y1="170" x2="720" y2="170" stroke="#e0e0e0"/>
+<text x="62" y="174" text-anchor="end" font-size="11" fill="#666">33%</text>
+<line x1="70" y1="110" x2="720" y2="110" stroke="#e0e0e0"/>
+<text x="62" y="114" text-anchor="end" font-size="11" fill="#666">44%</text>
+<line x1="70" y1="50" x2="720" y2="50" stroke="#e0e0e0"/>
+<text x="62" y="54" text-anchor="end" font-size="11" fill="#666">55%</text>
+<text x="395" y="412" text-anchor="middle" font-size="12" fill="#444">Training Range</text>
+<text x="18" y="200" text-anchor="middle" font-size="12" fill="#444" transform="rotate(-90 18 200)">Savings vs Identity (%)</text>
+<text x="124.16666666666666" y="368" text-anchor="middle" font-size="10" fill="#666">full</text>
+<rect x="81.91666666666666" y="147.47550217613994" width="37.916666666666664" height="202.52449782386006" fill="#2196F3" rx="2"/>
+<text x="100.87499999999999" y="142.47550217613994" text-anchor="middle" font-size="9" font-weight="bold" fill="#2196F3">37.1%</text>
+<rect x="128.5" y="211.91253755081294" width="37.916666666666664" height="138.08746244918706" fill="#FF9800" rx="2"/>
+<text x="147.45833333333334" y="206.91253755081294" text-anchor="middle" font-size="9" font-weight="bold" fill="#FF9800">25.3%</text>
+<text x="232.49999999999997" y="368" text-anchor="middle" font-size="10" fill="#666">recent-25%</text>
+<rect x="190.24999999999997" y="240.51824044656365" width="37.916666666666664" height="109.48175955343633" fill="#2196F3" rx="2"/>
+<text x="209.20833333333331" y="235.51824044656365" text-anchor="middle" font-size="9" font-weight="bold" fill="#2196F3">20.1%</text>
+<rect x="236.83333333333331" y="297.70060950286916" width="37.916666666666664" height="52.29939049713085" fill="#FF9800" rx="2"/>
+<text x="255.79166666666666" y="292.70060950286916" text-anchor="middle" font-size="9" font-weight="bold" fill="#FF9800">9.6%</text>
+<text x="340.8333333333333" y="368" text-anchor="middle" font-size="10" fill="#666">recent-10%</text>
+<rect x="298.5833333333333" y="282.69435763572926" width="37.916666666666664" height="67.30564236427075" fill="#2196F3" rx="2"/>
+<text x="317.54166666666663" y="277.69435763572926" text-anchor="middle" font-size="9" font-weight="bold" fill="#2196F3">12.3%</text>
+<rect x="345.16666666666663" y="310.6918266796947" width="37.916666666666664" height="39.308173320305265" fill="#FF9800" rx="2"/>
+<text x="364.12499999999994" y="305.6918266796947" text-anchor="middle" font-size="9" font-weight="bold" fill="#FF9800">7.2%</text>
+<text x="449.1666666666667" y="368" text-anchor="middle" font-size="10" fill="#666">recent-5%</text>
+<rect x="406.9166666666667" y="266.62753233010767" width="37.916666666666664" height="83.3724676698923" fill="#2196F3" rx="2"/>
+<text x="425.875" y="261.62753233010767" text-anchor="middle" font-size="9" font-weight="bold" fill="#2196F3">15.3%</text>
+<rect x="453.5" y="312.4047272848527" width="37.916666666666664" height="37.595272715147324" fill="#FF9800" rx="2"/>
+<text x="472.4583333333333" y="307.4047272848527" text-anchor="middle" font-size="9" font-weight="bold" fill="#FF9800">6.9%</text>
+<text x="557.5" y="368" text-anchor="middle" font-size="10" fill="#666">mid-50%</text>
+<rect x="515.25" y="157.56111131332779" width="37.916666666666664" height="192.43888868667221" fill="#2196F3" rx="2"/>
+<text x="534.2083333333334" y="152.56111131332779" text-anchor="middle" font-size="9" font-weight="bold" fill="#2196F3">35.3%</text>
+<rect x="561.8333333333334" y="226.08389606925215" width="37.916666666666664" height="123.91610393074787" fill="#FF9800" rx="2"/>
+<text x="580.7916666666667" y="221.08389606925215" text-anchor="middle" font-size="9" font-weight="bold" fill="#FF9800">22.7%</text>
+<text x="665.8333333333333" y="368" text-anchor="middle" font-size="10" fill="#666">oldest-25%</text>
+<rect x="623.5833333333333" y="269.4949281899819" width="37.916666666666664" height="80.50507181001805" fill="#2196F3" rx="2"/>
+<text x="642.5416666666666" y="264.4949281899819" text-anchor="middle" font-size="9" font-weight="bold" fill="#2196F3">14.8%</text>
+<rect x="670.1666666666666" y="299.17554935588925" width="37.916666666666664" height="50.82445064411076" fill="#FF9800" rx="2"/>
+<text x="689.125" y="294.17554935588925" text-anchor="middle" font-size="9" font-weight="bold" fill="#FF9800">9.3%</text>
+<rect x="590" y="55" width="14" height="14" fill="#2196F3" rx="2"/>
+<text x="610" y="66" font-size="11" fill="#333">Receipts</text>
+<rect x="590" y="77" width="14" height="14" fill="#FF9800" rx="2"/>
+<text x="610" y="88" font-size="11" fill="#333">Transactions</text>
+</svg>
