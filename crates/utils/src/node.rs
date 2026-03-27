@@ -356,6 +356,7 @@ pub fn test_config() -> Config {
 
     let mut chain = dev::ChainSpec { id: ChainId::SEPOLIA, ..Default::default() };
     chain.genesis.sequencer_address = address!("0x1");
+    katana_slot_controller::add_controller_classes(&mut chain.genesis);
 
     let rpc = RpcConfig {
         port: 0,

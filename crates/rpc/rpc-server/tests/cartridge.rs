@@ -1,15 +1,5 @@
 #![cfg(feature = "cartridge")]
 
-//! Integration tests for the Cartridge RPC API and Controller deployment middleware.
-//!
-//! These tests start a real Katana node (with no-mining) and verify that the
-//! `cartridge_addExecuteOutsideTransaction` flow correctly deploys undeployed
-//! Controller accounts into the transaction pool via the middleware.
-//!
-//! NOTE: Only one `TestNode` can be created per test binary because the global
-//! class cache (`OnceLock`) can only be initialized once. All tests share a
-//! single node. Use `cargo nextest` to run separate test binaries in parallel.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -17,11 +7,11 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use cainome::rs::abigen;
+use cainome::rs::abigen_legacy;
 use cartridge::api::GetAccountCalldataResponse;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::server::ServerBuilder;
-use katana_pool::api::TransactionPool;
+use katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::execution::Call;
 use katana_primitives::{address, felt, ContractAddress, Felt};
 use katana_rpc_api::cartridge::CartridgeApiClient;
@@ -38,7 +28,7 @@ use paymaster_rpc::{
     TokenPrice,
 };
 use serde::Deserialize;
-use starknet::accounts::{AccountError, ExecutionEncoding, SingleOwnerAccount};
+use starknet::accounts::{Account, AccountError, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::StarknetError;
 use starknet::providers::ProviderError;
 use starknet::signers::{LocalWallet, SigningKey};
@@ -47,63 +37,20 @@ use url::Url;
 
 mod common;
 
-fn cartridge_test_config(
-    cartridge_api_url: url::Url,
-    paymaster_url: url::Url,
-) -> katana_sequencer_node::config::Config {
-    use katana_sequencer_node::config::paymaster::{CartridgeApiConfig, PaymasterConfig};
-
-    let mut config = test_config();
-    config.dev.account_validation = false;
-    config.sequencing.no_mining = true;
-
-    let (deployer_address, deployer_account) =
-        config.chain.genesis().accounts().next().expect("must have genesis accounts");
-    let deployer_private_key = deployer_account.private_key().expect("must have private key");
-
-    config.paymaster = Some(PaymasterConfig {
-        url: paymaster_url,
-        api_key: None,
-        cartridge_api: Some(CartridgeApiConfig {
-            cartridge_api_url,
-            controller_deployer_address: *deployer_address,
-            controller_deployer_private_key: deployer_private_key,
-            #[cfg(feature = "vrf")]
-            vrf: None,
-        }),
-    });
-
-    config
-}
-
-// Dojo Simple example project
-abigen!(
-    SimpleContract,
-    [
-        {
-            "type": "function",
-            "name": "system_1",
-            "inputs": [
-                { "name": "k", "type": "core::felt252" },
-                { "name": "v", "type": "core::felt252" }
-            ],
-            "outputs": [],
-            "state_mutability": "external"
-        }
-    ]
-);
+abigen_legacy!(EthTokenContract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
 const VALID_CONTROLLER_ADDRESS: ContractAddress =
     address!("0x48e13ef7ab79637afd38a4b022862a7e6f3fd934f194c435d7e7b17bac06715");
 
-#[tokio::test(flavor = "multi_thread")]
-async fn deployment_for_controller_account() {
-    let controller_address = address!("0xdead");
+/// The Controller middleware should add a deploy transaction for an undeployed Controller account.
+#[tokio::test]
+async fn controller_account_undeployed_should_deploy() {
+    let sender = VALID_CONTROLLER_ADDRESS;
     let outside_execution = get_outside_execution();
     let signature = vec![Felt::ZERO, Felt::ZERO];
 
-    let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
-    let (paymaster_url, ..) = start_mock_paymaster().await;
+    let (cartridge_api_url, api_state) = start_mock_cartridge_api().await;
+    let (paymaster_url, paymaster_state) = start_mock_paymaster().await;
 
     let config = cartridge_test_config(cartridge_api_url, paymaster_url);
 
@@ -122,21 +69,12 @@ async fn deployment_for_controller_account() {
         .unwrap()
         .controller_deployer_address;
 
-    // --------------------------------------------------------------------------------------
-    // Case 1: Undeployed Controller → deploy tx added to pool
-    // --------------------------------------------------------------------------------------
-
-    let _ = rpc_client
-        .add_execute_outside_transaction(
-            controller_address,
-            outside_execution.clone(),
-            signature.clone(),
-            None,
-        )
+    rpc_client
+        .add_execute_outside_transaction(sender, outside_execution.clone(), signature.clone(), None)
         .await
         .unwrap();
 
-    let api_requests = mock_api_state.received_requests.lock();
+    let api_requests = api_state.received_requests.lock();
     assert_eq!(api_requests.len(), 1, "Cartridge API should have been queried once");
 
     let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
@@ -145,30 +83,18 @@ async fn deployment_for_controller_account() {
     let content: TxPoolContent = rpc_client.txpool_content_from(controller_deployer).await.unwrap();
     assert_eq!(content.pending.len(), 1, "deploy tx should be from the deployer");
 
-    // --------------------------------------------------------------------------------------
-    // Case 2: Already-deployed controller → no extra deploy tx
-    // --------------------------------------------------------------------------------------
-
-    // Reset request tracker and transaction pool
-    {
-        mock_api_state.received_requests.lock().clear();
-        node.handle().node().pool().clear();
-    }
-
-    let _ = rpc_client
-        .add_execute_outside_transaction(controller_deployer, outside_execution, signature, None)
-        .await
-        .unwrap();
-
-    let api_requests = mock_api_state.received_requests.lock();
-    assert!(api_requests.is_empty(), "Cartridge API should not be queried for deployed accounts");
-
-    let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
-    assert_eq!(status.pending, 0, "pool should not contain a deploy transaction");
+    let paymaster_requests = paymaster_state.requests.lock();
+    let request = paymaster_requests.get(&sender).expect("tx should be forwarded to paymaster");
+    assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn no_deployment_for_non_controller_account() {
+/// The Controller middleware shouldn't add a deploy transaction for an already deployed account
+/// (regardless if the account is a Controller or not).
+///
+/// The execute outside transaction request would be simply fall through to the Cartridge API and
+/// forwarded to the paymaster.
+#[tokio::test]
+async fn account_deployed_should_not_deploy() {
     let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
     let (paymaster_url, mock_paymaster_state) = start_mock_paymaster().await;
 
@@ -177,32 +103,40 @@ async fn no_deployment_for_non_controller_account() {
     let node = TestNode::new_with_config(config).await;
     let rpc_client = node.rpc_http_client();
 
-    // // --------------------------------------------------------------------------------------
-    // // Case 1: Deployed account (non-Controller)
-    // // --------------------------------------------------------------------------------------
+    let sender = node.account(); // pre-deployed account
+    let sender = ContractAddress::from(sender.address());
+    let outside_execution = get_outside_execution();
 
-    // let sender = node.account();
-    // let sender = ContractAddress::from(sender.address());
-    // let outside_execution = get_outside_execution();
+    rpc_client
+        .add_execute_outside_transaction(sender, outside_execution, Vec::new(), None)
+        .await
+        .unwrap();
 
-    // rpc_client
-    //     .add_execute_outside_transaction(sender, outside_execution, Vec::new(), None)
-    //     .await
-    //     .unwrap();
+    let api_requests = mock_api_state.received_requests.lock();
+    assert!(!api_requests.contains(&sender), "no api query bcs the account is deployed");
 
-    // let api_requests = mock_api_state.received_requests.lock();
-    // assert!(!api_requests.contains(&sender), "no api query bcs the account is deployed");
+    let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 0, "pool should not contain a deploy transaction");
 
-    // let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
-    // assert_eq!(status.pending, 0, "pool should not contain a deploy transaction");
+    let paymaster_requests = mock_paymaster_state.requests.lock();
+    let request = paymaster_requests.get(&sender).expect("tx should be forwarded to paymaster");
+    assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
+}
 
-    // let paymaster_requests = mock_paymaster_state.requests.lock();
-    // let request = paymaster_requests.get(&sender).expect("tx should be forwarded to paymaster");
-    // assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
+/// The Controller middleware shouldn't add a deploy transaction for an undeployed non-Controller
+/// account.
+///
+/// The execute outside transaction request would be simply fall through to the Cartridge API and
+/// forwarded to the paymaster.
+#[tokio::test]
+async fn non_controller_account_undeployed_should_not_deploy() {
+    let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
+    let (paymaster_url, mock_paymaster_state) = start_mock_paymaster().await;
 
-    // --------------------------------------------------------------------------------------
-    // Case 2: Undeployed account (non-Controller)
-    // --------------------------------------------------------------------------------------
+    let config = cartridge_test_config(cartridge_api_url, paymaster_url);
+
+    let node = TestNode::new_with_config(config).await;
+    let rpc_client = node.rpc_http_client();
 
     let sender = address!("0xdeadbeef");
     let outside_execution = get_outside_execution();
@@ -223,15 +157,15 @@ async fn no_deployment_for_non_controller_account() {
     assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn deployment_for_controller_account_on_estimate_fee() {
+#[tokio::test]
+async fn estimate_fee_controller_account_undeployed_should_deploy() {
     let controller_address = VALID_CONTROLLER_ADDRESS;
 
     let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
     let (paymaster_url, ..) = start_mock_paymaster().await;
 
     let config = cartridge_test_config(cartridge_api_url, paymaster_url);
-    let node = TestNode::new_with_simple_db_and_config(config).await;
+    let node = TestNode::new_with_config(config).await;
 
     // Use an undeployed non-Controller account to execute the request
     let account = SingleOwnerAccount::new(
@@ -243,13 +177,10 @@ async fn deployment_for_controller_account_on_estimate_fee() {
         ExecutionEncoding::New,
     );
 
-    let contract = SimpleContract::new(
-        felt!("0x6a2312753a30573620efdfb0f141872d1e7883237c8b99dcf518e47618df886"),
-        &account,
-    );
+    let contract = EthTokenContract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
 
     let _ = contract
-        .system_1(&Felt::ZERO, &Felt::ZERO)
+	    .transfer(&Felt::ONE, &Uint256 { low: Felt::ZERO, high: Felt::ZERO })
         .nonce(Felt::ONE) // to avoid nonce query internally
         .estimate_fee()
         .await
@@ -260,13 +191,48 @@ async fn deployment_for_controller_account_on_estimate_fee() {
     assert!(api_requests.contains(&controller_address), "Cartridge API should be queried once");
 }
 
+/// Estimate fee works normally for an account that is already deployed regardless if the account
+/// is a Controller or not. It's treated like a normal estimate fee request.
 #[tokio::test]
-async fn no_deployment_for_non_controller_account_on_estimate_fee() {
+async fn estimate_fee_account_deployed_works_normally() {
     let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
     let (paymaster_url, ..) = start_mock_paymaster().await;
 
     let config = cartridge_test_config(cartridge_api_url, paymaster_url);
-    let node = TestNode::new_with_simple_db_and_config(config).await;
+    let node = TestNode::new_with_config(config).await;
+
+    let account = node.account(); // pre-deployed account
+    let sender = ContractAddress::from(account.address());
+
+    let account = SingleOwnerAccount::new(
+        node.starknet_provider(),
+        // account validation is disabled on the test node
+        LocalWallet::from_signing_key(SigningKey::from_secret_scalar(Felt::ZERO)),
+        sender.into(),
+        node.backend().chain_spec.id().into(),
+        ExecutionEncoding::New,
+    );
+
+    let contract = EthTokenContract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+
+    contract
+        .transfer(&Felt::ONE, &Uint256 { low: Felt::ZERO, high: Felt::ZERO })
+        .estimate_fee()
+        .await
+        .unwrap();
+
+    // Cartridge API should still be queried on estimate fee
+    let api_requests = mock_api_state.received_requests.lock();
+    assert!(api_requests.contains(&sender), "Cartridge API should be queried once");
+}
+
+#[tokio::test]
+async fn estimate_fee_non_controller_account_undeployed_should_not_deploy() {
+    let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
+    let (paymaster_url, ..) = start_mock_paymaster().await;
+
+    let config = cartridge_test_config(cartridge_api_url, paymaster_url);
+    let node = TestNode::new_with_config(config).await;
 
     let non_controller_address = address!("0xdeadbeef");
 
@@ -280,13 +246,10 @@ async fn no_deployment_for_non_controller_account_on_estimate_fee() {
         ExecutionEncoding::New,
     );
 
-    let contract = SimpleContract::new(
-        felt!("0x6a2312753a30573620efdfb0f141872d1e7883237c8b99dcf518e47618df886"),
-        &account,
-    );
+    let contract = EthTokenContract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
 
     let err = contract
-        .system_1(&Felt::ZERO, &Felt::ZERO)
+    	.transfer(&Felt::ONE, &Uint256 { low: Felt::ZERO, high: Felt::ZERO })
         .nonce(Felt::ONE) // to avoid nonce query internally
         .estimate_fee()
         .await
@@ -317,6 +280,35 @@ fn get_outside_execution() -> OutsideExecution {
     })
 }
 
+fn cartridge_test_config(
+    cartridge_api_url: url::Url,
+    paymaster_url: url::Url,
+) -> katana_sequencer_node::config::Config {
+    use katana_sequencer_node::config::paymaster::{CartridgeApiConfig, PaymasterConfig};
+
+    let mut config = test_config();
+    config.dev.account_validation = false;
+    config.sequencing.no_mining = true;
+
+    let (deployer_address, deployer_account) =
+        config.chain.genesis().accounts().next().expect("must have genesis accounts");
+    let deployer_private_key = deployer_account.private_key().expect("must have private key");
+
+    config.paymaster = Some(PaymasterConfig {
+        url: paymaster_url,
+        api_key: None,
+        cartridge_api: Some(CartridgeApiConfig {
+            cartridge_api_url,
+            controller_deployer_address: *deployer_address,
+            controller_deployer_private_key: deployer_private_key,
+            #[cfg(feature = "vrf")]
+            vrf: None,
+        }),
+    });
+
+    config
+}
+
 #[derive(Clone, Default)]
 struct MockCartridgeApiState {
     received_requests: Arc<Mutex<Vec<ContractAddress>>>,
@@ -334,7 +326,7 @@ async fn start_mock_cartridge_api() -> (url::Url, MockCartridgeApiState) {
     ) -> Response {
         state.received_requests.lock().push(address);
 
-        if dbg!(address == VALID_CONTROLLER_ADDRESS) {
+        if address == VALID_CONTROLLER_ADDRESS {
             Json(GetAccountCalldataResponse {
                 address: VALID_CONTROLLER_ADDRESS,
                 username: "testuser".to_string(),

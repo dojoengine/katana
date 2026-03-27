@@ -79,7 +79,8 @@ pub fn estimate_fees(
             match result {
                 ExecutionResult::Success { receipt, .. } => {
                     if let Some(reason) = receipt.revert_reason() {
-                        // ideally, we would check for the contract deployment status before execution
+                        // ideally, we would check for the contract deployment status before
+                        // execution
                         return if is_undeployed_contract_error(reason) {
                             Err(StarknetApiError::ContractNotFound)
                         } else {
@@ -147,8 +148,9 @@ pub fn call<P: StateProvider + 'static>(
 }
 
 fn is_undeployed_contract_error(error: &str) -> bool {
-    use regex::Regex;
     use std::sync::LazyLock;
+
+    use regex::Regex;
 
     static RE: LazyLock<Regex> = LazyLock::new(|| {
         // Error message returned by blockifier when a contract is not deployed during execution

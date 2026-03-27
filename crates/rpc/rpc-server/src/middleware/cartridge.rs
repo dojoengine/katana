@@ -277,7 +277,7 @@ where
             }
         };
 
-        if dbg!(is_deployed) {
+        if is_deployed {
             return Ok(());
         }
 
@@ -288,10 +288,10 @@ where
                 },
             )?;
 
-        let deploy_tx =
-            dbg!(self.get_controller_deployment_tx(address, nonce).await.map_err(|err| {
-                CartridgeApiError::ControllerDeployment { reason: err.to_string() }
-            })?);
+        let deploy_tx = self
+            .get_controller_deployment_tx(address, nonce)
+            .await
+            .map_err(|err| CartridgeApiError::ControllerDeployment { reason: err.to_string() })?;
 
         // None means the address is not of a Controller
         if let Some(tx) = deploy_tx {
@@ -405,20 +405,18 @@ where
         async move {
             let method = request.method_name();
 
-            match dbg!(method) {
+            match method {
                 STARKNET_ESTIMATE_FEE => {
                     trace!(%method, "Intercepting JSON-RPC method.");
                     if let Some(params) = parse_estimate_fee_params(&request) {
-                        return dbg!(this.starknet_estimate_fee(params, request).await);
+                        return this.starknet_estimate_fee(params, request).await;
                     }
                 }
 
                 CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE | CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX => {
                     trace!(%method, "Intercepting JSON-RPC method.");
                     if let Some(params) = parse_execute_outside_params(&request) {
-                        return dbg!(
-                            this.cartridge_add_execute_from_outside(params, request).await
-                        );
+                        return this.cartridge_add_execute_from_outside(params, request).await;
                     }
                 }
 

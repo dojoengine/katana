@@ -7079,6 +7079,7 @@ dependencies = [
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-sequencer-node",
+ "katana-slot-controller",
  "katana-starknet",
  "katana-utils-macro",
  "rand 0.8.5",
