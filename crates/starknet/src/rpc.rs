@@ -31,20 +31,20 @@ use katana_rpc_types::{
 };
 use url::Url;
 
-type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, StarknetRpcClientError>;
 
 #[derive(Debug, Clone)]
-pub struct Client {
+pub struct StarknetRpcClient {
     client: HttpClient,
 }
 
-impl Client {
+impl StarknetRpcClient {
     pub fn new(url: Url) -> Self {
-        Client::new_with_client(HttpClient::builder().build(url).unwrap())
+        StarknetRpcClient::new_with_client(HttpClient::builder().build(url).unwrap())
     }
 
     pub fn new_with_client(client: HttpClient) -> Self {
-        Client { client }
+        StarknetRpcClient { client }
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -352,7 +352,7 @@ impl Client {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum StarknetRpcClientError {
     /// API-specific error returned by the server.
     #[error(transparent)]
     Starknet(StarknetApiError),
@@ -362,17 +362,17 @@ pub enum Error {
     Client(jsonrpsee::core::client::Error),
 }
 
-impl From<jsonrpsee::core::client::Error> for Error {
+impl From<jsonrpsee::core::client::Error> for StarknetRpcClientError {
     fn from(err: jsonrpsee::core::client::Error) -> Self {
         match err {
             jsonrpsee::core::client::Error::Call(ref err_obj) => {
                 if let Some(sn_err) = StarknetApiError::from_error_object(err_obj) {
-                    Error::Starknet(sn_err)
+                    StarknetRpcClientError::Starknet(sn_err)
                 } else {
-                    Error::Client(err)
+                    StarknetRpcClientError::Client(err)
                 }
             }
-            _ => Error::Client(err),
+            _ => StarknetRpcClientError::Client(err),
         }
     }
 }

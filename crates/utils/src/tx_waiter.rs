@@ -12,7 +12,9 @@ use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
 use katana_rpc_types::TxStatus;
-use katana_starknet::rpc::{Client as StarknetClient, Error as StarknetClientError};
+use katana_starknet::rpc::{
+    StarknetRpcClient as StarknetClient, StarknetRpcClientError as StarknetClientError,
+};
 use tokio::time::{Instant, Interval};
 
 type GetTxStatusResult = Result<TxStatus, StarknetClientError>;

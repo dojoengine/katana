@@ -63,7 +63,7 @@ use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
-use katana_starknet::rpc::Client as StarknetClient;
+use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
 #[cfg(feature = "cartridge")]

@@ -186,7 +186,7 @@ where
         params: AddExecuteOutsideParams,
         request: Request<'a>,
     ) -> S::MethodResponse {
-        if let Err(err) = self.cartridge_add_execute_from_outside_inner(params).await {
+        if let Err(err) = dbg!(self.cartridge_add_execute_from_outside_inner(params).await) {
             MethodResponse::error(request.id().clone(), ErrorObjectOwned::from(err))
         } else {
             self.service.call(request).await
@@ -209,6 +209,7 @@ where
             .map_err(|err| {
                 Self::controller_deployment_error(format!("failed to get deployer nonce: {err}"))
             })?;
+
         let deploy_controller_txs = self
             .get_controller_deployment_txs(candidate_addresses, deployer_nonce)
             .await
@@ -276,22 +277,21 @@ where
             }
         };
 
-        if is_deployed {
+        if dbg!(is_deployed) {
             return Ok(());
         }
 
-        let nonce = self
-            .context
-            .starknet
-            .nonce_at(block_id, self.context.deployer_address)
-            .await
-            .map_err(|err| {
-            Self::controller_deployment_error(format!("failed to get deployer nonce: {err}"))
-        })?;
-        let deploy_tx = self
+        let nonce =
+            self.context.starknet.nonce_at(block_id, self.context.deployer_address).await.map_err(
+                |err| CartridgeApiError::ControllerDeployment {
+                    reason: format!("failed to get deployer nonce: {err}"),
+                },
+            )?;
+
+        let deploy_tx = dbg!(self
             .get_controller_deployment_tx(address, nonce)
             .await
-            .map_err(|err| Self::controller_deployment_error(err.to_string()))?;
+            .map_err(|err| Self::controller_deployment_error(err.to_string()))?);
 
         // None means the address is not of a Controller
         if let Some(tx) = deploy_tx {
@@ -405,18 +405,20 @@ where
         async move {
             let method = request.method_name();
 
-            match method {
+            match dbg!(method) {
                 STARKNET_ESTIMATE_FEE => {
                     trace!(%method, "Intercepting JSON-RPC method.");
                     if let Some(params) = parse_estimate_fee_params(&request) {
-                        return this.starknet_estimate_fee(params, request).await;
+                        return dbg!(this.starknet_estimate_fee(params, request).await);
                     }
                 }
 
                 CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE | CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX => {
                     trace!(%method, "Intercepting JSON-RPC method.");
                     if let Some(params) = parse_execute_outside_params(&request) {
-                        return this.cartridge_add_execute_from_outside(params, request).await;
+                        return dbg!(
+                            this.cartridge_add_execute_from_outside(params, request).await
+                        );
                     }
                 }
 

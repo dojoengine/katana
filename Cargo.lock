@@ -6715,8 +6715,10 @@ dependencies = [
  "katana-utils",
  "metrics 0.23.1",
  "num-traits",
+ "parking_lot",
  "paymaster-rpc",
  "rand 0.8.5",
+ "regex",
  "rstest 0.18.2",
  "serde",
  "serde_json",
@@ -8262,7 +8264,7 @@ checksum = "17359afc20d7ab31fdb42bb844c8b3bb1dabd7dcf7e68428492da7f16966fcef"
 [[package]]
 name = "paymaster-common"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?branch=copenhagen-4cb4#4748365dc82082745f13687ccc20ce455e4f882a"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=4748365#4748365dc82082745f13687ccc20ce455e4f882a"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -8284,7 +8286,7 @@ dependencies = [
 [[package]]
 name = "paymaster-execution"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?branch=copenhagen-4cb4#4748365dc82082745f13687ccc20ce455e4f882a"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=4748365#4748365dc82082745f13687ccc20ce455e4f882a"
 dependencies = [
  "async-trait",
  "jsonrpsee 0.24.10",
@@ -8309,7 +8311,7 @@ dependencies = [
 [[package]]
 name = "paymaster-prices"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?branch=copenhagen-4cb4#4748365dc82082745f13687ccc20ce455e4f882a"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=4748365#4748365dc82082745f13687ccc20ce455e4f882a"
 dependencies = [
  "async-trait",
  "bigdecimal 0.4.10",
@@ -8328,7 +8330,7 @@ dependencies = [
 [[package]]
 name = "paymaster-relayer"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?branch=copenhagen-4cb4#4748365dc82082745f13687ccc20ce455e4f882a"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=4748365#4748365dc82082745f13687ccc20ce455e4f882a"
 dependencies = [
  "async-trait",
  "deadpool-redis",
@@ -8351,7 +8353,7 @@ dependencies = [
 [[package]]
 name = "paymaster-rpc"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?branch=copenhagen-4cb4#4748365dc82082745f13687ccc20ce455e4f882a"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=4748365#4748365dc82082745f13687ccc20ce455e4f882a"
 dependencies = [
  "async-trait",
  "bigdecimal 0.4.10",
@@ -8380,7 +8382,7 @@ dependencies = [
 [[package]]
 name = "paymaster-sponsoring"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?branch=copenhagen-4cb4#4748365dc82082745f13687ccc20ce455e4f882a"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=4748365#4748365dc82082745f13687ccc20ce455e4f882a"
 dependencies = [
  "paymaster-common",
  "reqwest",
@@ -8395,7 +8397,7 @@ dependencies = [
 [[package]]
 name = "paymaster-starknet"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?branch=copenhagen-4cb4#4748365dc82082745f13687ccc20ce455e4f882a"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=4748365#4748365dc82082745f13687ccc20ce455e4f882a"
 dependencies = [
  "async-trait",
  "chrono",

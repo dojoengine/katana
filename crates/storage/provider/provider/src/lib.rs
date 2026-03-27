@@ -4,7 +4,7 @@ use katana_db::abstraction::Database;
 use katana_fork::Backend;
 use katana_primitives::block::BlockNumber;
 pub use katana_provider_api::{ProviderError, ProviderResult};
-use katana_starknet::rpc::Client as StarknetClient;
+use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 
 // Re-export the API module
 pub mod api {

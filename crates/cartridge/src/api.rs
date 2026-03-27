@@ -1,5 +1,5 @@
 use katana_primitives::{ContractAddress, Felt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use url::Url;
 
@@ -60,7 +60,7 @@ impl CartridgeApiClient {
 }
 /// Response from the Cartridge API to fetch the calldata for the constructor of the given
 /// controller address.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountCalldataResponse {
     /// The address of the controller account.
     pub address: ContractAddress,

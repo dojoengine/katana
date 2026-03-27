@@ -293,6 +293,34 @@ async fn estimate_fee() {
 }
 
 #[tokio::test]
+async fn estimate_fee_with_undeployed_contract() {
+    let sequencer = TestNode::new().await;
+
+    let account = SingleOwnerAccount::new(
+        sequencer.starknet_provider(),
+        LocalWallet::from_signing_key(SigningKey::from_secret_scalar(Felt::ONE)),
+        felt!("0xdeadbeef"),
+        sequencer.backend().chain_spec.id().into(),
+        ExecutionEncoding::New,
+    );
+
+    // setup contract to interact with (can be any existing contract that can be interacted with)
+    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+
+    // setup contract function params
+    let recipient = felt!("0x1");
+    let amount = Uint256 { low: felt!("0x1"), high: Felt::ZERO };
+
+    let result = contract.transfer(&recipient, &amount).nonce(Felt::ONE).estimate_fee().await;
+    let err = result.unwrap_err();
+
+    assert_matches::assert_matches!(
+        err,
+        AccountError::Provider(ProviderError::StarknetError(StarknetError::ContractNotFound))
+    );
+}
+
+#[tokio::test]
 async fn estimate_fee_with_small_nonce() {
     let sequencer = TestNode::new().await;
 

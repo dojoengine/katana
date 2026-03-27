@@ -3,7 +3,9 @@ use katana_db::version::CURRENT_DB_VERSION;
 use katana_node_bindings::Katana;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::{address, felt};
-use katana_starknet::rpc::{Client as StarknetClient, Error as RpcError, StarknetApiError};
+use katana_starknet::rpc::{
+    StarknetApiError, StarknetRpcClient as StarknetClient, StarknetRpcClientError as RpcError,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {

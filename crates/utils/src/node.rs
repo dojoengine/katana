@@ -123,6 +123,12 @@ impl TestNode {
         Self::new_from_db(&db_path).await
     }
 
+    pub async fn new_with_simple_db_and_config(config: Config) -> Self {
+        let db_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/db/simple");
+        Self::new_from_db_with_config(&db_path, config).await
+    }
+
     /// Stops the node and releases all resources including the database.
     ///
     /// This ensures the MDBX environment is properly closed and all pending writes are
@@ -196,9 +202,9 @@ where
     }
 
     /// Returns a HTTP client to the JSON-RPC server.
-    pub fn starknet_rpc_client(&self) -> katana_starknet::rpc::Client {
+    pub fn starknet_rpc_client(&self) -> katana_starknet::rpc::StarknetRpcClient {
         let client = self.rpc_http_client();
-        katana_starknet::rpc::Client::new_with_client(client)
+        katana_starknet::rpc::StarknetRpcClient::new_with_client(client)
     }
 
     /// Returns the address of the node's gRPC server (if enabled).

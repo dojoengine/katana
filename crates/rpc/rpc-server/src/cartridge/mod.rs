@@ -27,7 +27,6 @@
 
 mod vrf;
 
-use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -54,7 +53,7 @@ use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::cartridge::FeeSource;
 use katana_rpc_types::outside_execution::OutsideExecution;
 use katana_rpc_types::FunctionCall;
-use katana_tasks::{Result as TaskResult, TaskSpawner};
+use katana_tasks::TaskSpawner;
 use paymaster_rpc::{
     ExecuteRawRequest, ExecuteRawTransactionParameters, ExecutionParameters, FeeMode,
     RawInvokeParameters,
@@ -158,107 +157,68 @@ where
         fee_source: Option<FeeSource>,
     ) -> Result<AddInvokeTransactionResponse, CartridgeApiError> {
         debug!(%contract_address, ?outside_execution, "Adding execute outside transaction.");
-        self.on_cpu_blocking_task(move |this| async move {
-            let entry_point_selector = outside_execution.selector();
-            let mut calldata = outside_execution.as_felts();
-            calldata.extend(signature.clone());
+        let entry_point_selector = outside_execution.selector();
+        let mut calldata = outside_execution.as_felts();
+        calldata.extend(signature.clone());
 
-            let mut call: Call = Call { contract_address, entry_point_selector, calldata };
-            let mut user_address: Felt = contract_address.into();
+        let mut call: Call = Call { contract_address, entry_point_selector, calldata };
+        let mut user_address: Felt = contract_address.into();
 
-            #[cfg(feature = "vrf")]
-            if let Some(vrf_service) = &this.vrf_service {
-                // check first if the outside execution calls include a request_random call
-                if let Some((request_random_call, position)) =
-                    get_request_random_call(&outside_execution)
-                {
-                    if position + 1 >= outside_execution.len() {
-                        return Err(CartridgeApiError::VrfMissingFollowUpCall);
-                    }
-
-                    if request_random_call.contract_address != vrf_service.account_address() {
-                        return Err(CartridgeApiError::VrfInvalidTarget);
-                    }
-
-                    // Delegate VRF computation to the VRF server
-                    let chain_id = this.backend.chain_spec.id();
-                    let result = vrf_service
-                        .outside_execution(
-                            contract_address,
-                            &outside_execution,
-                            &signature,
-                            chain_id,
-                        )
-                        .await?;
-
-                    user_address = result.address.into();
-                    call = result.into();
+        #[cfg(feature = "vrf")]
+        if let Some(vrf_service) = &self.vrf_service {
+            // check first if the outside execution calls include a request_random call
+            if let Some((request_random_call, position)) =
+                get_request_random_call(&outside_execution)
+            {
+                if position + 1 >= outside_execution.len() {
+                    return Err(CartridgeApiError::VrfMissingFollowUpCall);
                 }
+
+                if request_random_call.contract_address != vrf_service.account_address() {
+                    return Err(CartridgeApiError::VrfInvalidTarget);
+                }
+
+                // Delegate VRF computation to the VRF server
+                let chain_id = self.backend.chain_spec.id();
+                let result = vrf_service
+                    .outside_execution(contract_address, &outside_execution, &signature, chain_id)
+                    .await?;
+
+                user_address = result.address.into();
+                call = result.into();
             }
+        }
 
-            let fee_mode = match fee_source {
-                Some(FeeSource::Credits) => FeeMode::Default {
-                    gas_token: DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(),
-                    tip: Default::default(),
-                },
-                _ => FeeMode::Sponsored { tip: Default::default() },
-            };
-
-            let invoke = RawInvokeParameters {
-                user_address,
-                gas_token: None,
-                max_gas_token_amount: None,
-                execute_from_outside_call: StarknetRsCall {
-                    calldata: call.calldata,
-                    to: call.contract_address.into(),
-                    selector: call.entry_point_selector,
-                },
-            };
-
-            let request = ExecuteRawRequest {
-                transaction: ExecuteRawTransactionParameters::RawInvoke { invoke },
-                parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
-            };
-
-            let response =
-                this.paymaster_client.execute_raw_transaction(request).await.map_err(|e| {
-                    CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() }
-                })?;
-
-            Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })
-        })
-        .await?
-    }
-
-    /// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking
-    /// pool.
-    async fn on_cpu_blocking_task<T, F>(&self, func: T) -> Result<F::Output, CartridgeApiError>
-    where
-        T: FnOnce(Self) -> F,
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        use tokio::runtime::Builder;
-
-        let this = self.clone();
-        let future = func(this);
-        let span = tracing::Span::current();
-
-        let task = move || {
-            let _enter = span.enter();
-            Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("failed to build tokio runtime")
-                .block_on(future)
+        let fee_mode = match fee_source {
+            Some(FeeSource::Credits) => FeeMode::Default {
+                gas_token: DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(),
+                tip: Default::default(),
+            },
+            Some(FeeSource::Paymaster) | None => FeeMode::Sponsored { tip: Default::default() },
         };
 
-        match self.task_spawner.cpu_bound().spawn(task).await {
-            TaskResult::Ok(result) => Ok(result),
-            TaskResult::Err(err) => Err(CartridgeApiError::InternalError {
-                reason: format!("task execution failed: {err}"),
-            }),
-        }
+        let invoke = RawInvokeParameters {
+            user_address,
+            gas_token: None,
+            max_gas_token_amount: None,
+            execute_from_outside_call: StarknetRsCall {
+                calldata: call.calldata,
+                to: call.contract_address.into(),
+                selector: call.entry_point_selector,
+            },
+        };
+
+        let request = ExecuteRawRequest {
+            transaction: ExecuteRawTransactionParameters::RawInvoke { invoke },
+            parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
+        };
+
+        let response =
+            self.paymaster_client.execute_raw_transaction(request).await.map_err(|e| {
+                CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() }
+            })?;
+
+        Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })
     }
 }
 

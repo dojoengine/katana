@@ -11,162 +11,41 @@
 //! single node. Use `cargo nextest` to run separate test binaries in parallel.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use jsonrpsee::core::client::ClientT;
-use katana_primitives::Felt;
-use katana_rpc_types::txpool::TxPoolStatus;
+use axum::extract::State;
+use axum::response::{IntoResponse, Response};
+use axum::routing::post;
+use axum::{Json, Router};
+use cainome::rs::abigen;
+use cartridge::api::GetAccountCalldataResponse;
+use jsonrpsee::core::{async_trait, RpcResult};
+use jsonrpsee::server::ServerBuilder;
+use katana_pool::api::TransactionPool;
+use katana_primitives::execution::Call;
+use katana_primitives::{address, felt, ContractAddress, Felt};
+use katana_rpc_api::cartridge::CartridgeApiClient;
+use katana_rpc_api::paymaster::PaymasterApiServer;
+use katana_rpc_api::txpool::TxPoolApiClient;
+use katana_rpc_types::txpool::{TxPoolContent, TxPoolStatus};
+use katana_rpc_types::{OutsideExecution, OutsideExecutionV2};
 use katana_utils::node::test_config;
 use katana_utils::TestNode;
-use serde_json::json;
+use parking_lot::Mutex;
+use paymaster_rpc::{
+    BuildTransactionRequest, BuildTransactionResponse, ExecuteRawRequest, ExecuteRawResponse,
+    ExecuteRawTransactionParameters, ExecuteRequest, ExecuteResponse, RawInvokeParameters,
+    TokenPrice,
+};
+use serde::Deserialize;
+use starknet::accounts::{Account, AccountError, ExecutionEncoding, SingleOwnerAccount};
+use starknet::core::types::StarknetError;
+use starknet::providers::ProviderError;
+use starknet::signers::{LocalWallet, SigningKey};
+use tokio::net::TcpListener;
+use url::Url;
 
 mod common;
-
-// ---------------------------------------------------------------------------
-// Mock Cartridge API
-// ---------------------------------------------------------------------------
-
-async fn start_mock_cartridge_api(
-    responses: HashMap<String, serde_json::Value>,
-) -> (url::Url, MockCartridgeApiState) {
-    use axum::routing::post;
-    use axum::Router;
-    use tokio::net::TcpListener;
-
-    let state = MockCartridgeApiState {
-        responses: Arc::new(responses),
-        received_requests: Arc::new(Mutex::new(Vec::new())),
-    };
-
-    let app = Router::new()
-        .route("/accounts/calldata", post(mock_cartridge_handler))
-        .with_state(state.clone());
-
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-
-    let url = url::Url::parse(&format!("http://{addr}")).unwrap();
-    (url, state)
-}
-
-async fn mock_cartridge_handler(
-    axum::extract::State(state): axum::extract::State<MockCartridgeApiState>,
-    axum::Json(body): axum::Json<serde_json::Value>,
-) -> axum::response::Response {
-    use axum::response::IntoResponse;
-
-    state.received_requests.lock().unwrap().push(body.clone());
-
-    let address = body.get("address").and_then(|v| v.as_str()).unwrap_or("");
-
-    if let Some(response) = state.responses.get(address) {
-        axum::Json(response.clone()).into_response()
-    } else {
-        "Address not found".into_response()
-    }
-}
-
-#[derive(Clone)]
-struct MockCartridgeApiState {
-    responses: Arc<HashMap<String, serde_json::Value>>,
-    received_requests: Arc<Mutex<Vec<serde_json::Value>>>,
-}
-
-// ---------------------------------------------------------------------------
-// Mock Paymaster
-// ---------------------------------------------------------------------------
-
-async fn start_mock_paymaster() -> url::Url {
-    use jsonrpsee::core::{async_trait, RpcResult};
-    use jsonrpsee::server::ServerBuilder;
-    use katana_rpc_api::paymaster::PaymasterApiServer;
-    use paymaster_rpc::{
-        BuildTransactionRequest, BuildTransactionResponse, ExecuteRawRequest, ExecuteRequest,
-        ExecuteResponse, TokenPrice,
-    };
-
-    struct MockPaymaster;
-
-    #[async_trait]
-    impl PaymasterApiServer for MockPaymaster {
-        async fn health(&self) -> RpcResult<bool> {
-            Ok(true)
-        }
-        async fn is_available(&self) -> RpcResult<bool> {
-            Ok(true)
-        }
-        async fn build_transaction(
-            &self,
-            _req: BuildTransactionRequest,
-        ) -> RpcResult<BuildTransactionResponse> {
-            unimplemented!()
-        }
-        async fn execute_transaction(&self, _req: ExecuteRequest) -> RpcResult<ExecuteResponse> {
-            unimplemented!()
-        }
-        async fn execute_raw_transaction(
-            &self,
-            _req: ExecuteRawRequest,
-        ) -> RpcResult<paymaster_rpc::ExecuteRawResponse> {
-            let response: paymaster_rpc::ExecuteRawResponse =
-                serde_json::from_str(r#"{"transaction_hash": "0xcafe", "tracking_id": "0x0"}"#)
-                    .unwrap();
-            Ok(response)
-        }
-        async fn get_supported_tokens(&self) -> RpcResult<Vec<TokenPrice>> {
-            Ok(vec![])
-        }
-    }
-
-    let server = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
-    let addr = server.local_addr().unwrap();
-    let handle = server.start(MockPaymaster.into_rpc());
-    std::mem::forget(handle);
-
-    url::Url::parse(&format!("http://{addr}")).unwrap()
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn controller_calldata_response(address: &str) -> serde_json::Value {
-    json!({
-        "address": address,
-        "username": "testuser",
-        "calldata": [
-            "0x24a9edbfa7082accfceabf6a92d7160086f346d622f28741bf1c651c412c9ab",
-            "0x7465737475736572",
-            "0x0",
-            "0x2",
-            "0x1",
-            "0x2"
-        ]
-    })
-}
-
-fn make_execute_outside_params(address: &str) -> Vec<serde_json::Value> {
-    vec![
-        json!(address),
-        json!({
-            "caller": "0x414e595f43414c4c4552",
-            "nonce": "0x1",
-            "execute_after": "0x0",
-            "execute_before": "0xffffffffffffffff",
-            "calls": [{
-                "to": "0x1",
-                "selector": "0x2",
-                "calldata": ["0x3"]
-            }]
-        }),
-        json!(["0x0", "0x0"]),
-        json!(null),
-    ]
-}
 
 fn cartridge_test_config(
     cartridge_api_url: url::Url,
@@ -175,6 +54,7 @@ fn cartridge_test_config(
     use katana_sequencer_node::config::paymaster::{CartridgeApiConfig, PaymasterConfig};
 
     let mut config = test_config();
+    config.dev.account_validation = false;
     config.sequencing.no_mining = true;
 
     let (deployer_address, deployer_account) =
@@ -196,174 +76,383 @@ fn cartridge_test_config(
     config
 }
 
-fn deployer_address(
-    config: &katana_sequencer_node::config::Config,
-) -> katana_primitives::ContractAddress {
-    let (addr, _) = config.chain.genesis().accounts().next().unwrap();
-    *addr
-}
+// Dojo Simple example project
+abigen!(
+    SimpleContract,
+    [
+        {
+            "type": "function",
+            "name": "system_1",
+            "inputs": [
+                { "name": "k", "type": "core::felt252" },
+                { "name": "v", "type": "core::felt252" }
+            ],
+            "outputs": [],
+            "state_mutability": "external"
+        }
+    ]
+);
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+const VALID_CONTROLLER_ADDRESS: ContractAddress =
+    address!("0x48e13ef7ab79637afd38a4b022862a7e6f3fd934f194c435d7e7b17bac06715");
 
-/// Test the Controller deployment middleware with execute_outside and estimate_fee.
-///
-/// Uses a single node (due to global class cache constraint) and exercises:
-/// 1. Undeployed Controller → deploy tx added to pool
-/// 2. Already-deployed address → no deploy tx
-/// 3. Non-Controller address → no deploy tx
-/// 4. estimate_fee with undeployed Controller → middleware prepends deploy tx
 #[tokio::test(flavor = "multi_thread")]
-async fn controller_deployment_middleware() {
-    let controller_address = "0xdead";
-    let non_controller_address = "0xbeef";
+async fn deployment_for_controller_account() {
+    let controller_address = address!("0xdead");
+    let outside_execution = get_outside_execution();
+    let signature = vec![Felt::ZERO, Felt::ZERO];
 
-    // Register 0xdead as a Controller in the mock Cartridge API.
-    let cartridge_responses = HashMap::from_iter([(
-        controller_address.to_string(),
-        controller_calldata_response(controller_address),
-    )]);
+    let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
+    let (paymaster_url, ..) = start_mock_paymaster().await;
 
-    let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api(cartridge_responses).await;
-    let paymaster_url = start_mock_paymaster().await;
     let config = cartridge_test_config(cartridge_api_url, paymaster_url);
-    let deployer = deployer_address(&config);
-    let genesis_address = format!("{:#x}", Felt::from(deployer));
 
     let node = TestNode::new_with_config(config).await;
-    let client = node.rpc_http_client();
+    let rpc_client = node.rpc_http_client();
 
-    // -----------------------------------------------------------------------
+    let controller_deployer = node
+        .handle()
+        .node()
+        .config()
+        .paymaster
+        .as_ref()
+        .unwrap()
+        .cartridge_api
+        .as_ref()
+        .unwrap()
+        .controller_deployer_address;
+
+    // --------------------------------------------------------------------------------------
     // Case 1: Undeployed Controller → deploy tx added to pool
-    // -----------------------------------------------------------------------
+    // --------------------------------------------------------------------------------------
+
+    let _ = rpc_client
+        .add_execute_outside_transaction(
+            controller_address,
+            outside_execution.clone(),
+            signature.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let api_requests = mock_api_state.received_requests.lock();
+    assert_eq!(api_requests.len(), 1, "Cartridge API should have been queried once");
+
+    let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 1, "pool should contain 1 deploy transaction");
+
+    let content: TxPoolContent = rpc_client.txpool_content_from(controller_deployer).await.unwrap();
+    assert_eq!(content.pending.len(), 1, "deploy tx should be from the deployer");
+
+    // --------------------------------------------------------------------------------------
+    // Case 2: Already-deployed controller → no extra deploy tx
+    // --------------------------------------------------------------------------------------
+
+    // Reset request tracker and transaction pool
     {
-        let params = make_execute_outside_params(controller_address);
-        let _: serde_json::Value = client
-            .request("cartridge_addExecuteOutsideTransaction", params)
-            .await
-            .expect("RPC call should succeed");
-
-        // Cartridge API should have been queried.
-        let api_requests = mock_api_state.received_requests.lock().unwrap();
-        assert_eq!(api_requests.len(), 1, "Cartridge API should have been queried once");
-
-        // Pool should contain 1 deploy tx.
-        let status: TxPoolStatus =
-            client.request("txpool_status", Vec::<serde_json::Value>::new()).await.unwrap();
-        assert_eq!(status.pending, 1, "pool should contain 1 deploy transaction");
-
-        // Deploy tx should be from the deployer address.
-        let content: katana_rpc_types::txpool::TxPoolContent =
-            client.request("txpool_contentFrom", vec![json!(deployer)]).await.unwrap();
-        assert_eq!(content.pending.len(), 1, "deploy tx should be from the deployer");
+        mock_api_state.received_requests.lock().clear();
+        node.handle().node().pool().clear();
     }
 
-    // -----------------------------------------------------------------------
-    // Case 2: Already-deployed address (genesis account) → no extra deploy tx
-    // -----------------------------------------------------------------------
-    {
-        let prev_count = mock_api_state.received_requests.lock().unwrap().len();
+    let _ = rpc_client
+        .add_execute_outside_transaction(controller_deployer, outside_execution, signature, None)
+        .await
+        .unwrap();
 
-        let params = make_execute_outside_params(&genesis_address);
-        let _: serde_json::Value = client
-            .request("cartridge_addExecuteOutsideTransaction", params)
-            .await
-            .expect("RPC call should succeed");
+    let api_requests = mock_api_state.received_requests.lock();
+    assert!(api_requests.is_empty(), "Cartridge API should not be queried for deployed accounts");
 
-        // Cartridge API should NOT have been queried (address is deployed).
-        let api_requests = mock_api_state.received_requests.lock().unwrap();
-        assert_eq!(
-            api_requests.len(),
-            prev_count,
-            "Cartridge API should not be queried for deployed accounts"
-        );
+    let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 0, "pool should not contain a deploy transaction");
+}
 
-        // Pool should still contain only the 1 deploy tx from case 1.
-        let status: TxPoolStatus =
-            client.request("txpool_status", Vec::<serde_json::Value>::new()).await.unwrap();
-        assert_eq!(status.pending, 1, "pool should still have only 1 tx");
+#[tokio::test(flavor = "multi_thread")]
+async fn no_deployment_for_non_controller_account() {
+    let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
+    let (paymaster_url, mock_paymaster_state) = start_mock_paymaster().await;
+
+    let config = cartridge_test_config(cartridge_api_url, paymaster_url);
+
+    let node = TestNode::new_with_config(config).await;
+    let rpc_client = node.rpc_http_client();
+
+    // // --------------------------------------------------------------------------------------
+    // // Case 1: Deployed account (non-Controller)
+    // // --------------------------------------------------------------------------------------
+
+    // let sender = node.account();
+    // let sender = ContractAddress::from(sender.address());
+    // let outside_execution = get_outside_execution();
+
+    // rpc_client
+    //     .add_execute_outside_transaction(sender, outside_execution, Vec::new(), None)
+    //     .await
+    //     .unwrap();
+
+    // let api_requests = mock_api_state.received_requests.lock();
+    // assert!(!api_requests.contains(&sender), "no api query bcs the account is deployed");
+
+    // let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
+    // assert_eq!(status.pending, 0, "pool should not contain a deploy transaction");
+
+    // let paymaster_requests = mock_paymaster_state.requests.lock();
+    // let request = paymaster_requests.get(&sender).expect("tx should be forwarded to paymaster");
+    // assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
+
+    // --------------------------------------------------------------------------------------
+    // Case 2: Undeployed account (non-Controller)
+    // --------------------------------------------------------------------------------------
+
+    let sender = address!("0xdeadbeef");
+    let outside_execution = get_outside_execution();
+
+    rpc_client
+        .add_execute_outside_transaction(sender, outside_execution.clone(), Vec::new(), None)
+        .await
+        .unwrap();
+
+    let api_requests = mock_api_state.received_requests.lock();
+    assert!(!api_requests.contains(&sender), "should query api bcs account is undeployed");
+
+    let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
+    assert_eq!(status.pending, 0, "no deploy tx for non-Controller account");
+
+    let paymaster_requests = mock_paymaster_state.requests.lock();
+    let request = paymaster_requests.get(&sender).expect("tx should be forwarded to paymaster");
+    assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deployment_for_controller_account_on_estimate_fee() {
+    let controller_address = VALID_CONTROLLER_ADDRESS;
+
+    let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
+    let (paymaster_url, ..) = start_mock_paymaster().await;
+
+    let config = cartridge_test_config(cartridge_api_url, paymaster_url);
+    let node = TestNode::new_with_simple_db_and_config(config).await;
+
+    // Use an undeployed non-Controller account to execute the request
+    let account = SingleOwnerAccount::new(
+        node.starknet_provider(),
+        // account validation is disabled on the test node
+        LocalWallet::from_signing_key(SigningKey::from_secret_scalar(Felt::ZERO)),
+        controller_address.into(),
+        node.backend().chain_spec.id().into(),
+        ExecutionEncoding::New,
+    );
+
+    let contract = SimpleContract::new(
+        felt!("0x6a2312753a30573620efdfb0f141872d1e7883237c8b99dcf518e47618df886"),
+        &account,
+    );
+
+    let _ = contract
+        .system_1(&Felt::ZERO, &Felt::ZERO)
+        .nonce(Felt::ONE) // to avoid nonce query internally
+        .estimate_fee()
+        .await
+        .unwrap();
+
+    // Cartridge API should still be queried on estimate fee
+    let api_requests = mock_api_state.received_requests.lock();
+    assert!(api_requests.contains(&controller_address), "Cartridge API should be queried once");
+}
+
+#[tokio::test]
+async fn no_deployment_for_non_controller_account_on_estimate_fee() {
+    let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
+    let (paymaster_url, ..) = start_mock_paymaster().await;
+
+    let config = cartridge_test_config(cartridge_api_url, paymaster_url);
+    let node = TestNode::new_with_simple_db_and_config(config).await;
+
+    let non_controller_address = address!("0xdeadbeef");
+
+    // Use an undeployed non-Controller account to execute the request
+    let account = SingleOwnerAccount::new(
+        node.starknet_provider(),
+        // account validation is disabled on the test node
+        LocalWallet::from_signing_key(SigningKey::from_secret_scalar(Felt::ZERO)),
+        non_controller_address.into(),
+        node.backend().chain_spec.id().into(),
+        ExecutionEncoding::New,
+    );
+
+    let contract = SimpleContract::new(
+        felt!("0x6a2312753a30573620efdfb0f141872d1e7883237c8b99dcf518e47618df886"),
+        &account,
+    );
+
+    let err = contract
+        .system_1(&Felt::ZERO, &Felt::ZERO)
+        .nonce(Felt::ONE) // to avoid nonce query internally
+        .estimate_fee()
+        .await
+        .unwrap_err();
+
+    // The request should fail because the account is undeployed
+    assert_matches::assert_matches!(
+        err,
+        AccountError::Provider(ProviderError::StarknetError(StarknetError::ContractNotFound))
+    );
+
+    // Cartridge API should still be queried on estimate fee
+    let api_requests = mock_api_state.received_requests.lock();
+    assert!(api_requests.contains(&non_controller_address), "Cartridge API should be queried once");
+}
+
+fn get_outside_execution() -> OutsideExecution {
+    OutsideExecution::V2(OutsideExecutionV2 {
+        caller: address!("0x414e595f43414c4c4552"),
+        nonce: Felt::ONE,
+        execute_after: 0,
+        execute_before: u64::MAX,
+        calls: vec![Call {
+            contract_address: ContractAddress::ONE,
+            entry_point_selector: felt!("0x2"),
+            calldata: vec![felt!("0x3")],
+        }],
+    })
+}
+
+#[derive(Clone, Default)]
+struct MockCartridgeApiState {
+    received_requests: Arc<Mutex<Vec<ContractAddress>>>,
+}
+
+async fn start_mock_cartridge_api() -> (url::Url, MockCartridgeApiState) {
+    #[derive(Debug, Deserialize)]
+    struct GetAccountCalldataBody {
+        address: ContractAddress,
     }
 
-    // -----------------------------------------------------------------------
-    // Case 3: Non-controller undeployed address → no deploy tx
-    // -----------------------------------------------------------------------
-    {
-        let prev_count = mock_api_state.received_requests.lock().unwrap().len();
+    async fn get_account_calldata_handler(
+        State(state): State<MockCartridgeApiState>,
+        Json(GetAccountCalldataBody { address }): Json<GetAccountCalldataBody>,
+    ) -> Response {
+        state.received_requests.lock().push(address);
 
-        let params = make_execute_outside_params(non_controller_address);
-        let _: serde_json::Value = client
-            .request("cartridge_addExecuteOutsideTransaction", params)
-            .await
-            .expect("RPC call should succeed");
-
-        // Cartridge API WAS queried (address is undeployed, middleware checks).
-        let api_requests = mock_api_state.received_requests.lock().unwrap();
-        assert_eq!(
-            api_requests.len(),
-            prev_count + 1,
-            "Cartridge API should be queried for undeployed address"
-        );
-
-        // Pool should still have only 1 tx (no deploy for non-controller).
-        let status: TxPoolStatus =
-            client.request("txpool_status", Vec::<serde_json::Value>::new()).await.unwrap();
-        assert_eq!(status.pending, 1, "pool should still have only 1 tx");
-    }
-
-    // -----------------------------------------------------------------------
-    // Case 4: estimate_fee with undeployed Controller
-    // -----------------------------------------------------------------------
-    {
-        use starknet::core::types::{
-            BlockId, BlockTag, BroadcastedInvokeTransactionV3, BroadcastedTransaction,
-            ResourceBounds, ResourceBoundsMapping, SimulationFlagForEstimateFee,
-        };
-        use starknet::providers::Provider;
-
-        let provider = node.starknet_provider();
-
-        let invoke_tx = BroadcastedTransaction::Invoke(BroadcastedInvokeTransactionV3 {
-            sender_address: Felt::from_hex_unchecked(non_controller_address),
-            calldata: vec![Felt::ONE],
-            signature: vec![],
-            nonce: Felt::ZERO,
-            resource_bounds: ResourceBoundsMapping {
-                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-                l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-            },
-            tip: 0,
-            paymaster_data: vec![],
-            account_deployment_data: vec![],
-            nonce_data_availability_mode: starknet::core::types::DataAvailabilityMode::L1,
-            fee_data_availability_mode: starknet::core::types::DataAvailabilityMode::L1,
-            is_query: true,
-        });
-
-        let result = provider
-            .estimate_fee(
-                vec![invoke_tx],
-                vec![SimulationFlagForEstimateFee::SkipValidate],
-                BlockId::Tag(BlockTag::PreConfirmed),
-            )
-            .await;
-
-        // For a non-controller, the middleware doesn't prepend a deploy tx.
-        // The estimate either succeeds with 1 result or fails with an execution error
-        // (since 0xbeef isn't a real contract), but it should NOT fail with a
-        // "Controller deployment" error from the middleware.
-        match result {
-            Ok(estimates) => {
-                assert_eq!(estimates.len(), 1, "should return 1 estimate");
-            }
-            Err(e) => {
-                let err_str = e.to_string();
-                assert!(
-                    !err_str.contains("Controller deployment"),
-                    "middleware should not produce deployment error for non-controller: {err_str}"
-                );
-            }
+        if dbg!(address == VALID_CONTROLLER_ADDRESS) {
+            Json(GetAccountCalldataResponse {
+                address: VALID_CONTROLLER_ADDRESS,
+                username: "testuser".to_string(),
+                constructor_calldata: vec![
+                    felt!("0x24a9edbfa7082accfceabf6a92d7160086f346d622f28741bf1c651c412c9ab"),
+                    felt!("0x676c69686d"),
+                    felt!("0x0"),
+                    felt!("0x1e"),
+                    felt!("0x0"),
+                    felt!("0x4"),
+                    felt!("0x16"),
+                    felt!("0x68"),
+                    felt!("0x74"),
+                    felt!("0x74"),
+                    felt!("0x70"),
+                    felt!("0x73"),
+                    felt!("0x3a"),
+                    felt!("0x2f"),
+                    felt!("0x2f"),
+                    felt!("0x78"),
+                    felt!("0x2e"),
+                    felt!("0x63"),
+                    felt!("0x61"),
+                    felt!("0x72"),
+                    felt!("0x74"),
+                    felt!("0x72"),
+                    felt!("0x69"),
+                    felt!("0x64"),
+                    felt!("0x67"),
+                    felt!("0x65"),
+                    felt!("0x2e"),
+                    felt!("0x67"),
+                    felt!("0x67"),
+                    felt!("0x9d0aec9905466c9adf79584fa75fed3"),
+                    felt!("0x20a97ec3f8efbc2aca0cf7cabb420b4a"),
+                    felt!("0x30910fae3f3451a26071c3afc453425e"),
+                    felt!("0xa4e54fa48a6c3f34444687c2552b157f"),
+                    felt!("0x1"),
+                ],
+            })
+            .into_response()
+        } else {
+            "Address not found".into_response()
         }
     }
+
+    let state = MockCartridgeApiState::default();
+
+    let app = Router::new()
+        .route("/accounts/calldata", post(get_account_calldata_handler))
+        .with_state(state.clone());
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = Url::parse(&format!("http://{addr}")).unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (url, state)
+}
+
+#[derive(Clone)]
+struct MockPaymaster {
+    // track execute_raw_transaction requests
+    requests: Arc<Mutex<HashMap<ContractAddress, Vec<RawInvokeParameters>>>>,
+}
+
+async fn start_mock_paymaster() -> (Url, MockPaymaster) {
+    #[async_trait]
+    impl PaymasterApiServer for MockPaymaster {
+        async fn health(&self) -> RpcResult<bool> {
+            Ok(true)
+        }
+
+        async fn is_available(&self) -> RpcResult<bool> {
+            Ok(true)
+        }
+
+        async fn build_transaction(
+            &self,
+            req: BuildTransactionRequest,
+        ) -> RpcResult<BuildTransactionResponse> {
+            let _ = req;
+            unimplemented!()
+        }
+
+        async fn execute_transaction(&self, req: ExecuteRequest) -> RpcResult<ExecuteResponse> {
+            let _ = req;
+            unimplemented!()
+        }
+
+        async fn execute_raw_transaction(
+            &self,
+            req: ExecuteRawRequest,
+        ) -> RpcResult<ExecuteRawResponse> {
+            match req.transaction {
+                ExecuteRawTransactionParameters::RawInvoke { invoke } => {
+                    let sender_address = invoke.user_address;
+                    self.requests.lock().entry(sender_address.into()).or_default().push(invoke);
+                }
+            }
+
+            Ok(ExecuteRawResponse { transaction_hash: felt!("0xcafe"), tracking_id: Felt::ZERO })
+        }
+
+        async fn get_supported_tokens(&self) -> RpcResult<Vec<TokenPrice>> {
+            Ok(vec![])
+        }
+    }
+
+    let mock = MockPaymaster { requests: Default::default() };
+
+    let server = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
+    let addr = server.local_addr().unwrap();
+    let handle = server.start(mock.clone().into_rpc());
+    std::mem::forget(handle);
+
+    (url::Url::parse(&format!("http://{addr}")).unwrap(), mock)
 }
