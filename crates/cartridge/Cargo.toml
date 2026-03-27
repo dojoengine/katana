@@ -1,5 +1,4 @@
 [package]
-build = "build.rs"
 edition.workspace = true
 license.workspace = true
 name = "cartridge"
@@ -15,7 +14,6 @@ katana-rpc-types.workspace = true
 anyhow.workspace = true
 ark-ff = "0.4.2"
 cainome-cairo-serde.workspace = true
-lazy_static.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

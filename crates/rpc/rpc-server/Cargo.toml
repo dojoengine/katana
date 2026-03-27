@@ -48,6 +48,7 @@ hex = { workspace = true, optional = true }
 katana-tee = { workspace = true, optional = true }
 katana-trie = { workspace = true, optional = true }
 starknet-types-core = { workspace = true, optional = true }
+regex.workspace = true
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
@@ -68,6 +69,7 @@ alloy-primitives = { workspace = true, features = [ "serde" ] }
 alloy-provider = { workspace = true, default-features = false, features = [ "anvil-node", "reqwest", "reqwest-rustls-tls" ] }
 alloy-sol-types.workspace = true
 
+parking_lot.workspace = true
 assert_matches.workspace = true
 axum.workspace = true
 cainome.workspace = true

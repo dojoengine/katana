@@ -10,7 +10,7 @@ use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
 use katana_rpc_types::TxStatus;
-use katana_starknet::rpc::{Client as StarknetClient, Error as StarknetClientError};
+use katana_starknet::rpc::{StarknetRpcClient, StarknetRpcClientError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TxWaitingError {
@@ -21,7 +21,7 @@ pub enum TxWaitingError {
     TransactionReverted(String),
 
     #[error(transparent)]
-    Client(StarknetClientError),
+    Client(StarknetRpcClientError),
 }
 
 /// Utility for waiting on a transaction.
@@ -69,7 +69,7 @@ pub struct TxWaiter<'a> {
     /// 300 seconds.
     timeout: Duration,
     /// The provider to use for polling the transaction.
-    rpc_client: &'a StarknetClient,
+    rpc_client: &'a StarknetRpcClient,
 }
 
 impl<'a> TxWaiter<'a> {
@@ -81,7 +81,7 @@ impl<'a> TxWaiter<'a> {
     /// Interval for use with 3rd party provider without burning the API rate limit.
     const DEFAULT_INTERVAL: Duration = Duration::from_millis(2500);
 
-    pub fn new(tx: Felt, rpc_client: &'a StarknetClient) -> Self {
+    pub fn new(tx: Felt, rpc_client: &'a StarknetRpcClient) -> Self {
         Self {
             rpc_client,
             tx_hash: tx,
@@ -120,7 +120,9 @@ impl<'a> TxWaiter<'a> {
             // Phase 1: Check transaction status
             let status = match self.rpc_client.get_transaction_status(self.tx_hash).await {
                 Ok(status) => status,
-                Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => continue,
+                Err(StarknetRpcClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {
+                    continue
+                }
                 Err(e) => return Err(TxWaitingError::Client(e)),
             };
 
@@ -135,7 +137,9 @@ impl<'a> TxWaiter<'a> {
             // Phase 2: Fetch receipt
             let receipt = match self.rpc_client.get_transaction_receipt(self.tx_hash).await {
                 Ok(receipt) => receipt,
-                Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => continue,
+                Err(StarknetRpcClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {
+                    continue
+                }
                 Err(e) => return Err(TxWaitingError::Client(e)),
             };
 

@@ -13,7 +13,7 @@ use katana_rpc_types::{
     MaybePreConfirmedBlock,
 };
 use katana_sequencer_node::config::fork::ForkingConfig;
-use katana_starknet::rpc::Client as StarknetClient;
+use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_utils::node::ForkTestNode;
 use katana_utils::TestNode;
 use url::Url;

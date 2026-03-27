@@ -1,3 +1,4 @@
+use jsonrpsee::core::client;
 use jsonrpsee::http_client::HttpClient;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
@@ -31,24 +32,28 @@ use katana_rpc_types::{
 };
 use url::Url;
 
-type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, StarknetRpcClientError>;
 
 #[derive(Debug, Clone)]
-pub struct Client {
+pub struct StarknetRpcClient {
     client: HttpClient,
 }
 
-impl Client {
+impl StarknetRpcClient {
     pub fn new(url: Url) -> Self {
         // Some blocks can have very large responses (e.g., getBlockWithReceipts for mainnet blocks
         // 1256131 (~19MB) and 1256132 (~16MB) exceed the default 10MB limit).
-        Client::new_with_client(
-            HttpClient::builder().max_response_size(50 * 1024 * 1024).build(url).unwrap(),
-        )
+        const MAX_RESPONSE_SIZE: u32 = 50 * 1024 * 1024;
+
+        HttpClient::builder()
+            .max_response_size(MAX_RESPONSE_SIZE)
+            .build(url)
+            .map(Self::new_with_client)
+            .unwrap()
     }
 
     pub fn new_with_client(client: HttpClient) -> Self {
-        Client { client }
+        StarknetRpcClient { client }
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -356,44 +361,42 @@ impl Client {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum StarknetRpcClientError {
     /// API-specific error returned by the server.
     #[error(transparent)]
     Starknet(StarknetApiError),
 
     /// Transport or other client-level error.
     #[error(transparent)]
-    Client(jsonrpsee::core::client::Error),
+    Client(client::Error),
 }
 
-impl Error {
+impl StarknetRpcClientError {
     /// Returns `true` if the error is transient and the request may succeed on retry.
     ///
     /// Transport errors (network issues) and request timeouts are considered retryable.
     /// Parse errors, API errors, and other client errors are not.
     pub fn is_retryable(&self) -> bool {
         match self {
-            Error::Client(inner) => matches!(
-                inner,
-                jsonrpsee::core::client::Error::Transport(_)
-                    | jsonrpsee::core::client::Error::RequestTimeout
-            ),
-            Error::Starknet(_) => false,
+            Self::Starknet(_) => false,
+            Self::Client(inner) => {
+                matches!(inner, client::Error::Transport(_) | client::Error::RequestTimeout)
+            }
         }
     }
 }
 
-impl From<jsonrpsee::core::client::Error> for Error {
-    fn from(err: jsonrpsee::core::client::Error) -> Self {
+impl From<client::Error> for StarknetRpcClientError {
+    fn from(err: client::Error) -> Self {
         match err {
-            jsonrpsee::core::client::Error::Call(ref err_obj) => {
+            client::Error::Call(ref err_obj) => {
                 if let Some(sn_err) = StarknetApiError::from_error_object(err_obj) {
-                    Error::Starknet(sn_err)
+                    Self::Starknet(sn_err)
                 } else {
-                    Error::Client(err)
+                    Self::Client(err)
                 }
             }
-            _ => Error::Client(err),
+            _ => Self::Client(err),
         }
     }
 }

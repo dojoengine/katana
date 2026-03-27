@@ -8,6 +8,7 @@ version.workspace = true
 [dependencies]
 katana-primitives.workspace = true
 katana-rpc-api.workspace = true
+katana-slot-controller.workspace = true
 katana-rpc-types.workspace = true
 katana-starknet.workspace = true
 katana-utils-macro = { path = "macro" }

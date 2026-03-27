@@ -256,8 +256,8 @@ cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "
 piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
 
 # paymaster
-paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", branch = "copenhagen-4cb4" }
-paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", branch = "copenhagen-4cb4" }
+paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", rev = "4748365" } # branch = copenhagen-4cb4
+paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "4748365" } # branch = copenhagen-4cb4
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>

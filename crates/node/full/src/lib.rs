@@ -32,7 +32,6 @@ use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
-use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_stage::blocks::{BatchBlockDownloader, JsonRpcBlockDownloader};
 use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
@@ -302,7 +301,7 @@ impl Node {
         let stages = &config.sync.stages;
 
         if let Some(SyncSource::JsonRpc(ref rpc_url)) = config.sync.source {
-            let rpc_client = katana_starknet::rpc::Client::new(rpc_url.clone());
+            let rpc_client = katana_starknet::rpc::StarknetRpcClient::new(rpc_url.clone());
 
             if stages.contains(&SyncStageKind::Blocks) {
                 let block_downloader =

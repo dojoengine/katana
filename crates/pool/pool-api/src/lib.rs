@@ -77,6 +77,9 @@ pub trait TransactionPool: Send + Sync {
 
     /// Returns a point-in-time snapshot of all transactions currently in the pool.
     fn take_transactions_snapshot(&self) -> Vec<Arc<Self::Transaction>>;
+
+    /// Removes all transactions from the pool.
+    fn clear(&self);
 }
 
 // the transaction type is recommended to implement a cheap clone (eg ref-counting) so that it

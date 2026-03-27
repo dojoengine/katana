@@ -85,10 +85,14 @@ impl TestNode {
     /// Copies the database to a temp directory so each test gets its own mutable copy.
     /// The database is opened with [`SyncMode::UtterlyNoSync`] for test performance.
     pub async fn new_from_db(db_path: &Path) -> Self {
+        Self::new_from_db_and_config(db_path, test_config()).await
+    }
+
+    pub async fn new_from_db_and_config(db_path: &Path, config: Config) -> Self {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         copy_db_dir(db_path, temp_dir.path()).expect("failed to copy database");
 
-        let mut config = test_config();
+        let mut config = config;
         config.db.dir = Some(temp_dir.path().to_path_buf());
 
         Self {
@@ -113,6 +117,12 @@ impl TestNode {
         let db_path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/db/simple");
         Self::new_from_db(&db_path).await
+    }
+
+    pub async fn new_with_simple_db_and_config(config: Config) -> Self {
+        let db_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/db/simple");
+        Self::new_from_db_and_config(&db_path, config).await
     }
 
     /// Stops the node and releases all resources including the database.
@@ -188,9 +198,9 @@ where
     }
 
     /// Returns a HTTP client to the JSON-RPC server.
-    pub fn starknet_rpc_client(&self) -> katana_starknet::rpc::Client {
+    pub fn starknet_rpc_client(&self) -> katana_starknet::rpc::StarknetRpcClient {
         let client = self.rpc_http_client();
-        katana_starknet::rpc::Client::new_with_client(client)
+        katana_starknet::rpc::StarknetRpcClient::new_with_client(client)
     }
 
     /// Returns the address of the node's gRPC server (if enabled).
@@ -346,6 +356,7 @@ pub fn test_config() -> Config {
 
     let mut chain = dev::ChainSpec { id: ChainId::SEPOLIA, ..Default::default() };
     chain.genesis.sequencer_address = address!("0x1");
+    katana_slot_controller::add_controller_classes(&mut chain.genesis);
 
     let rpc = RpcConfig {
         port: 0,

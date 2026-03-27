@@ -32,7 +32,8 @@ use katana_rpc_types::{
     GetStorageProofResponse, StateUpdate, TraceBlockTransactionsResponse, TxReceiptWithBlockInfo,
 };
 use katana_starknet::rpc::{
-    Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
+    StarknetApiError, StarknetRpcClient as StarknetClient,
+    StarknetRpcClientError as StarknetClientError,
 };
 use parking_lot::Mutex;
 use tracing::{error, trace};
@@ -412,7 +413,7 @@ pub enum BackendError {
     #[error("failed to spawn backend thread: {0}")]
     BackendThreadInit(#[from] Arc<io::Error>),
     #[error("rpc provider error: {0}")]
-    StarknetProvider(#[from] Arc<katana_starknet::rpc::Error>),
+    StarknetProvider(#[from] Arc<katana_starknet::rpc::StarknetRpcClientError>),
     #[error("unexpected received result: {0}")]
     UnexpectedReceiveResult(Arc<anyhow::Error>),
 }
