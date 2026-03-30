@@ -83,7 +83,7 @@ async fn controller_account_undeployed_should_deploy() {
     let content: TxPoolContent = rpc_client.txpool_content_from(controller_deployer).await.unwrap();
     assert_eq!(content.pending.len(), 1, "deploy tx should be from the deployer");
 
-    let paymaster_requests = paymaster_state.requests.lock();
+    let paymaster_requests = paymaster_state.execute_raw_transaction_requests.lock();
     let request = paymaster_requests.get(&sender).expect("tx should be forwarded to paymaster");
     assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
 }
@@ -118,7 +118,7 @@ async fn account_deployed_should_not_deploy() {
     let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
     assert_eq!(status.pending, 0, "pool should not contain a deploy transaction");
 
-    let paymaster_requests = mock_paymaster_state.requests.lock();
+    let paymaster_requests = mock_paymaster_state.execute_raw_transaction_requests.lock();
     let request = paymaster_requests.get(&sender).expect("tx should be forwarded to paymaster");
     assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
 }
@@ -152,7 +152,7 @@ async fn non_controller_account_undeployed_should_not_deploy() {
     let status: TxPoolStatus = rpc_client.txpool_status().await.unwrap();
     assert_eq!(status.pending, 0, "no deploy tx for non-Controller account");
 
-    let paymaster_requests = mock_paymaster_state.requests.lock();
+    let paymaster_requests = mock_paymaster_state.execute_raw_transaction_requests.lock();
     let request = paymaster_requests.get(&sender).expect("tx should be forwarded to paymaster");
     assert_eq!(request.len(), 1, "should have one request forwarded to paymaster");
 }
@@ -391,7 +391,7 @@ async fn start_mock_cartridge_api() -> (url::Url, MockCartridgeApiState) {
 }
 
 async fn start_mock_paymaster() -> (Url, MockPaymaster) {
-    let mock = MockPaymaster { requests: Default::default() };
+    let mock = MockPaymaster { execute_raw_transaction_requests: Default::default() };
 
     let server = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
     let addr = server.local_addr().unwrap();
@@ -404,7 +404,8 @@ async fn start_mock_paymaster() -> (Url, MockPaymaster) {
 #[derive(Clone)]
 struct MockPaymaster {
     // track execute_raw_transaction requests
-    requests: Arc<Mutex<HashMap<ContractAddress, Vec<RawInvokeParameters>>>>,
+    execute_raw_transaction_requests:
+        Arc<Mutex<HashMap<ContractAddress, Vec<RawInvokeParameters>>>>,
 }
 
 #[async_trait]
@@ -437,7 +438,11 @@ impl PaymasterApiServer for MockPaymaster {
         match req.transaction {
             ExecuteRawTransactionParameters::RawInvoke { invoke } => {
                 let sender_address = invoke.user_address;
-                self.requests.lock().entry(sender_address.into()).or_default().push(invoke);
+                self.execute_raw_transaction_requests
+                    .lock()
+                    .entry(sender_address.into())
+                    .or_default()
+                    .push(invoke);
             }
         }
 
