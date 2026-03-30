@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use jsonrpsee::MethodResponse;
 use katana_pool::api::TransactionPool;
+use katana_primitives::felt;
 use katana_rpc_types::FeeEstimate;
 use katana_utils::arbitrary;
 use serde::de::DeserializeOwned;
@@ -12,29 +13,34 @@ use setup::*;
 
 /// ## Case:
 ///
-/// The sender address 0x1 already exists and requires no extra deployment.
+/// The sender address 0x1 is already deployed and requires no extra deployment.
 ///
 /// ## Expected:
 ///
-/// Since no Controllers need deployment, the request is forwarded unchanged
-/// and the response is passed through.
+/// The request is forwarded unchanged and the response is passed through.
 #[tokio::test]
-async fn estimate_fee_forwards_when_no_controllers() {
+async fn estimate_fee_forwards_when_deployed_account() {
     let expected_estimates = vec![arbitrary!(FeeEstimate)];
 
     let rpc_responses = HashMap::from_iter([("starknet_estimateFee", expected_estimates.clone())]);
-    let setup = setup_test(HashMap::new(), rpc_responses).await;
+    let test = setup_test(HashMap::new(), rpc_responses).await;
 
     let tx = make_invoke_tx(DEPLOYER_ADDRESS);
-    let response = setup.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
+    let response = test.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
 
-    let calls = setup.mock_rpc.estimate_fee_calls();
-    assert_eq!(calls.len(), 1, "expected one call to estimateFee");
-    let calls = setup.mock_rpc.outside_execute_calls();
-    assert!(calls.is_empty(), "no calls to addExecuteOutsideTransaction | addExecuteFromOutside");
+    // Regardless of whether the address is a Controller, if it is undeployed, a getAccountCalldata
+    // request should be made.
+    assert!(test.mock_api_state.has_get_account_calldata_request(DEPLOYER_ADDRESS));
+
+    let calls = test.rpc.estimate_fee_calls();
+    assert_eq!(calls.len(), 1, "expected only one call to estimateFee");
+    assert_eq!(calls[0].tx_count, 1, "rpc service should get 1 tx (no deploy)");
+
+    let calls_count = test.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 0, "rpc service should not receive any outside execute calls");
 
     let actual_estimates: Vec<FeeEstimate> = get_result(response);
-    assert_eq!(actual_estimates, expected_estimates);
+    assert_eq!(actual_estimates, expected_estimates, "response is passed through as is");
 }
 
 /// ## Case:
@@ -59,16 +65,16 @@ async fn estimate_fee_prepends_deploy_tx_for_controller() {
     let setup = setup_test(cartridge_responses, rpc_responses).await;
 
     let tx = make_invoke_tx(CONTROLLER_ADDRESS);
-    let params = json!([[tx], [], "latest"]);
-    let response = setup.call("starknet_estimateFee", &params).await;
+    let response = setup.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
 
-    // Inner service should receive 2 txs: deploy tx + original tx.
-    let calls = setup.mock_rpc.estimate_fee_calls();
-    assert_eq!(calls[0].tx_count, 2, "rpc should receive 2 txs (deploy + original)");
-    let calls = setup.mock_rpc.outside_execute_calls();
-    assert!(calls.is_empty());
+    let calls = setup.rpc.estimate_fee_calls();
+    assert_eq!(calls.len(), 1, "expected only one call to estimateFee");
+    assert_eq!(calls[0].tx_count, 2, "rpc service should receive 2 txs (deploy + original)");
 
-    // The middleware response should remove the deploy tx estimate and return only the original tx
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 0, "rpc service should not receive any outside execute calls");
+
+    // The middleware should remove the deploy tx estimate and return only the original tx
     // estimate before sending it back to the caller.
     let actual_estimates: Vec<FeeEstimate> = get_result(response);
 
@@ -86,27 +92,28 @@ async fn estimate_fee_prepends_deploy_tx_for_controller() {
 /// Even though the address is undeployed, no deploy transaction is created and the original request
 /// is forwarded unchanged.
 #[tokio::test]
-async fn estimate_fee_forwards_for_non_controller() {
+async fn estimate_fee_forwards_for_undeployed_non_controller() {
     let expected_estimates = vec![arbitrary!(FeeEstimate)];
     let rpc_responses = HashMap::from_iter([("starknet_estimateFee", expected_estimates.clone())]);
 
     let setup = setup_test(HashMap::new(), rpc_responses).await;
 
     let tx = make_invoke_tx(NON_CONTROLLER_ADDRESS);
-    let params = json!([[tx], [], "latest"]);
-    let response = setup.call("starknet_estimateFee", &params).await;
+    let response = setup.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
 
-    // Inner service receives the request unchanged (1 tx).
-    let calls = setup.mock_rpc.estimate_fee_calls();
-    assert_eq!(calls.len(), 1);
-    let calls = setup.mock_rpc.outside_execute_calls();
-    assert!(calls.is_empty());
+    // Regardless of whether the address is a Controller, if it is undeployed, a getAccountCalldata
+    // request should be made.
+    assert!(setup.mock_api_state.has_get_account_calldata_request(NON_CONTROLLER_ADDRESS));
 
-    // Response is passed through.
+    let calls = setup.rpc.estimate_fee_calls();
+    assert_eq!(calls.len(), 1, "expected only one call to estimateFee");
+    assert_eq!(calls[0].tx_count, 1, "rpc service should get 1 tx (no deploy)");
+
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 0, "rpc service should not receive any outside execute calls");
+
     let actual_estimates: Vec<FeeEstimate> = get_result(response);
-
-    assert_eq!(actual_estimates.len(), 1, "should only have 1 estimate");
-    assert_eq!(actual_estimates, expected_estimates);
+    assert_eq!(actual_estimates, expected_estimates, "response is passed through as is");
 }
 
 /// ## Case:
@@ -119,10 +126,10 @@ async fn estimate_fee_forwards_for_non_controller() {
 /// despite three transactions from the same sender.
 ///
 /// Inner service receives 4 txs (1 deploy + 3 original); middleware returns 3 zero-fee estimates.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn estimate_fee_deduplicates_same_controller() {
     let expected_estimates = vec![
-        arbitrary!(FeeEstimate),
+        arbitrary!(FeeEstimate), // prepended contorller deploy tx
         arbitrary!(FeeEstimate),
         arbitrary!(FeeEstimate),
         arbitrary!(FeeEstimate),
@@ -133,36 +140,28 @@ async fn estimate_fee_deduplicates_same_controller() {
         controller_calldata_response(CONTROLLER_ADDRESS),
     )]);
 
-    // Inner service receives 4 txs (1 deploy + 3 original).
-    let inner_responses =
-        HashMap::from_iter([("starknet_estimateFee".to_string(), expected_estimates.clone())]);
+    // rpc service receives 4 txs (1 deploy + 3 original).
+    let rpc_responses = HashMap::from_iter([("starknet_estimateFee", expected_estimates.clone())]);
 
-    let setup = setup_test(cartridge_responses, inner_responses).await;
+    let setup = setup_test(cartridge_responses, rpc_responses).await;
 
     let tx1 = make_invoke_tx(CONTROLLER_ADDRESS);
     let tx2 = make_invoke_tx(CONTROLLER_ADDRESS);
     let tx3 = make_invoke_tx(CONTROLLER_ADDRESS);
-    let params = json!([[tx1, tx2, tx3], [], "latest"]);
-    let response = setup.call("starknet_estimateFee", &params).await;
+    let res = setup.call("starknet_estimateFee", &json!([[tx1, tx2, tx3], [], "latest"])).await;
 
-    // Inner service should receive 4 txs: 1 deploy + 3 original.
-    let calls = setup.mock_rpc.estimate_fee_calls();
+    // If it is undeployed, a getAccountCalldata request should be made.
+    assert!(setup.mock_api_state.has_get_account_calldata_request(CONTROLLER_ADDRESS));
+
+    let calls = setup.rpc.estimate_fee_calls();
     assert_eq!(calls.len(), 1);
-    assert_eq!(
-        calls[0].tx_count,
-        Some(4),
-        "inner service should receive 4 transactions (1 deploy + 3 original)"
-    );
+    assert_eq!(calls[0].tx_count, 4, "rpc service should get 4 txs (1 deploy + 3 og)");
 
-    // Middleware should return 3 zero-fee estimates (one per original tx).
-    let actual_estimates: Vec<FeeEstimate> = get_result(response);
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 0, "rpc service should not receive any outside execute calls");
 
-    assert_eq!(
-        actual_estimates.len(),
-        3,
-        "response should have 3 estimates for the 3 original txs"
-    );
-
+    let actual_estimates: Vec<FeeEstimate> = get_result(res);
+    assert_eq!(actual_estimates.len(), 3, "response should not include the estimate for deploy tx");
     assert_eq!(actual_estimates[..], expected_estimates[1..]);
 }
 
@@ -175,26 +174,29 @@ async fn estimate_fee_deduplicates_same_controller() {
 /// The middleware detects this and skips Controller deployment, forwarding the
 /// request unchanged without querying the Cartridge API.
 ///
-/// Inner service receives request unchanged; pool remains empty; Cartridge API receives no
+/// RPC service receives request unchanged; pool remains empty; Cartridge API receives no
 /// requests.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn execute_outside_skips_deploy_when_already_deployed() {
     let setup = setup_test(HashMap::new(), HashMap::new()).await;
 
-    let params = make_execute_outside_params(DEPLOYER_ADDRESS);
+    let execute_outside = make_execute_outside();
+    let params = json!([DEPLOYER_ADDRESS, execute_outside, ["0x0", "0x0"], null]);
     setup.call("cartridge_addExecuteFromOutside", &params).await;
 
-    // Pool should be empty — no deploy tx was added.
-    assert_eq!(setup.pool.size(), 0, "pool should be empty");
+    assert_eq!(setup.pool.size(), 0, "pool should be empty — no deploy tx was added");
 
-    // Inner service should have been called (request forwarded).
-    let calls = setup.mock_rpc.estimate_fee_calls();
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 1);
+    let calls = setup.rpc.outside_execute_calls_from(DEPLOYER_ADDRESS);
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
+    assert_eq!(calls[0].outside_execution, execute_outside);
 
-    // Cartridge API should not have been queried.
-    let api_requests = setup.mock_api_state.received_requests.lock().unwrap();
-    assert!(api_requests.is_empty(), "Cartridge API should not have been queried");
+    let calls = setup.rpc.estimate_fee_calls();
+    assert!(calls.is_empty(), "no calls to estimateFee");
+
+    // Cartridge API should not have been queried because the address is already deployed.
+    assert!(!setup.mock_api_state.has_get_account_calldata_request(DEPLOYER_ADDRESS));
 }
 
 /// ## Case:
@@ -207,7 +209,7 @@ async fn execute_outside_skips_deploy_when_already_deployed() {
 /// the original request to the inner service.
 ///
 /// Pool contains 1 deploy transaction; inner service receives request.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn execute_outside_deploys_controller() {
     let cartridge_responses = HashMap::from_iter([(
         CONTROLLER_ADDRESS,
@@ -216,16 +218,19 @@ async fn execute_outside_deploys_controller() {
 
     let setup = setup_test(cartridge_responses, HashMap::new()).await;
 
-    let params = make_execute_outside_params(CONTROLLER_ADDRESS);
+    let execute_outside = make_execute_outside();
+    let params = json!([CONTROLLER_ADDRESS, execute_outside, ["0x0", "0x0"], null]);
     setup.call("cartridge_addExecuteFromOutside", &params).await;
 
     // A deploy transaction should have been added to the pool.
     assert_eq!(setup.pool.size(), 1, "pool should contain 1 deploy transaction");
 
-    // Inner service should have been called (request forwarded).
-    let calls = setup.mock_rpc.estimate_fee_calls();
+    // rpc service should have been called (request forwarded).
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 1);
+    let calls = setup.rpc.outside_execute_calls_from(CONTROLLER_ADDRESS);
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
+    assert_eq!(calls[0].outside_execution, execute_outside);
 }
 
 /// ## Case:
@@ -237,20 +242,23 @@ async fn execute_outside_deploys_controller() {
 /// The middleware skips deployment and forwards the request unchanged.
 ///
 /// Pool remains empty; inner service receives request.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn execute_outside_skips_deploy_for_non_controller() {
     let setup = setup_test(HashMap::new(), HashMap::new()).await;
 
-    let params = make_execute_outside_params(NON_CONTROLLER_ADDRESS);
+    let execute_outside = make_execute_outside();
+    let params = json!([NON_CONTROLLER_ADDRESS, execute_outside, ["0x0", "0x0"], null]);
     setup.call("cartridge_addExecuteFromOutside", &params).await;
 
     // Pool should be empty — no deploy tx was added.
     assert_eq!(setup.pool.size(), 0, "pool should be empty");
 
-    // Inner service should have been called.
-    let calls = setup.mock_rpc.estimate_fee_calls();
+    // rpc service should have been called.
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 1);
+    let calls = setup.rpc.outside_execute_calls_from(NON_CONTROLLER_ADDRESS);
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "cartridge_addExecuteFromOutside");
+    assert_eq!(calls[0].outside_execution, execute_outside);
 }
 
 /// ## Case:
@@ -262,7 +270,7 @@ async fn execute_outside_skips_deploy_for_non_controller() {
 /// ## Expected:
 ///
 /// Deploy transaction added to pool and request forwarded.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn execute_outside_tx_method_variant() {
     let cartridge_responses = {
         let mut m = HashMap::new();
@@ -272,16 +280,21 @@ async fn execute_outside_tx_method_variant() {
 
     let setup = setup_test(cartridge_responses, HashMap::new()).await;
 
-    let params = make_execute_outside_params(CONTROLLER_ADDRESS);
+    let execute_outside = make_execute_outside();
+    let params = json!([CONTROLLER_ADDRESS, execute_outside, ["0x0", "0x0"], null]);
     setup.call("cartridge_addExecuteOutsideTransaction", &params).await;
 
     // A deploy transaction should have been added to the pool.
     assert_eq!(setup.pool.size(), 1, "pool should contain 1 deploy transaction");
 
     // Inner service should have been called with the alternate method name.
-    let calls = setup.mock_rpc.estimate_fee_calls();
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 1);
+    let calls = setup.rpc.outside_execute_calls_from(CONTROLLER_ADDRESS);
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "cartridge_addExecuteOutsideTransaction");
+    assert_eq!(calls[0].outside_execution, execute_outside);
+    assert_eq!(calls[0].fee_source, None, "params shouldnt change");
+    assert_eq!(calls[0].signature, vec![felt!("0x0"), felt!("0x0")], "params shouldnt change");
 }
 
 /// ## Case:
@@ -292,18 +305,22 @@ async fn execute_outside_tx_method_variant() {
 /// ## Expected:
 ///
 /// inner service receives request unchanged; no Cartridge API requests made.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn passthrough_other_methods() {
     let setup = setup_test(HashMap::new(), HashMap::new()).await;
 
     setup.call("starknet_getBlockNumber", &json!([])).await;
 
-    let calls = setup.mock_rpc.estimate_fee_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "starknet_getBlockNumber");
+    let calls = setup.rpc.any_calls("starknet_getBlockNumber").expect("must be called");
+    assert_eq!(calls.len(), 1, "starknet_getBlockNumber must be called once");
 
-    let api_requests = setup.mock_api_state.received_requests.lock().unwrap();
-    assert!(api_requests.is_empty(), "Cartridge API should not have been queried");
+    let calls = setup.rpc.estimate_fee_calls();
+    assert!(calls.is_empty());
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 0);
+
+    // No Cartridge API requests should have been made because the method is not intercepted.
+    assert!(!setup.mock_api_state.has_get_account_calldata_request(DEPLOYER_ADDRESS));
 }
 
 /// ## Case:
@@ -314,7 +331,7 @@ async fn passthrough_other_methods() {
 /// ## Expected:
 ///
 /// Inner service receives request unchanged.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn passthrough_malformed_estimate_fee() {
     let setup = setup_test(HashMap::new(), HashMap::new()).await;
 
@@ -322,15 +339,16 @@ async fn passthrough_malformed_estimate_fee() {
     setup.call("starknet_estimateFee", &json!(["not_valid"])).await;
 
     // The inner service should have received the request (fallthrough).
-    let calls = setup.mock_rpc.estimate_fee_calls();
+    let calls = setup.rpc.estimate_fee_calls();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].method, "starknet_estimateFee");
+    let calls_count = setup.rpc.outside_execute_calls_count();
+    assert_eq!(calls_count, 0);
 }
 
 mod setup {
     use std::collections::HashMap;
     use std::future::Future;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use ::cartridge::api::GetAccountCalldataResponse;
     use axum::extract::State;
@@ -347,6 +365,7 @@ mod setup {
     use katana_pool::pool::Pool;
     use katana_pool::validation::NoopValidator;
     use katana_primitives::da::DataAvailabilityMode;
+    use katana_primitives::execution::Call;
     use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping, Tip};
     use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
     use katana_primitives::{address, felt, ContractAddress, Felt};
@@ -354,6 +373,8 @@ mod setup {
     use katana_provider::test_utils::test_provider;
     use katana_rpc_types::*;
     use katana_tasks::TaskManager;
+    use parking_lot::Mutex;
+    use serde::de::DeserializeOwned;
     use serde::Deserialize;
     use serde_json::json;
     use starknet::signers::SigningKey;
@@ -366,15 +387,15 @@ mod setup {
         PendingBlockProvider, RpcCache, StarknetApi, StarknetApiConfig, StarknetApiResult,
     };
 
-    pub(super) type TestPool =
+    pub type TestPool =
         Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
 
     /// An undeployed address that the mock API will recognize as a Controller.
-    pub(super) const CONTROLLER_ADDRESS: ContractAddress = address!("0xdead");
+    pub const CONTROLLER_ADDRESS: ContractAddress = address!("0xdead");
     /// An undeployed address that the mock API will NOT recognize as a Controller.
-    pub(super) const NON_CONTROLLER_ADDRESS: ContractAddress = address!("0xbeef");
+    pub const NON_CONTROLLER_ADDRESS: ContractAddress = address!("0xbeef");
     /// The deployer address — matches the genesis account at 0x1 in test_provider.
-    pub(super) const DEPLOYER_ADDRESS: ContractAddress = address!("0x1");
+    pub const DEPLOYER_ADDRESS: ContractAddress = address!("0x1");
 
     type TestControllerDeploymentService = ControllerDeploymentService<
         MockRpcService,
@@ -384,20 +405,20 @@ mod setup {
     >;
 
     /// A complete test setup context.
-    pub(super) struct TestSetup {
-        service: TestControllerDeploymentService,
-        pub(super) mock_rpc: MockRpcService,
-        pub(super) mock_api_state: MockCartridgeApiState,
-        pub(super) pool: TestPool,
+    pub struct TestSetup {
+        pub pool: TestPool,
+        pub rpc: MockRpcService,
+        pub mock_api_state: MockCartridgeApiState,
+
+        controller_deployment_service: TestControllerDeploymentService,
     }
 
     impl TestSetup {
         /// Simulate a call to the [`ControllerDeploymentService`] with the given JSON-RPC request.
-        pub(super) async fn call(
-            &self,
-            method: &str,
-            params: &serde_json::Value,
-        ) -> MethodResponse {
+        ///
+        /// The returned response is the response object returned directly from the Controller
+        /// Deployment service.
+        pub async fn call(&self, method: &str, params: &serde_json::Value) -> MethodResponse {
             let json = json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -408,11 +429,11 @@ mod setup {
             let json_str = json.to_string();
             let request: Request<'_> = serde_json::from_str(&json_str).unwrap();
 
-            self.service.call(request).await
+            self.controller_deployment_service.call(request).await
         }
     }
 
-    pub(super) async fn setup_test(
+    pub async fn setup_test(
         cartridge_api_responses: HashMap<ContractAddress, GetAccountCalldataResponse>,
         inner_rpc_responses: HashMap<&'static str, Vec<FeeEstimate>>,
     ) -> TestSetup {
@@ -459,14 +480,12 @@ mod setup {
         let mock_rpc = MockRpcService::new(inner_rpc_responses);
         let service = layer.layer(mock_rpc.clone());
 
-        TestSetup { service, mock_rpc, mock_api_state, pool }
+        TestSetup { controller_deployment_service: service, rpc: mock_rpc, mock_api_state, pool }
     }
 
     /// Builds a `serde_json::Value` response for the Cartridge API that represents
     /// a valid Controller account with some dummy constructor calldata.
-    pub(super) fn controller_calldata_response(
-        address: ContractAddress,
-    ) -> GetAccountCalldataResponse {
+    pub fn controller_calldata_response(address: ContractAddress) -> GetAccountCalldataResponse {
         GetAccountCalldataResponse {
             address,
             username: "testuser".to_string(),
@@ -482,7 +501,7 @@ mod setup {
     }
 
     /// Creates a valid V3 invoke transaction for the given sender address.
-    pub(super) fn make_invoke_tx(sender_address: ContractAddress) -> BroadcastedTx {
+    pub fn make_invoke_tx(sender_address: ContractAddress) -> BroadcastedTx {
         BroadcastedTx::Invoke(BroadcastedInvokeTx {
             sender_address,
             calldata: vec![Felt::ONE],
@@ -502,43 +521,26 @@ mod setup {
         })
     }
 
-    pub(super) fn make_execute_outside_params(address: ContractAddress) -> serde_json::Value {
-        json!([
-            address,
-            {
-                "caller": "0x414e595f43414c4c4552",
-                "nonce": "0x1",
-                "execute_after": "0x0",
-                "execute_before": "0xffffffffffffffff",
-                "calls": [{
-                    "to": "0x1",
-                    "selector": "0x2",
-                    "calldata": ["0x3"]
-                }]
-            },
-            ["0x0", "0x0"],
-            null
-        ])
-    }
-
-    // ---- internal helpers ----
-
-    fn make_rpc_request_str(method: &str, params: &serde_json::Value) -> String {
-        json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params
+    pub fn make_execute_outside() -> OutsideExecution {
+        OutsideExecution::V2(OutsideExecutionV2 {
+            caller: address!("0x414e595f43414c4c4552"),
+            nonce: felt!("0x1"),
+            execute_after: 0x0,
+            execute_before: 0xffffffffffffffff,
+            calls: vec![Call {
+                contract_address: address!("0x1"),
+                entry_point_selector: felt!("0x2"),
+                calldata: vec![felt!("0x3")],
+            }],
         })
-        .to_string()
     }
 
     async fn start_mock_cartridge_api(
         responses: HashMap<ContractAddress, GetAccountCalldataResponse>,
     ) -> (Url, MockCartridgeApiState) {
         let state = MockCartridgeApiState {
-            responses: Arc::new(responses),
-            received_requests: Default::default(),
+            predefined_responses: Arc::new(responses),
+            get_account_calldata_request: Default::default(),
         };
 
         let app = Router::new()
@@ -565,9 +567,9 @@ mod setup {
         State(state): State<MockCartridgeApiState>,
         Json(GetAccountCalldataBody { address }): Json<GetAccountCalldataBody>,
     ) -> impl IntoResponse {
-        state.received_requests.lock().unwrap().push(address);
+        state.get_account_calldata_request.lock().push(address);
 
-        if let Some(response) = state.responses.get(&address) {
+        if let Some(response) = state.predefined_responses.get(&address) {
             Json(response.clone()).into_response()
         } else {
             "Address not found".into_response()
@@ -635,40 +637,75 @@ mod setup {
     }
 
     #[derive(Clone)]
-    pub(super) struct MockCartridgeApiState {
+    pub struct MockCartridgeApiState {
         /// Map from hex address (with "0x" prefix, lowercase) to the response JSON.
-        responses: Arc<HashMap<ContractAddress, GetAccountCalldataResponse>>,
-        /// Log of all requests received.
-        pub(super) received_requests: Arc<Mutex<Vec<ContractAddress>>>,
+        predefined_responses: Arc<HashMap<ContractAddress, GetAccountCalldataResponse>>,
+
+        /// Log of getAccountCalldata requests received for addresses that are KNOWN to be
+        /// Controllers.
+        get_account_calldata_request: Arc<Mutex<Vec<ContractAddress>>>,
+    }
+
+    impl MockCartridgeApiState {
+        /// Returns whether the getAccountCalldata request has been made for the given address.
+        pub fn has_get_account_calldata_request(&self, address: ContractAddress) -> bool {
+            self.get_account_calldata_request.lock().contains(&address)
+        }
     }
 
     #[derive(Clone, Debug, Default)]
-    pub(super) struct EstimateFeeRecordedCall {
-        pub(super) tx_count: usize,
+    pub struct EstimateFeeRecordedCall {
+        pub tx_count: usize,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct OutsideExecuteRecordedCall {
+        pub outside_execution: OutsideExecution,
+        pub signature: Vec<Felt>,
+        pub fee_source: Option<FeeSource>,
     }
 
     #[derive(Clone, Debug, Default)]
-    struct OutsideExecuteRecordedCall {}
+    pub struct AnyRecordedCall {}
 
     #[derive(Clone, Default)]
-    pub(super) struct MockRpcService {
+    pub struct MockRpcService {
         /// Pre-configured response JSON per method name.
-        responses: Arc<HashMap<String, Vec<FeeEstimate>>>,
+        responses: Arc<HashMap<&'static str, Vec<FeeEstimate>>>,
+
+        any_calls: Arc<Mutex<HashMap<String, Vec<AnyRecordedCall>>>>,
         estimate_fee_calls: Arc<Mutex<Vec<EstimateFeeRecordedCall>>>,
-        outside_execute_calls: Arc<Mutex<Vec<OutsideExecuteRecordedCall>>>,
+        outside_execute_calls: Arc<Mutex<Vec<(ContractAddress, OutsideExecuteRecordedCall)>>>,
     }
 
     impl MockRpcService {
-        pub(super) fn new(responses: HashMap<String, Vec<FeeEstimate>>) -> Self {
+        pub fn new(responses: HashMap<&'static str, Vec<FeeEstimate>>) -> Self {
             Self { responses: Arc::new(responses), ..Default::default() }
         }
 
-        pub(super) fn estimate_fee_calls(&self) -> Vec<EstimateFeeRecordedCall> {
-            self.estimate_fee_calls.lock().unwrap().clone()
+        pub fn estimate_fee_calls(&self) -> Vec<EstimateFeeRecordedCall> {
+            self.estimate_fee_calls.lock().clone()
         }
 
-        pub(super) fn outside_execute_calls(&self) -> Vec<OutsideExecuteRecordedCall> {
-            self.outside_execute_calls.lock().unwrap().clone()
+        pub fn outside_execute_calls_count(&self) -> usize {
+            self.outside_execute_calls.lock().len()
+        }
+
+        pub fn outside_execute_calls_from(
+            &self,
+            sender_address: ContractAddress,
+        ) -> Vec<OutsideExecuteRecordedCall> {
+            self.outside_execute_calls
+                .lock()
+                .iter()
+                .find(|(addr, _)| addr == &sender_address)
+                .map(|(_, call)| call.clone())
+                .into_iter()
+                .collect()
+        }
+
+        pub fn any_calls(&self, method: &str) -> Option<Vec<AnyRecordedCall>> {
+            self.any_calls.lock().get(method).cloned()
         }
     }
 
@@ -683,23 +720,57 @@ mod setup {
         ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
             let method = request.method_name().to_owned();
 
-            // Try to count transactions if this is an estimate_fee request.
-            let params = request.params();
-            let tx_count = if method == "starknet_estimateFee" {
-                // Parse the first param (array of txs) from the sequence params.
-                let mut seq = params.sequence();
-                let txs: Result<Vec<serde_json::Value>, _> = seq.next();
-                txs.ok().map(|v| v.len()).unwrap_or(0)
-            } else {
-                0
-            };
+            match method.as_str() {
+                "starknet_estimateFee" => {
+                    // Parse the first param (array of txs) from the sequence params.
+                    let params = request.params();
+                    let mut seq = params.sequence();
 
-            self.estimate_fee_calls
-                .lock()
-                .unwrap()
-                .push(EstimateFeeRecordedCall { method: method.clone(), tx_count });
+                    let txs: Result<Vec<serde_json::Value>, _> = seq.next();
+                    let tx_count = txs.ok().map(|v| v.len()).unwrap_or(0);
 
-            let response = if let Some(resp) = self.responses.get(&method) {
+                    self.estimate_fee_calls.lock().push(EstimateFeeRecordedCall { tx_count });
+                }
+
+                "cartridge_addExecuteFromOutside" | "cartridge_addExecuteOutsideTransaction" => {
+                    #[derive(Deserialize)]
+                    struct NamedAddExecuteOutsideParams {
+                        sender: ContractAddress,
+                        outside_execution: OutsideExecution,
+                        signature: Vec<Felt>,
+                        fee_source: Option<FeeSource>,
+                    }
+
+                    fn parse_params<T: DeserializeOwned>(request: &Request<'_>) -> Option<T> {
+                        match request.params().parse() {
+                            Ok(params) => Some(params),
+                            Err(..) => None,
+                        }
+                    }
+
+                    let NamedAddExecuteOutsideParams {
+                        sender,
+                        signature,
+                        fee_source,
+                        outside_execution,
+                    } = parse_params::<NamedAddExecuteOutsideParams>(&request).unwrap();
+
+                    self.outside_execute_calls.lock().push((
+                        sender,
+                        OutsideExecuteRecordedCall { signature, fee_source, outside_execution },
+                    ));
+                }
+
+                other => {
+                    self.any_calls
+                        .lock()
+                        .entry(other.to_string())
+                        .or_default()
+                        .push(AnyRecordedCall {});
+                }
+            }
+
+            let response = if let Some(resp) = self.responses.get(method.as_str()) {
                 MethodResponse::response(
                     request.id().clone(),
                     jsonrpsee::ResponsePayload::success(resp.clone()),

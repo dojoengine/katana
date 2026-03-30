@@ -21,14 +21,14 @@ use serde::{Deserialize, Serialize};
 use starknet::macros::selector;
 
 /// Nonce channel
-#[derive(Clone, CairoSerde, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, CairoSerde, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct NonceChannel(
     Felt,
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")] u128,
 );
 
 /// Outside execution version 2 (SNIP-9 standard).
-#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct OutsideExecutionV2 {
     /// Address allowed to initiate execution ('ANY_CALLER' for unrestricted).
     pub caller: ContractAddress,
@@ -46,7 +46,7 @@ pub struct OutsideExecutionV2 {
 }
 
 /// Non-standard extension of the [`OutsideExecutionV2`] supported by the Cartridge Controller.
-#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct OutsideExecutionV3 {
     /// Address allowed to initiate execution ('ANY_CALLER' for unrestricted).
     pub caller: ContractAddress,
@@ -63,7 +63,7 @@ pub struct OutsideExecutionV3 {
     pub calls: Vec<Call>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum OutsideExecution {
     /// SNIP-9 standard version.

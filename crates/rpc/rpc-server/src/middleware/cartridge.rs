@@ -186,7 +186,7 @@ where
         params: AddExecuteOutsideParams,
         request: Request<'a>,
     ) -> S::MethodResponse {
-        if let Err(err) = dbg!(self.cartridge_add_execute_from_outside_inner(params).await) {
+        if let Err(err) = self.cartridge_add_execute_from_outside_inner(params).await {
             MethodResponse::error(request.id().clone(), ErrorObjectOwned::from(err))
         } else {
             self.service.call(request).await
@@ -295,6 +295,7 @@ where
 
         // None means the address is not of a Controller
         if let Some(tx) = deploy_tx {
+            // add the deploy tx to the pool
             if let Err(e) = self.context.starknet.add_invoke_tx(tx).await {
                 return Err(CartridgeApiError::ControllerDeployment {
                     reason: format!("failed to submit deployment tx: {e}"),
