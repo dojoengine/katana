@@ -105,7 +105,7 @@ jobs:
             - name: Create Pull Request
               uses: peter-evans/create-pull-request@v5
               with:
-                  base: main
+                  base: ${{ github.ref_name }}
                   delete-branch: true
                   token: ${{ secrets.CREATE_PR_TOKEN }}
                   add-paths: |
