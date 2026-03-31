@@ -134,10 +134,6 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
-    fn controller_deployment_error(reason: impl Into<String>) -> CartridgeApiError {
-        CartridgeApiError::ControllerDeployment { reason: reason.into() }
-    }
-
     fn estimate_fee_candidate_addresses(transactions: &[BroadcastedTx]) -> Vec<ContractAddress> {
         transactions
             .iter()
@@ -156,11 +152,9 @@ where
         block_id: BlockIdOrTag,
     ) -> Result<Request<'a>, CartridgeApiError> {
         let params = rpc_params!(transactions, simulation_flags, block_id);
-        let params = params.to_rpc_params().map_err(|err| {
-            Self::controller_deployment_error(format!(
-                "failed to serialize augmented estimateFee params: {err}"
-            ))
-        })?;
+        let params = params
+            .to_rpc_params()
+            .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
 
         let mut new_request = request.clone();
         new_request.params = params.map(Cow::Owned);
@@ -168,7 +162,6 @@ where
         Ok(new_request)
     }
 
-    // If deployment txs are added, return the no-fee estimates for the original requests only.
     async fn starknet_estimate_fee<'a>(
         &self,
         params: EstimateFeeParams,
@@ -206,49 +199,63 @@ where
             .starknet
             .nonce_at(block_id, self.context.deployer_address)
             .await
-            .map_err(|err| {
-                Self::controller_deployment_error(format!("failed to get deployer nonce: {err}"))
-            })?;
+            .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
 
         let deploy_controller_txs = self
             .get_controller_deployment_txs(candidate_addresses, deployer_nonce)
             .await
-            .map_err(|err| Self::controller_deployment_error(err.to_string()))?;
+            .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
 
-        // no Controller to deploy, simply forward the request
+        // No Controller to deploy, simply forward the request.
         if deploy_controller_txs.is_empty() {
-            return Ok(self.service.call(request).await);
+            let response = self.service.call(request).await;
+            return Ok(response);
         }
 
-        let original_txs_count = transactions.len();
-        let new_txs = [deploy_controller_txs, transactions].concat();
-        let new_txs_count = new_txs.len();
-        let new_request =
-            Self::build_estimate_fee_request(&request, new_txs, simulation_flags, block_id)?;
+        let og_txs_len = transactions.len();
+        let deploy_txs_len = deploy_controller_txs.len();
 
-        let response = self.service.call(new_request).await;
-        let response_body = response.as_json().get();
-        let res = serde_json::from_str::<Response<'_, Vec<FeeEstimate>>>(response_body).map_err(
-            |err| {
-                Self::controller_deployment_error(format!(
-                    "failed to parse estimateFee response: {err}"
-                ))
-            },
+        // Build a new estimateFee request with the deploy controller transactions prepended.
+        let new_estimates_txs = [deploy_controller_txs, transactions].concat();
+        let updated_request = Self::build_estimate_fee_request(
+            &request,
+            new_estimates_txs,
+            simulation_flags,
+            block_id,
         )?;
+
+        // Call the inner service with the updated request.
+        let response = self.service.call(updated_request).await;
+
+        // IMPORTANT:
+        //
+        // Beyond this point, we assume the response is a valid starknet_estimateFee response. It's
+        // up to the devs to make sure this middleware is wrapped around valid Starknet
+        // JSON-RPC service and no other middlewares are installed that modify the response
+        // body.
+
+        // Extract the response body to remove the estimates for the deploy controller transactions
+        // before returning the response to the caller.
+        //
+        // This is done to respect the semantics of the starknet_estimateFee response, which
+        // specifies that the estimates are only for transactions that are included in the
+        // original request.
+        let response_body = response.as_json().get();
+        let res = serde_json::from_str::<Response<'_, Vec<FeeEstimate>>>(response_body)
+            .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
 
         match res.payload {
             ResponsePayload::Success(estimates) => {
-                if estimates.len() != new_txs_count {
-                    return Err(Self::controller_deployment_error(format!(
-                        "unexpected estimateFee response length: expected {new_txs_count}, got {}",
-                        estimates.len()
-                    )));
-                }
+                let estimates_len = estimates.len();
+                let new_txs_len = deploy_txs_len + og_txs_len;
+                assert_eq!(
+                    estimates_len, new_txs_len,
+                    "unexpected estimateFee response length: expected {new_txs_len}, got \
+                     {estimates_len}"
+                );
 
-                // extract only the fee estimates for the original transactions
-                let deploy_txs_count = new_txs_count - original_txs_count;
-                let original_estimates = estimates[deploy_txs_count..].to_vec();
-                let payload = ResponsePayload::success(original_estimates);
+                let og_estimates = estimates[deploy_txs_len..].to_vec();
+                let payload = ResponsePayload::success(og_estimates);
 
                 Ok(MethodResponse::response(request.id().clone(), payload.into(), usize::MAX))
             }
@@ -270,11 +277,7 @@ where
             Ok(..) => true,
             Err(StarknetApiError::ContractNotFound) => false,
 
-            Err(e) => {
-                return Err(CartridgeApiError::ControllerDeployment {
-                    reason: format!("failed to check Controller deployment status: {e}"),
-                });
-            }
+            Err(e) => return Err(CartridgeApiError::ControllerDeployment { error: Box::new(e) }),
         };
 
         if is_deployed {
@@ -282,24 +285,28 @@ where
         }
 
         let nonce =
-            self.context.starknet.nonce_at(block_id, self.context.deployer_address).await.map_err(
-                |err| CartridgeApiError::ControllerDeployment {
-                    reason: format!("failed to get deployer nonce: {err}"),
-                },
-            )?;
+            self.context
+                .starknet
+                .nonce_at(block_id, self.context.deployer_address)
+                .await
+                .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
 
         let deploy_tx = self
             .get_controller_deployment_tx(address, nonce)
             .await
-            .map_err(|err| CartridgeApiError::ControllerDeployment { reason: err.to_string() })?;
+            .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
 
-        // None means the address is not of a Controller
+        // None means the address is not of a Controller in which case we don't need to do anything.
         if let Some(tx) = deploy_tx {
-            // add the deploy tx to the pool
+            // Add the deploy tx to the pool.
+            //
+            // NOTE:
+            //
+            // Although this will add the deploy transaction to the pool first before the
+            // addExecuteOutside transactions, the order they get executed is not
+            // guaranteed.
             if let Err(e) = self.context.starknet.add_invoke_tx(tx).await {
-                return Err(CartridgeApiError::ControllerDeployment {
-                    reason: format!("failed to submit deployment tx: {e}"),
-                });
+                return Err(CartridgeApiError::ControllerDeployment { error: Box::new(e) });
             }
         }
 
@@ -405,19 +412,22 @@ where
 
         async move {
             let method = request.method_name();
+            trace!(target: "middleware::cartridge", %method, "Intercepting JSON-RPC method.");
 
             match method {
                 STARKNET_ESTIMATE_FEE => {
-                    trace!(%method, "Intercepting JSON-RPC method.");
-                    if let Some(params) = parse_estimate_fee_params(&request) {
-                        return this.starknet_estimate_fee(params, request).await;
+                    if let Ok(params) = parse_params::<EstimateFeeRequestParams>(&request)
+                        .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
+                    {
+                        return this.starknet_estimate_fee(params.into(), request).await;
                     }
                 }
 
                 CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE | CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX => {
-                    trace!(%method, "Intercepting JSON-RPC method.");
-                    if let Some(params) = parse_execute_outside_params(&request) {
-                        return this.cartridge_add_execute_from_outside(params, request).await;
+                    if let Ok(params) = parse_params::<AddExecuteOutsideRequestParams>(&request)
+	                    .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
+                    {
+                        return this.cartridge_add_execute_from_outside(params.into(), request).await;
                     }
                 }
 
@@ -548,21 +558,6 @@ impl From<EstimateFeeRequestParams> for EstimateFeeParams {
     }
 }
 
-fn parse_params<T: DeserializeOwned>(request: &Request<'_>, method: &str) -> Option<T> {
-    match request.params().parse() {
-        Ok(params) => Some(params),
-        Err(..) => {
-            debug!(target: "cartridge", "Failed to parse {method} params.");
-            None
-        }
-    }
-}
-
-fn parse_execute_outside_params(request: &Request<'_>) -> Option<AddExecuteOutsideParams> {
-    parse_params::<AddExecuteOutsideRequestParams>(request, "execute outside").map(Into::into)
-}
-
-/// Extract estimate_fee parameters from the request.
-fn parse_estimate_fee_params(request: &Request<'_>) -> Option<EstimateFeeParams> {
-    parse_params::<EstimateFeeRequestParams>(request, "estimate fee").map(Into::into)
+fn parse_params<T: DeserializeOwned>(request: &Request<'_>) -> Result<T, ErrorObjectOwned> {
+    request.params().parse()
 }

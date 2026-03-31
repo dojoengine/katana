@@ -12,11 +12,14 @@ const POOL_ERROR: i32 = 205;
 const PROVIDER_ERROR: i32 = 206;
 const INTERNAL_ERROR: i32 = 299;
 
-#[derive(Debug, thiserror::Error, Clone)]
+#[derive(Debug, thiserror::Error)]
 pub enum CartridgeApiError {
     /// Failed to deploy a Cartridge controller account.
-    #[error("Controller deployment failed: {reason}")]
-    ControllerDeployment { reason: String },
+    #[error("Controller deployment failed")]
+    ControllerDeployment {
+        #[source]
+        error: Box<dyn std::error::Error + 'static + Send + Sync>,
+    },
 
     /// The `request_random` call is not followed by another call in the outside execution.
     #[error("request_random call must be followed by another call")]
@@ -76,7 +79,7 @@ impl From<ProviderError> for CartridgeApiError {
 
 impl From<anyhow::Error> for CartridgeApiError {
     fn from(value: anyhow::Error) -> Self {
-        CartridgeApiError::ControllerDeployment { reason: value.to_string() }
+        CartridgeApiError::ControllerDeployment { error: value.into_boxed_dyn_error() }
     }
 }
 
