@@ -7,7 +7,6 @@ use axum::Router;
 use katana_pool_api::TransactionPool;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_server::middleware::cors::Cors;
-use katana_rpc_server::starknet::StarknetApi;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use tokio::net::TcpListener;
 use tokio::sync::watch;

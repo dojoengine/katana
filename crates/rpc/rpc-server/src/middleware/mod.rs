@@ -4,3 +4,6 @@ pub mod metrics;
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
+
+#[cfg(test)]
+mod tests;

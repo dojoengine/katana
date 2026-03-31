@@ -311,12 +311,12 @@ jobs:
             - name: Run tests (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name != 'pull_request'
               run: |
-                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
+                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude cartridge-e2e-test --build-jobs 20
 
             - name: Run tests w/ code coverage (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name == 'pull_request'
               run: |
-                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
+                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude cartridge-e2e-test --build-jobs 20
                   cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Upload code coverage
@@ -453,6 +453,41 @@ jobs:
               run: |
                   echo "=== Last 50 lines of Katana logs ==="
                   tail -n 50 katana.log
+
+    # cartridge-e2e:
+    #     needs: [fmt, clippy, generate-test-artifacts]
+    #     runs-on: ubuntu-latest-32-cores
+    #     timeout-minutes: 30
+    #     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    #     container:
+    #         image: ghcr.io/dojoengine/katana-dev:latest
+    #     env:
+    #         MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+    #         LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+    #         TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+    #     steps:
+    #         - uses: actions/checkout@v3
+    #           with:
+    #               submodules: recursive
+    #         - run: git config --global --add safe.directory "*"
+
+    #         - uses: Swatinem/rust-cache@v2
+    #           with:
+    #               key: ci-${{ github.job }}
+    #               shared-key: katana-ci-cache
+
+    #         - name: Download test artifacts
+    #           uses: actions/download-artifact@v5
+    #           with:
+    #               name: fixtures
+
+    #         - name: Install paymaster-service and vrf-server binaries
+    #           run: |
+    #               cargo install --locked --git https://github.com/cartridge-gg/paymaster --rev 4748365 paymaster-service
+    #               cargo install --locked --git https://github.com/cartridge-gg/vrf.git --rev 6d1c0f60a53558f19618b2bff81c3da0849db270 vrf-server
+
+    #         - name: Run cartridge e2e test
+    #           run: cargo run -p cartridge-e2e-test
 
     db-compatibility-check:
         needs: [fmt, clippy, build-katana-binary]

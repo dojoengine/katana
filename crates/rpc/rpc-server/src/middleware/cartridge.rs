@@ -209,6 +209,7 @@ where
             .map_err(|err| {
                 Self::controller_deployment_error(format!("failed to get deployer nonce: {err}"))
             })?;
+
         let deploy_controller_txs = self
             .get_controller_deployment_txs(candidate_addresses, deployer_nonce)
             .await
@@ -280,21 +281,21 @@ where
             return Ok(());
         }
 
-        let nonce = self
-            .context
-            .starknet
-            .nonce_at(block_id, self.context.deployer_address)
-            .await
-            .map_err(|err| {
-            Self::controller_deployment_error(format!("failed to get deployer nonce: {err}"))
-        })?;
+        let nonce =
+            self.context.starknet.nonce_at(block_id, self.context.deployer_address).await.map_err(
+                |err| CartridgeApiError::ControllerDeployment {
+                    reason: format!("failed to get deployer nonce: {err}"),
+                },
+            )?;
+
         let deploy_tx = self
             .get_controller_deployment_tx(address, nonce)
             .await
-            .map_err(|err| Self::controller_deployment_error(err.to_string()))?;
+            .map_err(|err| CartridgeApiError::ControllerDeployment { reason: err.to_string() })?;
 
         // None means the address is not of a Controller
         if let Some(tx) = deploy_tx {
+            // add the deploy tx to the pool
             if let Err(e) = self.context.starknet.add_invoke_tx(tx).await {
                 return Err(CartridgeApiError::ControllerDeployment {
                     reason: format!("failed to submit deployment tx: {e}"),
