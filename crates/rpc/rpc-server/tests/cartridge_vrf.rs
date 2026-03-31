@@ -57,14 +57,8 @@ mod common;
 async fn valid_vrf_delegation_flow() {
     let vrf_address = address!("0xBAAD");
 
-    let cartridge_api_url = start_mock_cartridge_api().await;
-    let (paymaster_url, paymaster_state) = start_mock_paymaster().await;
-    let (vrf_url, vrf_state) = start_mock_vrf_server(vrf_address).await;
-
-    let config = cartridge_vrf_test_config(cartridge_api_url, paymaster_url, vrf_url, vrf_address);
-
-    let node = TestNode::new_with_config(config).await;
-    let client = node.rpc_http_client();
+    let setup = setup_test(vrf_address).await;
+    let TestSetup { node, paymaster_svc_state, vrf_svc_state } = setup;
 
     let player_address = node.account().address();
 
@@ -88,7 +82,8 @@ async fn valid_vrf_delegation_flow() {
         ],
     });
 
-    let _ = client
+    let _ = node
+        .rpc_http_client()
         .add_execute_outside_transaction(
             player_address.into(),
             outside_execution,
@@ -99,13 +94,13 @@ async fn valid_vrf_delegation_flow() {
         .expect("VRF execute outside should succeed");
 
     // VRF server should have received the outside execution request.
-    let vrf_requests = vrf_state.received_requests.lock();
+    let vrf_requests = vrf_svc_state.received_requests.lock();
     assert_eq!(vrf_requests.len(), 1, "VRF server should have been called once");
     let vrf_request = vrf_requests.get(&player_address.into());
     assert!(vrf_request.is_some());
 
     // Paymaster should have received the modified request with VRF account as user.
-    let requests = paymaster_state.execute_raw_transaction_requests.lock();
+    let requests = paymaster_svc_state.execute_raw_tx_requests.lock();
     let calls = requests.get(&vrf_address).unwrap();
     assert_eq!(calls.len(), 1, "paymaster should have been called once");
     assert_eq!(
@@ -118,19 +113,9 @@ async fn valid_vrf_delegation_flow() {
 #[tokio::test]
 async fn request_random_with_no_follow_up_call() {
     let vrf_account_address = address!("0xBAAD");
-    // Use the deployer (genesis account) as the "player" so it's already deployed
-    // and the controller deployment middleware won't interfere.
 
-    let cartridge_api_url = start_mock_cartridge_api().await;
-
-    let (paymaster_url, paymaster_state) = start_mock_paymaster().await;
-    let (vrf_url, vrf_state) = start_mock_vrf_server(vrf_account_address).await;
-
-    let config =
-        cartridge_vrf_test_config(cartridge_api_url, paymaster_url, vrf_url, vrf_account_address);
-
-    let node = TestNode::new_with_config(config).await;
-    let client = node.rpc_http_client();
+    let setup = setup_test(vrf_account_address).await;
+    let TestSetup { node, paymaster_svc_state, vrf_svc_state } = setup;
 
     let sender: ContractAddress = node.account().address().into();
     let sender_signature = vec![felt!("0x0"), felt!("0x0")];
@@ -147,35 +132,29 @@ async fn request_random_with_no_follow_up_call() {
         }],
     });
 
-    let err = client
+    let err = node
+        .rpc_http_client()
         .add_execute_outside_transaction(sender, outside_execution, sender_signature, None)
         .await
         .expect_err("should fail due to missing follow up call");
 
     assert!(err.to_string().contains("request_random call must be followed by another call"));
 
-    todo!("check paymaster service is not called");
-    todo!("check vrf service is not called");
+    let calls = paymaster_svc_state.execute_raw_tx_requests.lock();
+    assert!(calls.get(&sender).is_none(), "paymaster shouldnt be called on no follow up call");
+
+    let calls = vrf_svc_state.received_requests.lock();
+    assert!(calls.get(&sender).is_none(), "vrf shouldnt be called on no follow up call");
 }
 
 #[tokio::test]
 async fn request_random_targeting_wrong_vrf_address() {
     let vrf_account_address = address!("0xBAAD");
-    // Use the deployer (genesis account) as the "player" so it's already deployed
-    // and the controller deployment middleware won't interfere.
 
-    let cartridge_api_url = start_mock_cartridge_api().await;
+    let setup = setup_test(vrf_account_address).await;
+    let TestSetup { node, paymaster_svc_state, vrf_svc_state } = setup;
 
-    let (paymaster_url, paymaster_state) = start_mock_paymaster().await;
-    let (vrf_url, vrf_state) = start_mock_vrf_server(vrf_account_address).await;
-
-    let config =
-        cartridge_vrf_test_config(cartridge_api_url, paymaster_url, vrf_url, vrf_account_address);
-
-    let node = TestNode::new_with_config(config).await;
-    let client = node.rpc_http_client();
-
-    let sender_address = node.account().address();
+    let sender: ContractAddress = node.account().address().into();
     let sender_signature = vec![felt!("0x0"), felt!("0x0")];
 
     let outside_execution = OutsideExecution::V2(OutsideExecutionV2 {
@@ -197,38 +176,27 @@ async fn request_random_targeting_wrong_vrf_address() {
         ],
     });
 
-    let err = client
-        .add_execute_outside_transaction(
-            sender_address.into(),
-            outside_execution,
-            sender_signature,
-            None,
-        )
+    let err = node
+        .rpc_http_client()
+        .add_execute_outside_transaction(sender, outside_execution, sender_signature, None)
         .await
         .expect_err("should fail due to invalid vrf address");
 
     assert!(err.to_string().contains("request_random call must target the VRF account"));
 
-    todo!("check paymaster service is not called");
-    todo!("check vrf service is not called");
+    let calls = paymaster_svc_state.execute_raw_tx_requests.lock();
+    assert!(calls.get(&sender).is_none(), "paymaster shouldnt be called on no follow up call");
+
+    let calls = vrf_svc_state.received_requests.lock();
+    assert!(calls.get(&sender).is_none(), "vrf shouldnt be called on no follow up call");
 }
 
 #[tokio::test]
 async fn normal_flow_when_no_request_random_call() {
     let vrf_account_address = address!("0xBAAD");
-    // Use the deployer (genesis account) as the "player" so it's already deployed
-    // and the controller deployment middleware won't interfere.
 
-    let cartridge_api_url = start_mock_cartridge_api().await;
-
-    let (paymaster_url, paymaster_state) = start_mock_paymaster().await;
-    let (vrf_url, vrf_state) = start_mock_vrf_server(vrf_account_address).await;
-
-    let config =
-        cartridge_vrf_test_config(cartridge_api_url, paymaster_url, vrf_url, vrf_account_address);
-
-    let node = TestNode::new_with_config(config).await;
-    let client = node.rpc_http_client();
+    let setup = setup_test(vrf_account_address).await;
+    let TestSetup { node, paymaster_svc_state, vrf_svc_state } = setup;
 
     let sender: ContractAddress = node.account().address().into();
     let sender_signature = vec![felt!("0x0"), felt!("0x0")];
@@ -245,28 +213,38 @@ async fn normal_flow_when_no_request_random_call() {
         }],
     });
 
-    let response = client
+    let _ = node
+        .rpc_http_client()
         .add_execute_outside_transaction(sender, outside_execution, sender_signature, None)
         .await
         .expect("should succeed in normal flow");
 
-    // // VRF server should NOT have been called.
-    // let vrf_requests = vrf_state.received_requests.lock();
-    // assert_eq!(vrf_requests.is_empty(), "VRF server should not be called for non-VRF requests");
+    let calls = vrf_svc_state.received_requests.lock();
+    assert!(calls.get(&sender).is_none(), "vrf shouldnt be called on no follow up call");
 
-    // // Paymaster should have been called with the player address (not VRF account).
-    // let paymaster_calls = paymaster_state.take_calls();
-    // assert_eq!(paymaster_calls.len(), 1, "paymaster should have been called");
+    let calls = paymaster_svc_state.execute_raw_tx_requests.lock();
+    let calls = calls.get(&sender).expect("tx should be forwarded to paymaster");
+    assert_eq!(calls.len(), 1, "paymaster should only be called once");
 
-    // let pm_request = &paymaster_calls[0];
-    // let user_address = pm_request
-    //     .pointer("/transaction/invoke/user_address")
-    //     .and_then(|v| v.as_str())
-    //     .unwrap_or("");
-    // assert_eq!(
-    //     user_address, player_address,
-    //     "paymaster request should use player address (not VRF account)"
-    // );
+    let call = &calls[0];
+    assert_eq!(call.user_address, sender.into());
+}
+
+struct TestSetup {
+    paymaster_svc_state: MockPaymasterState,
+    vrf_svc_state: MockVrfState,
+    node: TestNode,
+}
+
+async fn setup_test(vrf_account_address: ContractAddress) -> TestSetup {
+    let cartridge_api_url = start_mock_cartridge_api().await;
+    let (paymaster_url, paymaster_svc_state) = start_mock_paymaster().await;
+    let (vrf_url, vrf_svc_state) = start_mock_vrf_server(vrf_account_address).await;
+
+    let cfg = create_node_config(cartridge_api_url, paymaster_url, vrf_url, vrf_account_address);
+    let node = TestNode::new_with_config(cfg).await;
+
+    TestSetup { paymaster_svc_state, vrf_svc_state, node }
 }
 
 async fn start_mock_cartridge_api() -> url::Url {
@@ -286,8 +264,7 @@ async fn start_mock_cartridge_api() -> url::Url {
 #[derive(Default, Clone)]
 struct MockPaymasterState {
     // track execute_raw_transaction requests
-    execute_raw_transaction_requests:
-        Arc<Mutex<HashMap<ContractAddress, Vec<RawInvokeParameters>>>>,
+    execute_raw_tx_requests: Arc<Mutex<HashMap<ContractAddress, Vec<RawInvokeParameters>>>>,
 }
 
 #[async_trait]
@@ -318,7 +295,7 @@ impl PaymasterApiServer for MockPaymasterState {
         match req.transaction {
             ExecuteRawTransactionParameters::RawInvoke { invoke } => {
                 let sender_address = invoke.user_address;
-                self.execute_raw_transaction_requests
+                self.execute_raw_tx_requests
                     .lock()
                     .entry(sender_address.into())
                     .or_default()
@@ -371,6 +348,7 @@ async fn vrf_info_handler() -> axum::response::Response {
     .into_response()
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct OutsideExecutionRequest {
     request: SignedOutsideExecution,
@@ -420,11 +398,7 @@ struct MockVrfState {
     received_requests: Arc<Mutex<HashMap<ContractAddress, OutsideExecutionRequest>>>,
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn cartridge_vrf_test_config(
+fn create_node_config(
     cartridge_api_url: url::Url,
     paymaster_url: url::Url,
     vrf_url: url::Url,
