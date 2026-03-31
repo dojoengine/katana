@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use futures::{Future, FutureExt, Stream};
 use katana_chain_spec::ChainSpec;
-use katana_pool::{TransactionPool, TxPool};
+use katana_pool::api::TransactionPool;
+use katana_pool::TxPool;
 use katana_primitives::chain::ChainId;
 use katana_primitives::transaction::{ExecutableTxWithHash, L1HandlerTx, TxHash};
 use tokio::time::{interval_at, Instant, Interval};

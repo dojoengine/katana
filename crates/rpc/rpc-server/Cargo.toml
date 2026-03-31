@@ -37,6 +37,7 @@ tokio.workspace = true
 tower.workspace = true
 tower-http = { workspace = true, features = [ "cors", "trace" ] }
 tracing.workspace = true
+serde.workspace = true
 
 cainome = { workspace = true, optional = true }
 cartridge = { workspace = true, optional = true }
@@ -47,9 +48,11 @@ hex = { workspace = true, optional = true }
 katana-tee = { workspace = true, optional = true }
 katana-trie = { workspace = true, optional = true }
 starknet-types-core = { workspace = true, optional = true }
+regex.workspace = true
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
+katana-rpc-types = { workspace = true, features = ["arbitrary"] }
 katana-contracts.workspace = true
 katana-db.workspace = true
 katana-genesis.workspace = true
@@ -66,7 +69,9 @@ alloy-primitives = { workspace = true, features = [ "serde" ] }
 alloy-provider = { workspace = true, default-features = false, features = [ "anvil-node", "reqwest", "reqwest-rustls-tls" ] }
 alloy-sol-types.workspace = true
 
+parking_lot.workspace = true
 assert_matches.workspace = true
+axum.workspace = true
 cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
 indexmap.workspace = true
@@ -75,7 +80,6 @@ num-traits.workspace = true
 proptest.workspace = true
 rand.workspace = true
 rstest.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 similar-asserts.workspace = true
 stark-vrf.workspace = true

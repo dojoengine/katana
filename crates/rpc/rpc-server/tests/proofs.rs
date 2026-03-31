@@ -437,7 +437,7 @@ async fn contract_leaves_data_ordering_with_reversed_request() {
 }
 
 async fn declare(
-    client: &katana_starknet::rpc::Client,
+    client: &katana_starknet::rpc::StarknetRpcClient,
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
     path: impl Into<PathBuf>,
 ) -> (ClassHash, CompiledClassHash) {

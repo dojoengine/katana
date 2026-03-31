@@ -10,7 +10,7 @@ use katana_primitives::class::{
 };
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_rpc_types::class::Class;
-use katana_starknet::rpc::Client as StarknetClient;
+use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
 use spinoff::{spinners, Color, Spinner};

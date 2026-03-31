@@ -22,7 +22,7 @@ pub mod fork {
 
     use katana_provider::ForkProviderFactory;
     use katana_runner::KatanaRunner;
-    use katana_starknet::rpc::Client as StarknetClient;
+    use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
     use lazy_static::lazy_static;
 
     lazy_static! {

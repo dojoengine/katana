@@ -213,7 +213,7 @@ fn validate(
 
 fn map_invalid_tx_err(
     err: StatefulValidatorError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         StatefulValidatorError::StateError(err) => Err(Box::new(err)),
         StatefulValidatorError::TransactionExecutorError(err) => map_executor_err(err),
@@ -224,7 +224,7 @@ fn map_invalid_tx_err(
 
 fn map_fee_err(
     err: TransactionFeeError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         TransactionFeeError::GasBoundsExceedBalance {
             resource,
@@ -281,7 +281,7 @@ fn map_fee_err(
 
 fn map_executor_err(
     err: TransactionExecutorError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         TransactionExecutorError::TransactionExecutionError(e) => match e {
             TransactionExecutionError::TransactionFeeError(e) => map_fee_err(*e),
@@ -298,7 +298,7 @@ fn map_executor_err(
 
 fn map_execution_err(
     err: TransactionExecutionError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         e @ TransactionExecutionError::ValidateTransactionError {
             storage_address,
@@ -326,7 +326,7 @@ fn map_execution_err(
 
 fn map_pre_validation_err(
     err: TransactionPreValidationError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         TransactionPreValidationError::TransactionFeeError(err) => map_fee_err(*err),
         TransactionPreValidationError::StateError(err) => Err(Box::new(err)),

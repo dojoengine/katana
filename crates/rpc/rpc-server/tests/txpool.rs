@@ -1,7 +1,7 @@
+use katana_pool::api::{PoolTransaction, TransactionPool};
 use katana_pool::ordering::FiFo;
 use katana_pool::pool::Pool;
 use katana_pool::validation::NoopValidator;
-use katana_pool::{PoolTransaction, TransactionPool};
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;

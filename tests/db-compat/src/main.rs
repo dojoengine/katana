@@ -5,7 +5,9 @@ use katana_db::version::LATEST_DB_VERSION;
 use katana_node_bindings::Katana;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::{address, felt};
-use katana_starknet::rpc::{Client as StarknetClient, Error as RpcError, StarknetApiError};
+use katana_starknet::rpc::{
+    StarknetApiError, StarknetRpcClient as StarknetClient, StarknetRpcClientError as RpcError,
+};
 
 fn copy_db_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;

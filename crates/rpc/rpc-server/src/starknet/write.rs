@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::transaction::TxHash;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
