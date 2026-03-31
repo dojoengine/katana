@@ -6,37 +6,46 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-cartridge = { path = "../cartridge", optional = true }
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-full-node.workspace = true
 katana-genesis.workspace = true
 katana-messaging.workspace = true
 katana-node-config.workspace = true
-katana-paymaster = { workspace = true, optional = true }
 katana-primitives.workspace = true
 katana-rpc-server.workspace = true
 katana-sequencer-node.workspace = true
-katana-slot-controller = { workspace = true, optional = true }
-katana-tee = { workspace = true, optional = true }
 katana-tracing.workspace = true
 katana-utils.workspace = true
 serde-utils.workspace = true
-
 katana-db.workspace = true
+
+cartridge = { workspace = true, optional = true }
+katana-paymaster = { workspace = true, optional = true }
+katana-slot-controller = { workspace = true, optional = true }
+katana-tee = { workspace = true, optional = true }
 
 alloy-primitives.workspace = true
 anyhow.workspace = true
+atty = "0.2"
 clap.workspace = true
 console.workspace = true
+dirs = "5"
+flate2.workspace = true
 inquire = "0.7.5"
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 shellexpand = "3.1.0"
+tar = "0.4"
+tempfile.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
 url.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
