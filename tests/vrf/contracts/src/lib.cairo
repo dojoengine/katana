@@ -29,12 +29,13 @@ mod Simple {
     #[storage]
     struct Storage {
         value: felt252,
+        vrf_provider_address: ContractAddress,
     }
 
-    const VRF_PROVIDER_ADDRESS: starknet::ContractAddress =
-        0x15f542e25a4ce31481f986888c179b6e57412be340b8095f72f75a328fbb27b
-        .try_into()
-        .unwrap();
+    #[constructor]
+    fn constructor(ref self: ContractState, vrf_provider: ContractAddress) {
+        self.vrf_provider_address.write(vrf_provider);
+    }
 
     #[abi(embed_v0)]
     impl SimpleImpl of super::ISimple<ContractState> {
@@ -44,7 +45,7 @@ mod Simple {
 
         fn roll_dice_with_nonce(ref self: ContractState) {
             let vrf_provider = super::IVrfProviderDispatcher {
-                contract_address: VRF_PROVIDER_ADDRESS,
+                contract_address: self.vrf_provider_address.read(),
             };
 
             let player_id = get_caller_address();
@@ -55,7 +56,7 @@ mod Simple {
 
         fn roll_dice_with_salt(ref self: ContractState) {
             let vrf_provider = super::IVrfProviderDispatcher {
-                contract_address: VRF_PROVIDER_ADDRESS,
+                contract_address: self.vrf_provider_address.read(),
             };
 
             let value = vrf_provider.consume_random(Source::Salt(42));

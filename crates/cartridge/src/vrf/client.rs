@@ -46,6 +46,7 @@ impl From<SignedOutsideExecution> for Call {
             }
         };
 
+        calldata.push(Felt::from(value.signature.len()));
         calldata.extend(value.signature);
 
         Call { contract_address: value.address, entry_point_selector, calldata }

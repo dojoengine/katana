@@ -12907,12 +12907,21 @@ checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 name = "vrf-e2e-test"
 version = "1.7.0"
 dependencies = [
+ "axum 0.7.9",
  "cairo-lang-starknet-classes",
+ "cartridge",
+ "katana-contracts",
+ "katana-genesis",
+ "katana-paymaster",
  "katana-primitives",
+ "katana-rpc-api",
+ "katana-rpc-types",
+ "katana-sequencer-node",
  "katana-utils",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
+ "url",
 ]
 
 [[package]]
