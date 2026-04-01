@@ -7,9 +7,10 @@ pub mod args;
 pub mod file;
 pub mod full;
 pub mod options;
+pub mod utils;
+
 #[cfg(feature = "paymaster")]
 pub mod sidecar;
-pub mod utils;
 
 pub use args::SequencerNodeArgs;
 pub use options::*;

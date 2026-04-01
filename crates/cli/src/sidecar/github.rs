@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -6,9 +7,77 @@ use tracing::debug;
 use super::platform::Platform;
 use super::verify::{self, VerifyError};
 use super::SidecarKind;
+use crate::sidecar::platform::detect_platform;
+use crate::sidecar::{current_version, sidecar_bin_dir};
 
 /// GitHub repository for release artifact downloads.
 const GITHUB_REPO: &str = "dojoengine/katana";
+
+#[derive(Debug, Error)]
+pub enum GithubReleaseInstallError {
+    #[error(transparent)]
+    Download(#[from] DownloadError),
+
+    #[error("failed to create sidecar bin directory {path}: {source}")]
+    CreateDir { path: PathBuf, source: std::io::Error },
+
+    #[error("failed to copy binary to {dest}: {source}")]
+    Copy { dest: PathBuf, source: std::io::Error },
+
+    #[error("failed to set executable permissions: {0}")]
+    SetPermissions(#[source] std::io::Error),
+}
+
+/// Install a sidecar binary from GitHub release.
+pub async fn install(kind: SidecarKind) -> Result<PathBuf, GithubReleaseInstallError> {
+    eprintln!("{kind} not found locally, attempting download...");
+
+    let platform = detect_platform();
+    let version = current_version();
+    let bin_dir = sidecar_bin_dir();
+
+    let downloaded = download_sidecar(kind, &version, &platform).await?;
+    let installed = install_sidecar(kind, &downloaded, &bin_dir)?;
+
+    Ok(installed)
+}
+
+/// Install a sidecar binary to the target directory (~/.katana/bin/).
+///
+/// - Copies the binary from `source` to `<target_dir>/<binary_name>`
+/// - Sets executable permissions (Unix)
+///
+/// Returns the path to the installed binary.
+fn install_sidecar(
+    kind: SidecarKind,
+    source: &Path,
+    target_dir: &Path,
+) -> Result<PathBuf, GithubReleaseInstallError> {
+    // Ensure the target directory exists
+    fs::create_dir_all(target_dir).map_err(|source| GithubReleaseInstallError::CreateDir {
+        path: target_dir.to_path_buf(),
+        source,
+    })?;
+
+    let binary_filename = kind.binary_filename();
+    let dest = target_dir.join(binary_filename);
+
+    // Copy the binary
+    fs::copy(source, &dest)
+        .map_err(|source| GithubReleaseInstallError::Copy { dest: dest.clone(), source })?;
+
+    // Set executable permissions on Unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(&dest, perms).map_err(GithubReleaseInstallError::SetPermissions)?;
+    }
+
+    eprintln!("installed {binary_filename} binary at {}", dest.display());
+
+    Ok(dest)
+}
 
 #[derive(Debug, Error)]
 pub enum DownloadError {
@@ -34,21 +103,11 @@ pub enum DownloadError {
     Extract(String),
 }
 
-/// Construct the download URL for a sidecar release artifact.
-pub fn release_artifact_url(version: &str, artifact_name: &str) -> String {
-    format!("https://github.com/{GITHUB_REPO}/releases/download/{version}/{artifact_name}")
-}
-
-/// Construct the download URL for the checksums file.
-pub fn checksums_url(version: &str) -> String {
-    format!("https://github.com/{GITHUB_REPO}/releases/download/{version}/checksums.txt")
-}
-
 /// Download a sidecar binary from GitHub releases, verify its checksum, and return the
 /// path to the extracted binary in a temporary directory.
 ///
 /// The caller is responsible for moving the binary to its final destination.
-pub async fn download_sidecar(
+async fn download_sidecar(
     kind: SidecarKind,
     version: &str,
     platform: &Platform,
@@ -111,6 +170,16 @@ pub async fn download_sidecar(
     let _ = tmp_dir.keep();
 
     Ok(binary_path)
+}
+
+/// Construct the download URL for a sidecar release artifact.
+fn release_artifact_url(version: &str, artifact_name: &str) -> String {
+    format!("https://github.com/{GITHUB_REPO}/releases/download/{version}/{artifact_name}")
+}
+
+/// Construct the download URL for the checksums file.
+fn checksums_url(version: &str) -> String {
+    format!("https://github.com/{GITHUB_REPO}/releases/download/{version}/checksums.txt")
 }
 
 /// Extract the sidecar binary from an archive.

@@ -55,12 +55,11 @@
 //! - Archives are `.tar.gz` on Linux/macOS and `.zip` on Windows, each containing the bare binary
 //!   at the archive root.
 
-mod download;
-mod install;
+mod github;
 mod platform;
-mod resolve;
 mod verify;
 
+use std::io::{BufRead, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -79,6 +78,7 @@ pub use katana_paymaster::{
 };
 use katana_primitives::{ContractAddress, Felt};
 pub use platform::Platform;
+use tracing::debug;
 use url::Url;
 
 /// Default API key for the paymaster sidecar.
@@ -125,24 +125,6 @@ impl std::fmt::Display for SidecarKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.binary_name())
     }
-}
-
-/// The default base directory for katana data (~/.katana).
-fn katana_home() -> PathBuf {
-    dirs::home_dir().expect("failed to determine home directory").join(".katana")
-}
-
-/// The directory where sidecar binaries are installed (~/.katana/bin).
-fn sidecar_bin_dir() -> PathBuf {
-    katana_home().join("bin")
-}
-
-/// The expected sidecar version tag for this build of katana.
-///
-/// Sidecar binaries are released as assets on katana's GitHub release,
-/// so the expected version matches katana's own version.
-fn expected_version() -> String {
-    format!("v{}", env!("CARGO_PKG_VERSION"))
 }
 
 pub async fn bootstrap_paymaster(
@@ -222,14 +204,124 @@ pub fn local_rpc_url(addr: &SocketAddr) -> Url {
     Url::parse(&format!("http://{}:{}", host, addr.port())).expect("valid rpc url")
 }
 
-/// Resolve a sidecar binary using the resolution chain.
+#[derive(Debug, thiserror::Error)]
+pub enum ResolveError {
+    #[error("sidecar binary not found at explicit path: {0}")]
+    ExplicitPathNotFound(PathBuf),
+
+    #[error("failed to read user input: {0}")]
+    ReadInput(#[source] std::io::Error),
+
+    #[error(
+        "cannot prompt for installation: not running in an interactive terminal.\nInstall \
+         manually: download {binary} from the GitHub release and place it in {path}"
+    )]
+    NotInteractive { binary: String, path: String },
+
+    #[error("failed to install sidecar binary from github release: {0}")]
+    GithubReleaseInstall(#[from] github::GithubReleaseInstallError),
+}
+
+/// Resolve or install a sidecar binary.
 ///
-/// Resolution order: explicit path → PATH → ~/.katana/bin/ → prompt & download.
+/// Resolution order:-
+/// 1. Explicit path (if provided via CLI flag)
+/// 2. Search PATH
+/// 3. Search ~/.katana/bin/
+/// 4. Prompt user and download from GitHub release
 pub async fn resolve_sidecar_binary(
     kind: SidecarKind,
     explicit_path: Option<&Path>,
-) -> Result<PathBuf> {
-    let version = expected_version();
-    let result = resolve::resolve_or_install(kind, explicit_path, &version).await?;
-    Ok(result.path)
+) -> Result<Option<PathBuf>, ResolveError> {
+    // 1. Explicit path from CLI
+    if let Some(path) = explicit_path {
+        debug!(sidecar = %kind, path = %path.display(), "Using explicitly provided sidecar binary.");
+        return Ok(Some(path.to_path_buf()));
+    }
+
+    let binary_name = kind.binary_filename();
+    let bin_dir = sidecar_bin_dir();
+
+    // 2. Search in $PATH
+    if let Some(path) = search_in_PATH(binary_name) {
+        debug!(sidecar = %kind, path = %path.display(), "Found sidecar binary in $PATH.");
+        return Ok(Some(path));
+    }
+
+    // 3. Search ~/.katana/bin/
+    let home_path = bin_dir.join(binary_name);
+    if home_path.is_file() {
+        debug!(sidecar = %kind, path = %home_path.display(), "Found sidecar binary in ~/.katana/bin/ .");
+        return Ok(Some(home_path));
+    }
+
+    // 4. Download from GitHub release
+    if prompt_download(kind)? {
+        Ok(Some(github::install(kind).await?))
+    } else {
+        eprintln!("user declined installation");
+        Ok(None)
+    }
+}
+
+/// The expected sidecar version tag for this build of katana.
+///
+/// Sidecar binaries are released as assets on katana's GitHub release,
+/// so the expected version matches katana's own version.
+fn current_version() -> String {
+    format!("v{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Search for a binary in the PATH environment variable.
+#[allow(non_snake_case)]
+fn search_in_PATH(binary_name: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(binary_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// The default base directory for katana data (~/.katana).
+fn katana_home() -> PathBuf {
+    dirs::home_dir().expect("failed to determine home directory").join(".katana")
+}
+
+/// The directory where sidecar binaries are installed (~/.katana/bin).
+fn sidecar_bin_dir() -> PathBuf {
+    katana_home().join("bin")
+}
+
+/// Prompt the user to download a sidecar binary.
+fn prompt_download(kind: SidecarKind) -> Result<bool, ResolveError> {
+    /// Read a yes/no (y/n) response from stdin.
+    fn read_yes_no() -> Result<bool, ResolveError> {
+        let mut input = String::new();
+        std::io::stdin().lock().read_line(&mut input).map_err(ResolveError::ReadInput)?;
+        let input = input.trim().to_lowercase();
+        Ok(input == "y" || input == "yes")
+    }
+
+    let binary = kind.binary_name();
+
+    ensure_interactive(kind)?;
+    eprint!("{binary} not found. Download {binary} for your platform? [y/N] ");
+
+    std::io::stderr().flush().ok();
+    read_yes_no()
+}
+
+/// Ensure we're running in an interactive terminal.
+fn ensure_interactive(kind: SidecarKind) -> Result<(), ResolveError> {
+    if !atty::is(atty::Stream::Stdin) {
+        return Err(ResolveError::NotInteractive {
+            binary: kind.binary_name().to_string(),
+            path: sidecar_bin_dir().display().to_string(),
+        });
+    }
+
+    Ok(())
 }
