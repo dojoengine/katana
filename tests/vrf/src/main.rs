@@ -38,8 +38,7 @@ async fn main() {
     let paymaster_port = find_free_port();
     let paymaster_url =
         Url::parse(&format!("http://127.0.0.1:{paymaster_port}")).expect("valid url");
-    let vrf_url =
-        Url::parse(&format!("http://127.0.0.1:{VRF_SERVER_PORT}")).expect("valid url");
+    let vrf_url = Url::parse(&format!("http://127.0.0.1:{VRF_SERVER_PORT}")).expect("valid url");
 
     let vrf_cred = get_vrf_account().expect("failed to derive VRF account");
     let vrf_account_address = vrf_cred.account_address;
@@ -116,8 +115,7 @@ async fn main() {
     // The VRF account is the user_address for VRF txs; the estimate account is
     // used by the paymaster for fee estimation (simulate_transaction).
     for addr in [vrf_result.vrf_account_address, account_2_addr] {
-        whitelist_on_forwarder(&node, forwarder_address, addr, account_0_addr, account_0_pk)
-            .await;
+        whitelist_on_forwarder(&node, forwarder_address, addr, account_0_addr, account_0_pk).await;
     }
 
     let mut vrf_process = VrfServer::new(VrfServerConfig {
@@ -148,10 +146,9 @@ async fn main() {
     // --- E. Submit VRF transactions ---
 
     let player_address: ContractAddress = player;
-    let player_signer =
-        starknet::signers::LocalWallet::from(starknet::signers::SigningKey::from_secret_scalar(
-            player_pk,
-        ));
+    let player_signer = starknet::signers::LocalWallet::from(
+        starknet::signers::SigningKey::from_secret_scalar(player_pk),
+    );
     let chain_id = node.backend().chain_spec.id().id();
 
     // Test roll_dice_with_nonce
@@ -208,11 +205,7 @@ async fn main() {
                 Call {
                     contract_address: vrf_account_address,
                     entry_point_selector: selector!("request_random"),
-                    calldata: vec![
-                        simple_contract_address.into(),
-                        Felt::ONE,
-                        Felt::from(42u64),
-                    ],
+                    calldata: vec![simple_contract_address.into(), Felt::ONE, Felt::from(42u64)],
                 },
                 Call {
                     contract_address: simple_contract_address.into(),
@@ -286,8 +279,7 @@ async fn declare_and_deploy_simple(node: &TestNode, vrf_provider: ContractAddres
     let casm = CasmContractClass::from_contract_class(contract, true, usize::MAX)
         .expect("failed to compile to CASM");
     let casm_json = serde_json::to_string(&casm).expect("failed to serialize CASM");
-    let compiled: CompiledClass =
-        serde_json::from_str(&casm_json).expect("invalid compiled class");
+    let compiled: CompiledClass = serde_json::from_str(&casm_json).expect("invalid compiled class");
     let compiled_class_hash = compiled.class_hash().expect("failed to compute compiled class hash");
 
     let res = account
@@ -296,9 +288,7 @@ async fn declare_and_deploy_simple(node: &TestNode, vrf_provider: ContractAddres
         .await
         .expect("declare failed");
 
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider)
-        .await
-        .expect("declare tx failed");
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.expect("declare tx failed");
 
     // Deploy with VRF provider address as constructor arg
     let salt = Felt::ZERO;
@@ -310,9 +300,7 @@ async fn declare_and_deploy_simple(node: &TestNode, vrf_provider: ContractAddres
 
     let res = deployment.send().await.expect("deploy failed");
 
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider)
-        .await
-        .expect("deploy tx failed");
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.expect("deploy tx failed");
 
     address
 }
@@ -336,12 +324,8 @@ fn genesis_account(
     config: &katana_sequencer_node::config::Config,
     index: usize,
 ) -> (ContractAddress, Felt) {
-    let (address, account) = config
-        .chain
-        .genesis()
-        .accounts()
-        .nth(index)
-        .expect("not enough genesis accounts");
+    let (address, account) =
+        config.chain.genesis().accounts().nth(index).expect("not enough genesis accounts");
     let private_key = account.private_key().expect("missing private key");
     (*address, private_key)
 }
@@ -457,12 +441,15 @@ async fn sign_outside_execution_v2(
     use starknet::signers::Signer;
     use starknet_crypto::{poseidon_hash_many, PoseidonHasher};
 
-    const STARKNET_DOMAIN_TYPE_HASH: Felt =
-        Felt::from_hex_unchecked("0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210");
-    const OUTSIDE_EXECUTION_TYPE_HASH: Felt =
-        Felt::from_hex_unchecked("0x312b56c05a7965066ddbda31c016d8d05afc305071c0ca3cdc2192c3c2f1f0f");
-    const CALL_TYPE_HASH: Felt =
-        Felt::from_hex_unchecked("0x3635c7f2a7ba93844c0d064e18e487f35ab90f7c39d00f186a781fc3f0c2ca9");
+    const STARKNET_DOMAIN_TYPE_HASH: Felt = Felt::from_hex_unchecked(
+        "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210",
+    );
+    const OUTSIDE_EXECUTION_TYPE_HASH: Felt = Felt::from_hex_unchecked(
+        "0x312b56c05a7965066ddbda31c016d8d05afc305071c0ca3cdc2192c3c2f1f0f",
+    );
+    const CALL_TYPE_HASH: Felt = Felt::from_hex_unchecked(
+        "0x3635c7f2a7ba93844c0d064e18e487f35ab90f7c39d00f186a781fc3f0c2ca9",
+    );
 
     // Domain hash
     let domain_hash = poseidon_hash_many(&[
@@ -507,9 +494,5 @@ async fn sign_outside_execution_v2(
 }
 
 fn find_free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }

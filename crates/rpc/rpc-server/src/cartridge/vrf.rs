@@ -57,10 +57,8 @@ impl VrfService {
             signature: signature.to_vec(),
         };
 
-        let context = RequestContext {
-            chain_id: chain_id.to_string(),
-            rpc_url: Some(self.rpc_url.clone()),
-        };
+        let context =
+            RequestContext { chain_id: chain_id.to_string(), rpc_url: Some(self.rpc_url.clone()) };
 
         self.client
             .outside_execution(request, context)
