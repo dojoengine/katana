@@ -105,10 +105,14 @@ async fn main() {
         "paymaster-service binary not found in PATH. \
          Build it from the rev in sidecar-versions.toml",
     );
-    let paymaster =
-        sidecar::bootstrap_paymaster(paymaster_bin, paymaster_url, rpc_addr, &config.chain)
-            .await
-            .expect("failed to bootstrap paymaster");
+    let paymaster = sidecar::bootstrap_paymaster(
+        paymaster_bin,
+        paymaster_url,
+        rpc_addr,
+        &config.chain,
+    )
+    .await
+    .expect("failed to bootstrap paymaster");
 
     let mut paymaster_process = paymaster.start().await.expect("failed to start paymaster");
 
@@ -130,13 +134,14 @@ async fn main() {
     let (account_0_addr, account_0_pk) = genesis_account(&config, 0);
     let account_1_addr = genesis_account(&config, 1).0;
     let account_2_addr = genesis_account(&config, 2).0;
-    let forwarder_address: ContractAddress = katana_primitives::utils::get_contract_address(
-        Felt::from(0x12345u64), // FORWARDER_SALT
-        katana_contracts::avnu::AvnuForwarder::HASH,
-        &[account_0_addr.into(), account_1_addr.into()],
-        ContractAddress::ZERO,
-    )
-    .into();
+    let forwarder_address: ContractAddress =
+        katana_primitives::utils::get_contract_address(
+            Felt::from(0x12345u64), // FORWARDER_SALT
+            katana_contracts::avnu::AvnuForwarder::HASH,
+            &[account_0_addr.into(), account_1_addr.into()],
+            ContractAddress::ZERO,
+        )
+        .into();
 
     // Whitelist the VRF account and estimate account on the AVNU forwarder.
     // The VRF account is the user_address for VRF txs; the estimate account is
@@ -158,7 +163,8 @@ async fn main() {
 
     println!("Player account deployed at {player}");
 
-    let simple_contract_address = declare_and_deploy_simple(&node, vrf_account_address).await;
+    let simple_contract_address =
+        declare_and_deploy_simple(&node, vrf_account_address).await;
 
     println!("Simple contract deployed at {simple_contract_address:#x}");
 
@@ -443,18 +449,7 @@ async fn whitelist_on_forwarder(
     println!("Whitelisted VRF account {address_to_whitelist} on forwarder");
 }
 
-/// Signs an OutsideExecutionV2 per SNIP-12 rev1 (off-chain typed structured data hashing).
-///
-/// Implements the same message hash as OpenZeppelin's SRC9Component, which the on-chain
-/// account uses to verify the signature. The hash is:
-///
-///   H("StarkNet Message", domain_hash, signer_address, outside_execution_hash)
-///
-/// where each component is a Poseidon hash following the SNIP-12 specification:
-/// <https://github.com/starknet-io/SNIPs/blob/main/SNIPS/snip-12.md>
-///
-/// NOTE: ideally we'd use `account_sdk::hash::MessageHashRev1` from controller-rs, but
-/// it currently pins an incompatible `starknet-types-core` version.
+/// Signs an OutsideExecutionV2 using SNIP-12 (same hash computation as the OZ SRC9 contract).
 async fn sign_outside_execution_v2(
     outside_execution: &OutsideExecutionV2,
     chain_id: Felt,
@@ -464,55 +459,26 @@ async fn sign_outside_execution_v2(
     use starknet::signers::Signer;
     use starknet_crypto::{poseidon_hash_many, PoseidonHasher};
 
-    // sn_keccak(
-    //   "StarknetDomain"(
-    //     "name":"shortstring",
-    //     "version":"shortstring",
-    //     "chainId":"shortstring",
-    //     "revision":"shortstring"
-    //   )
-    // )
     const STARKNET_DOMAIN_TYPE_HASH: Felt = Felt::from_hex_unchecked(
         "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210",
     );
-    // sn_keccak(
-    //   "OutsideExecution"(
-    //     "Caller":"ContractAddress",
-    //     "Nonce":"felt",
-    //     "Execute After":"u128",
-    //     "Execute Before":"u128",
-    //     "Calls":"Call*"
-    //   )
-    //   "Call"(
-    //     "To":"ContractAddress",
-    //     "Selector":"selector",
-    //     "Calldata":"felt*"
-    //   )
-    // )
     const OUTSIDE_EXECUTION_TYPE_HASH: Felt = Felt::from_hex_unchecked(
         "0x312b56c05a7965066ddbda31c016d8d05afc305071c0ca3cdc2192c3c2f1f0f",
     );
-    // sn_keccak(
-    //   "Call"(
-    //     "To":"ContractAddress",
-    //     "Selector":"selector",
-    //     "Calldata":"felt*"
-    //   )
-    // )
     const CALL_TYPE_HASH: Felt = Felt::from_hex_unchecked(
         "0x3635c7f2a7ba93844c0d064e18e487f35ab90f7c39d00f186a781fc3f0c2ca9",
     );
 
-    // 1. StarknetDomain struct hash: H(type_hash, name, version, chain_id, revision)
+    // Domain hash
     let domain_hash = poseidon_hash_many(&[
         STARKNET_DOMAIN_TYPE_HASH,
         Felt::from_bytes_be_slice(b"Account.execute_from_outside"),
-        Felt::TWO, // version
+        Felt::TWO,
         chain_id,
-        Felt::ONE, // revision
+        Felt::ONE,
     ]);
 
-    // 2. Call struct hashes: H(type_hash, to, selector, H(calldata))
+    // Hash each call
     let mut hashed_calls = Vec::new();
     for call in &outside_execution.calls {
         let mut h = PoseidonHasher::new();
@@ -523,7 +489,7 @@ async fn sign_outside_execution_v2(
         hashed_calls.push(h.finalize());
     }
 
-    // 3. OutsideExecution struct hash: H(type_hash, caller, nonce, after, before, H(calls))
+    // Outside execution hash
     let mut h = PoseidonHasher::new();
     h.update(OUTSIDE_EXECUTION_TYPE_HASH);
     h.update(outside_execution.caller.into());
@@ -533,7 +499,7 @@ async fn sign_outside_execution_v2(
     h.update(poseidon_hash_many(&hashed_calls));
     let outside_execution_hash = h.finalize();
 
-    // 4. Final SNIP-12 message hash: H("StarkNet Message", domain, signer, message)
+    // Final message hash
     let mut h = PoseidonHasher::new();
     h.update(Felt::from_bytes_be_slice(b"StarkNet Message"));
     h.update(domain_hash);
