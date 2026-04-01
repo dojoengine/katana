@@ -163,6 +163,28 @@ impl SequencerNodeArgs {
         // Build the node configuration
         let config = self.config()?;
 
+        // Resolve sidecar binaries before launching the node so that failures
+        // (missing binary, user declining download) happen before resources are
+        // committed.
+        #[cfg(feature = "paymaster")]
+        let paymaster_bin = if self.paymaster.enabled && !self.paymaster.is_external() {
+            use crate::sidecar::{resolve_sidecar_binary, SidecarKind};
+            Some(
+                resolve_sidecar_binary(SidecarKind::Paymaster, self.paymaster.bin.as_deref())
+                    .await?,
+            )
+        } else {
+            None
+        };
+
+        #[cfg(feature = "vrf")]
+        let vrf_bin = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+            use crate::sidecar::{resolve_sidecar_binary, SidecarKind};
+            Some(resolve_sidecar_binary(SidecarKind::Vrf, self.cartridge.vrf.bin.as_deref()).await?)
+        } else {
+            None
+        };
+
         if config.forking.is_some() {
             // Pass config by value: build_forked needs exclusive Arc access to mutate chain_spec.
             // Cloning would create a second Arc reference and cause Arc::get_mut to panic.
@@ -175,11 +197,11 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch forked node")?;
 
             #[cfg(feature = "paymaster")]
-            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
+            let mut paymaster = if let Some(bin_path) = paymaster_bin {
                 use crate::sidecar::bootstrap_paymaster;
 
                 let paymaster = bootstrap_paymaster(
-                    &self.paymaster,
+                    bin_path,
                     handle.node().config().paymaster.as_ref().unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
@@ -194,17 +216,14 @@ impl SequencerNodeArgs {
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+            let mut vrf = if let Some(bin_path) = vrf_bin {
                 use crate::sidecar::bootstrap_vrf;
 
-                let vrf = bootstrap_vrf(
-                    &self.cartridge.vrf,
-                    *handle.rpc().addr(),
-                    &handle.node().config().chain,
-                )
-                .await?
-                .start()
-                .await?;
+                let vrf =
+                    bootstrap_vrf(bin_path, *handle.rpc().addr(), &handle.node().config().chain)
+                        .await?
+                        .start()
+                        .await?;
 
                 Some(vrf)
             } else {
@@ -240,11 +259,11 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch node")?;
 
             #[cfg(feature = "paymaster")]
-            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
+            let mut paymaster = if let Some(bin_path) = paymaster_bin {
                 use crate::sidecar::bootstrap_paymaster;
 
                 let paymaster = bootstrap_paymaster(
-                    &self.paymaster,
+                    bin_path,
                     config.paymaster.unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
@@ -259,17 +278,14 @@ impl SequencerNodeArgs {
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+            let mut vrf = if let Some(bin_path) = vrf_bin {
                 use crate::sidecar::bootstrap_vrf;
 
-                let vrf = bootstrap_vrf(
-                    &self.cartridge.vrf,
-                    *handle.rpc().addr(),
-                    &handle.node().config().chain,
-                )
-                .await?
-                .start()
-                .await?;
+                let vrf =
+                    bootstrap_vrf(bin_path, *handle.rpc().addr(), &handle.node().config().chain)
+                        .await?
+                        .start()
+                        .await?;
 
                 Some(vrf)
             } else {

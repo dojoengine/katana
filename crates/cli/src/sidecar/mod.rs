@@ -45,8 +45,10 @@
 //!
 //! # Assumptions
 //!
-//! - Sidecar binaries are published as **separate** release artifacts on Katana's GitHub release
-//!   (e.g. `paymaster-service_v1.7.0_darwin_arm64.tar.gz`). The download URL is derived from
+//! - Sidecar binaries are bundled as release artifacts on Katana's GitHub release. The artifact
+//!   names are tagged with Katana's version (e.g. `paymaster-service_v1.7.0_darwin_arm64.tar.gz`),
+//!   but this does **not** reflect the actual version of the sidecar — their versions are managed
+//!   independently by their respective repositories. The download URL is derived from
 //!   `CARGO_PKG_VERSION` at compile time.
 //! - CI generates a `checksums.txt` in each release containing `sha256sum` output for every
 //!   artifact. The filename is matched exactly (no directory prefix).
@@ -78,10 +80,6 @@ pub use katana_paymaster::{
 use katana_primitives::{ContractAddress, Felt};
 pub use platform::Platform;
 use url::Url;
-
-use crate::options::PaymasterOptions;
-#[cfg(feature = "vrf")]
-use crate::options::VrfOptions;
 
 /// Default API key for the paymaster sidecar.
 pub const DEFAULT_PAYMASTER_API_KEY: &str = "paymaster_katana";
@@ -148,14 +146,11 @@ fn expected_version() -> String {
 }
 
 pub async fn bootstrap_paymaster(
-    options: &PaymasterOptions,
+    bin_path: PathBuf,
     paymaster_url: Url,
     rpc_url: SocketAddr,
     chain: &ChainSpec,
 ) -> Result<PaymasterService> {
-    // Resolve the paymaster binary: explicit path → PATH → ~/.katana/bin/ → download
-    let bin_path = resolve_sidecar_binary(SidecarKind::Paymaster, options.bin.as_deref()).await?;
-
     let (relayer_addr, relayer_pk) = prefunded_account(chain, 0)?;
     let (gas_tank_addr, gas_tank_pk) = prefunded_account(chain, 1)?;
     let (estimate_account_addr, estimate_account_pk) = prefunded_account(chain, 2)?;
@@ -179,13 +174,10 @@ pub async fn bootstrap_paymaster(
 }
 
 pub async fn bootstrap_vrf(
-    options: &VrfOptions,
+    bin_path: PathBuf,
     rpc_addr: SocketAddr,
     chain: &ChainSpec,
 ) -> Result<VrfServer> {
-    // Resolve the VRF binary: explicit path → PATH → ~/.katana/bin/ → download
-    let bin_path = resolve_sidecar_binary(SidecarKind::Vrf, options.bin.as_deref()).await?;
-
     let rpc_url = local_rpc_url(&rpc_addr);
     let (account_address, pk) = prefunded_account(chain, 0)?;
 
@@ -233,7 +225,7 @@ pub fn local_rpc_url(addr: &SocketAddr) -> Url {
 /// Resolve a sidecar binary using the resolution chain.
 ///
 /// Resolution order: explicit path → PATH → ~/.katana/bin/ → prompt & download.
-async fn resolve_sidecar_binary(
+pub async fn resolve_sidecar_binary(
     kind: SidecarKind,
     explicit_path: Option<&Path>,
 ) -> Result<PathBuf> {
