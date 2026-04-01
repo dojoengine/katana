@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::Router;
+use cainome::rs::abigen;
 use cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
 use cairo_lang_starknet_classes::contract_class::ContractClass;
 use cartridge::vrf::server::{
@@ -10,7 +11,6 @@ use cartridge::vrf::server::{
 };
 use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 use katana_paymaster::{PaymasterService, PaymasterServiceConfigBuilder};
-use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::CompiledClass;
 use katana_primitives::execution::Call;
 use katana_primitives::{address, felt, ContractAddress, Felt};
@@ -23,6 +23,7 @@ use starknet::contract::{ContractFactory, UdcSelector};
 use starknet::core::types::contract::SierraClass;
 use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;
+use starknet::signers::{LocalWallet, SigningKey};
 use tokio::net::TcpListener;
 use url::Url;
 
@@ -30,6 +31,31 @@ const SIERRA_CLASS: &str = include_str!("../build/vrng_test_Simple.contract_clas
 
 /// ANY_CALLER constant for outside execution.
 const ANY_CALLER: ContractAddress = address!("0x414e595f43414c4c4552");
+
+abigen!(SimpleVrfApp,
+[
+    {
+        "type": "function",
+        "name": "roll_dice_with_nonce",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+    },
+    {
+        "type": "function",
+        "name": "roll_dice_with_salt",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+    },
+    {
+        "type": "function",
+        "name": "get_value",
+        "inputs": [],
+        "outputs": [{ "type": "core::felt252" }],
+        "state_mutability": "view"
+    }
+]);
 
 #[tokio::main]
 async fn main() {
@@ -143,12 +169,18 @@ async fn main() {
 
     println!("Simple contract deployed at {simple_contract_address:#x}");
 
+    // --- VERIFY INITIAL CONTRACT STATE ---
+
+    let provider = node.starknet_provider();
+    let vrf_app_contract = SimpleVrfAppReader::new(simple_contract_address, provider);
+
+    let value = vrf_app_contract.get_value().call().await.expect("get_value call failed");
+    assert_eq!(value, Felt::ZERO, "VRF random value should be initially zero");
+
     // --- E. Submit VRF transactions ---
 
     let player_address: ContractAddress = player;
-    let player_signer = starknet::signers::LocalWallet::from(
-        starknet::signers::SigningKey::from_secret_scalar(player_pk),
-    );
+    let player_signer = LocalWallet::from(SigningKey::from_secret_scalar(player_pk));
     let chain_id = node.backend().chain_spec.id().id();
 
     // Test roll_dice_with_nonce
@@ -235,23 +267,12 @@ async fn main() {
 
     // --- F. Verify results ---
 
-    let provider = node.starknet_rpc_client();
-    let response = provider
-        .call(
-            katana_primitives::execution::Call {
-                contract_address: simple_contract_address.into(),
-                entry_point_selector: selector!("get_value"),
-                calldata: vec![],
-            },
-            BlockIdOrTag::PreConfirmed,
-        )
-        .await
-        .expect("get_value call failed");
+    let provider = node.starknet_provider();
+    let vrf_app_contract = SimpleVrfAppReader::new(simple_contract_address, provider);
 
-    assert!(!response.result.is_empty(), "get_value returned empty result");
-    assert_ne!(response.result[0], Felt::ZERO, "VRF random value should be non-zero");
+    let value = vrf_app_contract.get_value().call().await.expect("get_value call failed");
+    assert_ne!(value, Felt::ZERO, "VRF random value should be non-zero");
 
-    println!("VRF value stored in contract: {:#x}", response.result[0]);
     println!("All assertions passed.");
 
     // --- G. Cleanup ---

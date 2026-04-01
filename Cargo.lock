@@ -12908,6 +12908,7 @@ name = "vrf-e2e-test"
 version = "1.7.0"
 dependencies = [
  "axum 0.7.9",
+ "cainome",
  "cairo-lang-starknet-classes",
  "cartridge",
  "katana-contracts",
