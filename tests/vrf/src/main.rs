@@ -6,11 +6,8 @@ use axum::Router;
 use cainome::rs::abigen;
 use cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
 use cairo_lang_starknet_classes::contract_class::ContractClass;
-use cartridge::vrf::server::{
-    bootstrap_vrf, get_vrf_account, VrfServer, VrfServerConfig, VRF_SERVER_PORT,
-};
-use katana_genesis::constant::{DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
-use katana_paymaster::{PaymasterService, PaymasterServiceConfigBuilder};
+use cartridge::vrf::server::{get_vrf_account, VRF_SERVER_PORT};
+use katana_cli::sidecar;
 use katana_primitives::class::CompiledClass;
 use katana_primitives::execution::Call;
 use katana_primitives::{address, felt, ContractAddress, Felt};
@@ -86,7 +83,7 @@ async fn main() {
 
     config.paymaster = Some(PaymasterConfig {
         url: paymaster_url.clone(),
-        api_key: Some("paymaster_katana".into()),
+        api_key: Some(sidecar::DEFAULT_PAYMASTER_API_KEY.into()),
         cartridge_api: Some(CartridgeApiConfig {
             cartridge_api_url,
             controller_deployer_address: *deployer_address,
@@ -103,55 +100,57 @@ async fn main() {
 
     println!("Node started at {rpc_url}");
 
-    // Bootstrap and start paymaster
-    let (account_0_addr, account_0_pk) = genesis_account(&config, 0);
-    let (account_1_addr, account_1_pk) = genesis_account(&config, 1);
-    let (account_2_addr, account_2_pk) = genesis_account(&config, 2);
+    // Bootstrap and start paymaster using the sidecar helper
+    let paymaster_bin = find_in_path("paymaster-service").expect(
+        "paymaster-service binary not found in PATH. \
+         Build it from the rev in sidecar-versions.toml",
+    );
+    let paymaster = sidecar::bootstrap_paymaster(
+        paymaster_bin,
+        paymaster_url,
+        rpc_addr,
+        &config.chain,
+    )
+    .await
+    .expect("failed to bootstrap paymaster");
 
-    let paymaster_cfg = PaymasterServiceConfigBuilder::new()
-        .rpc(rpc_addr)
-        .port(paymaster_port)
-        .api_key("paymaster_katana")
-        .relayer(account_0_addr, account_0_pk)
-        .gas_tank(account_1_addr, account_1_pk)
-        .estimate_account(account_2_addr, account_2_pk)
-        .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
-        .build()
-        .await
-        .expect("failed to build paymaster config");
-
-    let mut paymaster = PaymasterService::new(paymaster_cfg);
-    let forwarder_address = paymaster.bootstrap().await.expect("failed to bootstrap paymaster");
     let mut paymaster_process = paymaster.start().await.expect("failed to start paymaster");
 
     println!("Paymaster started on port {paymaster_port}");
-    println!("Relayer (account[0]): {account_0_addr}");
-    println!("Gas tank (account[1]): {account_1_addr}");
-    println!("Estimate (account[2]): {account_2_addr}");
-    println!("Forwarder at {forwarder_address}");
 
-    // Bootstrap and start VRF
-    let vrf_result = bootstrap_vrf(rpc_url.clone(), account_0_addr, account_0_pk)
+    // Bootstrap and start VRF using the sidecar helper
+    let vrf_bin = find_in_path("vrf-server").expect(
+        "vrf-server binary not found in PATH. \
+         Build it from the rev in sidecar-versions.toml",
+    );
+    let vrf_server = sidecar::bootstrap_vrf(vrf_bin, rpc_addr, &config.chain)
         .await
         .expect("failed to bootstrap VRF");
 
-    println!("VRF bootstrapped: account={:#x}", Felt::from(vrf_result.vrf_account_address));
+    let vrf_result = get_vrf_account().expect("failed to derive VRF account");
+    println!("VRF bootstrapped: account={:#x}", Felt::from(vrf_result.account_address));
+
+    // Compute the AVNU forwarder address (deterministic from salt + constructor args).
+    let (account_0_addr, account_0_pk) = genesis_account(&config, 0);
+    let account_1_addr = genesis_account(&config, 1).0;
+    let account_2_addr = genesis_account(&config, 2).0;
+    let forwarder_address: ContractAddress =
+        katana_primitives::utils::get_contract_address(
+            Felt::from(0x12345u64), // FORWARDER_SALT
+            katana_contracts::avnu::AvnuForwarder::HASH,
+            &[account_0_addr.into(), account_1_addr.into()],
+            ContractAddress::ZERO,
+        )
+        .into();
 
     // Whitelist the VRF account and estimate account on the AVNU forwarder.
     // The VRF account is the user_address for VRF txs; the estimate account is
     // used by the paymaster for fee estimation (simulate_transaction).
-    for addr in [vrf_result.vrf_account_address, account_2_addr] {
+    for addr in [vrf_result.account_address, account_2_addr] {
         whitelist_on_forwarder(&node, forwarder_address, addr, account_0_addr, account_0_pk).await;
     }
 
-    let mut vrf_process = VrfServer::new(VrfServerConfig {
-        secret_key: vrf_result.secret_key,
-        vrf_account_address: vrf_result.vrf_account_address,
-        vrf_private_key: vrf_result.vrf_account_private_key,
-    })
-    .start()
-    .await
-    .expect("failed to start VRF server");
+    let mut vrf_process = vrf_server.start().await.expect("failed to start VRF server");
 
     println!("VRF server started on port {VRF_SERVER_PORT}");
 
@@ -165,7 +164,7 @@ async fn main() {
     println!("Player account deployed at {player}");
 
     let simple_contract_address =
-        declare_and_deploy_simple(&node, vrf_result.vrf_account_address).await;
+        declare_and_deploy_simple(&node, vrf_account_address).await;
 
     println!("Simple contract deployed at {simple_contract_address:#x}");
 
@@ -362,7 +361,6 @@ async fn deploy_player_account(
     use katana_contracts::vrf::CartridgeVrfAccount;
     use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
     use starknet::core::types::BlockTag;
-    use starknet::signers::{LocalWallet, SigningKey};
 
     let provider = node.starknet_provider();
     let chain_id = node.backend().chain_spec.id();
@@ -422,7 +420,6 @@ async fn whitelist_on_forwarder(
 ) {
     use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
     use starknet::core::types::BlockTag;
-    use starknet::signers::{LocalWallet, SigningKey};
 
     let provider = node.starknet_provider();
     let chain_id = node.backend().chain_spec.id();
@@ -516,4 +513,11 @@ async fn sign_outside_execution_v2(
 
 fn find_free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+fn find_in_path(binary: &str) -> Option<std::path::PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    std::env::split_paths(&path_var)
+        .map(|dir| dir.join(binary))
+        .find(|candidate| candidate.is_file())
 }

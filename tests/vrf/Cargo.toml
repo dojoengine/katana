@@ -8,9 +8,9 @@ version.workspace = true
 
 [dependencies]
 cartridge.workspace = true
+katana-cli = { workspace = true, features = ["vrf"] }
 katana-contracts.workspace = true
 katana-genesis.workspace = true
-katana-paymaster.workspace = true
 katana-primitives.workspace = true
 katana-rpc-api = { workspace = true, features = ["client", "cartridge"] }
 katana-rpc-types.workspace = true
