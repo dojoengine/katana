@@ -12920,6 +12920,7 @@ dependencies = [
  "katana-utils",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "starknet-crypto 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
  "url",
 ]

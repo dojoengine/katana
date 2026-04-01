@@ -131,7 +131,14 @@ async fn main() {
 
     println!("VRF server started on port {VRF_SERVER_PORT}");
 
-    // --- D. Declare and deploy Simple contract ---
+    // --- D. Deploy a player account with SRC9 support and the Simple contract ---
+
+    // The VRF flow calls execute_from_outside_v2 on the player's account, so it must
+    // support SRC9. Genesis accounts don't, so deploy a CartridgeVrfAccount as the player.
+    let player_pk = Felt::from(0xBEEFu64);
+    let player = deploy_player_account(&node, player_pk, account_0_addr, account_0_pk).await;
+
+    println!("Player account deployed at {player}");
 
     let simple_contract_address =
         declare_and_deploy_simple(&node, vrf_result.vrf_account_address).await;
@@ -140,42 +147,48 @@ async fn main() {
 
     // --- E. Submit VRF transactions ---
 
-    let player_address: ContractAddress = node.account().address().into();
-    let player_signature = vec![felt!("0x0"), felt!("0x0")];
+    let player_address: ContractAddress = player;
+    let player_signer =
+        starknet::signers::LocalWallet::from(starknet::signers::SigningKey::from_secret_scalar(
+            player_pk,
+        ));
+    let chain_id = node.backend().chain_spec.id().id();
 
     // Test roll_dice_with_nonce
     {
-        let outside_execution = OutsideExecution::V2(OutsideExecutionV2 {
+        let outside_execution = OutsideExecutionV2 {
             caller: ANY_CALLER,
             nonce: felt!("0x1"),
             execute_after: 0,
             execute_before: 0xffffffffffffffff,
             calls: vec![
-                // request_random(caller=simple_contract, source=Nonce(player))
                 Call {
                     contract_address: vrf_account_address,
                     entry_point_selector: selector!("request_random"),
                     calldata: vec![
-                        simple_contract_address.into(), // caller
-                        Felt::ZERO,                     // Source::Nonce variant
-                        player_address.into(),          // Nonce(player_address)
+                        simple_contract_address.into(),
+                        Felt::ZERO,
+                        player_address.into(),
                     ],
                 },
-                // roll_dice_with_nonce()
                 Call {
                     contract_address: simple_contract_address.into(),
                     entry_point_selector: selector!("roll_dice_with_nonce"),
                     calldata: vec![],
                 },
             ],
-        });
+        };
+
+        let signature =
+            sign_outside_execution_v2(&outside_execution, chain_id, player_address, &player_signer)
+                .await;
 
         let res = node
             .rpc_http_client()
             .add_execute_outside_transaction(
                 player_address,
-                outside_execution,
-                player_signature.clone(),
+                OutsideExecution::V2(outside_execution),
+                signature,
                 None,
             )
             .await
@@ -186,37 +199,39 @@ async fn main() {
 
     // Test roll_dice_with_salt
     {
-        let outside_execution = OutsideExecution::V2(OutsideExecutionV2 {
+        let outside_execution = OutsideExecutionV2 {
             caller: ANY_CALLER,
             nonce: felt!("0x2"),
             execute_after: 0,
             execute_before: 0xffffffffffffffff,
             calls: vec![
-                // request_random(caller=simple_contract, source=Salt(42))
                 Call {
                     contract_address: vrf_account_address,
                     entry_point_selector: selector!("request_random"),
                     calldata: vec![
-                        simple_contract_address.into(), // caller
-                        Felt::ONE,                      // Source::Salt variant
-                        Felt::from(42u64),              // Salt(42)
+                        simple_contract_address.into(),
+                        Felt::ONE,
+                        Felt::from(42u64),
                     ],
                 },
-                // roll_dice_with_salt()
                 Call {
                     contract_address: simple_contract_address.into(),
                     entry_point_selector: selector!("roll_dice_with_salt"),
                     calldata: vec![],
                 },
             ],
-        });
+        };
+
+        let signature =
+            sign_outside_execution_v2(&outside_execution, chain_id, player_address, &player_signer)
+                .await;
 
         let res = node
             .rpc_http_client()
             .add_execute_outside_transaction(
                 player_address,
-                outside_execution,
-                player_signature,
+                OutsideExecution::V2(outside_execution),
+                signature,
                 None,
             )
             .await
@@ -331,6 +346,67 @@ fn genesis_account(
     (*address, private_key)
 }
 
+/// Deploys a CartridgeVrfAccount as the player account (supports SRC9/outside execution).
+/// Funds it from the given bootstrapper account.
+async fn deploy_player_account(
+    node: &TestNode,
+    player_private_key: Felt,
+    bootstrapper_addr: ContractAddress,
+    bootstrapper_pk: Felt,
+) -> ContractAddress {
+    use katana_contracts::vrf::CartridgeVrfAccount;
+    use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
+    use starknet::core::types::BlockTag;
+    use starknet::signers::{LocalWallet, SigningKey};
+
+    let provider = node.starknet_provider();
+    let chain_id = node.backend().chain_spec.id();
+    let rpc_client = node.starknet_rpc_client();
+
+    let signer = LocalWallet::from(SigningKey::from_secret_scalar(bootstrapper_pk));
+    let mut account = SingleOwnerAccount::new(
+        provider,
+        signer,
+        bootstrapper_addr.into(),
+        chain_id.into(),
+        ExecutionEncoding::New,
+    );
+    account.set_block_id(starknet::core::types::BlockId::Tag(BlockTag::PreConfirmed));
+
+    // Deploy using the already-declared CartridgeVrfAccount class
+    let player_public_key =
+        SigningKey::from_secret_scalar(player_private_key).verifying_key().scalar();
+    let salt = Felt::from(0xBEEFu64);
+    let constructor_calldata = vec![player_public_key];
+
+    let factory =
+        ContractFactory::new_with_udc(CartridgeVrfAccount::HASH, &account, UdcSelector::Legacy);
+    let deployment = factory.deploy_v3(constructor_calldata.clone(), salt, false);
+
+    let player_address: ContractAddress =
+        get_contract_address(salt, CartridgeVrfAccount::HASH, &constructor_calldata, Felt::ZERO)
+            .into();
+
+    let res = deployment.send().await.expect("deploy player account failed");
+    katana_utils::TxWaiter::new(res.transaction_hash, &rpc_client)
+        .await
+        .expect("deploy player tx failed");
+
+    // Fund the player account with STRK
+    let amount = Felt::from(1_000_000_000_000_000_000u128);
+    let transfer = starknet::core::types::Call {
+        to: katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(),
+        selector: selector!("transfer"),
+        calldata: vec![player_address.into(), amount, Felt::ZERO],
+    };
+    let res = account.execute_v3(vec![transfer]).send().await.expect("fund player failed");
+    katana_utils::TxWaiter::new(res.transaction_hash, &rpc_client)
+        .await
+        .expect("fund player tx failed");
+
+    player_address
+}
+
 /// Whitelists an address on the AVNU forwarder contract.
 async fn whitelist_on_forwarder(
     node: &TestNode,
@@ -369,6 +445,65 @@ async fn whitelist_on_forwarder(
         .expect("whitelist tx not confirmed");
 
     println!("Whitelisted VRF account {address_to_whitelist} on forwarder");
+}
+
+/// Signs an OutsideExecutionV2 using SNIP-12 (same hash computation as the OZ SRC9 contract).
+async fn sign_outside_execution_v2(
+    outside_execution: &OutsideExecutionV2,
+    chain_id: Felt,
+    signer_address: ContractAddress,
+    signer: &starknet::signers::LocalWallet,
+) -> Vec<Felt> {
+    use starknet::signers::Signer;
+    use starknet_crypto::{poseidon_hash_many, PoseidonHasher};
+
+    const STARKNET_DOMAIN_TYPE_HASH: Felt =
+        Felt::from_hex_unchecked("0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210");
+    const OUTSIDE_EXECUTION_TYPE_HASH: Felt =
+        Felt::from_hex_unchecked("0x312b56c05a7965066ddbda31c016d8d05afc305071c0ca3cdc2192c3c2f1f0f");
+    const CALL_TYPE_HASH: Felt =
+        Felt::from_hex_unchecked("0x3635c7f2a7ba93844c0d064e18e487f35ab90f7c39d00f186a781fc3f0c2ca9");
+
+    // Domain hash
+    let domain_hash = poseidon_hash_many(&[
+        STARKNET_DOMAIN_TYPE_HASH,
+        Felt::from_bytes_be_slice(b"Account.execute_from_outside"),
+        Felt::TWO,
+        chain_id,
+        Felt::ONE,
+    ]);
+
+    // Hash each call
+    let mut hashed_calls = Vec::new();
+    for call in &outside_execution.calls {
+        let mut h = PoseidonHasher::new();
+        h.update(CALL_TYPE_HASH);
+        h.update(call.contract_address.into());
+        h.update(call.entry_point_selector);
+        h.update(poseidon_hash_many(&call.calldata));
+        hashed_calls.push(h.finalize());
+    }
+
+    // Outside execution hash
+    let mut h = PoseidonHasher::new();
+    h.update(OUTSIDE_EXECUTION_TYPE_HASH);
+    h.update(outside_execution.caller.into());
+    h.update(outside_execution.nonce);
+    h.update(Felt::from(outside_execution.execute_after));
+    h.update(Felt::from(outside_execution.execute_before));
+    h.update(poseidon_hash_many(&hashed_calls));
+    let outside_execution_hash = h.finalize();
+
+    // Final message hash
+    let mut h = PoseidonHasher::new();
+    h.update(Felt::from_bytes_be_slice(b"StarkNet Message"));
+    h.update(domain_hash);
+    h.update(signer_address.into());
+    h.update(outside_execution_hash);
+    let message_hash = h.finalize();
+
+    let signature = signer.sign_hash(&message_hash).await.unwrap();
+    vec![signature.r, signature.s]
 }
 
 fn find_free_port() -> u16 {

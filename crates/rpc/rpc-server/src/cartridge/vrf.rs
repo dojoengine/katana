@@ -58,7 +58,7 @@ impl VrfService {
         };
 
         let context = RequestContext {
-            chain_id: chain_id.id().to_hex_string(),
+            chain_id: chain_id.to_string(),
             rpc_url: Some(self.rpc_url.clone()),
         };
 
