@@ -84,49 +84,6 @@ use url::Url;
 /// Default API key for the paymaster sidecar.
 pub const DEFAULT_PAYMASTER_API_KEY: &str = "paymaster_katana";
 
-/// Known sidecar binaries that katana can manage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SidecarKind {
-    Paymaster,
-    Vrf,
-}
-
-impl SidecarKind {
-    /// The binary name for this sidecar.
-    pub const fn binary_name(&self) -> &'static str {
-        match self {
-            Self::Paymaster => "paymaster-service",
-            Self::Vrf => "vrf-server",
-        }
-    }
-
-    /// The binary name with platform extension (e.g., .exe on Windows).
-    pub const fn binary_filename(&self) -> &'static str {
-        #[cfg(windows)]
-        match self {
-            Self::Paymaster => "paymaster-service.exe",
-            Self::Vrf => "vrf-server.exe",
-        }
-
-        #[cfg(not(windows))]
-        self.binary_name()
-    }
-
-    /// The release artifact name for a given version and platform.
-    ///
-    /// e.g., `paymaster-service_v1.2.3_linux_amd64.tar.gz`
-    pub fn artifact_name(&self, version: &str, platform: &Platform) -> String {
-        let ext = platform.archive_extension();
-        format!("{}_{}_{}_{}.{}", self.binary_name(), version, platform.os, platform.arch, ext)
-    }
-}
-
-impl std::fmt::Display for SidecarKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.binary_name())
-    }
-}
-
 pub async fn bootstrap_paymaster(
     bin_path: PathBuf,
     paymaster_url: Url,
@@ -175,7 +132,7 @@ pub async fn bootstrap_vrf(
     Ok(vrf_service)
 }
 
-pub fn prefunded_account(chain_spec: &ChainSpec, index: u16) -> Result<(ContractAddress, Felt)> {
+fn prefunded_account(chain_spec: &ChainSpec, index: u16) -> Result<(ContractAddress, Felt)> {
     let (address, allocation) = chain_spec
         .genesis()
         .accounts()
@@ -190,7 +147,7 @@ pub fn prefunded_account(chain_spec: &ChainSpec, index: u16) -> Result<(Contract
     Ok((*address, private_key))
 }
 
-pub fn local_rpc_url(addr: &SocketAddr) -> Url {
+fn local_rpc_url(addr: &SocketAddr) -> Url {
     let host = match addr.ip() {
         std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
             std::net::IpAddr::V4([127, 0, 0, 1].into())
@@ -202,6 +159,49 @@ pub fn local_rpc_url(addr: &SocketAddr) -> Url {
     };
 
     Url::parse(&format!("http://{}:{}", host, addr.port())).expect("valid rpc url")
+}
+
+/// Known sidecar binaries that katana can manage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidecarKind {
+    Paymaster,
+    Vrf,
+}
+
+impl SidecarKind {
+    /// The binary name for this sidecar.
+    pub const fn binary_name(&self) -> &'static str {
+        match self {
+            Self::Paymaster => "paymaster-service",
+            Self::Vrf => "vrf-server",
+        }
+    }
+
+    /// The binary name with platform extension (e.g., .exe on Windows).
+    pub const fn binary_filename(&self) -> &'static str {
+        #[cfg(windows)]
+        match self {
+            Self::Paymaster => "paymaster-service.exe",
+            Self::Vrf => "vrf-server.exe",
+        }
+
+        #[cfg(not(windows))]
+        self.binary_name()
+    }
+
+    /// The release artifact name for a given version and platform.
+    ///
+    /// e.g., `paymaster-service_v1.2.3_linux_amd64.tar.gz`
+    pub fn artifact_name(&self, version: &str, platform: &Platform) -> String {
+        let ext = platform.archive_extension();
+        format!("{}_{}_{}_{}.{}", self.binary_name(), version, platform.os, platform.arch, ext)
+    }
+}
+
+impl std::fmt::Display for SidecarKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.binary_name())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
