@@ -426,10 +426,10 @@ where
 
         #[allow(unused_mut)]
         let mut rpc_server = RpcServer::new()
-            .rpc_middleware(rpc_middleware)
+            .cors(cors)
             .metrics(true)
             .health_check(true)
-            .cors(cors)
+            .rpc_middleware(rpc_middleware)
             .module(rpc_modules)?;
 
         #[cfg(feature = "explorer")]

@@ -4,6 +4,7 @@ use tower::Layer;
 use tower_http::cors::{self, Any};
 pub use tower_http::cors::{AllowHeaders, AllowMethods};
 
+
 /// Layer that applies the [`Cors`] middleware which adds headers for [CORS][mdn].
 ///
 /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS

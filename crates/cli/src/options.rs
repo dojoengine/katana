@@ -185,7 +185,7 @@ pub struct ServerOptions {
     pub http_port: u16,
 
     /// Comma separated list of domains from which to accept cross origin requests.
-    #[arg(long = "http.cors_origins")]
+    #[arg(long = "http.cors_origins", alias = "http.cors-origins")]
     #[arg(value_delimiter = ',')]
     #[serde(
         default,

@@ -345,10 +345,11 @@ When `--vrf.url` is not provided, Katana runs the VRF server as a sidecar proces
 
 | Arg | Default | Description |
 |-----|---------|-------------|
-| `--port` | `3000` | HTTP listen port |
+| `--host` | `0.0.0.0` | HTTP bind address |
+| `--port` / `-p` | `3000` | HTTP listen port |
 | `--account-address` | -- | VRF account contract address (hex) |
 | `--account-private-key` | -- | VRF account signing key (hex) |
-| `--secret-key` | -- | ECVRF secret key (u64) |
+| `--secret-key` / `-s` | -- | ECVRF secret key (u64) |
 
 > Source: [server/src/main.rs](https://github.com/cartridge-gg/vrf/blob/6d1c0f60a53558f19618b2bff81c3da0849db270/server/src/main.rs)
 

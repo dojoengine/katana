@@ -1316,7 +1316,6 @@ mod tests {
         ) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let _ = rt.block_on(async {
-
                 let sequencer = TestNode::new().await;
                 let backend = sequencer.backend();
                 let provider = backend.storage.provider();
@@ -1357,6 +1356,7 @@ mod tests {
                     let provider = backend.storage.provider();
                     block_number = provider.latest_number().unwrap();
                 }
+
                 Ok(())
             });
         }
