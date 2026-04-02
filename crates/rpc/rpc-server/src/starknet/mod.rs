@@ -250,15 +250,27 @@ where
         let env = self.block_env_at(&block_id)?;
         let versioned_constant_overrides = self.inner.config.versioned_constant_overrides.as_ref();
 
-        // do estimations
-        blockifier::estimate_fees(
+        let estimates = blockifier::estimate_fees(
             self.inner.chain_spec.as_ref(),
             state,
             env,
             versioned_constant_overrides,
             transactions,
             flags,
-        )
+        )?;
+
+        // If Katana is running in no fee mode, set overall_fee to 0 for all estimates.
+        if !self.config().simulation_flags.fee() {
+            let mut updated_estimates = Vec::with_capacity(estimates.len());
+            for mut est in estimates {
+                est.overall_fee = 0;
+                updated_estimates.push(est);
+            }
+
+            Ok(updated_estimates)
+        } else {
+            Ok(estimates)
+        }
     }
 
     pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
