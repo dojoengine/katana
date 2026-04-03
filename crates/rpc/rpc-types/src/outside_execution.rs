@@ -102,15 +102,15 @@ impl CairoSerde for OutsideExecution {
 
     fn cairo_serialized_size(rust: &Self::RustType) -> usize {
         match rust {
-            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialized_size(&v2),
-            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialized_size(&v3),
+            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialized_size(v2),
+            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialized_size(v3),
         }
     }
 
     fn cairo_serialize(rust: &Self::RustType) -> Vec<Felt> {
         match rust {
-            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(&v2),
-            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(&v3),
+            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(v2),
+            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(v3),
         }
     }
 
