@@ -12909,7 +12909,6 @@ version = "1.7.0"
 dependencies = [
  "axum 0.7.9",
  "cainome",
- "cairo-lang-starknet-classes",
  "cartridge",
  "katana-cli",
  "katana-contracts",
@@ -12919,6 +12918,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-sequencer-node",
  "katana-utils",
+ "lazy_static",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "starknet-crypto 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",

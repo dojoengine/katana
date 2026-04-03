@@ -1,33 +1,23 @@
-use std::sync::Arc;
+mod utils;
 
-use axum::response::IntoResponse;
-use axum::routing::post;
-use axum::Router;
 use cainome::rs::abigen;
-use cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
-use cairo_lang_starknet_classes::contract_class::ContractClass;
 use cartridge::vrf::server::{get_vrf_account, VRF_SERVER_PORT};
 use katana_cli::sidecar;
-use katana_primitives::class::CompiledClass;
 use katana_primitives::execution::Call;
+use katana_primitives::utils::get_contract_address;
 use katana_primitives::{address, felt, ContractAddress, Felt};
 use katana_rpc_api::cartridge::CartridgeApiClient;
 use katana_rpc_types::{OutsideExecution, OutsideExecutionV2};
 use katana_sequencer_node::config::paymaster::{CartridgeApiConfig, PaymasterConfig, VrfConfig};
+use katana_utils::find_free_port;
 use katana_utils::node::{test_config, TestNode};
 use starknet::accounts::Account;
 use starknet::contract::{ContractFactory, UdcSelector};
-use starknet::core::types::contract::SierraClass;
-use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, SigningKey};
-use tokio::net::TcpListener;
 use url::Url;
 
-const SIERRA_CLASS: &str = include_str!("../build/vrng_test_Simple.contract_class.json");
-
-/// ANY_CALLER constant for outside execution.
-const ANY_CALLER: ContractAddress = address!("0x414e595f43414c4c4552");
+use crate::utils::start_mock_cartridge_api;
 
 abigen!(SimpleVrfApp,
 [
@@ -53,6 +43,9 @@ abigen!(SimpleVrfApp,
         "state_mutability": "view"
     }
 ]);
+
+/// ANY_CALLER constant for outside execution.
+const ANY_CALLER: ContractAddress = address!("0x414e595f43414c4c4552");
 
 #[tokio::main]
 async fn main() {
@@ -157,7 +150,7 @@ async fn main() {
 
     println!("Player account deployed at {player}");
 
-    let simple_contract_address = declare_and_deploy_simple(&node, vrf_account_address).await;
+    let simple_contract_address = utils::bootstrap_app(&node, vrf_account_address).await;
 
     println!("Simple contract deployed at {simple_contract_address:#x}");
 
@@ -166,7 +159,7 @@ async fn main() {
     let provider = node.starknet_provider();
     let vrf_app_contract = SimpleVrfAppReader::new(simple_contract_address, provider);
 
-    let value = vrf_app_contract.get_value().call().await.expect("get_value call failed");
+    let value = vrf_app_contract.get().call().await.expect("get_value call failed");
     assert_eq!(value, Felt::ZERO, "VRF random value should be initially zero");
 
     // --- E. Submit VRF transactions ---
@@ -277,61 +270,6 @@ async fn main() {
 // Helper functions
 // =============================================================================
 
-/// Declares and deploys the Simple contract with the VRF provider address as constructor arg.
-async fn declare_and_deploy_simple(node: &TestNode, vrf_provider: ContractAddress) -> Felt {
-    let account = node.account();
-    let provider = node.starknet_rpc_client();
-
-    // Declare
-    let sierra: SierraClass = serde_json::from_str(SIERRA_CLASS).expect("invalid sierra class");
-    let class_hash = sierra.class_hash().expect("failed to compute class hash");
-    let flattened = sierra.flatten().expect("failed to flatten sierra class");
-
-    let contract: ContractClass =
-        serde_json::from_str(SIERRA_CLASS).expect("invalid contract class");
-    let casm = CasmContractClass::from_contract_class(contract, true, usize::MAX)
-        .expect("failed to compile to CASM");
-    let casm_json = serde_json::to_string(&casm).expect("failed to serialize CASM");
-    let compiled: CompiledClass = serde_json::from_str(&casm_json).expect("invalid compiled class");
-    let compiled_class_hash = compiled.class_hash().expect("failed to compute compiled class hash");
-
-    let res = account
-        .declare_v3(Arc::new(flattened), compiled_class_hash)
-        .send()
-        .await
-        .expect("declare failed");
-
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.expect("declare tx failed");
-
-    // Deploy with VRF provider address as constructor arg
-    let salt = Felt::ZERO;
-    let constructor_calldata = vec![vrf_provider.into()];
-    let factory = ContractFactory::new_with_udc(class_hash, &account, UdcSelector::Legacy);
-    let deployment = factory.deploy_v3(constructor_calldata.clone(), salt, false);
-
-    let address = get_contract_address(salt, class_hash, &constructor_calldata, Felt::ZERO);
-
-    let res = deployment.send().await.expect("deploy failed");
-
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.expect("deploy tx failed");
-
-    address
-}
-
-/// Starts a minimal mock Cartridge Controller API that always returns "Address not found".
-async fn start_mock_cartridge_api() -> Url {
-    async fn handler(axum::Json(_body): axum::Json<serde_json::Value>) -> axum::response::Response {
-        "Address not found".into_response()
-    }
-
-    let app = Router::new().route("/accounts/calldata", post(handler));
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-
-    Url::parse(&format!("http://{addr}")).unwrap()
-}
-
 /// Extracts genesis account address and private key by index.
 fn genesis_account(
     config: &katana_sequencer_node::config::Config,
@@ -377,9 +315,12 @@ async fn deploy_player_account(
         ContractFactory::new_with_udc(CartridgeVrfAccount::HASH, &account, UdcSelector::Legacy);
     let deployment = factory.deploy_v3(constructor_calldata.clone(), salt, false);
 
-    let player_address: ContractAddress =
-        get_contract_address(salt, CartridgeVrfAccount::HASH, &constructor_calldata, Felt::ZERO)
-            .into();
+    let player_address = get_contract_address(
+        salt,
+        CartridgeVrfAccount::HASH,
+        &constructor_calldata,
+        ContractAddress::ZERO,
+    );
 
     let res = deployment.send().await.expect("deploy player account failed");
     katana_utils::TxWaiter::new(res.transaction_hash, &rpc_client)
@@ -398,7 +339,7 @@ async fn deploy_player_account(
         .await
         .expect("fund player tx failed");
 
-    player_address
+    player_address.into()
 }
 
 /// Whitelists an address on the AVNU forwarder contract.
@@ -410,20 +351,18 @@ async fn whitelist_on_forwarder(
     signer_pk: Felt,
 ) {
     use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
-    use starknet::core::types::BlockTag;
 
     let provider = node.starknet_provider();
     let chain_id = node.backend().chain_spec.id();
     let signer = LocalWallet::from(SigningKey::from_secret_scalar(signer_pk));
 
-    let mut account = SingleOwnerAccount::new(
+    let account = SingleOwnerAccount::new(
         provider,
         signer,
         signer_address.into(),
         chain_id.into(),
         ExecutionEncoding::New,
     );
-    account.set_block_id(starknet::core::types::BlockId::Tag(BlockTag::PreConfirmed));
 
     let call = starknet::core::types::Call {
         to: forwarder.into(),
@@ -433,9 +372,7 @@ async fn whitelist_on_forwarder(
 
     let res = account.execute_v3(vec![call]).send().await.expect("whitelist tx failed");
 
-    katana_utils::TxWaiter::new(res.transaction_hash, &node.starknet_rpc_client())
-        .await
-        .expect("whitelist tx not confirmed");
+    katana_utils::TxWaiter::new(res.transaction_hash, &node.starknet_rpc_client()).await.unwrap();
 
     println!("Whitelisted VRF account {address_to_whitelist} on forwarder");
 }
@@ -445,20 +382,17 @@ async fn sign_outside_execution_v2(
     outside_execution: &OutsideExecutionV2,
     chain_id: Felt,
     signer_address: ContractAddress,
-    signer: &starknet::signers::LocalWallet,
+    signer: &LocalWallet,
 ) -> Vec<Felt> {
     use starknet::signers::Signer;
     use starknet_crypto::{poseidon_hash_many, PoseidonHasher};
 
-    const STARKNET_DOMAIN_TYPE_HASH: Felt = Felt::from_hex_unchecked(
-        "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210",
-    );
-    const OUTSIDE_EXECUTION_TYPE_HASH: Felt = Felt::from_hex_unchecked(
-        "0x312b56c05a7965066ddbda31c016d8d05afc305071c0ca3cdc2192c3c2f1f0f",
-    );
-    const CALL_TYPE_HASH: Felt = Felt::from_hex_unchecked(
-        "0x3635c7f2a7ba93844c0d064e18e487f35ab90f7c39d00f186a781fc3f0c2ca9",
-    );
+    const STARKNET_DOMAIN_TYPE_HASH: Felt =
+        felt!("0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210");
+    const OUTSIDE_EXECUTION_TYPE_HASH: Felt =
+        felt!("0x312b56c05a7965066ddbda31c016d8d05afc305071c0ca3cdc2192c3c2f1f0f");
+    const CALL_TYPE_HASH: Felt =
+        felt!("0x3635c7f2a7ba93844c0d064e18e487f35ab90f7c39d00f186a781fc3f0c2ca9");
 
     // Domain hash
     let domain_hash = poseidon_hash_many(&[
@@ -500,10 +434,6 @@ async fn sign_outside_execution_v2(
 
     let signature = signer.sign_hash(&message_hash).await.unwrap();
     vec![signature.r, signature.s]
-}
-
-fn find_free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
 fn find_in_path(binary: &str) -> Option<std::path::PathBuf> {
