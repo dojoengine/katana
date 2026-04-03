@@ -359,7 +359,7 @@ async fn vrf_outside_execution_handler(
     State(state): State<MockVrfState>,
     Json(body): Json<OutsideExecutionRequest>,
 ) -> Response {
-    let sender = body.request.contract_address;
+    let sender = body.request.address;
     state.received_requests.lock().insert(sender, body.clone());
 
     // The VRF server returns a modified SignedOutsideExecution where:
@@ -370,7 +370,7 @@ async fn vrf_outside_execution_handler(
     // For this mock we return a minimal valid response that the CartridgeApi
     // will convert to a Call and forward to the paymaster.
     let updated_outside_execution = SignedOutsideExecution {
-        contract_address: state.vrf_account_address,
+        address: state.vrf_account_address,
         outside_execution: OutsideExecution::V2(OutsideExecutionV2 {
             caller: address!("0x414e595f43414c4c4552"),
             nonce: felt!("0x99"),

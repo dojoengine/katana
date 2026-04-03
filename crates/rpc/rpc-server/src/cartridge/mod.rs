@@ -159,7 +159,8 @@ where
     ) -> Result<AddInvokeTransactionResponse, CartridgeApiError> {
         debug!(target: "rpc::cartridge", %contract_address, ?fee_source, "Adding execute outside transaction.");
 
-        let mut signed = SignedOutsideExecution { contract_address, outside_execution, signature };
+        let mut signed =
+            SignedOutsideExecution { address: contract_address, outside_execution, signature };
 
         #[cfg(feature = "vrf")]
         if let Some(vrf_service) = &self.vrf_service {

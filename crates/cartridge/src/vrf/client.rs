@@ -199,7 +199,7 @@ mod vrf_signed_outside_execution {
         SerializeShadow {
             outside_execution,
             signature: value.signature.clone(),
-            contract_address: value.contract_address,
+            contract_address: value.address,
         }
         .serialize(serializer)
     }
@@ -219,7 +219,7 @@ mod vrf_signed_outside_execution {
         Ok(SignedOutsideExecution {
             outside_execution,
             signature: shadow.signature,
-            contract_address: shadow.contract_address,
+            address: shadow.contract_address,
         })
     }
 }

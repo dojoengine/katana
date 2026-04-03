@@ -136,7 +136,7 @@ impl CairoSerde for OutsideExecution {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SignedOutsideExecution {
     /// The contract address of the caller.
-    pub contract_address: ContractAddress,
+    pub address: ContractAddress,
     /// The outside execution request to be executed.
     pub outside_execution: OutsideExecution,
     /// The signature of the caller.
@@ -145,7 +145,8 @@ pub struct SignedOutsideExecution {
 
 impl From<SignedOutsideExecution> for Call {
     fn from(signed: SignedOutsideExecution) -> Self {
-        let SignedOutsideExecution { contract_address, outside_execution, signature } = signed;
+        let SignedOutsideExecution { address: contract_address, outside_execution, signature } =
+            signed;
 
         let entry_point_selector = outside_execution.selector();
 
