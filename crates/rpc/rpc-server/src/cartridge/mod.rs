@@ -52,7 +52,7 @@ use katana_rpc_api::paymaster::PaymasterApiClient;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::cartridge::FeeSource;
 use katana_rpc_types::outside_execution::OutsideExecution;
-use katana_rpc_types::FunctionCall;
+use katana_rpc_types::{FunctionCall, SignedOutsideExecution};
 use katana_tasks::TaskSpawner;
 use paymaster_rpc::{
     ExecuteRawRequest, ExecuteRawTransactionParameters, ExecutionParameters, FeeMode,
@@ -61,10 +61,10 @@ use paymaster_rpc::{
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_paymaster::core::types::Call as StarknetRsCall;
-use tracing::{debug, info};
+use tracing::{debug, info, trace_span, Instrument};
 use url::Url;
 #[cfg(feature = "vrf")]
-use vrf::get_request_random_call;
+use vrf::find_and_get_request_random_call;
 pub use vrf::{VrfService, VrfServiceConfig};
 
 #[derive(Debug, Clone)]
@@ -120,6 +120,7 @@ where
         config: CartridgeConfig,
     ) -> anyhow::Result<Self> {
         let api_client = cartridge::CartridgeApiClient::new(config.api_url);
+
         #[cfg(feature = "vrf")]
         let vrf_service = config.vrf.map(VrfService::new);
 
@@ -156,53 +157,57 @@ where
         signature: Vec<Felt>,
         fee_source: Option<FeeSource>,
     ) -> Result<AddInvokeTransactionResponse, CartridgeApiError> {
-        debug!(%contract_address, ?outside_execution, "Adding execute outside transaction.");
-        let entry_point_selector = outside_execution.selector();
-        let mut calldata = outside_execution.as_felts();
-        // The signature is a Span<felt252> in Cairo, which requires a length prefix.
-        calldata.push(Felt::from(signature.len()));
-        calldata.extend(signature.clone());
+        debug!(target: "rpc::cartridge", %contract_address, ?fee_source, "Adding execute outside transaction.");
 
-        let mut call: Call = Call { contract_address, entry_point_selector, calldata };
-        let mut user_address: Felt = contract_address.into();
+        let mut signed = SignedOutsideExecution { contract_address, outside_execution, signature };
 
         #[cfg(feature = "vrf")]
         if let Some(vrf_service) = &self.vrf_service {
             // check first if the outside execution calls include a request_random call
-            if let Some((request_random_call, position)) =
-                get_request_random_call(&outside_execution)
+            if let Some((req_rand_call, pos)) =
+                find_and_get_request_random_call(&signed.outside_execution)
             {
-                if position + 1 >= outside_execution.len() {
+                debug!(target: "rpc::cartridge", "Found a request_random call.");
+
+                // Ensure there is a follow-up call after the request_random call
+                //
+                // Case: request_random is the only call or the last call
+                if (pos + 1) == signed.outside_execution.calls().len() {
                     return Err(CartridgeApiError::VrfMissingFollowUpCall);
                 }
 
-                if request_random_call.contract_address != vrf_service.account_address() {
-                    return Err(CartridgeApiError::VrfInvalidTarget);
+                if req_rand_call.contract_address != vrf_service.account_address() {
+                    return Err(CartridgeApiError::VrfInvalidTarget {
+                        requested: req_rand_call.contract_address,
+                        supported: vrf_service.account_address(),
+                    });
                 }
 
-                // Delegate VRF computation to the VRF server
                 let chain_id = self.backend.chain_spec.id();
-                let result = vrf_service
-                    .outside_execution(contract_address, &outside_execution, &signature, chain_id)
+                let vrf_signed_outside_execution = vrf_service
+                    .outside_execution(&signed, chain_id)
+                    .instrument(trace_span!(target: "rpc::cartridge", "vrf.outside_execution"))
                     .await?;
 
-                user_address = result.address.into();
-                call = result.into();
+                signed = vrf_signed_outside_execution;
             }
         }
+
+        let call = Call::from(signed);
 
         let fee_mode = match fee_source {
             Some(FeeSource::Credits) => FeeMode::Default {
                 gas_token: DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(),
                 tip: Default::default(),
             },
+
             Some(FeeSource::Paymaster) | None => FeeMode::Sponsored { tip: Default::default() },
         };
 
         let invoke = RawInvokeParameters {
-            user_address,
             gas_token: None,
             max_gas_token_amount: None,
+            user_address: call.contract_address.into(),
             execute_from_outside_call: StarknetRsCall {
                 calldata: call.calldata,
                 to: call.contract_address.into(),
@@ -215,10 +220,12 @@ where
             parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
         };
 
-        let response =
-            self.paymaster_client.execute_raw_transaction(request).await.map_err(|e| {
-                CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() }
-            })?;
+        let response = self
+            .paymaster_client
+            .execute_raw_transaction(request)
+            .instrument(trace_span!(target: "rpc::cartridge", "paymaster.execute_raw_transaction"))
+            .await
+            .map_err(|e| CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() })?;
 
         Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })
     }
@@ -301,7 +308,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
         )
         .await?
         {
-            debug!(address = %maybe_controller_address, "Deploying controller account.");
+            debug!(target: "rpc::cartridge", address = %maybe_controller_address, "Deploying controller account.");
             return Ok(tx);
         }
     }

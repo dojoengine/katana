@@ -87,33 +87,73 @@ impl OutsideExecution {
         }
     }
 
-    pub fn as_felts(&self) -> Vec<Felt> {
-        match self {
-            Self::V2(v) => OutsideExecutionV2::cairo_serialize(v),
-            Self::V3(v) => OutsideExecutionV3::cairo_serialize(v),
-        }
-    }
-
-    /// Returns the number of calls in the outside execution.
-    pub fn len(&self) -> usize {
-        match self {
-            Self::V2(v) => v.calls.len(),
-            Self::V3(v) => v.calls.len(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        match self {
-            Self::V2(v) => v.calls.is_empty(),
-            Self::V3(v) => v.calls.is_empty(),
-        }
-    }
-
     pub fn selector(&self) -> Felt {
         match self {
             Self::V2(_) => selector!("execute_from_outside_v2"),
             Self::V3(_) => selector!("execute_from_outside_v3"),
         }
+    }
+}
+
+impl CairoSerde for OutsideExecution {
+    const SERIALIZED_SIZE: Option<usize> = None;
+
+    type RustType = Self;
+
+    fn cairo_serialized_size(rust: &Self::RustType) -> usize {
+        match rust {
+            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialized_size(&v2),
+            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialized_size(&v3),
+        }
+    }
+
+    fn cairo_serialize(rust: &Self::RustType) -> Vec<Felt> {
+        match rust {
+            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(&v2),
+            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(&v3),
+        }
+    }
+
+    fn cairo_deserialize(
+        felts: &[Felt],
+        offset: usize,
+    ) -> Result<Self::RustType, ::cainome_cairo_serde::Error> {
+        if let Ok(value) = OutsideExecutionV2::cairo_deserialize(felts, offset) {
+            return Ok(OutsideExecution::V2(value));
+        }
+
+        if let Ok(value) = OutsideExecutionV3::cairo_deserialize(felts, offset) {
+            return Ok(OutsideExecution::V3(value));
+        }
+
+        Err(::cainome_cairo_serde::Error::Deserialize(
+            "unknown outside execution variant".to_string(),
+        ))
+    }
+}
+
+/// An outside execution request that has been signed by the caller.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SignedOutsideExecution {
+    /// The contract address of the caller.
+    pub contract_address: ContractAddress,
+    /// The outside execution request to be executed.
+    pub outside_execution: OutsideExecution,
+    /// The signature of the caller.
+    pub signature: Vec<Felt>,
+}
+
+impl From<SignedOutsideExecution> for Call {
+    fn from(signed: SignedOutsideExecution) -> Self {
+        let SignedOutsideExecution { contract_address, outside_execution, signature } = signed;
+
+        let entry_point_selector = outside_execution.selector();
+
+        let outside_execution = OutsideExecution::cairo_serialize(&outside_execution);
+        let signature = Vec::<Felt>::cairo_serialize(&signature);
+        let calldata = [outside_execution, signature].concat();
+
+        Self { contract_address, calldata, entry_point_selector }
     }
 }
 

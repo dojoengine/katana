@@ -60,17 +60,19 @@ jobs:
               uses: actions/cache@v4
               with:
                   path: |
-                      tests/snos/snos/build
                       crates/contracts/build
+                      tests/vrf/build
+                      tests/snos/snos/build
                       tests/fixtures/db/spawn_and_move
                       tests/fixtures/db/simple
                       tests/fixtures/db/1_6_0
                       tests/fixtures/db/snos
-                  key: test-fixtures-${{ hashFiles('Makefile', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/Scarb.toml', 'tests/fixtures/db/*.tar.gz') }}
+                  key: |
+                      test-fixtures-${{ hashFiles('Makefile', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/Scarb.toml', 'tests/vrf/contracts/**', 'tests/fixtures/db/*.tar.gz') }}
 
             - name: Generate test fixtures
               if: steps.cache.outputs.cache-hit != 'true'
-              run: make fixtures
+              run: make
 
             - name: Upload test artifacts
               uses: actions/upload-artifact@v4
@@ -80,8 +82,9 @@ jobs:
                   retention-days: 14
                   if-no-files-found: error
                   path: |
-                      tests/snos/snos/build
                       crates/contracts/build
+                      tests/vrf/build
+                      tests/snos/snos/build
                       tests/fixtures/db/spawn_and_move
                       tests/fixtures/db/simple
                       tests/fixtures/db/1_6_0

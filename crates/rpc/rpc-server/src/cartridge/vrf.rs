@@ -1,11 +1,12 @@
 //! VRF (Verifiable Random Function) service for Cartridge.
 
-use cartridge::vrf::{RequestContext, SignedOutsideExecution, VrfClient, VrfOutsideExecution};
+use cartridge::vrf::{RequestContext, VrfClient};
 use katana_primitives::chain::ChainId;
 use katana_primitives::execution::Call;
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::ContractAddress;
 use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_types::outside_execution::OutsideExecution;
+use katana_rpc_types::SignedOutsideExecution;
 use starknet::macros::selector;
 use url::Url;
 
@@ -41,33 +42,20 @@ impl VrfService {
     /// The VRF server handles seed computation, proof generation, and signing.
     pub async fn outside_execution(
         &self,
-        address: ContractAddress,
-        outside_execution: &OutsideExecution,
-        signature: &[Felt],
+        outside_execution: &SignedOutsideExecution,
         chain_id: ChainId,
     ) -> Result<SignedOutsideExecution, CartridgeApiError> {
-        let vrf_outside_execution = match outside_execution {
-            OutsideExecution::V2(v2) => VrfOutsideExecution::V2(v2.clone()),
-            OutsideExecution::V3(v3) => VrfOutsideExecution::V3(v3.clone()),
-        };
-
-        let request = SignedOutsideExecution {
-            address,
-            outside_execution: vrf_outside_execution,
-            signature: signature.to_vec(),
-        };
-
         let context =
             RequestContext { chain_id: chain_id.to_string(), rpc_url: Some(self.rpc_url.clone()) };
 
         self.client
-            .outside_execution(request, context)
+            .outside_execution(&outside_execution, &context)
             .await
             .map_err(|err| CartridgeApiError::VrfExecutionFailed { reason: err.to_string() })
     }
 }
 
-pub(super) fn get_request_random_call(
+pub(super) fn find_and_get_request_random_call(
     outside_execution: &OutsideExecution,
 ) -> Option<(Call, usize)> {
     let calls = outside_execution.calls();
@@ -111,7 +99,7 @@ mod tests {
         });
 
         let (call, position) =
-            get_request_random_call(&outside_execution).expect("request_random found");
+            find_and_get_request_random_call(&outside_execution).expect("request_random found");
 
         assert_eq!(position, 1);
         assert_eq!(call.entry_point_selector, vrf_call.entry_point_selector);

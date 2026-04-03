@@ -1,5 +1,6 @@
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_pool_api::PoolError;
+use katana_primitives::ContractAddress;
 use katana_provider_api::ProviderError;
 
 /// Error codes for Cartridge API (starting at 200 to avoid conflicts).
@@ -26,8 +27,16 @@ pub enum CartridgeApiError {
     VrfMissingFollowUpCall,
 
     /// The `request_random` call does not target the expected VRF account.
-    #[error("request_random call must target the VRF account")]
-    VrfInvalidTarget,
+    #[error(
+        "request_random call must target the VRF account: requested {requested}, supported \
+         {supported}"
+    )]
+    VrfInvalidTarget {
+        /// The VRF contract address the request was sent to is not supported.
+        requested: ContractAddress,
+        /// The VRF contract address the request should be sent to.
+        supported: ContractAddress,
+    },
 
     /// The VRF outside execution request failed.
     ///
@@ -59,7 +68,7 @@ impl From<CartridgeApiError> for ErrorObjectOwned {
         let code = match &err {
             CartridgeApiError::ControllerDeployment { .. } => CONTROLLER_DEPLOYMENT_FAILED,
             CartridgeApiError::VrfMissingFollowUpCall => VRF_MISSING_FOLLOW_UP_CALL,
-            CartridgeApiError::VrfInvalidTarget => VRF_INVALID_TARGET,
+            CartridgeApiError::VrfInvalidTarget { .. } => VRF_INVALID_TARGET,
             CartridgeApiError::VrfExecutionFailed { .. } => VRF_EXECUTION_FAILED,
             CartridgeApiError::PaymasterExecutionFailed { .. } => PAYMASTER_EXECUTION_FAILED,
             CartridgeApiError::PoolError { .. } => POOL_ERROR,

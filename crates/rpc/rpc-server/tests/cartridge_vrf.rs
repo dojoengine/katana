@@ -16,14 +16,14 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use cartridge::vrf::{RequestContext, SignedOutsideExecution, VrfOutsideExecution};
+use cartridge::vrf::RequestContext;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::server::ServerBuilder;
 use katana_primitives::execution::Call;
 use katana_primitives::{address, felt, ContractAddress, Felt};
 use katana_rpc_api::cartridge::CartridgeApiClient;
 use katana_rpc_api::paymaster::PaymasterApiServer;
-use katana_rpc_types::{OutsideExecution, OutsideExecutionV2};
+use katana_rpc_types::{OutsideExecution, OutsideExecutionV2, SignedOutsideExecution};
 use katana_utils::node::test_config;
 use katana_utils::TestNode;
 use parking_lot::Mutex;
@@ -359,7 +359,7 @@ async fn vrf_outside_execution_handler(
     State(state): State<MockVrfState>,
     Json(body): Json<OutsideExecutionRequest>,
 ) -> Response {
-    let sender = body.request.address;
+    let sender = body.request.contract_address;
     state.received_requests.lock().insert(sender, body.clone());
 
     // The VRF server returns a modified SignedOutsideExecution where:
@@ -370,8 +370,8 @@ async fn vrf_outside_execution_handler(
     // For this mock we return a minimal valid response that the CartridgeApi
     // will convert to a Call and forward to the paymaster.
     let updated_outside_execution = SignedOutsideExecution {
-        address: state.vrf_account_address,
-        outside_execution: VrfOutsideExecution::V2(OutsideExecutionV2 {
+        contract_address: state.vrf_account_address,
+        outside_execution: OutsideExecution::V2(OutsideExecutionV2 {
             caller: address!("0x414e595f43414c4c4552"),
             nonce: felt!("0x99"),
             execute_after: 0x0,

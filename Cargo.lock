@@ -2896,7 +2896,6 @@ version = "1.7.0"
 dependencies = [
  "anyhow",
  "ark-ff 0.4.2",
- "cainome-cairo-serde",
  "katana-contracts",
  "katana-genesis",
  "katana-primitives",
