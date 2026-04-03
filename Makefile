@@ -114,7 +114,8 @@ contracts: install-scarb
 	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
 	@echo "Building test VRF contracts..."
 	@cd $(VRF_TEST_DIR) && asdf exec scarb build || { echo "Test VRF contracts build failed!"; exit 1; }
-	@find $(VRF_TEST_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
+	@mkdir -p tests/vrf/build
+	@find $(VRF_TEST_DIR)/target/dev -maxdepth 1 -type f -exec cp {} tests/vrf/build \;
 
 tee-sev-snp:
 	@echo "Building AMD SEV-SNP TEE VM components..."
