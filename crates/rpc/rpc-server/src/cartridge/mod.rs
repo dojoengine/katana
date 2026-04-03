@@ -159,6 +159,8 @@ where
         debug!(%contract_address, ?outside_execution, "Adding execute outside transaction.");
         let entry_point_selector = outside_execution.selector();
         let mut calldata = outside_execution.as_felts();
+        // The signature is a Span<felt252> in Cairo, which requires a length prefix.
+        calldata.push(Felt::from(signature.len()));
         calldata.extend(signature.clone());
 
         let mut call: Call = Call { contract_address, entry_point_selector, calldata };

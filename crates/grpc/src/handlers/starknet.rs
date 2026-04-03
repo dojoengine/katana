@@ -489,6 +489,7 @@ where
     PoolTx: From<BroadcastedTxWithChainId>,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     async fn add_invoke_transaction(
         &self,

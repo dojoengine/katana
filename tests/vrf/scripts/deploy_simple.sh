@@ -13,9 +13,6 @@
 #   - sncast (starknet-foundry) installed and in PATH
 #   - scarb installed (for contract compilation)
 #   - The contracts directory must be at ../contracts relative to this script
-#
-# Note: sncast versions may have RPC compatibility issues with Katana's dev mode.
-# If deploy fails, try a different sncast version (see sidecar-versions.toml).
 
 set -euo pipefail
 
@@ -55,7 +52,7 @@ CONTRACTS_DIR="$SCRIPT_DIR/../contracts"
 ACCOUNT_NAME="deployer"
 ACCOUNTS_FILE=$(mktemp)
 
-trap 'rm -f "$ACCOUNTS_FILE"' EXIT
+# trap 'rm -f "$ACCOUNTS_FILE"' EXIT
 
 # ── Import account ───────────────────────────────────────────────────────────
 

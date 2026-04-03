@@ -281,6 +281,7 @@ where
         };
 
         if is_deployed {
+            trace!(target: "middleware::cartridge", %address, "Controller account contract already deployed.");
             return Ok(());
         }
 
@@ -298,16 +299,16 @@ where
 
         // None means the address is not of a Controller in which case we don't need to do anything.
         if let Some(tx) = deploy_tx {
+            trace!(target: "middleware::cartridge", %address, "Deploying Controller account contract.");
+
             // Add the deploy tx to the pool.
             //
-            // NOTE:
-            //
-            // Although this will add the deploy transaction to the pool first before the
-            // addExecuteOutside transactions, the order they get executed is not
-            // guaranteed.
-            if let Err(e) = self.context.starknet.add_invoke_tx(tx).await {
+            // Wait for the transaction to be executed before proceeding.
+            if let Err(e) = self.context.starknet.add_invoke_tx_sync(tx).await {
                 return Err(CartridgeApiError::ControllerDeployment { error: Box::new(e) });
             }
+        } else {
+            trace!(target: "middleware::cartridge", %address, "Account contract is not a Controller.");
         }
 
         Ok(())
@@ -342,6 +343,8 @@ where
         Ok(deploy_transactions)
     }
 
+    /// Returns the deployment transaction for the given address, if it is a Controller. None means
+    /// the address is not a Controller.
     async fn get_controller_deployment_tx(
         &self,
         address: ContractAddress,
@@ -412,10 +415,10 @@ where
 
         async move {
             let method = request.method_name();
-            trace!(target: "middleware::cartridge", %method, "Intercepting JSON-RPC method.");
 
             match method {
                 STARKNET_ESTIMATE_FEE => {
+                    trace!(target: "middleware::cartridge", %method, "Intercepting JSON-RPC method.");
                     if let Ok(params) = parse_params::<EstimateFeeRequestParams>(&request)
                         .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
                     {
@@ -424,6 +427,7 @@ where
                 }
 
                 CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE | CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX => {
+                    trace!(target: "middleware::cartridge", %method, "Intercepting JSON-RPC method.");
                     if let Ok(params) = parse_params::<AddExecuteOutsideRequestParams>(&request)
 	                    .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
                     {

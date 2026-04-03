@@ -279,17 +279,28 @@ impl SequencerNodeArgs {
             let mut paymaster = if let Some(bin_path) = paymaster_bin {
                 use crate::sidecar;
 
-                let paymaster = sidecar::bootstrap_paymaster(
+                let paymaster_service = sidecar::bootstrap_paymaster(
                     bin_path,
-                    config.paymaster.unwrap().url.clone(),
+                    config.paymaster.as_ref().unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
-                .await?
-                .start()
                 .await?;
 
-                Some(paymaster)
+                // When VRF is enabled, whitelist the VRF account on the forwarder so that
+                // VRF transactions can be routed through it.
+                #[cfg(feature = "vrf")]
+                if let Some(vrf_account) = config
+                    .paymaster
+                    .as_ref()
+                    .and_then(|p| p.cartridge_api.as_ref())
+                    .and_then(|c| c.vrf.as_ref())
+                    .map(|v| v.vrf_account)
+                {
+                    paymaster_service.whitelist_address(vrf_account).await?;
+                }
+
+                Some(paymaster_service.start().await?)
             } else {
                 None
             };

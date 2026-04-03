@@ -33,21 +33,21 @@ abigen!(SimpleVrfApp,
 [
     {
         "type": "function",
-        "name": "roll_dice_with_nonce",
+        "name": "set_with_nonce",
         "inputs": [],
         "outputs": [],
         "state_mutability": "external"
     },
     {
         "type": "function",
-        "name": "roll_dice_with_salt",
+        "name": "set_with_salt",
         "inputs": [],
         "outputs": [],
         "state_mutability": "external"
     },
     {
         "type": "function",
-        "name": "get_value",
+        "name": "get",
         "inputs": [],
         "outputs": [{ "type": "core::felt252" }],
         "state_mutability": "view"
@@ -102,17 +102,13 @@ async fn main() {
 
     // Bootstrap and start paymaster using the sidecar helper
     let paymaster_bin = find_in_path("paymaster-service").expect(
-        "paymaster-service binary not found in PATH. \
-         Build it from the rev in sidecar-versions.toml",
+        "paymaster-service binary not found in PATH. Build it from the rev in \
+         sidecar-versions.toml",
     );
-    let paymaster = sidecar::bootstrap_paymaster(
-        paymaster_bin,
-        paymaster_url,
-        rpc_addr,
-        &config.chain,
-    )
-    .await
-    .expect("failed to bootstrap paymaster");
+    let paymaster =
+        sidecar::bootstrap_paymaster(paymaster_bin, paymaster_url, rpc_addr, &config.chain)
+            .await
+            .expect("failed to bootstrap paymaster");
 
     let mut paymaster_process = paymaster.start().await.expect("failed to start paymaster");
 
@@ -120,8 +116,7 @@ async fn main() {
 
     // Bootstrap and start VRF using the sidecar helper
     let vrf_bin = find_in_path("vrf-server").expect(
-        "vrf-server binary not found in PATH. \
-         Build it from the rev in sidecar-versions.toml",
+        "vrf-server binary not found in PATH. Build it from the rev in sidecar-versions.toml",
     );
     let vrf_server = sidecar::bootstrap_vrf(vrf_bin, rpc_addr, &config.chain)
         .await
@@ -134,14 +129,13 @@ async fn main() {
     let (account_0_addr, account_0_pk) = genesis_account(&config, 0);
     let account_1_addr = genesis_account(&config, 1).0;
     let account_2_addr = genesis_account(&config, 2).0;
-    let forwarder_address: ContractAddress =
-        katana_primitives::utils::get_contract_address(
-            Felt::from(0x12345u64), // FORWARDER_SALT
-            katana_contracts::avnu::AvnuForwarder::HASH,
-            &[account_0_addr.into(), account_1_addr.into()],
-            ContractAddress::ZERO,
-        )
-        .into();
+    let forwarder_address: ContractAddress = katana_primitives::utils::get_contract_address(
+        Felt::from(0x12345u64), // FORWARDER_SALT
+        katana_contracts::avnu::AvnuForwarder::HASH,
+        &[account_0_addr.into(), account_1_addr.into()],
+        ContractAddress::ZERO,
+    )
+    .into();
 
     // Whitelist the VRF account and estimate account on the AVNU forwarder.
     // The VRF account is the user_address for VRF txs; the estimate account is
@@ -163,8 +157,7 @@ async fn main() {
 
     println!("Player account deployed at {player}");
 
-    let simple_contract_address =
-        declare_and_deploy_simple(&node, vrf_account_address).await;
+    let simple_contract_address = declare_and_deploy_simple(&node, vrf_account_address).await;
 
     println!("Simple contract deployed at {simple_contract_address:#x}");
 
@@ -182,7 +175,7 @@ async fn main() {
     let player_signer = LocalWallet::from(SigningKey::from_secret_scalar(player_pk));
     let chain_id = node.backend().chain_spec.id().id();
 
-    // Test roll_dice_with_nonce
+    // Test set_with_nonce
     {
         let outside_execution = OutsideExecutionV2 {
             caller: ANY_CALLER,
@@ -201,7 +194,7 @@ async fn main() {
                 },
                 Call {
                     contract_address: simple_contract_address.into(),
-                    entry_point_selector: selector!("roll_dice_with_nonce"),
+                    entry_point_selector: selector!("set_with_nonce"),
                     calldata: vec![],
                 },
             ],
@@ -220,12 +213,12 @@ async fn main() {
                 None,
             )
             .await
-            .expect("roll_dice_with_nonce outside execution failed");
+            .expect("set_with_nonce outside execution failed");
 
-        println!("roll_dice_with_nonce tx: {:#x}", res.transaction_hash);
+        println!("set_with_nonce tx: {:#x}", res.transaction_hash);
     }
 
-    // Test roll_dice_with_salt
+    // Test set_with_salt
     {
         let outside_execution = OutsideExecutionV2 {
             caller: ANY_CALLER,
@@ -240,7 +233,7 @@ async fn main() {
                 },
                 Call {
                     contract_address: simple_contract_address.into(),
-                    entry_point_selector: selector!("roll_dice_with_salt"),
+                    entry_point_selector: selector!("set_with_salt"),
                     calldata: vec![],
                 },
             ],
@@ -259,9 +252,9 @@ async fn main() {
                 None,
             )
             .await
-            .expect("roll_dice_with_salt outside execution failed");
+            .expect("set_with_salt outside execution failed");
 
-        println!("roll_dice_with_salt tx: {:#x}", res.transaction_hash);
+        println!("set_with_salt tx: {:#x}", res.transaction_hash);
     }
 
     // --- F. Verify results ---
@@ -269,7 +262,7 @@ async fn main() {
     let provider = node.starknet_provider();
     let vrf_app_contract = SimpleVrfAppReader::new(simple_contract_address, provider);
 
-    let value = vrf_app_contract.get_value().call().await.expect("get_value call failed");
+    let value = vrf_app_contract.get().call().await.expect("get call failed");
     assert_ne!(value, Felt::ZERO, "VRF random value should be non-zero");
 
     println!("All assertions passed.");
@@ -360,21 +353,19 @@ async fn deploy_player_account(
 ) -> ContractAddress {
     use katana_contracts::vrf::CartridgeVrfAccount;
     use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
-    use starknet::core::types::BlockTag;
 
     let provider = node.starknet_provider();
     let chain_id = node.backend().chain_spec.id();
     let rpc_client = node.starknet_rpc_client();
 
     let signer = LocalWallet::from(SigningKey::from_secret_scalar(bootstrapper_pk));
-    let mut account = SingleOwnerAccount::new(
+    let account = SingleOwnerAccount::new(
         provider,
         signer,
         bootstrapper_addr.into(),
         chain_id.into(),
         ExecutionEncoding::New,
     );
-    account.set_block_id(starknet::core::types::BlockId::Tag(BlockTag::PreConfirmed));
 
     // Deploy using the already-declared CartridgeVrfAccount class
     let player_public_key =

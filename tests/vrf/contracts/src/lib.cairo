@@ -2,9 +2,9 @@ use starknet::ContractAddress;
 
 #[starknet::interface]
 pub trait ISimple<T> {
-    fn roll_dice_with_nonce(ref self: T);
-    fn roll_dice_with_salt(ref self: T);
-    fn get_value(self: @T) -> felt252;
+    fn get(self: @T) -> felt252;
+    fn set_with_nonce(ref self: T);
+    fn set_with_salt(ref self: T);
 }
 
 #[starknet::interface]
@@ -39,11 +39,11 @@ mod Simple {
 
     #[abi(embed_v0)]
     impl SimpleImpl of super::ISimple<ContractState> {
-        fn get_value(self: @ContractState) -> felt252 {
+        fn get(self: @ContractState) -> felt252 {
             self.value.read()
         }
 
-        fn roll_dice_with_nonce(ref self: ContractState) {
+        fn set_with_nonce(ref self: ContractState) {
             let vrf_provider = super::IVrfProviderDispatcher {
                 contract_address: self.vrf_provider_address.read(),
             };
@@ -54,7 +54,7 @@ mod Simple {
             self.value.write(value);
         }
 
-        fn roll_dice_with_salt(ref self: ContractState) {
+        fn set_with_salt(ref self: ContractState) {
             let vrf_provider = super::IVrfProviderDispatcher {
                 contract_address: self.vrf_provider_address.read(),
             };

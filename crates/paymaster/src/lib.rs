@@ -435,15 +435,23 @@ impl PaymasterService {
             wait_for_contract(&provider, avnu_forwarder_address, BOOTSTRAP_TIMEOUT).await?;
         }
 
-        // Whitelist the relayer
-        let whitelist_call = Call {
-            to: avnu_forwarder_address.into(),
-            selector: selector!("set_whitelisted_address"),
-            calldata: vec![self.config.relayer_address.into(), Felt::ONE],
-        };
+        // Whitelist the relayer and estimate account on the forwarder.
+        //
+        // The relayer must be whitelisted to submit transactions through the forwarder.
+        // The estimate account must be whitelisted because the paymaster uses it for
+        // fee estimation via simulate_transaction, which also goes through the forwarder.
+        let whitelist_calls: Vec<Call> =
+            [self.config.relayer_address, self.config.estimate_account_address]
+                .iter()
+                .map(|addr| Call {
+                    to: avnu_forwarder_address.into(),
+                    selector: selector!("set_whitelisted_address"),
+                    calldata: vec![(*addr).into(), Felt::ONE],
+                })
+                .collect();
 
         let result = account
-            .execute_v3(vec![whitelist_call])
+            .execute_v3(whitelist_calls)
             .send()
             .await
             .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
@@ -454,6 +462,46 @@ impl PaymasterService {
         info!(%avnu_forwarder_address, "Paymaster bootstrapped successfully.");
 
         Ok(avnu_forwarder_address)
+    }
+
+    /// Whitelist an address on the forwarder contract.
+    ///
+    /// Must be called after [`bootstrap()`](Self::bootstrap) so that the forwarder address
+    /// and chain ID are set. This is used to whitelist additional accounts (e.g. the VRF
+    /// account) that need to interact with the forwarder.
+    pub async fn whitelist_address(&self, address: ContractAddress) -> Result<()> {
+        let forwarder = self.forwarder_address.ok_or(Error::ForwarderNotSet)?;
+        let chain_id = self.chain_id.ok_or(Error::ChainIdNotSet)?;
+
+        let url =
+            Url::parse(&format!("http://{}", self.config.rpc_socket_addr)).expect("valid url");
+        let provider = JsonRpcClient::new(HttpTransport::new(url));
+
+        let secret_key = SigningKey::from_secret_scalar(self.config.relayer_private_key);
+        let account = SingleOwnerAccount::new(
+            provider.clone(),
+            LocalWallet::from(secret_key),
+            self.config.relayer_address.into(),
+            chain_id.id(),
+            ExecutionEncoding::New,
+        );
+
+        let call = Call {
+            to: forwarder.into(),
+            selector: selector!("set_whitelisted_address"),
+            calldata: vec![address.into(), Felt::ONE],
+        };
+
+        let result = account
+            .execute_v3(vec![call])
+            .send()
+            .await
+            .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
+
+        wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
+
+        info!(%address, %forwarder, "Address whitelisted on forwarder.");
+        Ok(())
     }
 
     /// Start the paymaster sidecar process.

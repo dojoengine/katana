@@ -1,13 +1,13 @@
 # VRF (Verifiable Random Function)
 
-Katana integrates a Verifiable Random Function (VRF) service to provide provably fair, unpredictable randomness for fully onchain games. The implementation uses ECVRF on the Stark curve with Poseidon hashing, delivering atomic execution where the random value is generated, verified, and consumed within a single transaction. This prevents front-running and ensures players cannot predict or manipulate outcomes.
+Katana integrates a Verifiable Random Function (VRF) service to provide provably fair, unpredictable randomness for onchain applications. The implementation uses ECVRF on the Stark curve with Poseidon hashing, delivering atomic execution where the random value is generated, verified, and consumed within a single transaction. This prevents front-running and ensures that callers cannot predict or manipulate outcomes.
 
 Key properties:
 
 - **Atomic execution** -- request, proof verification, and consumption happen in one transaction
 - **Efficient onchain verification** -- uses Stark curve and Poseidon hash, native to Starknet
 - **Fully onchain** -- the entire VRF process is transparent and verifiable
-- **SRC9 outside execution** -- uses nested `execute_from_outside_v2` calls ([SNIP-9](https://github.com/starknet-io/SNIPs/blob/main/SNIPS/snip-9.md)); both the VRF account and the player's account must implement SRC9
+- **SRC9 outside execution** -- uses nested `execute_from_outside_v2` calls ([SNIP-9](https://github.com/starknet-io/SNIPs/blob/main/SNIPS/snip-9.md)); both the VRF account and the user's account must implement SRC9
 
 The VRF server source is at [cartridge-gg/vrf](https://github.com/cartridge-gg/vrf/tree/6d1c0f60a53558f19618b2bff81c3da0849db270), pinned in `sidecar-versions.toml`. The underlying cryptographic library is [dojoengine/stark-vrf](https://github.com/dojoengine/stark-vrf).
 
@@ -27,21 +27,21 @@ The VRF integration relies on the following components working together:
 The VRF flow uses the outside execution pattern (SNIP-9): the user signs an off-chain message rather than submitting an onchain transaction directly. This means someone else must wrap that signed message into an actual invoke transaction, submit it to the network, and pay for gas. The paymaster fills this role:
 
 - The paymaster's **Relayer** account is the `sender_address` of the invoke transaction -- it pays the execution fees.
-- The paymaster's **Forwarder** contract is the onchain entry point that routes the nested `execute_from_outside_v2` calls to the VRF account and then to the player's account.
+- The paymaster's **Forwarder** contract is the onchain entry point that routes the nested `execute_from_outside_v2` calls to the VRF account and then to the user's account.
 
 Without the paymaster, there is no mechanism to submit the transaction or sponsor gas. The VRF server only produces proofs and rewrites the call sequence -- it does not submit transactions itself.
 
 ```mermaid
 flowchart LR
-    User["User / Game Client"]
+    User["User / Client"]
     RPC["CartridgeApi\n(RPC Middleware)"]
     VRF["VRF Server\n(Sidecar)"]
     PM["Paymaster"]
     Relayer["Relayer Account"]
     Forwarder["Forwarder\n(Onchain)"]
     VrfAcct["VRF Account\n(Onchain)"]
-    PlayerAcct["Player Account\n(Onchain, SRC9)"]
-    Game["Game Contract"]
+    UserAcct["User Account\n(Onchain, SRC9)"]
+    Target["Target Contract"]
 
     User -->|"outside execution\n(with request_random)"| RPC
     RPC -->|"POST /outside_execution"| VRF
@@ -50,8 +50,8 @@ flowchart LR
     PM -->|"invoke tx"| Relayer
     Relayer -->|"execute_from_outside_v2"| Forwarder
     Forwarder -->|"execute_from_outside_v2\n[submit_random, execute_from_outside_v2]"| VrfAcct
-    VrfAcct -->|"execute_from_outside_v2\n[request_random, game_action]"| PlayerAcct
-    PlayerAcct -->|"consume_random"| Game
+    VrfAcct -->|"execute_from_outside_v2\n[request_random, user_action]"| UserAcct
+    UserAcct -->|"consume_random"| Target
 ```
 
 ## Transaction flow
@@ -67,8 +67,8 @@ sequenceDiagram
     participant Relayer
     participant Forwarder as Forwarder (onchain)
     participant VrfAccount as VRF Account (onchain)
-    participant PlayerAccount as Player Account (onchain)
-    participant Game as Game Contract
+    participant UserAccount as User Account (onchain)
+    participant Target as Target Contract
 
     User->>CartridgeApi: cartridge_addExecuteOutsideTransaction<br/>(outside_execution with request_random)
     CartridgeApi->>CartridgeApi: Detect request_random selector in calls
@@ -83,10 +83,10 @@ sequenceDiagram
     Forwarder->>VrfAccount: execute_from_outside_v2([submit_random, execute_from_outside_v2])
     Note over VrfAccount: __execute__ processes calls sequentially
     VrfAccount->>VrfAccount: 1. submit_random(seed, proof)<br/>verify proof, store random
-    VrfAccount->>PlayerAccount: 2. execute_from_outside_v2([request_random, game_action])
-    PlayerAccount->>VrfAccount: request_random(caller, source) [no-op]
-    PlayerAccount->>Game: game_action() → consume_random(source)
-    Game->>VrfAccount: consume_random(source) → random value
+    VrfAccount->>UserAccount: 2. execute_from_outside_v2([request_random, user_action])
+    UserAccount->>VrfAccount: request_random(caller, source) [no-op]
+    UserAccount->>Target: user_action() → consume_random(source)
+    Target->>VrfAccount: consume_random(source) → random value
     Note over VrfAccount: 3. _assert_consumed(seed)<br/>ensure random was used, cleanup
 ```
 
@@ -98,15 +98,15 @@ The VRF flow relies on **nested `execute_from_outside_v2` calls** (SNIP-9 / SRC9
 Relayer → Forwarder.execute_from_outside_v2(
     VrfAccount.execute_from_outside_v2([
         submit_random(seed, proof),
-        PlayerAccount.execute_from_outside_v2([
+        UserAccount.execute_from_outside_v2([
             request_random(caller, source),
-            game_action(...)
+            user_action(...)
         ])
     ])
 )
 ```
 
-This means the **player's account must implement SRC9** (`execute_from_outside_v2`). Standard accounts that only implement SRC6 will fail with `ENTRYPOINT_NOT_FOUND`. See [dojoengine/katana#517](https://github.com/dojoengine/katana/issues/517) for the related issue about upgrading dev genesis accounts.
+This means the **user's account must implement SRC9** (`execute_from_outside_v2`). Standard accounts that only implement SRC6 will fail with `ENTRYPOINT_NOT_FOUND`. See [dojoengine/katana#517](https://github.com/dojoengine/katana/issues/517) for the related issue about upgrading dev genesis accounts.
 
 The VRF account's `__execute__` processes calls sequentially. When it encounters a `submit_random` call, it records the seed. After all calls complete, it automatically calls `_assert_consumed` to ensure the random value was actually consumed and then clears the stored value.
 
@@ -225,9 +225,9 @@ The returned `address` is the VRF account (not the user), and the `outside_execu
 
 ## Cairo contracts
 
-### SRC9 requirement for player accounts
+### SRC9 requirement for user accounts
 
-Because the VRF flow uses nested `execute_from_outside_v2` calls, **any account that participates as a player must implement the SRC9 interface**. Accounts that only implement the base SRC6 account interface (like the legacy OpenZeppelin account used in Katana's dev genesis) will fail with `ENTRYPOINT_NOT_FOUND` when the VRF account tries to call `execute_from_outside_v2` on them. See [dojoengine/katana#517](https://github.com/dojoengine/katana/issues/517).
+Because the VRF flow uses nested `execute_from_outside_v2` calls, **any account that participates as a user must implement the SRC9 interface**. Accounts that only implement the base SRC6 account interface (like the legacy OpenZeppelin account used in Katana's dev genesis) will fail with `ENTRYPOINT_NOT_FOUND` when the VRF account tries to call `execute_from_outside_v2` on them. See [dojoengine/katana#517](https://github.com/dojoengine/katana/issues/517).
 
 ### VRF Account (`IVrfAccount`)
 
@@ -355,5 +355,7 @@ When `--vrf.url` is not provided, Katana runs the VRF server as a sidecar proces
 
 ### Modes of operation
 
-- **Sidecar mode** (default when `--vrf` is set): Katana bootstraps the VRF account, then spawns the `vrf-server` binary as a child process with the derived credentials. The server runs on `127.0.0.1:3000`.
-- **External mode** (`--vrf.url` provided): Katana connects to an already-running VRF service at the given URL. No bootstrap or sidecar is spawned. The `--vrf.contract` flag must also be provided to identify the VRF account address.
+- **Sidecar mode** (default when `--vrf` is set without `--vrf.url`): Katana bootstraps the VRF infrastructure (declares and deploys the VRF account and consumer contracts, funds the account, sets the public key), then spawns the `vrf-server` binary as a child process with the derived credentials.
+- **External mode** (`--vrf.url` provided): Katana connects to an already-running VRF service at the given URL. No bootstrap or sidecar is spawned. The `--vrf.contract` flag must also be provided to specify the VRF account address. The external service and its onchain contracts must be fully deployed and configured independently.
+
+See [docs/cartridge.md](cartridge.md#modes-of-operation) for a detailed comparison of sidecar vs external mode across both services.

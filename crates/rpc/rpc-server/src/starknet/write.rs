@@ -26,6 +26,7 @@ where
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     pub async fn add_invoke_tx(
         &self,
@@ -84,17 +85,32 @@ where
         })
         .await?
     }
-}
 
-impl<Pool, PoolTx, Pending, PF> StarknetApi<Pool, Pending, PF>
-where
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
-    Pending: PendingBlockProvider,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: ProviderRO,
-{
-    pub(super) async fn wait_for_tx_receipt(
+    pub async fn add_invoke_tx_sync(
+        &self,
+        tx: BroadcastedInvokeTx,
+    ) -> Result<TxReceiptWithBlockInfo, StarknetApiError> {
+        let response = self.add_invoke_tx(tx).await?;
+        self.wait_for_tx_receipt(response.transaction_hash).await
+    }
+
+    pub async fn add_declare_tx_sync(
+        &self,
+        tx: BroadcastedDeclareTx,
+    ) -> Result<TxReceiptWithBlockInfo, StarknetApiError> {
+        let response = self.add_declare_tx(tx).await?;
+        self.wait_for_tx_receipt(response.transaction_hash).await
+    }
+
+    pub async fn add_deploy_account_tx_sync(
+        &self,
+        tx: BroadcastedDeployAccountTx,
+    ) -> Result<TxReceiptWithBlockInfo, StarknetApiError> {
+        let response = self.add_deploy_account_tx(tx).await?;
+        self.wait_for_tx_receipt(response.transaction_hash).await
+    }
+
+    async fn wait_for_tx_receipt(
         &self,
         transaction_hash: TxHash,
     ) -> Result<TxReceiptWithBlockInfo, StarknetApiError> {
@@ -117,6 +133,7 @@ where
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     async fn add_invoke_transaction(
         &self,
@@ -153,23 +170,20 @@ where
         &self,
         invoke_transaction: BroadcastedInvokeTx,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
-        let response = self.add_invoke_tx(invoke_transaction).await?;
-        Ok(self.wait_for_tx_receipt(response.transaction_hash).await?)
+        Ok(self.add_invoke_tx_sync(invoke_transaction).await?)
     }
 
     async fn add_declare_transaction_sync(
         &self,
         declare_transaction: BroadcastedDeclareTx,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
-        let response = self.add_declare_tx(declare_transaction).await?;
-        Ok(self.wait_for_tx_receipt(response.transaction_hash).await?)
+        Ok(self.add_declare_tx_sync(declare_transaction).await?)
     }
 
     async fn add_deploy_account_transaction_sync(
         &self,
         deploy_account_transaction: BroadcastedDeployAccountTx,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
-        let response = self.add_deploy_account_tx(deploy_account_transaction).await?;
-        Ok(self.wait_for_tx_receipt(response.transaction_hash).await?)
+        Ok(self.add_deploy_account_tx_sync(deploy_account_transaction).await?)
     }
 }
