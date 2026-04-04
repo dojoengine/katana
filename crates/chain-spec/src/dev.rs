@@ -55,8 +55,7 @@ impl ChainSpec {
             l1_data_gas_prices: self.genesis.gas_prices.clone(),
             sequencer_address: self.genesis.sequencer_address,
             // keep at 0.13.1.1 for backward compatibility reason
-            // starknet_version: StarknetVersion::new([0, 13, 1, 1]),
-            starknet_version: CURRENT_STARKNET_VERSION,
+            starknet_version: StarknetVersion::new([0, 13, 1, 1]),
         };
 
         ExecutableBlock { header, body: Vec::new() }
@@ -339,7 +338,7 @@ mod tests {
                 l1_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_data_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
-                starknet_version: CURRENT_STARKNET_VERSION,
+                starknet_version: StarknetVersion::new([0, 13, 1, 1]),
             },
             body: Vec::new(),
         };

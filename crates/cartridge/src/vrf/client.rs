@@ -175,14 +175,14 @@ mod vrf_signed_outside_execution {
 
     #[derive(Serialize)]
     struct SerializeShadow {
-        contract_address: ContractAddress,
+        address: ContractAddress,
         outside_execution: TaggedOutsideExecution,
         signature: Vec<Felt>,
     }
 
     #[derive(Deserialize)]
     struct DeserializeShadow {
-        contract_address: ContractAddress,
+        address: ContractAddress,
         outside_execution: FlexibleOutsideExecution,
         signature: Vec<Felt>,
     }
@@ -199,7 +199,7 @@ mod vrf_signed_outside_execution {
         SerializeShadow {
             outside_execution,
             signature: value.signature.clone(),
-            contract_address: value.address,
+            address: value.address,
         }
         .serialize(serializer)
     }
@@ -219,7 +219,7 @@ mod vrf_signed_outside_execution {
         Ok(SignedOutsideExecution {
             outside_execution,
             signature: shadow.signature,
-            address: shadow.contract_address,
+            address: shadow.address,
         })
     }
 }
