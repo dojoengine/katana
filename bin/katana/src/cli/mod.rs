@@ -6,7 +6,7 @@ use clap_complete::Shell;
 use katana_cli::{NodeCli, SequencerNodeArgs};
 use tokio::runtime::Runtime;
 
-mod bootstrap;
+pub mod bootstrap;
 mod config;
 pub mod db;
 mod init;

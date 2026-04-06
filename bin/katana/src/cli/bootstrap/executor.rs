@@ -12,7 +12,7 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_primitives::utils::get_contract_address;
 use katana_rpc_types::RpcSierraContractClass;
-use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
+use starknet::accounts::{Account, ConnectedAccount, ExecutionEncoding, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
 use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
 use starknet::providers::jsonrpc::HttpTransport;
@@ -23,7 +23,7 @@ use url::Url;
 
 use super::plan::{BootstrapPlan, DeclareStep, DeployStep};
 
-/// Default per-operation wait timeout. Bootstrap is dev-only so we don't need to be patient.
+/// Default per-operation wait timeout for the on-chain visibility polls.
 pub const STEP_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// What actually happened on-chain. Returned to the caller for pretty-printing.
@@ -76,14 +76,28 @@ pub async fn execute(plan: &BootstrapPlan, cfg: &ExecutorConfig) -> Result<Boots
         ExecutionEncoding::New,
     );
 
+    // Fetch the starting nonce once and increment locally per submission. This avoids
+    // a per-tx round trip and gives us deterministic, contiguous nonces — which is also
+    // required by the sequencer when batching multiple txs from the same account before
+    // a block is mined.
+    let mut nonce = account
+        .get_nonce()
+        .await
+        .with_context(|| format!("failed to fetch nonce for {}", cfg.account_address))?;
+
     let mut report = BootstrapReport::default();
 
     for step in &plan.declares {
-        report.declared.push(run_declare(&account, step, cfg.skip_existing).await?);
+        let outcome = run_declare(&account, step, nonce, cfg.skip_existing).await?;
+        if !outcome.already_declared {
+            nonce += Felt::ONE;
+        }
+        report.declared.push(outcome);
     }
 
     for step in &plan.deploys {
-        report.deployed.push(run_deploy(&account, step).await?);
+        report.deployed.push(run_deploy(&account, step, nonce).await?);
+        nonce += Felt::ONE;
     }
 
     Ok(report)
@@ -92,6 +106,7 @@ pub async fn execute(plan: &BootstrapPlan, cfg: &ExecutorConfig) -> Result<Boots
 async fn run_declare(
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
     step: &DeclareStep,
+    nonce: Felt,
     skip_existing: bool,
 ) -> Result<DeclaredClass> {
     let provider = account_provider(account);
@@ -121,8 +136,13 @@ async fn run_declare(
     let flattened = FlattenedSierraClass::try_from(rpc_class)
         .with_context(|| format!("class `{}`: failed to flatten Sierra class", step.name))?;
 
+    // Nonce is set explicitly so multiple txs from the same account can be batched before
+    // a block is mined (otherwise starknet-rs would auto-fetch the same on-chain nonce for
+    // every tx). Resource bounds are deliberately *not* set so estimate_fee runs against
+    // the live node — this is what makes bootstrap chain-agnostic.
     let result = account
         .declare_v3(flattened.into(), step.casm_hash)
+        .nonce(nonce)
         .send()
         .await
         .with_context(|| format!("class `{}`: declare_v3 failed", step.name))?;
@@ -148,6 +168,7 @@ async fn run_declare(
 async fn run_deploy(
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
     step: &DeployStep,
+    nonce: Felt,
 ) -> Result<DeployedContract> {
     let provider = account_provider(account);
 
@@ -171,6 +192,7 @@ async fn run_deploy(
     let factory = ContractFactory::new(step.class_hash, &account);
     let result = factory
         .deploy_v3(step.calldata.clone(), step.salt, step.unique)
+        .nonce(nonce)
         .send()
         .await
         .with_context(|| format!("contract `{}`: deploy_v3 failed", step.class_name))?;

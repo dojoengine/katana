@@ -19,10 +19,10 @@ use katana_primitives::class::ContractClass;
 use katana_primitives::{ContractAddress, Felt};
 use url::Url;
 
-mod embedded;
-mod executor;
-mod manifest;
-mod plan;
+pub mod embedded;
+pub mod executor;
+pub mod manifest;
+pub mod plan;
 mod prompt;
 mod report;
 
