@@ -19,7 +19,7 @@ use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::txpool::TxPoolApiClient;
 use katana_rpc_types::txpool::{TxPoolContent, TxPoolStatus};
 use katana_rpc_types::{OutsideExecution, OutsideExecutionV2};
-use katana_utils::node::test_config;
+use katana_utils::node::test_config_with_controllers;
 use katana_utils::TestNode;
 use parking_lot::Mutex;
 use paymaster_rpc::{
@@ -286,7 +286,7 @@ fn cartridge_test_config(
 ) -> katana_sequencer_node::config::Config {
     use katana_sequencer_node::config::paymaster::{CartridgeApiConfig, PaymasterConfig};
 
-    let mut config = test_config();
+    let mut config = test_config_with_controllers();
     config.dev.account_validation = false;
     config.sequencing.no_mining = true;
 

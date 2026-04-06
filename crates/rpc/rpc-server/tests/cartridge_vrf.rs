@@ -16,6 +16,7 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use cartridge::vrf::vrf_signed_outside_execution_serde;
 use cartridge::vrf::RequestContext;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::server::ServerBuilder;
@@ -351,6 +352,7 @@ async fn vrf_info_handler() -> axum::response::Response {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct OutsideExecutionRequest {
+    #[serde(with = "vrf_signed_outside_execution_serde")]
     request: SignedOutsideExecution,
     context: RequestContext,
 }

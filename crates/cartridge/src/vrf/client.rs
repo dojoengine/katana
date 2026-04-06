@@ -114,7 +114,7 @@ impl VrfClient {
     ) -> Result<SignedOutsideExecution, VrfClientError> {
         #[derive(Debug, Serialize)]
         struct OutsideExecutionRequest<'a> {
-            #[serde(with = "vrf_signed_outside_execution")]
+            #[serde(with = "vrf_signed_outside_execution_serde")]
             request: &'a SignedOutsideExecution,
             context: &'a RequestContext,
         }
@@ -136,7 +136,7 @@ impl VrfClient {
 
         #[derive(Debug, Deserialize)]
         struct OutsideExecutionResponse {
-            #[serde(with = "vrf_signed_outside_execution")]
+            #[serde(with = "vrf_signed_outside_execution_serde")]
             result: SignedOutsideExecution,
         }
 
@@ -150,7 +150,9 @@ impl VrfClient {
 ///
 /// Temporary workaround until https://github.com/cartridge-gg/vrf/pull/41 is merged,
 /// after which the VRF server will accept untagged format and this module can be removed.
-mod vrf_signed_outside_execution {
+///
+/// This is only made public so that it can be used for mock VRF server responses.
+pub mod vrf_signed_outside_execution_serde {
     use katana_primitives::{ContractAddress, Felt};
     use katana_rpc_types::outside_execution::{
         OutsideExecution as UntaggedOutsideExecution, OutsideExecutionV2, OutsideExecutionV3,

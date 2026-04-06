@@ -366,7 +366,7 @@ mod setup {
     use katana_pool::validation::NoopValidator;
     use katana_primitives::da::DataAvailabilityMode;
     use katana_primitives::execution::Call;
-    use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping, Tip};
+    use katana_primitives::fee::{AllResourceBoundsMapping, PriceUnit, ResourceBoundsMapping, Tip};
     use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
     use katana_primitives::{address, felt, ContractAddress, Felt};
     use katana_provider::api::state::StateProvider;
@@ -400,7 +400,7 @@ mod setup {
     type TestControllerDeploymentService = ControllerDeploymentService<
         MockRpcService,
         TestPool,
-        NoPendingBlockProvider,
+        MockPendingBlockProvider,
         katana_provider::DbProviderFactory,
     >;
 
@@ -458,7 +458,7 @@ mod setup {
             chain_spec,
             pool.clone(),
             task_spawner,
-            NoPendingBlockProvider,
+            MockPendingBlockProvider,
             gas_oracle,
             config,
             storage,
@@ -581,9 +581,9 @@ mod setup {
     /// A no-op pending block provider. All methods return `Ok(None)`, matching
     /// instant-mining mode behaviour.
     #[derive(Debug, Clone)]
-    struct NoPendingBlockProvider;
+    struct MockPendingBlockProvider;
 
-    impl PendingBlockProvider for NoPendingBlockProvider {
+    impl PendingBlockProvider for MockPendingBlockProvider {
         fn pending_state(&self) -> StarknetApiResult<Option<Box<dyn StateProvider>>> {
             Ok(None)
         }
@@ -617,11 +617,31 @@ mod setup {
             Ok(None)
         }
 
+        // internally, the Controller deployment layer uses StarknetApi::add_invoke_tx_sync which
+        // waits for the receipt to be available before returning. We return a random
+        // receipt here to avoid blocking. The value is irrelevant because it's not being to
+        // assert anything.
         fn get_pending_receipt(
             &self,
-            _hash: TxHash,
+            hash: TxHash,
         ) -> StarknetApiResult<Option<TxReceiptWithBlockInfo>> {
-            Ok(None)
+            let _ = hash;
+            Ok(Some(TxReceiptWithBlockInfo {
+                transaction_hash: TxHash::ZERO,
+                receipt: RpcTxReceipt::Invoke(RpcInvokeTxReceipt {
+                    actual_fee: FeePayment { amount: Felt::ZERO, unit: PriceUnit::Fri },
+                    finality_status: FinalityStatus::PreConfirmed,
+                    messages_sent: Vec::new(),
+                    events: Vec::new(),
+                    execution_resources: ExecutionResources {
+                        l1_data_gas: 0,
+                        l1_gas: 0,
+                        l2_gas: 0,
+                    },
+                    execution_result: ExecutionResult::Succeeded,
+                }),
+                block: ReceiptBlockInfo::PreConfirmed { block_number: 0 },
+            }))
         }
 
         fn get_pending_trace(&self, _hash: TxHash) -> StarknetApiResult<Option<TxTrace>> {

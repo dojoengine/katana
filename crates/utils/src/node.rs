@@ -356,6 +356,44 @@ pub fn test_config() -> Config {
 
     let mut chain = dev::ChainSpec { id: ChainId::SEPOLIA, ..Default::default() };
     chain.genesis.sequencer_address = address!("0x1");
+
+    let rpc = RpcConfig {
+        port: 0,
+        #[cfg(feature = "explorer")]
+        explorer: true,
+        addr: DEFAULT_RPC_ADDR,
+        apis: RpcModulesList::all(),
+        max_proof_keys: Some(100),
+        max_event_page_size: Some(100),
+        max_concurrent_estimate_fee_requests: None,
+        ..Default::default()
+    };
+
+    let grpc = Some(GrpcConfig {
+        addr: DEFAULT_GRPC_ADDR,
+        port: 0, // Use port 0 for auto-assignment
+        timeout: Some(Duration::from_secs(30)),
+    });
+
+    let db = DbConfig { migrate: true, ..Default::default() };
+
+    Config {
+        sequencing,
+        rpc,
+        dev,
+        chain: ChainSpec::Dev(chain).into(),
+        grpc,
+        db,
+        ..Default::default()
+    }
+}
+
+pub fn test_config_with_controllers() -> Config {
+    let sequencing = SequencingConfig::default();
+    let dev = DevConfig { fee: false, account_validation: true, fixed_gas_prices: None };
+
+    let mut chain = dev::ChainSpec { id: ChainId::SEPOLIA, ..Default::default() };
+    chain.genesis.sequencer_address = address!("0x1");
     katana_slot_controller::add_controller_classes(&mut chain.genesis);
 
     let rpc = RpcConfig {
