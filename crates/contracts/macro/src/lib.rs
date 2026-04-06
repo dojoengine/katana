@@ -165,16 +165,11 @@ fn generate_contract_impl(input: &ContractInput) -> Result<proc_macro2::TokenStr
             fn deref(&self) -> &::katana_primitives::class::ContractClass {
                 #[inline(always)]
                 fn __static_ref_initialize() -> ::katana_primitives::class::ContractClass {
-                    use ::std::io::Read;
-                    use ::std::str::FromStr;
                     // Register the artifact as a build dependency so cargo rebuilds
                     // the consuming crate whenever the source JSON changes.
                     const _: &[u8] = include_bytes!(#contract_path);
                     const COMPRESSED: &[u8] = #compressed_literal;
-                    let mut decoder = ::flate2::read::GzDecoder::new(COMPRESSED);
-                    let mut json = ::std::string::String::new();
-                    decoder.read_to_string(&mut json).expect("failed to decompress embedded contract class");
-                    ::katana_primitives::class::ContractClass::from_str(&json).unwrap()
+                    ::katana_contracts::load_compressed_class(COMPRESSED)
                 }
                 #[inline(always)]
                 fn __stability() -> &'static ::katana_primitives::class::ContractClass {
