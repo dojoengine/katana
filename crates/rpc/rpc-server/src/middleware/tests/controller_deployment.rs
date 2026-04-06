@@ -18,7 +18,7 @@ use setup::*;
 /// ## Expected:
 ///
 /// The request is forwarded unchanged and the response is passed through.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn estimate_fee_forwards_when_deployed_account() {
     let expected_estimates = vec![arbitrary!(FeeEstimate)];
 
@@ -51,7 +51,7 @@ async fn estimate_fee_forwards_when_deployed_account() {
 ///
 /// The middleware prepends a deploy transaction to the estimate fee
 /// request and returns estimates for the original transactions only.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn estimate_fee_prepends_deploy_tx_for_controller() {
     let cartridge_responses = HashMap::from_iter([(
         CONTROLLER_ADDRESS,
@@ -91,7 +91,7 @@ async fn estimate_fee_prepends_deploy_tx_for_controller() {
 ///
 /// Even though the address is undeployed, no deploy transaction is created and the original request
 /// is forwarded unchanged.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn estimate_fee_forwards_for_undeployed_non_controller() {
     let expected_estimates = vec![arbitrary!(FeeEstimate)];
     let rpc_responses = HashMap::from_iter([("starknet_estimateFee", expected_estimates.clone())]);
@@ -126,7 +126,7 @@ async fn estimate_fee_forwards_for_undeployed_non_controller() {
 /// despite three transactions from the same sender.
 ///
 /// Inner service receives 4 txs (1 deploy + 3 original); middleware returns 3 zero-fee estimates.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn estimate_fee_deduplicates_same_controller() {
     let expected_estimates = vec![
         arbitrary!(FeeEstimate), // prepended contorller deploy tx
@@ -176,7 +176,7 @@ async fn estimate_fee_deduplicates_same_controller() {
 ///
 /// RPC service receives request unchanged; pool remains empty; Cartridge API receives no
 /// requests.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_outside_skips_deploy_when_already_deployed() {
     let setup = setup_test(HashMap::new(), HashMap::new()).await;
 
@@ -209,7 +209,7 @@ async fn execute_outside_skips_deploy_when_already_deployed() {
 /// the original request to the inner service.
 ///
 /// Pool contains 1 deploy transaction; inner service receives request.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_outside_deploys_controller() {
     let cartridge_responses = HashMap::from_iter([(
         CONTROLLER_ADDRESS,
@@ -242,7 +242,7 @@ async fn execute_outside_deploys_controller() {
 /// The middleware skips deployment and forwards the request unchanged.
 ///
 /// Pool remains empty; inner service receives request.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_outside_skips_deploy_for_non_controller() {
     let setup = setup_test(HashMap::new(), HashMap::new()).await;
 
@@ -270,7 +270,7 @@ async fn execute_outside_skips_deploy_for_non_controller() {
 /// ## Expected:
 ///
 /// Deploy transaction added to pool and request forwarded.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_outside_tx_method_variant() {
     let cartridge_responses = {
         let mut m = HashMap::new();
@@ -305,7 +305,7 @@ async fn execute_outside_tx_method_variant() {
 /// ## Expected:
 ///
 /// inner service receives request unchanged; no Cartridge API requests made.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn passthrough_other_methods() {
     let setup = setup_test(HashMap::new(), HashMap::new()).await;
 
@@ -331,7 +331,7 @@ async fn passthrough_other_methods() {
 /// ## Expected:
 ///
 /// Inner service receives request unchanged.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn passthrough_malformed_estimate_fee() {
     let setup = setup_test(HashMap::new(), HashMap::new()).await;
 
