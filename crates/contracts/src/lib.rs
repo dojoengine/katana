@@ -34,3 +34,23 @@ pub mod avnu {
 
 #[rustfmt::skip]
 pub mod controller;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Asserts that decompressing the embedded contract class still yields a class whose
+    /// computed hash matches the hash baked in at macro expansion time.
+    #[test]
+    fn embedded_compressed_classes_round_trip() {
+        use contracts::*;
+        assert_eq!(LegacyERC20::CLASS.class_hash().unwrap(), LegacyERC20::HASH);
+        assert_eq!(GenesisAccount::CLASS.class_hash().unwrap(), GenesisAccount::HASH);
+        assert_eq!(UniversalDeployer::CLASS.class_hash().unwrap(), UniversalDeployer::HASH);
+        assert_eq!(Account::CLASS.class_hash().unwrap(), Account::HASH);
+        assert_eq!(
+            controller::ControllerLatest::CLASS.class_hash().unwrap(),
+            controller::ControllerLatest::HASH
+        );
+    }
+}
