@@ -240,6 +240,8 @@ mod tests {
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
         };
 
         let message_hash = compute_starknet_to_appchain_message_hash(
@@ -290,6 +292,8 @@ mod tests {
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
         };
 
         let _tx = l1_handler_tx_from_event(&event, ChainId::default()).unwrap();
@@ -314,6 +318,8 @@ mod tests {
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
         };
 
         let _tx = l1_handler_tx_from_event(&event, ChainId::default()).unwrap();

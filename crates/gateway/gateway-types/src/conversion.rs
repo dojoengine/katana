@@ -68,7 +68,6 @@ impl From<katana_rpc_types::StateDiff> for StateDiff {
 
         let migrated_compiled_classes = value
             .migrated_compiled_classes
-            .unwrap_or_default()
             .into_iter()
             .map(|(class_hash, compiled_class_hash)| DeclaredContract {
                 class_hash,

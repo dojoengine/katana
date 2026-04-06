@@ -63,7 +63,7 @@ fn preconfirmed_state_update() {
             }
         }
     );
-    assert!(state_diff.migrated_compiled_classes.is_none());
+    assert!(state_diff.migrated_compiled_classes.is_empty());
 
     let serialized = serde_json::to_value(&state_update).unwrap();
     similar_asserts::assert_eq!(serialized, json);
@@ -184,9 +184,9 @@ fn v0_10_0_confirmed_state_update() {
     );
     assert_eq!(
         state_diff.migrated_compiled_classes,
-        Some(map! {
+        map! {
             felt!("0x4ac055f14361bb6f7bf4b9af6e96ca68825e6037e9bdf87ea0b2c641dea73ae"), felt!("0x17f3b8f7225a160ec0542ea5c44ee876f2b132e7dee00ec36f2422d8155a4e4"),
-        })
+        }
     );
 
     let serialized = serde_json::to_value(&state_update).unwrap();
