@@ -759,10 +759,10 @@ mod from_rpc_test {
             declared_classes,
             nonces: BTreeMap::new(),
             replaced_classes: BTreeMap::new(),
-            migrated_compiled_classes: Some(BTreeMap::from_iter([
+            migrated_compiled_classes: BTreeMap::from_iter([
                 (felt!("0xa1"), felt!("0xb1")),
                 (felt!("0xa2"), felt!("0xb2")),
-            ])),
+            ]),
         };
 
         let converted: StateDiff = rpc_state_diff.into();

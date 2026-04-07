@@ -393,6 +393,7 @@ impl Backend {
 /// needs to be distributed to all waiting senders, which requires cloning the response for each
 /// sender in the deduplication vector.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 enum BackendResponse {
     Receipt(BackendResult<TxReceiptWithBlockInfo>),
     Block(BackendResult<GetBlockWithReceiptsResponse>),
