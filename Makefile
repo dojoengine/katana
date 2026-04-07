@@ -43,9 +43,13 @@ VRF_SCARB_VERSION := $(shell if [ -f $(VRF_DIR)/.tool-versions ]; then awk '$$1 
 
 # The scarb version required by the test VRF contracts.
 VRF_TEST_SCARB_VERSION := $(shell if [ -f $(VRF_TEST_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_TEST_DIR)/.tool-versions; fi)
+# `make contracts` only compiles the VRF test contracts, and that succeeds with the
+# same scarb used by the main VRF workspace. Keeping the build path on 2.12.2 avoids
+# installing an extra 2.13.1 toolchain in CI, which was exhausting disk space.
+VRF_TEST_BUILD_SCARB_VERSION := $(VRF_SCARB_VERSION)
 
 # All scarb versions needed for `make contracts`.
-SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZEPPELIN_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_SCARB_VERSION))
+SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZEPPELIN_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_BUILD_SCARB_VERSION))
 
 .DEFAULT_GOAL := all
 .SILENT: clean
@@ -122,7 +126,7 @@ contracts: install-scarb
 	@cd $(OPENZEPPELIN_DIR) && ASDF_SCARB_VERSION=$(OPENZEPPELIN_SCARB_VERSION) asdf exec scarb build -p openzeppelin_presets || { echo "OpenZeppelin account preset build failed!"; exit 1; }
 	@cp $(OPENZEPPELIN_DIR)/target/dev/openzeppelin_presets_AccountUpgradeable.contract_class.json $(CONTRACTS_BUILD_DIR) || { echo "OpenZeppelin account preset artifact copy failed!"; exit 1; }
 	@echo "Building test VRF contracts..."
-	@cd $(VRF_TEST_DIR) && asdf exec scarb build || { echo "Test VRF contracts build failed!"; exit 1; }
+	@cd $(VRF_TEST_DIR) && ASDF_SCARB_VERSION=$(VRF_TEST_BUILD_SCARB_VERSION) asdf exec scarb build || { echo "Test VRF contracts build failed!"; exit 1; }
 	@mkdir -p tests/vrf/build
 	@find $(VRF_TEST_DIR)/target/dev -maxdepth 1 -type f -exec cp {} tests/vrf/build \;
 
