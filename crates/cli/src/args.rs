@@ -867,6 +867,27 @@ mod test {
     }
 
     #[test]
+    fn default_predeployed_account_address_is_backward_compatible() {
+        let args = SequencerNodeArgs::parse_from(["katana"]);
+        let result = args.config().unwrap();
+
+        // Keep the first user-facing predeployed account stable. This address/key pair is relied
+        // on by downstream integration tests and tooling that use Katana's default prefunded
+        // account.
+        let (address, allocation) =
+            result.chain.genesis().accounts().next().expect("must have a default dev account");
+
+        assert_eq!(
+            *address,
+            address!("0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec")
+        );
+        assert_eq!(
+            allocation.private_key(),
+            Some(felt!("0xc5b2fcab997346f3ea1c00b002ecf6f382c5f9c9659a3894eb783c5320f912"))
+        );
+    }
+
+    #[test]
     fn test_starknet_config_custom() {
         let args = SequencerNodeArgs::parse_from([
             "katana",
