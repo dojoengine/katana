@@ -314,12 +314,12 @@ jobs:
             - name: Run tests (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name != 'pull_request'
               run: |
-                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --build-jobs 20
+                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --build-jobs 20
 
             - name: Run tests w/ code coverage (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name == 'pull_request'
               run: |
-                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --build-jobs 20
+                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --build-jobs 20
                   cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Upload code coverage
@@ -491,6 +491,61 @@ jobs:
 
             - name: Run cartridge e2e test
               run: cargo run -p vrf-e2e-test
+
+    saya-tee-e2e:
+        needs: [fmt, clippy, generate-test-artifacts]
+        runs-on: ubuntu-latest-32-cores
+        timeout-minutes: 45
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+            LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+            TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+            CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            - run: git config --global --add safe.directory "*"
+
+            # saya-tee depends on `katana_tee_client` from the private
+            # cartridge-gg/katana-tee repo via SSH. Load the deploy key into
+            # the SSH agent before any cargo commands fetch git deps.
+            - name: Setup SSH agent for cartridge-gg/katana-tee
+              uses: webfactory/ssh-agent@v0.9.0
+              with:
+                  ssh-private-key: ${{ secrets.KATANA_TEE_DEPLOY_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache
+
+            - name: Download test artifacts
+              uses: actions/download-artifact@v5
+              with:
+                  name: fixtures
+
+            # Both `saya-ops` and `saya-tee` come from `dojoengine/saya` on
+            # the `feat/mock-prove` branch. Each is in its own sub-workspace
+            # under `bin/`, so we clone the repo and `cargo install --path`
+            # rather than `cargo install --git --bin` (which only sees the
+            # root workspace).
+            - name: Clone saya feat/mock-prove
+              run: git clone --depth 1 --branch feat/mock-prove https://github.com/dojoengine/saya /tmp/saya
+
+            - name: Install saya-ops from feat/mock-prove
+              run: cargo install --locked --path /tmp/saya/bin/ops --bin saya-ops
+
+            - name: Install saya-tee from feat/mock-prove
+              run: cargo install --locked --path /tmp/saya/bin/persistent-tee --bin saya-tee
+
+            - name: Run saya-tee e2e test
+              env:
+                  RUST_LOG: info,saya_tee_e2e_test=debug,persistent_tee=info
+              run: cargo run -p saya-tee-e2e-test
 
     db-compatibility-check:
         needs: [fmt, clippy, build-katana-binary]
