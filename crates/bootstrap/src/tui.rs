@@ -29,7 +29,7 @@ use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -617,20 +617,32 @@ const FILE_SEARCH_MAX_DEPTH: usize = 8;
 /// before rendering, since the modal area only shows so many lines anyway.
 const FILE_SEARCH_VISIBLE: usize = 20;
 
+/// How long to wait between the last keystroke and actually re-scoring the candidate
+/// list. Short enough that the result list feels responsive, long enough that fast
+/// typing doesn't cause a re-render storm.
+const FILE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
+
 #[derive(Debug)]
 struct FileSearch {
-    /// Raw query as the user has typed it. Empty = "show first N candidates verbatim".
+    /// Raw query as the user has typed it. While the query is empty the matches list
+    /// is intentionally also empty — we don't want to dump cwd into the user's face
+    /// before they've expressed any intent.
     query: TextInput,
     /// All `*.json` files found under cwd at modal-open time. Cached for the lifetime
     /// of the modal so re-scoring is cheap on every keystroke.
     candidates: Vec<PathBuf>,
-    /// Top matches, recomputed each time `query` changes. Higher score = better.
+    /// Current results. Recomputed lazily after the debounce window expires.
     matches: Vec<(PathBuf, i64)>,
     /// Index into `matches`. Always valid when `matches` is non-empty.
     selected: usize,
     /// Root we walked from — surfaced in the modal title so the user knows where the
     /// candidate list came from.
     root: PathBuf,
+    /// Set to `Some(deadline)` when the query has been mutated since the last recompute.
+    /// The TUI event loop's tick checks this each iteration and runs `recompute` once
+    /// the deadline has passed, so fast typing doesn't trigger one full match-and-sort
+    /// pass per keystroke.
+    pending_recompute: Option<Instant>,
 }
 
 impl FileSearch {
@@ -639,42 +651,60 @@ impl FileSearch {
     fn open() -> Self {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let candidates = walk_json_files(&root);
-        let mut s = Self {
+        Self {
             query: TextInput::new(),
             candidates,
             matches: Vec::new(),
             selected: 0,
             root,
-        };
-        s.recompute();
-        s
+            pending_recompute: None,
+        }
     }
 
-    /// Re-derive matches from the current query. Call this after any mutation of
-    /// `self.query` so the candidate list stays in sync with what the user sees.
+    /// Mark the query as dirty; the actual recompute happens later via [`Self::tick`]
+    /// once the debounce window elapses. Callers don't need to know about the timer.
+    fn mark_dirty(&mut self) {
+        self.pending_recompute = Some(Instant::now() + FILE_SEARCH_DEBOUNCE);
+    }
+
+    /// Called from the event loop on every tick. If a recompute is pending and its
+    /// deadline has passed, run it. Returns `true` if a recompute actually happened
+    /// (so the caller can know it should redraw, though we draw every tick anyway).
+    fn tick(&mut self, now: Instant) -> bool {
+        match self.pending_recompute {
+            Some(when) if now >= when => {
+                self.recompute();
+                self.pending_recompute = None;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Re-derive matches from the current query. Public so tests can drive it
+    /// synchronously without faking time.
     fn recompute(&mut self) {
         let prev = self.matches.get(self.selected).map(|(p, _)| p.clone());
         self.matches.clear();
 
+        // Empty query → empty results. Showing the entire walked tree before the user
+        // has typed anything is noisy and almost never what they want.
         if self.query.is_empty() {
-            // No query → show the first FILE_SEARCH_VISIBLE candidates as-is, in walk
-            // order. Lets the user see what's even there before typing.
-            for path in self.candidates.iter().take(FILE_SEARCH_VISIBLE) {
-                self.matches.push((path.clone(), 0));
-            }
-        } else {
-            for path in &self.candidates {
-                let display = path.to_string_lossy();
-                if let Some(score) = fuzzy_score(self.query.as_str(), &display) {
-                    self.matches.push((path.clone(), score));
-                }
-            }
-            // Higher score first; on a tie prefer the shorter (more specific) path.
-            self.matches.sort_by(|a, b| {
-                b.1.cmp(&a.1).then_with(|| a.0.as_os_str().len().cmp(&b.0.as_os_str().len()))
-            });
-            self.matches.truncate(FILE_SEARCH_VISIBLE);
+            self.selected = 0;
+            return;
         }
+
+        for path in &self.candidates {
+            let display = path.to_string_lossy();
+            if let Some(score) = fuzzy_score(self.query.as_str(), &display) {
+                self.matches.push((path.clone(), score));
+            }
+        }
+        // Higher score first; on a tie prefer the shorter (more specific) path.
+        self.matches.sort_by(|a, b| {
+            b.1.cmp(&a.1).then_with(|| a.0.as_os_str().len().cmp(&b.0.as_os_str().len()))
+        });
+        self.matches.truncate(FILE_SEARCH_VISIBLE);
 
         // Try to keep the same row highlighted across recomputes when possible — UX
         // sanity so the cursor doesn't jump every keystroke.
@@ -1039,6 +1069,13 @@ fn event_loop(
         // Drain any pending progress events without blocking, so the spinner ticks
         // and the rows update on the next draw.
         drain_progress(app);
+
+        // Tick any debounced background work attached to the current modal — right
+        // now that's just the fuzzy file search, but the same hook would carry any
+        // future "wait until quiet for N ms" timer.
+        if let Some(Modal::AddClassFile { search, .. }) = app.modal.as_mut() {
+            search.tick(Instant::now());
+        }
 
         // Poll for keyboard input with a short timeout — short enough that the spinner
         // looks alive (~16fps), long enough to avoid hot-spinning the CPU.
@@ -1428,11 +1465,11 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                 app.modal = Some(Modal::AddClassFile { search, error: None });
             }
             _ => {
-                // Forward everything else to the readline-style editor. Recompute the
-                // match list whenever the editor actually consumed the keystroke so
-                // matches stay in sync with what's on screen.
+                // Forward everything else to the readline-style editor. Mark the
+                // search as dirty so the debounce timer in the event-loop tick picks
+                // it up — fast typing then only triggers one fuzzy pass per pause.
                 if handle_text_edit(&mut search.query, code, mods) {
-                    search.recompute();
+                    search.mark_dirty();
                 }
                 app.modal = Some(Modal::AddClassFile { search, error: None });
             }
@@ -1871,8 +1908,13 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                 })
                 .collect();
 
+            // Three distinct empty states the user might land in: nothing was found
+            // on disk at all, they haven't typed anything yet, or their query just
+            // doesn't match anything. Each one wants a different hint.
             let list_title = if search.candidates.is_empty() {
                 "(no .json files under cwd)".to_string()
+            } else if search.query.is_empty() {
+                format!("(start typing to search {} files)", search.candidates.len())
             } else if total == 0 {
                 format!("(no matches in {} files)", search.candidates.len())
             } else {
@@ -2161,25 +2203,34 @@ mod tests {
         );
     }
 
-    #[test]
-    fn file_search_recompute_filters_and_sorts() {
-        let mut s = FileSearch {
+    fn make_search(candidates: Vec<&str>) -> FileSearch {
+        FileSearch {
             query: TextInput::new(),
-            candidates: vec![
-                PathBuf::from("a/b/c/d/e/foo.json"),
-                PathBuf::from("foo.json"),
-                PathBuf::from("bar.json"),
-                PathBuf::from("baz/foo_2.json"),
-            ],
+            candidates: candidates.into_iter().map(PathBuf::from).collect(),
             matches: Vec::new(),
             selected: 0,
             root: PathBuf::from("."),
-        };
+            pending_recompute: None,
+        }
+    }
 
-        // Empty query → first N candidates verbatim, walk order.
+    #[test]
+    fn file_search_empty_query_yields_no_matches() {
+        // Critical UX rule: don't dump cwd into the user's face before they've
+        // expressed any intent. The matches list stays empty until the first char.
+        let mut s = make_search(vec!["foo.json", "bar.json", "baz.json"]);
         s.recompute();
-        assert_eq!(s.matches.len(), 4);
-        assert_eq!(s.matches[0].0, PathBuf::from("a/b/c/d/e/foo.json"));
+        assert!(s.matches.is_empty(), "empty query should produce zero matches");
+    }
+
+    #[test]
+    fn file_search_recompute_filters_and_sorts() {
+        let mut s = make_search(vec![
+            "a/b/c/d/e/foo.json",
+            "foo.json",
+            "bar.json",
+            "baz/foo_2.json",
+        ]);
 
         // After typing a query, only matches survive and they're sorted by score.
         for c in "foo".chars() {
@@ -2192,6 +2243,54 @@ mod tests {
         assert!(!paths.contains(&&PathBuf::from("bar.json")), "bar shouldn't match `foo`");
         // The shortest path (`foo.json`) should be first since it has the lowest length penalty.
         assert_eq!(s.matches.first().unwrap().0, PathBuf::from("foo.json"));
+    }
+
+    #[test]
+    fn file_search_debounce_defers_recompute_until_deadline() {
+        let mut s = make_search(vec!["foo.json", "bar.json"]);
+
+        // Type a character. Mark dirty (what the modal handler does on every keystroke
+        // it forwards to the editor). Matches must NOT update yet — that's the whole
+        // point of the debounce.
+        s.query.insert_char('f');
+        s.mark_dirty();
+        assert!(s.matches.is_empty(), "results before deadline should still be empty");
+
+        // A tick from "now" (well before the deadline) is a no-op.
+        let started = Instant::now();
+        assert!(!s.tick(started));
+        assert!(s.matches.is_empty());
+
+        // Once we cross the deadline, the next tick runs the recompute and clears the
+        // pending flag so we don't keep redoing the work on every subsequent tick.
+        let after = started + FILE_SEARCH_DEBOUNCE + Duration::from_millis(1);
+        assert!(s.tick(after), "tick at/after the deadline should run the recompute");
+        assert_eq!(s.matches.len(), 1);
+        assert_eq!(s.matches[0].0, PathBuf::from("foo.json"));
+        assert!(s.pending_recompute.is_none(), "pending flag must clear after the run");
+
+        // A second tick with no further mutations is a no-op.
+        assert!(!s.tick(after + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn file_search_typing_more_resets_the_debounce() {
+        // Repeated keystrokes should keep pushing the deadline out, so the recompute
+        // only runs once after the user actually pauses.
+        let mut s = make_search(vec!["foo.json"]);
+        s.query.insert_char('f');
+        s.mark_dirty();
+        let first_deadline = s.pending_recompute.unwrap();
+
+        // Sleep zero (just yield) and type again — the new deadline must be at least
+        // as far in the future as the first one.
+        s.query.insert_char('o');
+        s.mark_dirty();
+        let second_deadline = s.pending_recompute.unwrap();
+        assert!(
+            second_deadline >= first_deadline,
+            "subsequent mark_dirty must not bring the deadline forward"
+        );
     }
 }
 
