@@ -108,9 +108,8 @@ fn resolve_saya_tee_bin() -> Result<PathBuf> {
         }
     }
     Err(anyhow!(
-        "`saya-tee` binary not found. Set SAYA_TEE_BIN env var or add it to $PATH. \
-         Build from dojoengine/saya@feat/mock-prove with \
-         `cd bin/persistent-tee && cargo install --path .`"
+        "`saya-tee` binary not found. Set SAYA_TEE_BIN env var or add it to $PATH. Build from \
+         dojoengine/saya@feat/mock-prove with `cd bin/persistent-tee && cargo install --path .`"
     ))
 }
 
