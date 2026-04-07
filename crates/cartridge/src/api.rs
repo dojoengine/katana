@@ -1,5 +1,5 @@
 use katana_primitives::{ContractAddress, Felt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use url::Url;
 
@@ -17,12 +17,12 @@ pub enum Error {
 
 /// Client for interacting with the Cartridge service.
 #[derive(Debug, Clone)]
-pub struct Client {
+pub struct CartridgeApiClient {
     url: Url,
     client: reqwest::Client,
 }
 
-impl Client {
+impl CartridgeApiClient {
     /// Creates a new [`CartridgeApiClient`] with the given URL.
     pub fn new(url: Url) -> Self {
         Self { url, client: reqwest::Client::new() }
@@ -60,7 +60,7 @@ impl Client {
 }
 /// Response from the Cartridge API to fetch the calldata for the constructor of the given
 /// controller address.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAccountCalldataResponse {
     /// The address of the controller account.
     pub address: ContractAddress,

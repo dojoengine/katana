@@ -11,6 +11,11 @@ pub use node::TestNode;
 pub use signal::wait_shutdown_signals;
 pub use tx_waiter::*;
 
+/// Find a free port.
+pub fn find_free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
 /// Generate a random bytes vector of the given size.
 pub fn random_bytes(size: usize) -> Vec<u8> {
     (0..size).map(|_| rand::random::<u8>()).collect()

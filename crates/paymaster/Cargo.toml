@@ -1,17 +1,17 @@
 [package]
-name = "katana-paymaster"
 edition.workspace = true
 license.workspace = true
+name = "katana-paymaster"
 repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-contracts.workspace = true
 katana-primitives.workspace = true
 katana-rpc-types.workspace = true
-katana-contracts.workspace = true
 
 http.workspace = true
-jsonrpsee = { workspace = true, features = ["macros", "server", "client", "http-client"] }
+jsonrpsee = { workspace = true, features = [ "client", "http-client", "macros", "server" ] }
 paymaster-rpc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -23,4 +23,4 @@ url.workspace = true
 
 [dev-dependencies]
 katana-genesis.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = [ "macros", "rt-multi-thread" ] }

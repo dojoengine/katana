@@ -163,6 +163,45 @@ impl SequencerNodeArgs {
         // Build the node configuration
         let config = self.config()?;
 
+        // Resolve sidecar binaries before resources are committed.
+        #[cfg(feature = "paymaster")]
+        let paymaster_bin = if self.paymaster.enabled && !self.paymaster.is_external() {
+            use anyhow::anyhow;
+
+            use crate::sidecar::{resolve_sidecar_binary, SidecarKind};
+
+            let sidecar = SidecarKind::Paymaster;
+            let bin_path = self.paymaster.bin.as_deref();
+
+            let resolved_path =
+                resolve_sidecar_binary(sidecar, bin_path).await?.ok_or_else(|| {
+                    anyhow!("Paymaster service binary {} not installed", sidecar.binary_filename())
+                })?;
+
+            Some(resolved_path)
+        } else {
+            None
+        };
+
+        #[cfg(feature = "vrf")]
+        let vrf_bin = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+            use anyhow::anyhow;
+
+            use crate::sidecar::{resolve_sidecar_binary, SidecarKind};
+
+            let sidecar = SidecarKind::Vrf;
+            let bin_path = self.cartridge.vrf.bin.as_deref();
+
+            let resolved_path =
+                resolve_sidecar_binary(SidecarKind::Vrf, bin_path).await?.ok_or_else(|| {
+                    anyhow!("VRF service binary {} not installed", sidecar.binary_filename())
+                })?;
+
+            Some(resolved_path)
+        } else {
+            None
+        };
+
         if config.forking.is_some() {
             // Pass config by value: build_forked needs exclusive Arc access to mutate chain_spec.
             // Cloning would create a second Arc reference and cause Arc::get_mut to panic.
@@ -175,11 +214,11 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch forked node")?;
 
             #[cfg(feature = "paymaster")]
-            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
+            let mut paymaster = if let Some(bin_path) = paymaster_bin {
                 use crate::sidecar::bootstrap_paymaster;
 
                 let paymaster = bootstrap_paymaster(
-                    &self.paymaster,
+                    bin_path,
                     handle.node().config().paymaster.as_ref().unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
@@ -194,17 +233,14 @@ impl SequencerNodeArgs {
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+            let mut vrf = if let Some(bin_path) = vrf_bin {
                 use crate::sidecar::bootstrap_vrf;
 
-                let vrf = bootstrap_vrf(
-                    &self.cartridge.vrf,
-                    *handle.rpc().addr(),
-                    &handle.node().config().chain,
-                )
-                .await?
-                .start()
-                .await?;
+                let vrf =
+                    bootstrap_vrf(bin_path, *handle.rpc().addr(), &handle.node().config().chain)
+                        .await?
+                        .start()
+                        .await?;
 
                 Some(vrf)
             } else {
@@ -240,30 +276,41 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch node")?;
 
             #[cfg(feature = "paymaster")]
-            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
-                use crate::sidecar::bootstrap_paymaster;
+            let mut paymaster = if let Some(bin_path) = paymaster_bin {
+                use crate::sidecar;
 
-                let paymaster = bootstrap_paymaster(
-                    &self.paymaster,
-                    config.paymaster.unwrap().url.clone(),
+                let paymaster_service = sidecar::bootstrap_paymaster(
+                    bin_path,
+                    config.paymaster.as_ref().unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
-                .await?
-                .start()
                 .await?;
 
-                Some(paymaster)
+                // When VRF is enabled, whitelist the VRF account on the forwarder so that
+                // VRF transactions can be routed through it.
+                #[cfg(feature = "vrf")]
+                if let Some(vrf_account) = config
+                    .paymaster
+                    .as_ref()
+                    .and_then(|p| p.cartridge_api.as_ref())
+                    .and_then(|c| c.vrf.as_ref())
+                    .map(|v| v.vrf_account)
+                {
+                    paymaster_service.whitelist_address(vrf_account).await?;
+                }
+
+                Some(paymaster_service.start().await?)
             } else {
                 None
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
-                use crate::sidecar::bootstrap_vrf;
+            let mut vrf = if let Some(bin_path) = vrf_bin {
+                use crate::sidecar;
 
-                let vrf = bootstrap_vrf(
-                    &self.cartridge.vrf,
+                let vrf = sidecar::bootstrap_vrf(
+                    bin_path,
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
@@ -1044,7 +1091,7 @@ explorer = true
     #[test]
     #[cfg(feature = "server")]
     fn parse_cors_origins() {
-        use katana_rpc_server::cors::HeaderValue;
+        use katana_rpc_server::middleware::cors::HeaderValue;
 
         let result = SequencerNodeArgs::parse_from([
             "katana",

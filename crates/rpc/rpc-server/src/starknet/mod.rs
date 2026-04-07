@@ -8,7 +8,7 @@ use katana_chain_spec::ChainSpec;
 use katana_core::utils::get_current_timestamp;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_gas_price_oracle::GasPriceOracle;
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -69,8 +69,6 @@ mod trace;
 mod write;
 
 pub use cache::RpcCache;
-#[cfg(feature = "cartridge")]
-pub use config::CartridgePaymasterConfig;
 pub use config::StarknetApiConfig;
 pub use pending::PendingBlockProvider;
 
@@ -252,15 +250,27 @@ where
         let env = self.block_env_at(&block_id)?;
         let versioned_constant_overrides = self.inner.config.versioned_constant_overrides.as_ref();
 
-        // do estimations
-        blockifier::estimate_fees(
+        let estimates = blockifier::estimate_fees(
             self.inner.chain_spec.as_ref(),
             state,
             env,
             versioned_constant_overrides,
             transactions,
             flags,
-        )
+        )?;
+
+        // If Katana is running in no fee mode, set overall_fee to 0 for all estimates.
+        if !self.config().simulation_flags.fee() {
+            let mut updated_estimates = Vec::with_capacity(estimates.len());
+            for mut est in estimates {
+                est.overall_fee = 0;
+                updated_estimates.push(est);
+            }
+
+            Ok(updated_estimates)
+        } else {
+            Ok(estimates)
+        }
     }
 
     pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {

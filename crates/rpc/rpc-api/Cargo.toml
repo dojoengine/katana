@@ -23,7 +23,7 @@ thiserror.workspace = true
 rstest.workspace = true
 
 [features]
-cartridge = []
-client = ["jsonrpsee/client"]
-paymaster = ["dep:katana-paymaster"]
-tee = []
+cartridge = [  ]
+client = [ "jsonrpsee/client" ]
+paymaster = [ "dep:katana-paymaster" ]
+tee = [  ]

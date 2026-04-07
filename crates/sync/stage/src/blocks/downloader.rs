@@ -305,7 +305,7 @@ pub mod json_rpc {
     use katana_primitives::transaction::TxWithHash;
     use katana_primitives::Felt;
     use katana_rpc_types::block::{BlockWithReceipts, GetBlockWithReceiptsResponse};
-    use katana_starknet::rpc::Client as JsonRpcClient;
+    use katana_starknet::rpc::StarknetRpcClient;
     use num_traits::ToPrimitive;
     use starknet::core::types::ResourcePrice;
     use tracing::error;
@@ -319,7 +319,7 @@ pub mod json_rpc {
         /// Create a new [`BatchBlockDownloader`] using a JSON-RPC endpoint for downloading
         /// blocks.
         pub fn new_json_rpc(
-            client: JsonRpcClient,
+            client: StarknetRpcClient,
             batch_size: usize,
         ) -> BatchBlockDownloader<JsonRpcDownloader> {
             Self::new(JsonRpcDownloader::new(client), batch_size)
@@ -329,7 +329,7 @@ pub mod json_rpc {
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
         #[error(transparent)]
-        Rpc(#[from] katana_starknet::rpc::Error),
+        Rpc(#[from] katana_starknet::rpc::StarknetRpcClientError),
 
         #[error(transparent)]
         Other(#[from] anyhow::Error),
@@ -338,11 +338,11 @@ pub mod json_rpc {
     /// Internal [`Downloader`] implementation that uses JSON-RPC for downloading a block.
     #[derive(Debug)]
     pub struct JsonRpcDownloader {
-        client: JsonRpcClient,
+        client: StarknetRpcClient,
     }
 
     impl JsonRpcDownloader {
-        pub fn new(client: JsonRpcClient) -> Self {
+        pub fn new(client: StarknetRpcClient) -> Self {
             Self { client }
         }
     }

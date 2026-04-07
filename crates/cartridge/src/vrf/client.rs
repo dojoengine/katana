@@ -1,5 +1,5 @@
 use katana_primitives::Felt;
-use katana_rpc_types::outside_execution::{OutsideExecutionV2, OutsideExecutionV3};
+use katana_rpc_types::SignedOutsideExecution;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -11,23 +11,6 @@ pub struct StarkVrfProof {
     pub s: Felt,
     pub sqrt_ratio: Felt,
     pub rnd: Felt,
-}
-
-/// OutsideExecution enum with tagged serialization for VRF server compatibility.
-///
-/// Different from `katana_rpc_types::OutsideExecution` which uses untagged serialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum VrfOutsideExecution {
-    V2(OutsideExecutionV2),
-    V3(OutsideExecutionV3),
-}
-
-/// A signed outside execution request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedOutsideExecution {
-    pub address: Felt,
-    pub outside_execution: VrfOutsideExecution,
-    pub signature: Vec<Felt>,
 }
 
 /// Response from GET /info endpoint.
@@ -126,13 +109,14 @@ impl VrfClient {
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn outside_execution(
         &self,
-        request: SignedOutsideExecution,
-        context: RequestContext,
+        request: &SignedOutsideExecution,
+        context: &RequestContext,
     ) -> Result<SignedOutsideExecution, VrfClientError> {
         #[derive(Debug, Serialize)]
-        struct OutsideExecutionRequest {
-            request: SignedOutsideExecution,
-            context: RequestContext,
+        struct OutsideExecutionRequest<'a> {
+            #[serde(with = "vrf_signed_outside_execution_serde")]
+            request: &'a SignedOutsideExecution,
+            context: &'a RequestContext,
         }
 
         let url = self.url.join("/outside_execution")?;
@@ -152,9 +136,92 @@ impl VrfClient {
 
         #[derive(Debug, Deserialize)]
         struct OutsideExecutionResponse {
+            #[serde(with = "vrf_signed_outside_execution_serde")]
             result: SignedOutsideExecution,
         }
 
         Ok(response.json::<OutsideExecutionResponse>().await?.result)
+    }
+}
+
+/// Serde module for [`SignedOutsideExecution`] that serializes the nested
+/// [`OutsideExecution`] as a **tagged** enum, while the canonical type uses
+/// `#[serde(untagged)]`.
+///
+/// Temporary workaround until https://github.com/cartridge-gg/vrf/pull/41 is merged,
+/// after which the VRF server will accept untagged format and this module can be removed.
+///
+/// This is only made public so that it can be used for mock VRF server responses.
+pub mod vrf_signed_outside_execution_serde {
+    use katana_primitives::{ContractAddress, Felt};
+    use katana_rpc_types::outside_execution::{
+        OutsideExecution as UntaggedOutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
+    };
+    use katana_rpc_types::SignedOutsideExecution;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    /// Tagged version of [`OutsideExecution`] for VRF server compatibility.
+    #[derive(Serialize, Deserialize)]
+    enum TaggedOutsideExecution {
+        V2(OutsideExecutionV2),
+        V3(OutsideExecutionV3),
+    }
+
+    /// Accepts both tagged (`{"V2": {...}}`) and untagged (`{...}`) formats.
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum FlexibleOutsideExecution {
+        Tagged(TaggedOutsideExecution),
+        Untagged(UntaggedOutsideExecution),
+    }
+
+    #[derive(Serialize)]
+    struct SerializeShadow {
+        address: ContractAddress,
+        outside_execution: TaggedOutsideExecution,
+        signature: Vec<Felt>,
+    }
+
+    #[derive(Deserialize)]
+    struct DeserializeShadow {
+        address: ContractAddress,
+        outside_execution: FlexibleOutsideExecution,
+        signature: Vec<Felt>,
+    }
+
+    pub fn serialize<S: Serializer>(
+        value: &SignedOutsideExecution,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let outside_execution = match &value.outside_execution {
+            UntaggedOutsideExecution::V2(v) => TaggedOutsideExecution::V2(v.clone()),
+            UntaggedOutsideExecution::V3(v) => TaggedOutsideExecution::V3(v.clone()),
+        };
+
+        SerializeShadow {
+            outside_execution,
+            signature: value.signature.clone(),
+            address: value.address,
+        }
+        .serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<SignedOutsideExecution, D::Error> {
+        let shadow = DeserializeShadow::deserialize(deserializer)?;
+        let outside_execution = match shadow.outside_execution {
+            FlexibleOutsideExecution::Untagged(oe) => oe,
+            FlexibleOutsideExecution::Tagged(tagged) => match tagged {
+                TaggedOutsideExecution::V2(v) => UntaggedOutsideExecution::V2(v),
+                TaggedOutsideExecution::V3(v) => UntaggedOutsideExecution::V3(v),
+            },
+        };
+
+        Ok(SignedOutsideExecution {
+            outside_execution,
+            signature: shadow.signature,
+            address: shadow.address,
+        })
     }
 }

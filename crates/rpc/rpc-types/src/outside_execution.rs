@@ -14,30 +14,21 @@
 
 use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex};
 use cainome::cairo_serde_derive::CairoSerde;
-use katana_primitives::execution::EntryPointSelector;
+use cainome_cairo_serde::CairoSerde;
+use katana_primitives::execution::Call;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-
-/// A single call to be executed as part of an outside execution.
-#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
-pub struct Call {
-    /// Contract address to call.
-    pub to: ContractAddress,
-    /// Function selector to invoke.
-    pub selector: EntryPointSelector,
-    /// Arguments to pass to the function.
-    pub calldata: Vec<Felt>,
-}
+use starknet::macros::selector;
 
 /// Nonce channel
-#[derive(Clone, CairoSerde, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, CairoSerde, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct NonceChannel(
     Felt,
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")] u128,
 );
 
 /// Outside execution version 2 (SNIP-9 standard).
-#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct OutsideExecutionV2 {
     /// Address allowed to initiate execution ('ANY_CALLER' for unrestricted).
     pub caller: ContractAddress,
@@ -50,11 +41,12 @@ pub struct OutsideExecutionV2 {
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
     pub execute_before: u64,
     /// Calls to execute in order.
+    #[serde(with = "calls_serde")]
     pub calls: Vec<Call>,
 }
 
 /// Non-standard extension of the [`OutsideExecutionV2`] supported by the Cartridge Controller.
-#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct OutsideExecutionV3 {
     /// Address allowed to initiate execution ('ANY_CALLER' for unrestricted).
     pub caller: ContractAddress,
@@ -67,10 +59,11 @@ pub struct OutsideExecutionV3 {
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
     pub execute_before: u64,
     /// Calls to execute in order.
+    #[serde(with = "calls_serde")]
     pub calls: Vec<Call>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum OutsideExecution {
     /// SNIP-9 standard version.
@@ -85,6 +78,131 @@ impl OutsideExecution {
             OutsideExecution::V2(v2) => v2.caller,
             OutsideExecution::V3(v3) => v3.caller,
         }
+    }
+
+    pub fn calls(&self) -> &[Call] {
+        match self {
+            Self::V2(v) => &v.calls,
+            Self::V3(v) => &v.calls,
+        }
+    }
+
+    pub fn selector(&self) -> Felt {
+        match self {
+            Self::V2(_) => selector!("execute_from_outside_v2"),
+            Self::V3(_) => selector!("execute_from_outside_v3"),
+        }
+    }
+}
+
+impl CairoSerde for OutsideExecution {
+    const SERIALIZED_SIZE: Option<usize> = None;
+
+    type RustType = Self;
+
+    fn cairo_serialized_size(rust: &Self::RustType) -> usize {
+        match rust {
+            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialized_size(v2),
+            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialized_size(v3),
+        }
+    }
+
+    fn cairo_serialize(rust: &Self::RustType) -> Vec<Felt> {
+        match rust {
+            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(v2),
+            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(v3),
+        }
+    }
+
+    fn cairo_deserialize(
+        felts: &[Felt],
+        offset: usize,
+    ) -> Result<Self::RustType, ::cainome_cairo_serde::Error> {
+        if let Ok(value) = OutsideExecutionV2::cairo_deserialize(felts, offset) {
+            return Ok(OutsideExecution::V2(value));
+        }
+
+        if let Ok(value) = OutsideExecutionV3::cairo_deserialize(felts, offset) {
+            return Ok(OutsideExecution::V3(value));
+        }
+
+        Err(::cainome_cairo_serde::Error::Deserialize(
+            "unknown outside execution variant".to_string(),
+        ))
+    }
+}
+
+/// An outside execution request that has been signed by the caller.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SignedOutsideExecution {
+    /// The contract address of the caller.
+    pub address: ContractAddress,
+    /// The outside execution request to be executed.
+    pub outside_execution: OutsideExecution,
+    /// The signature of the caller.
+    pub signature: Vec<Felt>,
+}
+
+impl From<SignedOutsideExecution> for Call {
+    fn from(signed: SignedOutsideExecution) -> Self {
+        let SignedOutsideExecution { address: contract_address, outside_execution, signature } =
+            signed;
+
+        let entry_point_selector = outside_execution.selector();
+
+        let outside_execution = OutsideExecution::cairo_serialize(&outside_execution);
+        let signature = Vec::<Felt>::cairo_serialize(&signature);
+        let calldata = [outside_execution, signature].concat();
+
+        Self { contract_address, calldata, entry_point_selector }
+    }
+}
+
+mod calls_serde {
+    use katana_primitives::execution::Call;
+    use katana_primitives::{ContractAddress, Felt};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize)]
+    struct CallRef<'a> {
+        #[serde(rename = "to")]
+        contract_address: &'a ContractAddress,
+        #[serde(rename = "selector")]
+        entry_point_selector: &'a Felt,
+        calldata: &'a Vec<Felt>,
+    }
+
+    #[derive(Deserialize)]
+    struct CallDe {
+        #[serde(rename = "to")]
+        contract_address: ContractAddress,
+        #[serde(rename = "selector")]
+        entry_point_selector: Felt,
+        calldata: Vec<Felt>,
+    }
+
+    pub fn serialize<S: Serializer>(calls: &[Call], serializer: S) -> Result<S::Ok, S::Error> {
+        let refs: Vec<CallRef<'_>> = calls
+            .iter()
+            .map(|c| CallRef {
+                contract_address: &c.contract_address,
+                entry_point_selector: &c.entry_point_selector,
+                calldata: &c.calldata,
+            })
+            .collect();
+        refs.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Call>, D::Error> {
+        let items = Vec::<CallDe>::deserialize(deserializer)?;
+        Ok(items
+            .into_iter()
+            .map(|c| Call {
+                contract_address: c.contract_address,
+                entry_point_selector: c.entry_point_selector,
+                calldata: c.calldata,
+            })
+            .collect())
     }
 }
 
@@ -105,10 +223,10 @@ mod tests {
             execute_before: 3000000000,
             calls: vec![
                 Call {
-                    to: address!(
+                    contract_address: address!(
                         "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
                     ),
-                    selector: selector!("approve"),
+                    entry_point_selector: selector!("approve"),
                     calldata: vec![
                         felt!("0x50302d9f4df7a96567423f64f1271ef07537469d8e8c4dd2409cf3cc4274de4"),
                         felt!("0x11c37937e08000"),
@@ -116,10 +234,10 @@ mod tests {
                     ],
                 },
                 Call {
-                    to: address!(
+                    contract_address: address!(
                         "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
                     ),
-                    selector: selector!("transfer"),
+                    entry_point_selector: selector!("transfer"),
                     calldata: vec![
                         felt!("0x50302d9f4df7a96567423f64f1271ef07537469d8e8c4dd2409cf3cc4274de4"),
                         felt!("0x11c37937e08000"),
@@ -170,10 +288,10 @@ mod tests {
             execute_before: 3000000000,
             calls: vec![
                 Call {
-                    to: address!(
+                    contract_address: address!(
                         "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
                     ),
-                    selector: selector!("approve"),
+                    entry_point_selector: selector!("approve"),
                     calldata: vec![
                         felt!("0x50302d9f4df7a96567423f64f1271ef07537469d8e8c4dd2409cf3cc4274de4"),
                         felt!("0x11c37937e08000"),
@@ -181,10 +299,10 @@ mod tests {
                     ],
                 },
                 Call {
-                    to: address!(
+                    contract_address: address!(
                         "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
                     ),
-                    selector: selector!("transfer"),
+                    entry_point_selector: selector!("transfer"),
                     calldata: vec![
                         felt!("0x50302d9f4df7a96567423f64f1271ef07537469d8e8c4dd2409cf3cc4274de4"),
                         felt!("0x11c37937e08000"),

@@ -7,8 +7,8 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-executor.workspace = true
 katana-chain-spec.workspace = true
+katana-executor.workspace = true
 katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true

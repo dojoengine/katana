@@ -7,9 +7,10 @@ pub mod args;
 pub mod file;
 pub mod full;
 pub mod options;
+pub mod utils;
+
 #[cfg(feature = "paymaster")]
 pub mod sidecar;
-pub mod utils;
 
 pub use args::SequencerNodeArgs;
 pub use options::*;
@@ -24,7 +25,7 @@ pub struct NodeCli {
 
 #[derive(Debug, Subcommand, PartialEq)]
 pub enum NodeSubcommand {
-    #[command(about = "Launch a full node", hide = true)]
+    #[command(about = "Launch a full node")]
     Full(Box<FullNodeArgs>),
 
     #[command(about = "Launch a sequencer node")]

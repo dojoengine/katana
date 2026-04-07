@@ -19,7 +19,7 @@ use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::utils::split_u256;
-use katana_primitives::version::StarknetVersion;
+use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use lazy_static::lazy_static;
 
@@ -54,8 +54,7 @@ impl ChainSpec {
             l2_gas_prices: GasPrices::MIN,
             l1_data_gas_prices: self.genesis.gas_prices.clone(),
             sequencer_address: self.genesis.sequencer_address,
-            // keep at 0.13.1.1 for backward compatibility reason
-            starknet_version: StarknetVersion::new([0, 13, 1, 1]),
+            starknet_version: CURRENT_STARKNET_VERSION,
         };
 
         ExecutableBlock { header, body: Vec::new() }
@@ -338,7 +337,7 @@ mod tests {
                 l1_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_data_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
-                starknet_version: StarknetVersion::new([0, 13, 1, 1]),
+                starknet_version: CURRENT_STARKNET_VERSION,
             },
             body: Vec::new(),
         };

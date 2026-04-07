@@ -4,7 +4,8 @@ use std::task::{Context, Poll};
 
 use block_producer::BlockProductionError;
 use futures::stream::StreamExt;
-use katana_pool::{PendingTransactions, PoolOrd, TransactionPool, TxPool};
+use katana_pool::api::{PendingTransactions, PoolOrd, TransactionPool};
+use katana_pool::TxPool;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use tracing::{error, info};
