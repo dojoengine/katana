@@ -41,9 +41,9 @@ async fn main() -> Result<()> {
 
     info!("=== saya-tee e2e test starting ===");
 
-    // 1. Spawn L2 dev Katana.
-    let l2 = nodes::spawn_l2().await;
-    info!(l2_url = %l2.url(), "L2 Katana ready");
+    // 1. Spawn L2 dev Katana as a subprocess (see nodes module docs for why).
+    let l2 = nodes::spawn_l2().await?;
+    info!(l2_url = %l2.url(), "L2 Katana subprocess ready");
 
     // 2. Bootstrap mock TEE registry + Piltover on L2 via saya-ops.
     let bootstrap = bootstrap::bootstrap_l2(&l2).await?;
@@ -68,7 +68,8 @@ async fn main() -> Result<()> {
     })?;
     info!("saya-tee sidecar spawned");
 
-    // 5. Drive L3 to advance block height.
+    // 5. Drive L3 to advance block height — provable-mode rollups never
+    //    produce empty blocks, so we submit explicit no-op transfers.
     nodes::drive_l3_blocks(&l3, 3).await?;
     info!("L3 advanced to block height >= 3");
 
