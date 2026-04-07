@@ -1037,9 +1037,32 @@ enum RowStatus {
     Failed(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecKind {
+    Declare,
+    Deploy,
+}
+
+impl ExecKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            ExecKind::Declare => "declare",
+            ExecKind::Deploy => "deploy",
+        }
+    }
+}
+
+/// One row of the Execute tab. The structured fields exist so the renderer can
+/// compute column widths once across all rows and pad each cell to that width —
+/// otherwise the trailing detail (hash/address/error) would zig-zag with the
+/// length of every primary/secondary field.
 #[derive(Debug, Clone)]
 struct ExecRow {
-    label: String,
+    kind: ExecKind,
+    /// Declare: the local class alias. Deploy: the contract label.
+    primary: String,
+    /// Deploy-only: the class the contract is deploying. `None` for declares.
+    secondary: Option<String>,
     status: RowStatus,
 }
 
@@ -1203,44 +1226,33 @@ fn drain_progress(app: &mut AppState) {
 
     while let Ok(event) = rx.try_recv() {
         match event {
-            BootstrapEvent::DeclareStarted { idx, name, .. } => {
+            BootstrapEvent::DeclareStarted { idx, .. } => {
                 if let Some(row) = rows.get_mut(idx) {
                     row.status = RowStatus::Running;
-                    row.label = format!("declare  {name}");
                 }
             }
             BootstrapEvent::DeclareCompleted {
-                idx, name, class_hash, already_declared, ..
+                idx, class_hash, already_declared, ..
             } => {
                 if let Some(row) = rows.get_mut(idx) {
                     let suffix = if already_declared { " (already)" } else { "" };
                     row.status = RowStatus::Done(format!("{class_hash:#x}{suffix}"));
-                    row.label = format!("declare  {name}");
                 }
             }
-            BootstrapEvent::DeployStarted { idx, label, class_name } => {
+            BootstrapEvent::DeployStarted { idx, .. } => {
                 let row_idx = classes_len + idx;
                 if let Some(row) = rows.get_mut(row_idx) {
                     row.status = RowStatus::Running;
-                    row.label =
-                        format!("deploy   {} ({class_name})", label.as_deref().unwrap_or("-"));
                 }
             }
             BootstrapEvent::DeployCompleted {
-                idx,
-                label,
-                class_name,
-                address,
-                already_deployed,
-                ..
+                idx, address, already_deployed, ..
             } => {
                 let row_idx = classes_len + idx;
                 if let Some(row) = rows.get_mut(row_idx) {
                     let suffix = if already_deployed { " (already)" } else { "" };
                     row.status =
                         RowStatus::Done(format!("{:#x}{suffix}", Felt::from(address)));
-                    row.label =
-                        format!("deploy   {} ({class_name})", label.as_deref().unwrap_or("-"));
                 }
             }
             BootstrapEvent::Failed { error } => {
@@ -1471,13 +1483,17 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
     let mut rows: Vec<ExecRow> = Vec::with_capacity(plan.declares.len() + plan.deploys.len());
     for d in &plan.declares {
         rows.push(ExecRow {
-            label: format!("declare  {}", d.name),
+            kind: ExecKind::Declare,
+            primary: d.name.clone(),
+            secondary: None,
             status: RowStatus::Pending,
         });
     }
     for d in &plan.deploys {
         rows.push(ExecRow {
-            label: format!("deploy   {} ({})", d.label.as_deref().unwrap_or("-"), d.class_name),
+            kind: ExecKind::Deploy,
+            primary: d.label.clone().unwrap_or_else(|| "-".to_string()),
+            secondary: Some(d.class_name.clone()),
             status: RowStatus::Pending,
         });
     }
@@ -1994,8 +2010,24 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
     if rows.is_empty() {
         lines.push(Line::from("(press `x` to start)"));
     } else {
+        // Compute column widths once across all rows so the trailing detail
+        // (hash/address/error) lines up regardless of how long any individual
+        // primary/secondary cell is.
+        let primary_width =
+            rows.iter().map(|r| r.primary.chars().count()).max().unwrap_or(0).max(1);
+        // Secondary cells are wrapped in parens at render time; the column width
+        // is the longest unwrapped name + 2 for the parens. Plans without any
+        // deploys collapse this column to zero width.
+        let secondary_width = rows
+            .iter()
+            .filter_map(|r| r.secondary.as_ref().map(|s| s.chars().count() + 2))
+            .max()
+            .unwrap_or(0);
+        // `declare` is the longest kind label at 7 chars; pin the column to that.
+        const KIND_WIDTH: usize = 7;
+
         for row in rows {
-            let (icon, style) = match &row.status {
+            let (icon, icon_style) = match &row.status {
                 RowStatus::Pending => ("  ".to_string(), Style::default().fg(Color::DarkGray)),
                 RowStatus::Running => {
                     let frame = SPINNER_FRAMES[(tick as usize) % SPINNER_FRAMES.len()];
@@ -2005,13 +2037,19 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
                 RowStatus::Failed(_) => ("✗ ".to_string(), Style::default().fg(Color::Red)),
             };
             let detail = match &row.status {
-                RowStatus::Done(s) => format!("    {s}"),
-                RowStatus::Failed(s) => format!("    {s}"),
+                RowStatus::Done(s) | RowStatus::Failed(s) => s.clone(),
                 _ => String::new(),
             };
+            let secondary_cell = match &row.secondary {
+                Some(s) => format!("({s})"),
+                None => String::new(),
+            };
+
             lines.push(Line::from(vec![
-                Span::styled(icon, style),
-                Span::raw(row.label.clone()),
+                Span::styled(icon, icon_style),
+                Span::raw(format!("{:<KIND_WIDTH$}  ", row.kind.as_str())),
+                Span::raw(format!("{:<primary_width$}  ", row.primary)),
+                Span::raw(format!("{:<secondary_width$}  ", secondary_cell)),
                 Span::styled(detail, Style::default().fg(Color::DarkGray)),
             ]));
         }
