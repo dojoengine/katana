@@ -841,7 +841,17 @@ enum Modal {
     /// Fuzzy file picker for loading a Sierra class JSON from disk. The user types
     /// a query and we live-filter the cached file list as they go; absolute paths
     /// (starting with `/` or `~`) bypass fuzzy matching and are treated as literal.
-    AddClassFile { search: FileSearch, error: Option<String> },
+    ///
+    /// `pending_load` is `Some` while a background worker thread is parsing + compiling
+    /// the picked file. The CASM compile inside [`load_class_file`] can take several
+    /// hundred ms (or more) for non-trivial Sierra programs and would otherwise freeze
+    /// the event loop. While loading, the modal blocks all input except `Esc` (which
+    /// drops the receiver — the worker keeps running but its result is discarded).
+    AddClassFile {
+        search: FileSearch,
+        error: Option<String>,
+        pending_load: Option<PendingLoad>,
+    },
     /// Add or edit a deploy. `editing_index = Some(i)` means we're editing in place.
     ContractForm {
         editing_index: Option<usize>,
@@ -849,6 +859,19 @@ enum Modal {
     },
     /// Save manifest path prompt shown after successful execution.
     SaveManifest { path: TextInput, error: Option<String> },
+}
+
+/// Background load handle for the AddClassFile modal. The worker thread does the
+/// expensive `parse + class_hash + casm_compile` chain, then ships the result back
+/// to the UI thread via a sync channel that we drain on every event-loop tick.
+#[derive(Debug)]
+struct PendingLoad {
+    /// The path being loaded — surfaced in the modal so the user knows what's spinning.
+    path: PathBuf,
+    /// One-shot result channel. The worker writes once and disconnects.
+    rx: std::sync::mpsc::Receiver<Result<DeclareStep>>,
+    /// Wall-clock start time, used to drive the spinner frame.
+    started: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1070,11 +1093,42 @@ fn event_loop(
         // and the rows update on the next draw.
         drain_progress(app);
 
-        // Tick any debounced background work attached to the current modal — right
-        // now that's just the fuzzy file search, but the same hook would carry any
-        // future "wait until quiet for N ms" timer.
-        if let Some(Modal::AddClassFile { search, .. }) = app.modal.as_mut() {
+        // Tick any debounced / background work attached to the current modal: the
+        // fuzzy file search debounce, and the AddClassFile background load worker.
+        // We have to extract any "transition the modal" decision from the borrow
+        // before we mutate `app.modal` further down — hence the `pending_class_load`
+        // local instead of doing the work in-place.
+        let mut completed_load: Option<Result<DeclareStep>> = None;
+        if let Some(Modal::AddClassFile { search, pending_load, .. }) = app.modal.as_mut() {
             search.tick(Instant::now());
+            if let Some(pl) = pending_load {
+                match pl.rx.try_recv() {
+                    Ok(result) => completed_load = Some(result),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {} // still loading
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        completed_load = Some(Err(anyhow!(
+                            "background class loader thread disconnected without sending a result"
+                        )));
+                    }
+                }
+            }
+        }
+        if let Some(result) = completed_load {
+            match result {
+                Ok(step) => {
+                    app.classes.push(step);
+                    app.classes_state.select(Some(app.classes.len() - 1));
+                    app.modal = None;
+                }
+                Err(err) => {
+                    if let Some(Modal::AddClassFile { error, pending_load, .. }) =
+                        app.modal.as_mut()
+                    {
+                        *error = Some(err.to_string());
+                        *pending_load = None;
+                    }
+                }
+            }
         }
 
         // Poll for keyboard input with a short timeout — short enough that the spinner
@@ -1429,6 +1483,7 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                         app.modal = Some(Modal::AddClassFile {
                             search: FileSearch::open(),
                             error: None,
+                            pending_load: None,
                         });
                     }
                 }
@@ -1437,43 +1492,87 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                 }
             }
         }
-        Modal::AddClassFile { mut search, error: _ } => match code {
-            KeyCode::Esc => {} // discard
-            KeyCode::Enter => match search.resolve_choice() {
-                Some(pb) => match load_class_file(&pb) {
-                    Ok(step) => app.classes.push(step),
-                    Err(e) => {
+        Modal::AddClassFile { mut search, error: _, pending_load } => {
+            // While a background load is in flight, only Esc is honoured. Everything
+            // else is dropped — typing into the query or moving the selection while
+            // half-loaded would be confusing and the user can't re-Enter anyway.
+            if pending_load.is_some() {
+                if code == KeyCode::Esc {
+                    // Drop the modal (and the receiver) — the worker thread will
+                    // finish on its own and its send into the closed channel is a
+                    // harmless no-op.
+                    return;
+                }
+                app.modal = Some(Modal::AddClassFile {
+                    search,
+                    error: None,
+                    pending_load,
+                });
+                return;
+            }
+
+            match code {
+                KeyCode::Esc => {} // discard
+                KeyCode::Enter => match search.resolve_choice() {
+                    Some(pb) => {
+                        // Spawn the parse + compile on a worker thread and stash the
+                        // receiver. The event-loop tick drains it and applies the
+                        // result, so the UI keeps redrawing and the spinner ticks.
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        let path_for_task = pb.clone();
+                        std::thread::spawn(move || {
+                            let _ = tx.send(load_class_file(&path_for_task));
+                        });
                         app.modal = Some(Modal::AddClassFile {
                             search,
-                            error: Some(e.to_string()),
+                            error: None,
+                            pending_load: Some(PendingLoad {
+                                path: pb,
+                                rx,
+                                started: Instant::now(),
+                            }),
+                        });
+                    }
+                    None => {
+                        app.modal = Some(Modal::AddClassFile {
+                            search,
+                            error: Some("no match — keep typing or press Esc".to_string()),
+                            pending_load: None,
                         });
                     }
                 },
-                None => {
+                KeyCode::Down => {
+                    search.move_down();
                     app.modal = Some(Modal::AddClassFile {
                         search,
-                        error: Some("no match — keep typing or press Esc".to_string()),
+                        error: None,
+                        pending_load: None,
                     });
                 }
-            },
-            KeyCode::Down => {
-                search.move_down();
-                app.modal = Some(Modal::AddClassFile { search, error: None });
-            }
-            KeyCode::Up => {
-                search.move_up();
-                app.modal = Some(Modal::AddClassFile { search, error: None });
-            }
-            _ => {
-                // Forward everything else to the readline-style editor. Mark the
-                // search as dirty so the debounce timer in the event-loop tick picks
-                // it up — fast typing then only triggers one fuzzy pass per pause.
-                if handle_text_edit(&mut search.query, code, mods) {
-                    search.mark_dirty();
+                KeyCode::Up => {
+                    search.move_up();
+                    app.modal = Some(Modal::AddClassFile {
+                        search,
+                        error: None,
+                        pending_load: None,
+                    });
                 }
-                app.modal = Some(Modal::AddClassFile { search, error: None });
+                _ => {
+                    // Forward everything else to the readline-style editor. Mark the
+                    // search as dirty so the debounce timer in the event-loop tick
+                    // picks it up — fast typing then only triggers one fuzzy pass
+                    // per pause.
+                    if handle_text_edit(&mut search.query, code, mods) {
+                        search.mark_dirty();
+                    }
+                    app.modal = Some(Modal::AddClassFile {
+                        search,
+                        error: None,
+                        pending_load: None,
+                    });
+                }
             }
-        },
+        }
         Modal::ContractForm { editing_index, mut form } => {
             // Reconstruct the class options every keystroke so the form always reflects
             // the up-to-date set (in case the user added classes elsewhere).
@@ -1870,7 +1969,7 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                 .highlight_symbol("> ");
             f.render_stateful_widget(list, area, &mut state);
         }
-        Modal::AddClassFile { search, error } => {
+        Modal::AddClassFile { search, error, pending_load } => {
             // Two-row layout inside the modal: query + matches.
             let inner = Layout::default()
                 .direction(Direction::Vertical)
@@ -1892,48 +1991,79 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                 .block(Block::default().borders(Borders::ALL).title(title));
             f.render_widget(query_para, inner[0]);
 
-            // Matches list.
-            let total = search.matches.len();
-            let items: Vec<ListItem> = search
-                .matches
-                .iter()
-                .map(|(path, _)| {
-                    // Display path relative to the walked root when possible — easier
-                    // to scan than full absolute paths.
-                    let display = path
-                        .strip_prefix(&search.root)
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap_or_else(|_| path.to_string_lossy().into_owned());
-                    ListItem::new(display)
-                })
-                .collect();
-
-            // Three distinct empty states the user might land in: nothing was found
-            // on disk at all, they haven't typed anything yet, or their query just
-            // doesn't match anything. Each one wants a different hint.
-            let list_title = if search.candidates.is_empty() {
-                "(no .json files under cwd)".to_string()
-            } else if search.query.is_empty() {
-                format!("(start typing to search {} files)", search.candidates.len())
-            } else if total == 0 {
-                format!("(no matches in {} files)", search.candidates.len())
+            // Matches list (or background-load progress takeover).
+            if let Some(pl) = pending_load {
+                // While the worker is parsing/compiling, replace the match list with
+                // a single-line spinner so the user knows something's happening and
+                // the modal is still alive.
+                let elapsed = pl.started.elapsed();
+                let frame =
+                    SPINNER_FRAMES[(elapsed.as_millis() / 80) as usize % SPINNER_FRAMES.len()];
+                let display = pl
+                    .path
+                    .strip_prefix(&search.root)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| pl.path.to_string_lossy().into_owned());
+                let lines = vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  {frame} loading {display}"),
+                        Style::default().fg(Color::Yellow),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  ({}.{:03}s elapsed)", elapsed.as_secs(), elapsed.subsec_millis()),
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ];
+                let p = Paragraph::new(lines)
+                    .block(Block::default().borders(Borders::ALL).title("Loading…"));
+                f.render_widget(p, inner[1]);
             } else {
-                format!("{}/{} matches", total, search.candidates.len())
-            };
+                let total = search.matches.len();
+                let items: Vec<ListItem> = search
+                    .matches
+                    .iter()
+                    .map(|(path, _)| {
+                        // Display path relative to the walked root when possible —
+                        // easier to scan than full absolute paths.
+                        let display = path
+                            .strip_prefix(&search.root)
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_else(|_| path.to_string_lossy().into_owned());
+                        ListItem::new(display)
+                    })
+                    .collect();
 
-            let mut list_state = ListState::default();
-            if total > 0 {
-                list_state.select(Some(search.selected));
+                // Three distinct empty states the user might land in: nothing was
+                // found on disk at all, they haven't typed anything yet, or their
+                // query just doesn't match anything. Each one wants a different hint.
+                let list_title = if search.candidates.is_empty() {
+                    "(no .json files under cwd)".to_string()
+                } else if search.query.is_empty() {
+                    format!("(start typing to search {} files)", search.candidates.len())
+                } else if total == 0 {
+                    format!("(no matches in {} files)", search.candidates.len())
+                } else {
+                    format!("{}/{} matches", total, search.candidates.len())
+                };
+
+                let mut list_state = ListState::default();
+                if total > 0 {
+                    list_state.select(Some(search.selected));
+                }
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::ALL).title(list_title))
+                    .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+                    .highlight_symbol("> ");
+                f.render_stateful_widget(list, inner[1], &mut list_state);
             }
-            let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title(list_title))
-                .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
-                .highlight_symbol("> ");
-            f.render_stateful_widget(list, inner[1], &mut list_state);
 
             // Hints / error.
             let hint_text = if let Some(e) = error {
                 Span::styled(format!("error: {e}"), Style::default().fg(Color::Red))
+            } else if pending_load.is_some() {
+                Span::styled("[Esc] cancel", Style::default().fg(Color::DarkGray))
             } else {
                 Span::styled(
                     "[↑/↓] move  [Enter] load  [Esc] cancel",
