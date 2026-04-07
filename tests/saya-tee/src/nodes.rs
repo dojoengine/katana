@@ -13,10 +13,10 @@
 //!   already has them. Subprocessing the L2 keeps each blockifier instance per-process.
 //!
 //! - **L3** — rollup chain whose `SettlementLayer::Starknet` points at L2's Piltover address.
-//!   Spawned **in-process** via [`katana_utils::TestNode`] so we can configure
-//!   `Config.tee = TeeConfig { provider_type: Mock, .. }` (the katana CLI doesn't currently
-//!   expose `--tee.provider mock`, only `sev-snp`). Its `tee_generateQuote` RPC serves a stub
-//!   attestation that `saya-tee --mock-prove` consumes.
+//!   Spawned **in-process** via [`katana_utils::TestNode`] so we can configure `Config.tee =
+//!   TeeConfig { provider_type: Mock, .. }` (the katana CLI doesn't currently expose
+//!   `--tee.provider mock`, only `sev-snp`). Its `tee_generateQuote` RPC serves a stub attestation
+//!   that `saya-tee --mock-prove` consumes.
 
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -83,14 +83,12 @@ impl L2Subprocess {
         // to what Saya's upstream e2e harness (`compose.l2.yml`) uses for
         // `katana0`. Hardcoded here so we don't need to query the L2 or
         // depend on the internal `dev::ChainSpec` allocation seed.
-        let address = Felt::from_hex(
-            "0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec",
-        )
-        .expect("hardcoded address parses");
-        let private_key = Felt::from_hex(
-            "0xc5b2fcab997346f3ea1c00b002ecf6f382c5f9c9659a3894eb783c5320f912",
-        )
-        .expect("hardcoded key parses");
+        let address =
+            Felt::from_hex("0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec")
+                .expect("hardcoded address parses");
+        let private_key =
+            Felt::from_hex("0xc5b2fcab997346f3ea1c00b002ecf6f382c5f9c9659a3894eb783c5320f912")
+                .expect("hardcoded key parses");
         (address, private_key)
     }
 }
@@ -176,8 +174,8 @@ fn resolve_katana_bin() -> Result<PathBuf> {
     }
 
     Err(anyhow!(
-        "`katana` binary not found. Set KATANA_BIN env var or run \
-         `cargo build -p katana --bin katana` first. Tried: {}",
+        "`katana` binary not found. Set KATANA_BIN env var or run `cargo build -p katana --bin \
+         katana` first. Tried: {}",
         candidate.display()
     ))
 }

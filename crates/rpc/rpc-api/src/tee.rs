@@ -19,10 +19,7 @@ mod prev_block_number_serde {
     use katana_primitives::Felt;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    pub fn serialize<S: Serializer>(
-        n: &Option<BlockNumber>,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(n: &Option<BlockNumber>, s: S) -> Result<S::Ok, S::Error> {
         let felt = match n {
             Some(n) => Felt::from(*n),
             None => Felt::MAX,
@@ -30,9 +27,7 @@ mod prev_block_number_serde {
         felt.serialize(s)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        d: D,
-    ) -> Result<Option<BlockNumber>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<BlockNumber>, D::Error> {
         let felt = Felt::deserialize(d)?;
         if felt == Felt::MAX {
             Ok(None)

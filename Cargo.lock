@@ -6823,6 +6823,7 @@ dependencies = [
  "katana-rpc-types",
  "rstest 0.18.2",
  "serde",
+ "serde-utils",
  "serde_json",
  "thiserror 1.0.69",
 ]
