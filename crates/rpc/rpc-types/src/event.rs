@@ -75,8 +75,10 @@ pub struct EmittedEvent {
     /// The hash of the transaction where the event was emitted.
     pub transaction_hash: TxHash,
     /// The index of the transaction in the block.
+    #[serde(default)]
     pub transaction_index: u64,
     /// The index of the event within the transaction.
+    #[serde(default)]
     pub event_index: u64,
     /// The address of the contract that emitted the event.
     pub from_address: ContractAddress,
