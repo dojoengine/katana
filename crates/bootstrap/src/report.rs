@@ -2,7 +2,7 @@
 
 use comfy_table::{ContentArrangement, Table};
 
-use super::executor::BootstrapReport;
+use crate::executor::BootstrapReport;
 
 /// Print a two-table summary (declared classes, deployed contracts) to stdout.
 ///

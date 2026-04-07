@@ -6096,9 +6096,9 @@ dependencies = [
  "indicatif",
  "inquire",
  "jsonrpsee 0.26.0",
+ "katana-bootstrap",
  "katana-chain-spec",
  "katana-cli",
- "katana-contracts",
  "katana-db",
  "katana-genesis",
  "katana-primitives",
@@ -6121,11 +6121,33 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
- "toml 0.8.23",
  "tracing",
  "url",
  "vergen",
  "vergen-gitcl",
+]
+
+[[package]]
+name = "katana-bootstrap"
+version = "1.7.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "comfy-table",
+ "crossterm 0.28.1",
+ "jsonrpsee 0.26.0",
+ "katana-contracts",
+ "katana-primitives",
+ "katana-rpc-types",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "shellexpand",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml 0.8.23",
+ "url",
 ]
 
 [[package]]

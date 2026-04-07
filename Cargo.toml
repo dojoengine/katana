@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
 	"bin/katana",
+	"crates/bootstrap",
 	"crates/cartridge",
 	"crates/chain-spec",
 	"crates/cli",
@@ -77,6 +78,7 @@ inherits = "release"
 cartridge = { path = "crates/cartridge" }
 serde-utils = { path = "crates/serde-utils" }
 
+katana-bootstrap = { path = "crates/bootstrap" }
 katana-chain-spec = { path = "crates/chain-spec" }
 katana-cli = { path = "crates/cli" }
 katana-codecs = { path = "crates/storage/codecs" }

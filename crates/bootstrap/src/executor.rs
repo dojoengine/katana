@@ -22,7 +22,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::sleep;
 use url::Url;
 
-use super::plan::{BootstrapPlan, DeclareStep, DeployStep};
+use crate::plan::{BootstrapPlan, DeclareStep, DeployStep};
 
 /// Streaming progress events emitted by [`execute_with_progress`]. Consumers (the TUI)
 /// receive these in order on a tokio mpsc channel as the executor walks through the plan.

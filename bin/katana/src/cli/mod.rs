@@ -3,10 +3,10 @@ use std::future::Future;
 use anyhow::{Context, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+use katana_bootstrap::BootstrapArgs;
 use katana_cli::{NodeCli, SequencerNodeArgs};
 use tokio::runtime::Runtime;
 
-pub mod bootstrap;
 mod config;
 pub mod db;
 mod init;
@@ -56,7 +56,7 @@ pub enum Commands {
     Init(Box<init::InitCommand>),
 
     #[command(about = "Bootstrap a running katana node with classes and contracts")]
-    Bootstrap(Box<bootstrap::BootstrapArgs>),
+    Bootstrap(Box<BootstrapArgs>),
 
     #[command(about = "Chain configuration utilities")]
     Config(config::ConfigArgs),

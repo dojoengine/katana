@@ -1,7 +1,7 @@
 //! Resolved, ready-to-execute representation of a bootstrap operation.
 //!
 //! A [`BootstrapPlan`] is what the executor consumes. It is produced from either a
-//! parsed [`Manifest`](super::manifest::Manifest) or from the interactive prompt
+//! parsed [`Manifest`](crate::manifest::Manifest) or from the interactive prompt
 //! session, so the executor never has to know which front-end produced the work.
 //!
 //! Resolution does the I/O up front: file-loaded classes are read from disk and their
@@ -16,8 +16,8 @@ use anyhow::{anyhow, Context, Result};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::Felt;
 
-use super::embedded::{self, EmbeddedClass};
-use super::manifest::{ClassEntry, ContractEntry, Manifest};
+use crate::embedded::{self, EmbeddedClass};
+use crate::manifest::{ClassEntry, ContractEntry, Manifest};
 
 /// A fully-resolved declare step.
 #[derive(Debug, Clone)]

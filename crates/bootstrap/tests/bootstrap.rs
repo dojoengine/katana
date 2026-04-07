@@ -18,10 +18,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use jsonrpsee::server::{RpcModule, Server, ServerHandle};
 use jsonrpsee::types::error::ErrorObjectOwned;
 use jsonrpsee::types::Params;
-use katana::cli::bootstrap::executor::{
+use katana_bootstrap::executor::{
     self, execute_with_progress, BootstrapEvent, ExecutorConfig,
 };
-use katana::cli::bootstrap::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
+use katana_bootstrap::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
 use katana_contracts::contracts::Account as DevAccountClass;
 use katana_primitives::class::ContractClass;
 use katana_primitives::Felt;

@@ -1,4 +1,4 @@
-//! `katana bootstrap` — declare classes and deploy contracts on a running katana node.
+//! `katana bootstrap` — clap entry point.
 //!
 //! Two operating modes:
 //!
@@ -6,8 +6,8 @@
 //! - **Interactive** — a guided wizard, entered when `--interactive` is passed or when no
 //!   actionable inputs are present.
 //!
-//! Both modes feed into the same [`plan::BootstrapPlan`] -> [`executor::execute`] pipeline,
-//! so the only difference between them is *how* the plan is constructed.
+//! Both modes feed into the same [`crate::plan::BootstrapPlan`] -> [`crate::executor::execute`]
+//! pipeline, so the only difference between them is *how* the plan is constructed.
 
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -19,20 +19,14 @@ use katana_primitives::class::ContractClass;
 use katana_primitives::{ContractAddress, Felt};
 use url::Url;
 
-pub mod embedded;
-pub mod executor;
-pub mod manifest;
-pub mod plan;
-mod report;
-mod tui;
+use crate::executor::{self, ExecutorConfig};
+use crate::manifest::Manifest;
+use crate::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
+use crate::report;
+use crate::tui::{self, SignerDefaults};
+use crate::embedded;
 
-use executor::ExecutorConfig;
-use manifest::Manifest;
-use plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
-use tui::SignerDefaults;
-
-#[derive(Debug, Args)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[derive(Debug, Args, PartialEq, Eq)]
 pub struct BootstrapArgs {
     /// Force interactive wizard even if other flags are present.
     #[arg(long)]

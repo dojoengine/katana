@@ -109,7 +109,7 @@ impl Manifest {
 
         for (idx, contract) in self.contracts.iter().enumerate() {
             let known_local = self.classes.iter().any(|c| c.name == contract.class);
-            let known_embedded = super::embedded::get(&contract.class).is_some();
+            let known_embedded = crate::embedded::get(&contract.class).is_some();
             if !known_local && !known_embedded {
                 return Err(anyhow!(
                     "contract #{idx}: references unknown class `{}` (not declared in this \

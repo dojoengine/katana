@@ -51,12 +51,12 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::task::JoinHandle;
 use url::Url;
 
-use super::embedded::{self, EmbeddedClass};
-use super::executor::{
+use crate::embedded::{self, EmbeddedClass};
+use crate::executor::{
     execute_with_progress, BootstrapEvent, BootstrapReport, ExecutorConfig,
 };
-use super::manifest::{ClassEntry, ContractEntry, Manifest};
-use super::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
+use crate::manifest::{ClassEntry, ContractEntry, Manifest};
+use crate::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
 
 // =============================================================================
 // Public entry point

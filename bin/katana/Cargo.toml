@@ -7,9 +7,9 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-bootstrap.workspace = true
 katana-chain-spec.workspace = true
 katana-cli.workspace = true
-katana-contracts.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-genesis.workspace = true
 katana-primitives.workspace = true
@@ -41,7 +41,6 @@ serde.workspace = true
 strum_macros.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-toml.workspace = true
 tracing.workspace = true
 url.workspace = true
 
@@ -55,10 +54,8 @@ vergen-gitcl = { version = "1.0.0", features = [ "build", "cargo", "rustc", "si"
 [dev-dependencies]
 arbitrary.workspace = true
 assert_matches.workspace = true
-jsonrpsee = { workspace = true, features = [ "server", "http-client" ] }
 proptest = "1.0"
 rstest.workspace = true
-serde_json.workspace = true
 similar-asserts.workspace = true
 tempfile.workspace = true
 
