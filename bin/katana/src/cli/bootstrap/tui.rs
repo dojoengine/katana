@@ -323,6 +323,209 @@ impl SettingsForm {
 }
 
 // -----------------------------------------------------------------------------
+// Fuzzy file search (used by the AddClassFile modal)
+// -----------------------------------------------------------------------------
+
+/// Soft cap on the number of files we're willing to fuzzy-search over. In huge repos
+/// the cwd walk would otherwise stall the UI thread when the modal opens.
+const FILE_SEARCH_MAX_CANDIDATES: usize = 20_000;
+
+/// Recursive depth limit for the cwd walk. 8 is enough to reach Sierra artifacts in
+/// any reasonable nested project layout (e.g. `target/dev/foo.contract_class.json`)
+/// without paying for arbitrarily deep `node_modules`-style trees.
+const FILE_SEARCH_MAX_DEPTH: usize = 8;
+
+/// Number of matches to keep in the visible list — anything beyond this is dropped
+/// before rendering, since the modal area only shows so many lines anyway.
+const FILE_SEARCH_VISIBLE: usize = 20;
+
+#[derive(Debug)]
+struct FileSearch {
+    /// Raw query as the user has typed it. Empty = "show first N candidates verbatim".
+    query: String,
+    /// All `*.json` files found under cwd at modal-open time. Cached for the lifetime
+    /// of the modal so re-scoring is cheap on every keystroke.
+    candidates: Vec<PathBuf>,
+    /// Top matches, recomputed each time `query` changes. Higher score = better.
+    matches: Vec<(PathBuf, i64)>,
+    /// Index into `matches`. Always valid when `matches` is non-empty.
+    selected: usize,
+    /// Root we walked from — surfaced in the modal title so the user knows where the
+    /// candidate list came from.
+    root: PathBuf,
+}
+
+impl FileSearch {
+    /// Walk cwd and build the candidate list. Cheap-ish: we filter aggressively (only
+    /// `*.json`, only at depth ≤ 8, ignoring obvious heavy directories).
+    fn open() -> Self {
+        let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let candidates = walk_json_files(&root);
+        let mut s = Self {
+            query: String::new(),
+            candidates,
+            matches: Vec::new(),
+            selected: 0,
+            root,
+        };
+        s.recompute();
+        s
+    }
+
+    fn set_query(&mut self, q: String) {
+        self.query = q;
+        self.recompute();
+    }
+
+    fn recompute(&mut self) {
+        let prev = self.matches.get(self.selected).map(|(p, _)| p.clone());
+        self.matches.clear();
+
+        if self.query.is_empty() {
+            // No query → show the first FILE_SEARCH_VISIBLE candidates as-is, in walk
+            // order. Lets the user see what's even there before typing.
+            for path in self.candidates.iter().take(FILE_SEARCH_VISIBLE) {
+                self.matches.push((path.clone(), 0));
+            }
+        } else {
+            for path in &self.candidates {
+                let display = path.to_string_lossy();
+                if let Some(score) = fuzzy_score(&self.query, &display) {
+                    self.matches.push((path.clone(), score));
+                }
+            }
+            // Higher score first; on a tie prefer the shorter (more specific) path.
+            self.matches.sort_by(|a, b| {
+                b.1.cmp(&a.1).then_with(|| a.0.as_os_str().len().cmp(&b.0.as_os_str().len()))
+            });
+            self.matches.truncate(FILE_SEARCH_VISIBLE);
+        }
+
+        // Try to keep the same row highlighted across recomputes when possible — UX
+        // sanity so the cursor doesn't jump every keystroke.
+        self.selected = prev
+            .and_then(|p| self.matches.iter().position(|(m, _)| *m == p))
+            .unwrap_or(0);
+    }
+
+    fn move_down(&mut self) {
+        if !self.matches.is_empty() && self.selected + 1 < self.matches.len() {
+            self.selected += 1;
+        }
+    }
+
+    fn move_up(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
+
+    /// What `Enter` should load. Highlighted match wins; if there are no matches but
+    /// the query as-typed parses to a real file (e.g. an absolute path the user
+    /// pasted), fall back to that. Returns `None` when nothing is loadable.
+    fn resolve_choice(&self) -> Option<PathBuf> {
+        if let Some((path, _)) = self.matches.get(self.selected) {
+            return Some(path.clone());
+        }
+        let trimmed = self.query.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let pb = expand_tilde(trimmed);
+        if pb.is_file() {
+            Some(pb)
+        } else {
+            None
+        }
+    }
+}
+
+fn walk_json_files(root: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
+    while let Some((dir, depth)) = stack.pop() {
+        if out.len() >= FILE_SEARCH_MAX_CANDIDATES {
+            break;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            // Skip hidden + obvious heavy directories — these are almost never where
+            // the user keeps their compiled Sierra artifacts and walking them would
+            // dwarf the rest of the search.
+            if name.starts_with('.') {
+                continue;
+            }
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                if matches!(name, "target" | "node_modules" | "build" | "dist") {
+                    continue;
+                }
+                if depth + 1 < FILE_SEARCH_MAX_DEPTH {
+                    stack.push((path, depth + 1));
+                }
+            } else if file_type.is_file() && path.extension().is_some_and(|e| e == "json") {
+                out.push(path);
+                if out.len() >= FILE_SEARCH_MAX_CANDIDATES {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Tiny inline fuzzy scorer: classic subsequence match (case-insensitive) with a
+/// bonus for adjacent characters and a penalty for long candidates. Returns `None`
+/// when the query isn't a subsequence of the candidate. Good enough for a v1 file
+/// picker — if we ever want word-boundary or camelCase bonuses, drop in
+/// `fuzzy-matcher`'s `SkimMatcherV2` and delete this.
+fn fuzzy_score(query: &str, candidate: &str) -> Option<i64> {
+    if query.is_empty() {
+        return Some(0);
+    }
+    let q: Vec<char> = query.to_lowercase().chars().collect();
+    let mut q_idx = 0usize;
+    let mut score: i64 = 0;
+    let mut last_match: Option<usize> = None;
+    for (i, ch) in candidate.to_lowercase().chars().enumerate() {
+        if q_idx >= q.len() {
+            break;
+        }
+        if ch == q[q_idx] {
+            // +10 for adjacent matches, +1 for any other match.
+            if last_match == Some(i.wrapping_sub(1)) {
+                score += 10;
+            } else {
+                score += 1;
+            }
+            last_match = Some(i);
+            q_idx += 1;
+        }
+    }
+    if q_idx < q.len() {
+        return None;
+    }
+    // Penalize long candidates so a query that matches both `foo.json` and
+    // `path/to/foo.json` ranks the former higher.
+    Some(score * 5 - candidate.len() as i64)
+}
+
+fn expand_tilde(s: &str) -> PathBuf {
+    PathBuf::from(shellexpand::tilde(s).into_owned())
+}
+
+// -----------------------------------------------------------------------------
 // Modals
 // -----------------------------------------------------------------------------
 
@@ -330,8 +533,10 @@ impl SettingsForm {
 enum Modal {
     /// Pick an embedded class to declare, or open the file-load sub-modal.
     AddClassPicker { picker_state: ListState },
-    /// Free-text path entry for loading a Sierra class file.
-    AddClassFile { path: String, error: Option<String> },
+    /// Fuzzy file picker for loading a Sierra class JSON from disk. The user types
+    /// a query and we live-filter the cached file list as they go; absolute paths
+    /// (starting with `/` or `~`) bypass fuzzy matching and are treated as literal.
+    AddClassFile { search: FileSearch, error: Option<String> },
     /// Add or edit a deploy. `editing_index = Some(i)` means we're editing in place.
     ContractForm {
         editing_index: Option<usize>,
@@ -906,9 +1111,9 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode) {
                         let entry = &embedded::REGISTRY[i];
                         push_embedded_class(app, entry);
                     } else {
-                        // "Load from file…" → switch modals
+                        // "Load from file…" → switch modals (cwd walk happens here).
                         app.modal = Some(Modal::AddClassFile {
-                            path: String::new(),
+                            search: FileSearch::open(),
                             error: None,
                         });
                     }
@@ -918,30 +1123,47 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode) {
                 }
             }
         }
-        Modal::AddClassFile { mut path, error: _ } => match code {
+        Modal::AddClassFile { mut search, error: _ } => match code {
             KeyCode::Esc => {} // discard
-            KeyCode::Enter => {
-                let pb = PathBuf::from(path.trim());
-                match load_class_file(&pb) {
+            KeyCode::Enter => match search.resolve_choice() {
+                Some(pb) => match load_class_file(&pb) {
                     Ok(step) => app.classes.push(step),
                     Err(e) => {
                         app.modal = Some(Modal::AddClassFile {
-                            path,
+                            search,
                             error: Some(e.to_string()),
                         });
                     }
+                },
+                None => {
+                    app.modal = Some(Modal::AddClassFile {
+                        search,
+                        error: Some("no match — keep typing or press Esc".to_string()),
+                    });
                 }
+            },
+            KeyCode::Down => {
+                search.move_down();
+                app.modal = Some(Modal::AddClassFile { search, error: None });
+            }
+            KeyCode::Up => {
+                search.move_up();
+                app.modal = Some(Modal::AddClassFile { search, error: None });
             }
             KeyCode::Backspace => {
-                path.pop();
-                app.modal = Some(Modal::AddClassFile { path, error: None });
+                let mut q = search.query.clone();
+                q.pop();
+                search.set_query(q);
+                app.modal = Some(Modal::AddClassFile { search, error: None });
             }
             KeyCode::Char(c) => {
-                path.push(c);
-                app.modal = Some(Modal::AddClassFile { path, error: None });
+                let mut q = search.query.clone();
+                q.push(c);
+                search.set_query(q);
+                app.modal = Some(Modal::AddClassFile { search, error: None });
             }
             _ => {
-                app.modal = Some(Modal::AddClassFile { path, error: None });
+                app.modal = Some(Modal::AddClassFile { search, error: None });
             }
         },
         Modal::ContractForm { editing_index, mut form } => {
@@ -1362,26 +1584,72 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                 .highlight_symbol("> ");
             f.render_stateful_widget(list, area, &mut state);
         }
-        Modal::AddClassFile { path, error } => {
-            let mut lines = vec![
-                Line::from("Path to Sierra class JSON:"),
-                Line::from(format!("  {path}_")),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "[Enter] add  [Esc] cancel",
-                    Style::default().fg(Color::DarkGray),
-                )),
-            ];
-            if let Some(e) = error {
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled(
-                    format!("error: {e}"),
-                    Style::default().fg(Color::Red),
-                )));
+        Modal::AddClassFile { search, error } => {
+            // Two-row layout inside the modal: query + matches.
+            let inner = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3), // query box
+                    Constraint::Min(0),    // matches list
+                    Constraint::Length(2), // hints / error
+                ])
+                .split(area);
+
+            // Query box.
+            let title = format!(
+                "Load class file — fuzzy search under {}",
+                search.root.display()
+            );
+            let query_line = format!("  {}_", search.query);
+            let query_para = Paragraph::new(query_line)
+                .block(Block::default().borders(Borders::ALL).title(title));
+            f.render_widget(query_para, inner[0]);
+
+            // Matches list.
+            let total = search.matches.len();
+            let items: Vec<ListItem> = search
+                .matches
+                .iter()
+                .map(|(path, _)| {
+                    // Display path relative to the walked root when possible — easier
+                    // to scan than full absolute paths.
+                    let display = path
+                        .strip_prefix(&search.root)
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| path.to_string_lossy().into_owned());
+                    ListItem::new(display)
+                })
+                .collect();
+
+            let list_title = if search.candidates.is_empty() {
+                "(no .json files under cwd)".to_string()
+            } else if total == 0 {
+                format!("(no matches in {} files)", search.candidates.len())
+            } else {
+                format!("{}/{} matches", total, search.candidates.len())
+            };
+
+            let mut list_state = ListState::default();
+            if total > 0 {
+                list_state.select(Some(search.selected));
             }
-            let p = Paragraph::new(lines)
-                .block(Block::default().borders(Borders::ALL).title("Load class file"));
-            f.render_widget(p, area);
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title(list_title))
+                .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+                .highlight_symbol("> ");
+            f.render_stateful_widget(list, inner[1], &mut list_state);
+
+            // Hints / error.
+            let hint_text = if let Some(e) = error {
+                Span::styled(format!("error: {e}"), Style::default().fg(Color::Red))
+            } else {
+                Span::styled(
+                    "[↑/↓] move  [Enter] load  [Esc] cancel",
+                    Style::default().fg(Color::DarkGray),
+                )
+            };
+            let hint = Paragraph::new(Line::from(hint_text));
+            f.render_widget(hint, inner[2]);
         }
         Modal::ContractForm { editing_index, form } => {
             let opts = class_options(app);
@@ -1465,6 +1733,69 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                 .block(Block::default().borders(Borders::ALL).title("Save manifest"));
             f.render_widget(p, area);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fuzzy_score_subsequence_match() {
+        // Subsequence (non-contiguous) match.
+        assert!(fuzzy_score("foo", "build/foo.json").is_some());
+        // Same chars but out of order → no match.
+        assert!(fuzzy_score("oof", "foo.json").is_none());
+        // Empty query always scores zero (everything matches).
+        assert_eq!(fuzzy_score("", "anything.json"), Some(0));
+        // Case-insensitive.
+        assert!(fuzzy_score("FOO", "build/foo.json").is_some());
+    }
+
+    #[test]
+    fn fuzzy_score_prefers_shorter_paths_and_adjacency() {
+        // Shorter path with the same query wins (length penalty).
+        let short = fuzzy_score("foo", "foo.json").unwrap();
+        let long = fuzzy_score("foo", "a/b/c/d/e/foo.json").unwrap();
+        assert!(short > long, "short {short} should outrank long {long}");
+
+        // Adjacent matches outrank scattered ones for the same candidate length.
+        let adjacent = fuzzy_score("abc", "xabcx").unwrap();
+        let scattered = fuzzy_score("abc", "axbxc").unwrap();
+        assert!(
+            adjacent > scattered,
+            "adjacent {adjacent} should outrank scattered {scattered}"
+        );
+    }
+
+    #[test]
+    fn file_search_recompute_filters_and_sorts() {
+        let mut s = FileSearch {
+            query: String::new(),
+            candidates: vec![
+                PathBuf::from("a/b/c/d/e/foo.json"),
+                PathBuf::from("foo.json"),
+                PathBuf::from("bar.json"),
+                PathBuf::from("baz/foo_2.json"),
+            ],
+            matches: Vec::new(),
+            selected: 0,
+            root: PathBuf::from("."),
+        };
+
+        // Empty query → first N candidates verbatim, walk order.
+        s.recompute();
+        assert_eq!(s.matches.len(), 4);
+        assert_eq!(s.matches[0].0, PathBuf::from("a/b/c/d/e/foo.json"));
+
+        // After typing a query, only matches survive and they're sorted by score.
+        s.set_query("foo".to_string());
+        let paths: Vec<&PathBuf> = s.matches.iter().map(|(p, _)| p).collect();
+        assert!(paths.contains(&&PathBuf::from("foo.json")));
+        assert!(paths.contains(&&PathBuf::from("a/b/c/d/e/foo.json")));
+        assert!(!paths.contains(&&PathBuf::from("bar.json")), "bar shouldn't match `foo`");
+        // The shortest path (`foo.json`) should be first since it has the lowest length penalty.
+        assert_eq!(s.matches.first().unwrap().0, PathBuf::from("foo.json"));
     }
 }
 
