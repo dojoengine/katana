@@ -57,11 +57,16 @@ pub struct TeeQuoteResponse {
     /// The hash of the attested block.
     pub block_hash: BlockHash,
 
-    /// The number of the previous block.
-    pub prev_block_number: Option<BlockNumber>,
+    /// The number of the previous block, encoded as a `Felt` so the JSON
+    /// representation matches the schema `katana_tee_client::TeeQuoteResponse`
+    /// (used by `saya-tee`) deserializes against. Genesis (no previous block)
+    /// is represented as `Felt::MAX`, matching Piltover's `AppchainState`
+    /// genesis sentinel.
+    pub prev_block_number: Felt,
 
-    /// The number of the attested block.
-    pub block_number: BlockNumber,
+    /// The number of the attested block, encoded as a `Felt` for the same
+    /// reason as `prev_block_number`.
+    pub block_number: Felt,
 
     /// The block number Katana forked from (if running in fork mode).
     /// Attested by TEE hardware via report_data.
