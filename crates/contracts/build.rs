@@ -4,6 +4,11 @@ use std::{env, fs, thread};
 
 // Used by the controller artifact codegen
 const CONTROLLER_CLASSES_SUBDIR: &str = "contracts/controller/account_sdk/artifacts/classes";
+const OPENZEPPELIN_SUBMODULE_DIR: &str = "contracts/openzeppelin";
+const OPENZEPPELIN_ACCOUNT_PRESET_PACKAGE: &str = "openzeppelin_presets";
+const OPENZEPPELIN_ACCOUNT_PRESET_ARTIFACT: &str =
+    "openzeppelin_presets_AccountUpgradeable.contract_class.json";
+const OPENZEPPELIN_SCARB_VERSION: &str = "2.11.4";
 
 fn main() {
     // Track specific source directories and files that should trigger a rebuild.
@@ -19,6 +24,7 @@ fn main() {
         "contracts/test-contracts",
         "contracts/vrf",
         "contracts/avnu",
+        OPENZEPPELIN_SUBMODULE_DIR,
         CONTROLLER_CLASSES_SUBDIR,
     ];
 
@@ -33,6 +39,7 @@ fn main() {
     let contracts_dir = Path::new("contracts");
     let target_dir = contracts_dir.join("target/dev");
     let build_dir = Path::new("build");
+    let openzeppelin_dir = contracts_dir.join("openzeppelin");
 
     // Check if asdf is available (used to manage scarb versions)
     let asdf_available = Command::new("asdf")
@@ -86,6 +93,10 @@ fn main() {
     let avnu_dir = contracts_dir.join("avnu/contracts");
     build_avnu_contracts(&avnu_dir);
 
+    // Build the canonical OpenZeppelin account preset with a newer scarb than the
+    // local contracts workspace uses, then copy only the account class artifact.
+    build_openzeppelin_account_preset(&openzeppelin_dir);
+
     // Create build directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(build_dir) {
         panic!("Failed to create build directory: {e}");
@@ -123,6 +134,20 @@ fn main() {
         println!("cargo:warning=No AVNU contract artifacts found in avnu/contracts/target/dev");
     }
 
+    let openzeppelin_account_artifact =
+        openzeppelin_dir.join("target/dev").join(OPENZEPPELIN_ACCOUNT_PRESET_ARTIFACT);
+    if openzeppelin_account_artifact.exists() {
+        if let Err(e) = copy_file_to_dir(&openzeppelin_account_artifact, build_dir) {
+            panic!("Failed to copy OpenZeppelin account preset artifact: {e}");
+        }
+        println!("cargo:warning=OpenZeppelin account preset artifact copied to build directory");
+    } else {
+        println!(
+            "cargo:warning=No OpenZeppelin account preset artifact found at {}",
+            openzeppelin_account_artifact.display()
+        );
+    }
+
     controller_handle.join().expect("Controller bindings generation failed");
 }
 
@@ -136,6 +161,13 @@ fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<()> {
             fs::copy(&src_path, &dst_path)?;
         }
     }
+    Ok(())
+}
+
+fn copy_file_to_dir(src: &Path, dst_dir: &Path) -> std::io::Result<()> {
+    let file_name =
+        src.file_name().expect("artifact source path must point to a file with a file name");
+    fs::copy(src, dst_dir.join(file_name))?;
     Ok(())
 }
 
@@ -167,6 +199,47 @@ fn build_vrf_contracts(vrf_dir: &Path) {
     }
 }
 
+fn build_openzeppelin_account_preset(openzeppelin_dir: &Path) {
+    let presets_manifest = openzeppelin_dir.join("packages/presets/Scarb.toml");
+    if !presets_manifest.exists() {
+        let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+        initialize_submodule(
+            Path::new(&manifest_dir).join(OPENZEPPELIN_SUBMODULE_DIR).as_path(),
+            "OpenZeppelin",
+        );
+    }
+
+    println!(
+        "cargo:warning=Building OpenZeppelin account preset with scarb \
+         {OPENZEPPELIN_SCARB_VERSION}..."
+    );
+
+    let output = Command::new("asdf")
+        .args(["exec", "scarb", "build", "-p", OPENZEPPELIN_ACCOUNT_PRESET_PACKAGE])
+        .env("ASDF_SCARB_VERSION", OPENZEPPELIN_SCARB_VERSION)
+        .current_dir(openzeppelin_dir)
+        .output()
+        .expect("Failed to execute scarb build for OpenZeppelin account preset");
+
+    if !output.status.success() {
+        let logs = String::from_utf8_lossy(&output.stdout);
+        let last_n_lines = logs
+            .split('\n')
+            .rev()
+            .take(50)
+            .collect::<Vec<&str>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<&str>>()
+            .join("\n");
+
+        panic!(
+            "OpenZeppelin account preset compilation failed. Below are the last 50 lines of \
+             `scarb build` output:\n\n{last_n_lines}"
+        );
+    }
+}
+
 fn track_dir_excluding_lock(dir: &Path) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -192,7 +265,10 @@ fn generate_controller_bindings() {
 
     // Check if controller submodule is initialized
     if !classes_dir.exists() {
-        initialize_submodule(Path::new(&manifest_dir).join("contracts/controller").as_path());
+        initialize_submodule(
+            Path::new(&manifest_dir).join("contracts/controller").as_path(),
+            "Controller",
+        );
     }
 
     let mut generated_code = String::new();
@@ -270,11 +346,11 @@ fn filename_to_struct_name(filename: &str) -> String {
     struct_name
 }
 
-fn initialize_submodule(controller_dir: &Path) {
+fn initialize_submodule(submodule_dir: &Path, submodule_name: &str) {
     // Check if we're in a git repository
     let git_check = Command::new("git").arg("rev-parse").arg("--git-dir").output();
     if git_check.is_ok() && git_check.unwrap().status.success() {
-        println!("Controller directory is empty, updating git submodule...");
+        println!("{submodule_name} directory is empty, updating git submodule...");
 
         let status = Command::new("git")
             .arg("submodule")
@@ -282,21 +358,21 @@ fn initialize_submodule(controller_dir: &Path) {
             .arg("--init")
             .arg("--recursive")
             .arg("--force")
-            .arg(controller_dir.to_str().unwrap())
+            .arg(submodule_dir.to_str().unwrap())
             .status()
             .expect("Failed to update git submodule");
 
         if !status.success() {
             panic!(
-                "Failed to update git submodule for controller directory at {}",
-                controller_dir.display()
+                "Failed to update git submodule for {submodule_name} directory at {}",
+                submodule_dir.display()
             );
         }
     } else {
         panic!(
-            "controller directory doesn't exist at {} and couldn't fetch it through git submodule \
-             (not in a git repository)",
-            controller_dir.display()
+            "{submodule_name} directory doesn't exist at {} and couldn't fetch it through git \
+             submodule (not in a git repository)",
+            submodule_dir.display()
         );
     }
 }

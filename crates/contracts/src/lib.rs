@@ -32,6 +32,10 @@ pub mod contracts {
     contract!(GenesisAccount, "{CARGO_MANIFEST_DIR}/build/legacy/account.json");
     contract!(UniversalDeployer, "{CARGO_MANIFEST_DIR}/build/legacy/universal_deployer.json");
     contract!(Account, "{CARGO_MANIFEST_DIR}/build/katana_account_Account.contract_class.json");
+    contract!(
+        OpenZeppelinAccount_v0_20_0,
+        "{CARGO_MANIFEST_DIR}/build/openzeppelin_presets_AccountUpgradeable.contract_class.json"
+    );
 }
 
 pub mod vrf {
@@ -73,6 +77,10 @@ mod tests {
         assert_eq!(GenesisAccount::CLASS.class_hash().unwrap(), GenesisAccount::HASH);
         assert_eq!(UniversalDeployer::CLASS.class_hash().unwrap(), UniversalDeployer::HASH);
         assert_eq!(Account::CLASS.class_hash().unwrap(), Account::HASH);
+        assert_eq!(
+            OpenZeppelinAccount_v0_20_0::CLASS.class_hash().unwrap(),
+            OpenZeppelinAccount_v0_20_0::HASH
+        );
         assert_eq!(
             controller::ControllerLatest::CLASS.class_hash().unwrap(),
             controller::ControllerLatest::HASH

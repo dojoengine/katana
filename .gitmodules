@@ -18,3 +18,6 @@
 [submodule "crates/contracts/contracts/controller"]
 	path = crates/contracts/contracts/controller
 	url = https://github.com/cartridge-gg/controller-rs.git
+[submodule "crates/contracts/contracts/openzeppelin"]
+	path = crates/contracts/contracts/openzeppelin
+	url = https://github.com/OpenZeppelin/cairo-contracts.git
