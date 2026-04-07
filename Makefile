@@ -27,10 +27,13 @@ AMDSEV_DIR := misc/AMDSEV
 
 VRF_DIR := $(CONTRACTS_DIR)/vrf
 AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
+OPENZEPPELIN_DIR := $(CONTRACTS_DIR)/openzeppelin
 VRF_TEST_DIR := tests/vrf/contracts
 
 # The scarb version required by the AVNU contracts (no .tool-versions in that directory)
 AVNU_SCARB_VERSION := 2.11.4
+# The scarb version required by the OpenZeppelin presets package.
+OPENZEPPELIN_SCARB_VERSION := 2.11.4
 
 # The scarb version required by the main contracts.
 SCARB_VERSION := $(shell awk '$$1 == "scarb" { print $$2 }' $(CONTRACTS_DIR)/.tool-versions 2>/dev/null)
@@ -42,7 +45,7 @@ VRF_SCARB_VERSION := $(shell if [ -f $(VRF_DIR)/.tool-versions ]; then awk '$$1 
 VRF_TEST_SCARB_VERSION := $(shell if [ -f $(VRF_TEST_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_TEST_DIR)/.tool-versions; fi)
 
 # All scarb versions needed for `make contracts`.
-SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_SCARB_VERSION))
+SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZEPPELIN_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_SCARB_VERSION))
 
 .DEFAULT_GOAL := all
 .SILENT: clean
@@ -112,6 +115,12 @@ contracts: install-scarb
 	@echo "Building AVNU contracts..."
 	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
 	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
+	@echo "Building OpenZeppelin account preset..."
+	@if [ ! -f $(OPENZEPPELIN_DIR)/packages/presets/Scarb.toml ]; then \
+		git submodule update --init --recursive --force $(OPENZEPPELIN_DIR) || { echo "OpenZeppelin submodule init failed!"; exit 1; }; \
+	fi
+	@cd $(OPENZEPPELIN_DIR) && ASDF_SCARB_VERSION=$(OPENZEPPELIN_SCARB_VERSION) asdf exec scarb build -p openzeppelin_presets || { echo "OpenZeppelin account preset build failed!"; exit 1; }
+	@cp $(OPENZEPPELIN_DIR)/target/dev/openzeppelin_presets_AccountUpgradeable.contract_class.json $(CONTRACTS_BUILD_DIR) || { echo "OpenZeppelin account preset artifact copy failed!"; exit 1; }
 	@echo "Building test VRF contracts..."
 	@cd $(VRF_TEST_DIR) && asdf exec scarb build || { echo "Test VRF contracts build failed!"; exit 1; }
 	@mkdir -p tests/vrf/build
