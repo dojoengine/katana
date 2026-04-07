@@ -7,16 +7,15 @@
 //!
 //! This means saya-tee successfully:
 //!
-//! 1. Polled L3 for new blocks via `starknet_blockNumber` /
-//!    `starknet_getStateUpdate`.
+//! 1. Polled L3 for new blocks via `starknet_blockNumber` / `starknet_getStateUpdate`.
 //! 2. Fetched a TEE attestation from L3 via `tee_generateQuote` (served by
 //!    `katana_tee::MockProvider`).
 //! 3. Synthesized a fake `OnchainProof` via the `--mock-prove` fast path.
 //! 4. Submitted `update_state` to Piltover with that proof.
-//! 5. Piltover dispatched `verify_sp1_proof` to the mock TEE registry which
-//!    returned the journal verbatim.
-//! 6. Piltover's `validate_input` recomputed the Poseidon commitment and
-//!    matched it against the report_data the mock prover had embedded.
+//! 5. Piltover dispatched `verify_sp1_proof` to the mock TEE registry which returned the journal
+//!    verbatim.
+//! 6. Piltover's `validate_input` recomputed the Poseidon commitment and matched it against the
+//!    report_data the mock prover had embedded.
 //! 7. Piltover advanced its on-chain state.
 
 use std::time::{Duration, Instant};

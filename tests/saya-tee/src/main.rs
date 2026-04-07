@@ -6,26 +6,24 @@
 //!
 //! 1. Spawn an L2 dev Katana via [`katana_utils::TestNode`].
 //! 2. Shell out to `saya-ops` to declare and deploy:
-//!    - `mock_amd_tee_registry` (the on-chain mock from
-//!      cartridge-gg/piltover#15), and
+//!    - `mock_amd_tee_registry` (the on-chain mock from cartridge-gg/piltover#15), and
 //!    - the Piltover core contract pointed at the mock registry.
-//! 3. Spawn an L3 rollup Katana via `TestNode` with
-//!    `SettlementLayer::Starknet { … }` pointing at L2's Piltover, and
-//!    `TeeConfig { provider_type: Mock, .. }` so its `tee_generateQuote` RPC
+//! 3. Spawn an L3 rollup Katana via `TestNode` with `SettlementLayer::Starknet { … }` pointing at
+//!    L2's Piltover, and `TeeConfig { provider_type: Mock, .. }` so its `tee_generateQuote` RPC
 //!    serves a stub attestation.
-//! 4. Spawn `saya-tee tee start --mock-prove` as a child process pointed at
-//!    both Katanas. The flag (added in dojoengine/saya#60) makes saya-tee
-//!    skip AMD KDS, cert chain validation, and SP1 proving entirely.
+//! 4. Spawn `saya-tee tee start --mock-prove` as a child process pointed at both Katanas. The flag
+//!    (added in dojoengine/saya#60) makes saya-tee skip AMD KDS, cert chain validation, and SP1
+//!    proving entirely.
 //! 5. Drive a few L3 blocks by submitting no-op transfers.
-//! 6. Poll Piltover's `get_state()` until `block_number != Felt::MAX`,
-//!    proving that saya-tee successfully settled L3 state to L2.
+//! 6. Poll Piltover's `get_state()` until `block_number != Felt::MAX`, proving that saya-tee
+//!    successfully settled L3 state to L2.
 //!
 //! ## Required binaries
 //!
-//! - `saya-ops`: discovered via `SAYA_OPS_BIN` env var or `$PATH`. Built from
-//!   dojoengine/saya `feat/mock-prove`.
-//! - `saya-tee`: discovered via `SAYA_TEE_BIN` env var or `$PATH`. Built from
-//!   dojoengine/saya `feat/mock-prove`.
+//! - `saya-ops`: discovered via `SAYA_OPS_BIN` env var or `$PATH`. Built from dojoengine/saya
+//!   `feat/mock-prove`.
+//! - `saya-tee`: discovered via `SAYA_TEE_BIN` env var or `$PATH`. Built from dojoengine/saya
+//!   `feat/mock-prove`.
 
 use std::time::Duration;
 
@@ -75,12 +73,8 @@ async fn main() -> Result<()> {
     info!("L3 advanced to block height >= 3");
 
     // 6. Wait for Piltover state to advance past the genesis sentinel.
-    assertions::wait_for_settlement(
-        &l2,
-        bootstrap.piltover_address,
-        Duration::from_secs(180),
-    )
-    .await?;
+    assertions::wait_for_settlement(&l2, bootstrap.piltover_address, Duration::from_secs(180))
+        .await?;
 
     info!("=== saya-tee e2e test PASSED ===");
     Ok(())

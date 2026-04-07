@@ -1,13 +1,11 @@
 //! In-process Katana node spawning for the saya-tee e2e test.
 //!
 //! Spawns two Katanas:
-//! - **L2** — vanilla dev chain. Acts as the settlement chain that hosts
-//!   Piltover and the mock TEE registry. Uses the default `katana_utils`
-//!   `test_config` (`ChainSpec::Dev`).
-//! - **L3** — rollup chain whose `SettlementLayer::Starknet` points at L2's
-//!   Piltover address. Has `Config.tee = TeeConfig { provider_type: Mock, .. }`
-//!   so its `tee_generateQuote` RPC serves a stub attestation that
-//!   `saya-tee --mock-prove` consumes.
+//! - **L2** — vanilla dev chain. Acts as the settlement chain that hosts Piltover and the mock TEE
+//!   registry. Uses the default `katana_utils` `test_config` (`ChainSpec::Dev`).
+//! - **L3** — rollup chain whose `SettlementLayer::Starknet` points at L2's Piltover address. Has
+//!   `Config.tee = TeeConfig { provider_type: Mock, .. }` so its `tee_generateQuote` RPC serves a
+//!   stub attestation that `saya-tee --mock-prove` consumes.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,9 +60,7 @@ impl Node {
             .accounts()
             .next()
             .expect("dev genesis has at least one prefunded account");
-        let private_key = account
-            .private_key()
-            .expect("dev genesis accounts have private keys");
+        let private_key = account.private_key().expect("dev genesis accounts have private keys");
         ((*address).into(), private_key)
     }
 }
@@ -117,10 +113,7 @@ pub async fn spawn_l3(l2: &Node, piltover_address: Felt) -> Node {
 
     let mut config = katana_utils::node::test_config();
     config.chain = Arc::new(ChainSpec::Rollup(l3_chain));
-    config.tee = Some(TeeConfig {
-        provider_type: TeeProviderType::Mock,
-        fork_block_number: None,
-    });
+    config.tee = Some(TeeConfig { provider_type: TeeProviderType::Mock, fork_block_number: None });
 
     Node { inner: TestNode::new_with_config(config).await }
 }
@@ -157,10 +150,7 @@ pub async fn drive_l3_blocks(l3: &Node, n: u64) -> Result<()> {
     Ok(())
 }
 
-async fn wait_for_tx(
-    provider: &JsonRpcClient<HttpTransport>,
-    tx_hash: Felt,
-) -> Result<()> {
+async fn wait_for_tx(provider: &JsonRpcClient<HttpTransport>, tx_hash: Felt) -> Result<()> {
     use starknet::providers::Provider;
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     loop {
@@ -173,4 +163,3 @@ async fn wait_for_tx(
         }
     }
 }
-

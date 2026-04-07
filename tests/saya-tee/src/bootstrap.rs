@@ -3,14 +3,12 @@
 //! Shells out to the `saya-ops` binary (built from
 //! `dojoengine/saya@feat/mock-prove`) to declare and deploy:
 //!
-//! 1. The `mock_amd_tee_registry` contract — a permissive
-//!    `IAMDTeeRegistry` mock from `cartridge-gg/piltover@feat/tee-mock-registry`,
-//!    vendored into saya at `contracts/tee_registry_mock.json` and embedded
-//!    in the `saya-ops` binary.
+//! 1. The `mock_amd_tee_registry` contract — a permissive `IAMDTeeRegistry` mock from
+//!    `cartridge-gg/piltover@feat/tee-mock-registry`, vendored into saya at
+//!    `contracts/tee_registry_mock.json` and embedded in the `saya-ops` binary.
 //! 2. The Piltover core contract.
-//! 3. `setup-program` against Piltover, pointing the `fact_registry_address`
-//!    at the deployed mock TEE registry so its on-chain `verify_sp1_proof`
-//!    becomes a passthrough.
+//! 3. `setup-program` against Piltover, pointing the `fact_registry_address` at the deployed mock
+//!    TEE registry so its on-chain `verify_sp1_proof` becomes a passthrough.
 //!
 //! `saya-ops` is resolved via `SAYA_OPS_BIN` env var or `$PATH`. Address
 //! parsing scrapes the `info!`-logged "X address: Felt(0x…)" lines from
@@ -123,11 +121,7 @@ fn run_deploy_core_contract(env: &SayaOpsEnv) -> Result<Felt> {
     parse_address("Core contract address", &output)
 }
 
-fn run_setup_program(
-    env: &SayaOpsEnv,
-    core_contract: Felt,
-    fact_registry: Felt,
-) -> Result<()> {
+fn run_setup_program(env: &SayaOpsEnv, core_contract: Felt, fact_registry: Felt) -> Result<()> {
     let mut cmd = env.base_command()?;
     cmd.args([
         "core-contract",
@@ -151,9 +145,7 @@ struct CapturedOutput {
 
 fn run(mut cmd: Command, label: &str) -> Result<CapturedOutput> {
     debug!(?cmd, "running saya-ops");
-    let output = cmd
-        .output()
-        .with_context(|| format!("failed to spawn `saya-ops` for {label}"))?;
+    let output = cmd.output().with_context(|| format!("failed to spawn `saya-ops` for {label}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -183,19 +175,13 @@ fn parse_address(label: &str, output: &CapturedOutput) -> Result<Felt> {
         // skip ":" and whitespace
         let rest = rest.trim_start_matches(':').trim();
         // strip optional "Felt(...)" wrapper
-        let inner = rest
-            .strip_prefix("Felt(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or(rest);
+        let inner = rest.strip_prefix("Felt(").and_then(|s| s.strip_suffix(')')).unwrap_or(rest);
         let inner = inner.trim().trim_end_matches(')');
         if let Ok(felt) = Felt::from_hex(inner) {
             return Ok(felt);
         }
     }
-    Err(anyhow!(
-        "could not find `{label}` in saya-ops output:\n{}",
-        output.combined
-    ))
+    Err(anyhow!("could not find `{label}` in saya-ops output:\n{}", output.combined))
 }
 
 fn resolve_saya_ops_bin() -> Result<PathBuf> {
@@ -213,8 +199,8 @@ fn resolve_saya_ops_bin() -> Result<PathBuf> {
         }
     }
     Err(anyhow!(
-        "`saya-ops` binary not found. Set SAYA_OPS_BIN env var or add it to $PATH. \
-         Build from dojoengine/saya@feat/mock-prove with `cargo install --path bin/ops`."
+        "`saya-ops` binary not found. Set SAYA_OPS_BIN env var or add it to $PATH. Build from \
+         dojoengine/saya@feat/mock-prove with `cargo install --path bin/ops`."
     ))
 }
 
