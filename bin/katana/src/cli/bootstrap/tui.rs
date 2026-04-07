@@ -253,9 +253,9 @@ impl SettingsField {
 
 #[derive(Debug)]
 struct SettingsForm {
-    rpc_url: String,
-    account: String,
-    private_key: String,
+    rpc_url: TextInput,
+    account: TextInput,
+    private_key: TextInput,
     skip_existing: bool,
     focused: SettingsField,
     /// `true` while the user is typing into the focused field.
@@ -265,9 +265,15 @@ struct SettingsForm {
 impl SettingsForm {
     fn from_defaults(d: SignerDefaults) -> Self {
         Self {
-            rpc_url: d.rpc_url.unwrap_or_else(|| "http://localhost:5050".to_string()),
-            account: d.account.map(|a| format!("{:#x}", Felt::from(a))).unwrap_or_default(),
-            private_key: d.private_key.map(|k| format!("{k:#x}")).unwrap_or_default(),
+            rpc_url: TextInput::from_str(
+                d.rpc_url.unwrap_or_else(|| "http://localhost:5050".to_string()),
+            ),
+            account: TextInput::from_str(
+                d.account.map(|a| format!("{:#x}", Felt::from(a))).unwrap_or_default(),
+            ),
+            private_key: TextInput::from_str(
+                d.private_key.map(|k| format!("{k:#x}")).unwrap_or_default(),
+            ),
             skip_existing: d.skip_existing,
             focused: SettingsField::RpcUrl,
             editing: false,
@@ -278,7 +284,7 @@ impl SettingsForm {
     /// errors instead of bailing on the first one — better UX in a form.
     fn build(&self) -> std::result::Result<ExecutorConfig, Vec<String>> {
         let mut errs = Vec::new();
-        let rpc_url = match Url::parse(&self.rpc_url) {
+        let rpc_url = match Url::parse(self.rpc_url.as_str()) {
             Ok(u) => Some(u),
             Err(e) => {
                 errs.push(format!("RPC URL: {e}"));
@@ -289,7 +295,7 @@ impl SettingsForm {
             errs.push("Account is required".to_string());
             None
         } else {
-            match Felt::from_str(&self.account) {
+            match Felt::from_str(self.account.as_str()) {
                 Ok(f) => Some(ContractAddress::from(f)),
                 Err(e) => {
                     errs.push(format!("Account: {e}"));
@@ -301,7 +307,7 @@ impl SettingsForm {
             errs.push("Private key is required".to_string());
             None
         } else {
-            match Felt::from_str(&self.private_key) {
+            match Felt::from_str(self.private_key.as_str()) {
                 Ok(f) => Some(f),
                 Err(e) => {
                     errs.push(format!("Private key: {e}"));
@@ -320,6 +326,278 @@ impl SettingsForm {
             Err(errs)
         }
     }
+
+    fn focused_input_mut(&mut self) -> Option<&mut TextInput> {
+        match self.focused {
+            SettingsField::RpcUrl => Some(&mut self.rpc_url),
+            SettingsField::Account => Some(&mut self.account),
+            SettingsField::PrivateKey => Some(&mut self.private_key),
+            SettingsField::SkipExisting => None,
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Text input widget — cursor + readline-style shortcuts
+// -----------------------------------------------------------------------------
+
+/// A single-line editable text buffer with a cursor position. All edit operations
+/// keep `cursor` on a UTF-8 char boundary so multi-byte input works correctly.
+///
+/// We roll our own instead of pulling in `tui-input` because the surface we need is
+/// small and the alternative is yet another transitive dependency for ~150 lines.
+#[derive(Debug, Default, Clone)]
+struct TextInput {
+    value: String,
+    /// Byte offset of the cursor inside `value`. Always at a char boundary, always
+    /// in `0..=value.len()`.
+    cursor: usize,
+}
+
+impl TextInput {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn from_str(s: impl Into<String>) -> Self {
+        let value = s.into();
+        let cursor = value.len();
+        Self { value, cursor }
+    }
+
+    fn as_str(&self) -> &str {
+        &self.value
+    }
+
+    fn is_empty(&self) -> bool {
+        self.value.is_empty()
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.value.len()
+    }
+
+    /// Insert a single character at the cursor and advance.
+    fn insert_char(&mut self, c: char) {
+        self.value.insert(self.cursor, c);
+        self.cursor += c.len_utf8();
+    }
+
+    /// Delete the character before the cursor (Backspace / Ctrl+H).
+    fn backspace(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        // Walk backwards to the previous char boundary.
+        let mut new_cursor = self.cursor - 1;
+        while !self.value.is_char_boundary(new_cursor) {
+            new_cursor -= 1;
+        }
+        self.value.replace_range(new_cursor..self.cursor, "");
+        self.cursor = new_cursor;
+    }
+
+    /// Delete the character at the cursor (Delete / Ctrl+D).
+    fn delete_forward(&mut self) {
+        if self.cursor >= self.value.len() {
+            return;
+        }
+        let mut end = self.cursor + 1;
+        while end < self.value.len() && !self.value.is_char_boundary(end) {
+            end += 1;
+        }
+        self.value.replace_range(self.cursor..end, "");
+    }
+
+    fn move_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let mut c = self.cursor - 1;
+        while !self.value.is_char_boundary(c) {
+            c -= 1;
+        }
+        self.cursor = c;
+    }
+
+    fn move_right(&mut self) {
+        if self.cursor >= self.value.len() {
+            return;
+        }
+        let mut c = self.cursor + 1;
+        while c < self.value.len() && !self.value.is_char_boundary(c) {
+            c += 1;
+        }
+        self.cursor = c;
+    }
+
+    fn move_home(&mut self) {
+        self.cursor = 0;
+    }
+
+    fn move_end(&mut self) {
+        self.cursor = self.value.len();
+    }
+
+    /// Delete the word before the cursor (Ctrl+W). Words are runs of non-whitespace.
+    /// First eats trailing whitespace, then a run of non-whitespace — same as bash.
+    fn delete_word_backward(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let bytes = self.value.as_bytes();
+        let mut i = self.cursor;
+        // Eat whitespace.
+        while i > 0 && bytes[i - 1].is_ascii_whitespace() {
+            i -= 1;
+        }
+        // Eat the word.
+        while i > 0 && !bytes[i - 1].is_ascii_whitespace() {
+            i -= 1;
+        }
+        // Snap to char boundary in case we landed mid-multibyte.
+        while !self.value.is_char_boundary(i) {
+            i -= 1;
+        }
+        self.value.replace_range(i..self.cursor, "");
+        self.cursor = i;
+    }
+
+    /// Delete from the cursor to the start of the line (Ctrl+U).
+    fn kill_to_start(&mut self) {
+        self.value.replace_range(..self.cursor, "");
+        self.cursor = 0;
+    }
+
+    /// Delete from the cursor to the end of the line (Ctrl+K).
+    fn kill_to_end(&mut self) {
+        self.value.truncate(self.cursor);
+    }
+}
+
+/// Apply a key event to a [`TextInput`], handling printable characters, Backspace,
+/// arrow keys, and the standard readline shortcuts (Ctrl+A/E/B/F/H/D/W/U/K).
+///
+/// Returns `true` when the key was consumed by the editor — callers should *not*
+/// fall through to their own keybindings in that case (e.g. don't treat Ctrl+A as
+/// "select all" in some other context). Returns `false` for keys the editor doesn't
+/// recognise (Enter, Esc, Tab, function keys, …) so the caller can handle them.
+fn handle_text_edit(input: &mut TextInput, code: KeyCode, mods: KeyModifiers) -> bool {
+    let ctrl = mods.contains(KeyModifiers::CONTROL);
+
+    if ctrl {
+        match code {
+            KeyCode::Char('a') => {
+                input.move_home();
+                return true;
+            }
+            KeyCode::Char('e') => {
+                input.move_end();
+                return true;
+            }
+            KeyCode::Char('b') => {
+                input.move_left();
+                return true;
+            }
+            KeyCode::Char('f') => {
+                input.move_right();
+                return true;
+            }
+            KeyCode::Char('h') => {
+                input.backspace();
+                return true;
+            }
+            KeyCode::Char('d') => {
+                input.delete_forward();
+                return true;
+            }
+            KeyCode::Char('w') => {
+                input.delete_word_backward();
+                return true;
+            }
+            KeyCode::Char('u') => {
+                input.kill_to_start();
+                return true;
+            }
+            KeyCode::Char('k') => {
+                input.kill_to_end();
+                return true;
+            }
+            _ => return false,
+        }
+    }
+
+    match code {
+        KeyCode::Char(c) => {
+            input.insert_char(c);
+            true
+        }
+        KeyCode::Backspace => {
+            input.backspace();
+            true
+        }
+        KeyCode::Delete => {
+            input.delete_forward();
+            true
+        }
+        KeyCode::Left => {
+            input.move_left();
+            true
+        }
+        KeyCode::Right => {
+            input.move_right();
+            true
+        }
+        KeyCode::Home => {
+            input.move_home();
+            true
+        }
+        KeyCode::End => {
+            input.move_end();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Render a focused [`TextInput`] as three styled spans (`before`, `at_cursor`, `after`)
+/// so the cursor is visually distinct without needing real terminal cursor positioning.
+/// When the cursor is past the end of the buffer, an extra space is highlighted to
+/// give the user something to see.
+fn render_text_input<'a>(input: &'a TextInput, focused: bool, mask: bool) -> Vec<Span<'a>> {
+    let display: String =
+        if mask { "*".repeat(input.value.chars().count()) } else { input.value.clone() };
+
+    if !focused {
+        return vec![Span::raw(display)];
+    }
+
+    // For masked inputs, project the cursor by char count rather than bytes.
+    let (before, at, after) = if mask {
+        let chars: Vec<char> = display.chars().collect();
+        let cursor_chars =
+            input.value[..input.cursor].chars().count().min(chars.len());
+        let before: String = chars[..cursor_chars].iter().collect();
+        let at = chars.get(cursor_chars).copied();
+        let after: String = chars.get(cursor_chars + 1..).into_iter().flatten().collect();
+        (before, at, after)
+    } else {
+        let before = input.value[..input.cursor].to_string();
+        let mut after_chars = input.value[input.cursor..].chars();
+        let at = after_chars.next();
+        let after = after_chars.as_str().to_string();
+        (before, at, after)
+    };
+
+    let cursor_style = Style::default().add_modifier(Modifier::REVERSED);
+    let mut spans = vec![Span::raw(before)];
+    match at {
+        Some(c) => spans.push(Span::styled(c.to_string(), cursor_style)),
+        None => spans.push(Span::styled(" ", cursor_style)),
+    }
+    spans.push(Span::raw(after));
+    spans
 }
 
 // -----------------------------------------------------------------------------
@@ -342,7 +620,7 @@ const FILE_SEARCH_VISIBLE: usize = 20;
 #[derive(Debug)]
 struct FileSearch {
     /// Raw query as the user has typed it. Empty = "show first N candidates verbatim".
-    query: String,
+    query: TextInput,
     /// All `*.json` files found under cwd at modal-open time. Cached for the lifetime
     /// of the modal so re-scoring is cheap on every keystroke.
     candidates: Vec<PathBuf>,
@@ -362,7 +640,7 @@ impl FileSearch {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let candidates = walk_json_files(&root);
         let mut s = Self {
-            query: String::new(),
+            query: TextInput::new(),
             candidates,
             matches: Vec::new(),
             selected: 0,
@@ -372,11 +650,8 @@ impl FileSearch {
         s
     }
 
-    fn set_query(&mut self, q: String) {
-        self.query = q;
-        self.recompute();
-    }
-
+    /// Re-derive matches from the current query. Call this after any mutation of
+    /// `self.query` so the candidate list stays in sync with what the user sees.
     fn recompute(&mut self) {
         let prev = self.matches.get(self.selected).map(|(p, _)| p.clone());
         self.matches.clear();
@@ -390,7 +665,7 @@ impl FileSearch {
         } else {
             for path in &self.candidates {
                 let display = path.to_string_lossy();
-                if let Some(score) = fuzzy_score(&self.query, &display) {
+                if let Some(score) = fuzzy_score(self.query.as_str(), &display) {
                     self.matches.push((path.clone(), score));
                 }
             }
@@ -427,7 +702,7 @@ impl FileSearch {
         if let Some((path, _)) = self.matches.get(self.selected) {
             return Some(path.clone());
         }
-        let trimmed = self.query.trim();
+        let trimmed = self.query.as_str().trim();
         if trimmed.is_empty() {
             return None;
         }
@@ -543,7 +818,7 @@ enum Modal {
         form: ContractForm,
     },
     /// Save manifest path prompt shown after successful execution.
-    SaveManifest { path: String, error: Option<String> },
+    SaveManifest { path: TextInput, error: Option<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -588,10 +863,10 @@ impl ContractField {
 struct ContractForm {
     /// Index into the resolved class options list (declared + embedded).
     class_idx: usize,
-    label: String,
-    salt: String,
+    label: TextInput,
+    salt: TextInput,
     unique: bool,
-    calldata: String,
+    calldata: TextInput,
     focused: ContractField,
     error: Option<String>,
 }
@@ -600,31 +875,30 @@ impl ContractForm {
     fn new() -> Self {
         Self {
             class_idx: 0,
-            label: String::new(),
-            salt: "0x0".to_string(),
+            label: TextInput::new(),
+            salt: TextInput::from_str("0x0"),
             unique: false,
-            calldata: String::new(),
+            calldata: TextInput::new(),
             focused: ContractField::Class,
             error: None,
         }
     }
 
     fn from_existing(step: &DeployStep, class_options: &[ClassOption]) -> Self {
-        let class_idx = class_options
-            .iter()
-            .position(|o| o.name == step.class_name)
-            .unwrap_or(0);
+        let class_idx =
+            class_options.iter().position(|o| o.name == step.class_name).unwrap_or(0);
         Self {
             class_idx,
-            label: step.label.clone().unwrap_or_default(),
-            salt: format!("{:#x}", step.salt),
+            label: TextInput::from_str(step.label.clone().unwrap_or_default()),
+            salt: TextInput::from_str(format!("{:#x}", step.salt)),
             unique: step.unique,
-            calldata: step
-                .calldata
-                .iter()
-                .map(|f| format!("{f:#x}"))
-                .collect::<Vec<_>>()
-                .join(", "),
+            calldata: TextInput::from_str(
+                step.calldata
+                    .iter()
+                    .map(|f| format!("{f:#x}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
             focused: ContractField::Class,
             error: None,
         }
@@ -635,23 +909,39 @@ impl ContractForm {
             return Err("no classes available — add one in the Classes tab first".to_string());
         }
         let class = &class_options[self.class_idx];
-        let salt = Felt::from_str(self.salt.trim()).map_err(|e| format!("salt: {e}"))?;
-        let calldata = if self.calldata.trim().is_empty() {
+        let salt = Felt::from_str(self.salt.as_str().trim()).map_err(|e| format!("salt: {e}"))?;
+        let calldata = if self.calldata.as_str().trim().is_empty() {
             Vec::new()
         } else {
             self.calldata
+                .as_str()
                 .split(',')
                 .map(|s| Felt::from_str(s.trim()).map_err(|e| format!("calldata `{s}`: {e}")))
                 .collect::<std::result::Result<Vec<_>, _>>()?
         };
         Ok(DeployStep {
-            label: if self.label.is_empty() { None } else { Some(self.label.clone()) },
+            label: if self.label.is_empty() {
+                None
+            } else {
+                Some(self.label.as_str().to_string())
+            },
             class_hash: class.class_hash,
             class_name: class.name.clone(),
             salt,
             unique: self.unique,
             calldata,
         })
+    }
+
+    /// Mutable handle to whichever field is currently focused, used by the modal
+    /// keyboard handler to forward edit ops generically.
+    fn focused_input_mut(&mut self) -> Option<&mut TextInput> {
+        match self.focused {
+            ContractField::Label => Some(&mut self.label),
+            ContractField::Salt => Some(&mut self.salt),
+            ContractField::Calldata => Some(&mut self.calldata),
+            ContractField::Class | ContractField::Unique => None,
+        }
     }
 }
 
@@ -853,7 +1143,7 @@ fn handle_key(
 
     // Modal-first: if a modal is up, route input to it.
     if app.modal.is_some() {
-        handle_modal_key(app, code);
+        handle_modal_key(app, code, mods);
         return;
     }
 
@@ -870,7 +1160,7 @@ fn handle_key(
     match app.current_tab {
         Tab::Classes => handle_classes_key(app, code),
         Tab::Contracts => handle_contracts_key(app, code),
-        Tab::Settings => handle_settings_key(app, code),
+        Tab::Settings => handle_settings_key(app, code, mods),
         Tab::Execute => handle_execute_key(app, code, runtime),
     }
 }
@@ -947,29 +1237,16 @@ fn handle_contracts_key(app: &mut AppState, code: KeyCode) {
     }
 }
 
-fn handle_settings_key(app: &mut AppState, code: KeyCode) {
+fn handle_settings_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
     if app.settings.editing {
-        match code {
-            KeyCode::Esc | KeyCode::Enter => app.settings.editing = false,
-            KeyCode::Char(c) => match app.settings.focused {
-                SettingsField::RpcUrl => app.settings.rpc_url.push(c),
-                SettingsField::Account => app.settings.account.push(c),
-                SettingsField::PrivateKey => app.settings.private_key.push(c),
-                SettingsField::SkipExisting => {}
-            },
-            KeyCode::Backspace => match app.settings.focused {
-                SettingsField::RpcUrl => {
-                    app.settings.rpc_url.pop();
-                }
-                SettingsField::Account => {
-                    app.settings.account.pop();
-                }
-                SettingsField::PrivateKey => {
-                    app.settings.private_key.pop();
-                }
-                SettingsField::SkipExisting => {}
-            },
-            _ => {}
+        // Esc / Enter exit edit mode; everything else is forwarded to the focused
+        // text input via the standard readline-style editor.
+        if matches!(code, KeyCode::Esc | KeyCode::Enter) {
+            app.settings.editing = false;
+            return;
+        }
+        if let Some(input) = app.settings.focused_input_mut() {
+            handle_text_edit(input, code, mods);
         }
         return;
     }
@@ -1027,7 +1304,7 @@ fn handle_execute_key(
         KeyCode::Char('s') => {
             if matches!(&app.execution, ExecutionState::Done { result: Ok(_), .. }) {
                 app.modal = Some(Modal::SaveManifest {
-                    path: "./bootstrap.toml".to_string(),
+                    path: TextInput::from_str("./bootstrap.toml"),
                     error: None,
                 });
             }
@@ -1085,7 +1362,7 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
 // Modal input handling
 // -----------------------------------------------------------------------------
 
-fn handle_modal_key(app: &mut AppState, code: KeyCode) {
+fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
     // Take ownership so we can mutate the modal and then put it back, avoiding nested
     // borrows of `app`.
     let Some(modal) = app.modal.take() else { return };
@@ -1150,19 +1427,13 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode) {
                 search.move_up();
                 app.modal = Some(Modal::AddClassFile { search, error: None });
             }
-            KeyCode::Backspace => {
-                let mut q = search.query.clone();
-                q.pop();
-                search.set_query(q);
-                app.modal = Some(Modal::AddClassFile { search, error: None });
-            }
-            KeyCode::Char(c) => {
-                let mut q = search.query.clone();
-                q.push(c);
-                search.set_query(q);
-                app.modal = Some(Modal::AddClassFile { search, error: None });
-            }
             _ => {
+                // Forward everything else to the readline-style editor. Recompute the
+                // match list whenever the editor actually consumed the keystroke so
+                // matches stay in sync with what's on screen.
+                if handle_text_edit(&mut search.query, code, mods) {
+                    search.recompute();
+                }
                 app.modal = Some(Modal::AddClassFile { search, error: None });
             }
         },
@@ -1196,30 +1467,6 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode) {
                     form.unique = !form.unique;
                     app.modal = Some(Modal::ContractForm { editing_index, form });
                 }
-                KeyCode::Char(c) => {
-                    match form.focused {
-                        ContractField::Label => form.label.push(c),
-                        ContractField::Salt => form.salt.push(c),
-                        ContractField::Calldata => form.calldata.push(c),
-                        _ => {}
-                    }
-                    app.modal = Some(Modal::ContractForm { editing_index, form });
-                }
-                KeyCode::Backspace => {
-                    match form.focused {
-                        ContractField::Label => {
-                            form.label.pop();
-                        }
-                        ContractField::Salt => {
-                            form.salt.pop();
-                        }
-                        ContractField::Calldata => {
-                            form.calldata.pop();
-                        }
-                        _ => {}
-                    }
-                    app.modal = Some(Modal::ContractForm { editing_index, form });
-                }
                 KeyCode::Enter => match form.build(&opts) {
                     Ok(step) => match editing_index {
                         Some(i) => {
@@ -1238,32 +1485,28 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode) {
                     }
                 },
                 _ => {
+                    // Forward to the focused text input (label/salt/calldata). Class
+                    // and Unique fields don't accept text input, so the helper just
+                    // does nothing for them.
+                    if let Some(input) = form.focused_input_mut() {
+                        handle_text_edit(input, code, mods);
+                    }
                     app.modal = Some(Modal::ContractForm { editing_index, form });
                 }
             }
         }
         Modal::SaveManifest { mut path, error: _ } => match code {
             KeyCode::Esc => {} // discard
-            KeyCode::Enter => match save_manifest_from_app(app, &path) {
+            KeyCode::Enter => match save_manifest_from_app(app, path.as_str()) {
                 Ok(()) => {
-                    app.flash(format!("manifest saved to {path}"));
+                    app.flash(format!("manifest saved to {}", path.as_str()));
                 }
                 Err(e) => {
-                    app.modal = Some(Modal::SaveManifest {
-                        path,
-                        error: Some(e.to_string()),
-                    });
+                    app.modal = Some(Modal::SaveManifest { path, error: Some(e.to_string()) });
                 }
             },
-            KeyCode::Backspace => {
-                path.pop();
-                app.modal = Some(Modal::SaveManifest { path, error: None });
-            }
-            KeyCode::Char(c) => {
-                path.push(c);
-                app.modal = Some(Modal::SaveManifest { path, error: None });
-            }
             _ => {
+                handle_text_edit(&mut path, code, mods);
                 app.modal = Some(Modal::SaveManifest { path, error: None });
             }
         },
@@ -1461,40 +1704,46 @@ fn draw_contracts_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect
 fn draw_settings_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
     let mut lines = Vec::new();
     for field in SettingsField::ALL {
-        let value = match field {
-            SettingsField::RpcUrl => app.settings.rpc_url.clone(),
-            SettingsField::Account => {
-                if app.settings.account.is_empty() {
-                    "(not set)".to_string()
-                } else {
-                    app.settings.account.clone()
-                }
-            }
-            SettingsField::PrivateKey => {
-                if app.settings.private_key.is_empty() {
-                    "(not set)".to_string()
-                } else {
-                    "*".repeat(app.settings.private_key.len().min(16))
-                }
-            }
-            SettingsField::SkipExisting => {
-                if app.settings.skip_existing { "[x]" } else { "[ ]" }.to_string()
-            }
-        };
         let focused = field == app.settings.focused;
         let editing = focused && app.settings.editing;
         let marker = if focused { "> " } else { "  " };
-        let cursor = if editing { "_" } else { "" };
-        let style = if focused {
+        let label_style = if focused {
             Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
-        lines.push(Line::from(vec![
-            Span::styled(format!("{marker}{:<14}", field.label()), style),
-            Span::raw("  "),
-            Span::styled(format!("{value}{cursor}"), style),
-        ]));
+
+        let mut spans =
+            vec![Span::styled(format!("{marker}{:<14}", field.label()), label_style), Span::raw("  ")];
+
+        match field {
+            SettingsField::RpcUrl => {
+                if app.settings.rpc_url.is_empty() && !editing {
+                    spans.push(Span::styled("(not set)", Style::default().fg(Color::DarkGray)));
+                } else {
+                    spans.extend(render_text_input(&app.settings.rpc_url, editing, false));
+                }
+            }
+            SettingsField::Account => {
+                if app.settings.account.is_empty() && !editing {
+                    spans.push(Span::styled("(not set)", Style::default().fg(Color::DarkGray)));
+                } else {
+                    spans.extend(render_text_input(&app.settings.account, editing, false));
+                }
+            }
+            SettingsField::PrivateKey => {
+                if app.settings.private_key.is_empty() && !editing {
+                    spans.push(Span::styled("(not set)", Style::default().fg(Color::DarkGray)));
+                } else {
+                    spans.extend(render_text_input(&app.settings.private_key, editing, true));
+                }
+            }
+            SettingsField::SkipExisting => {
+                let value = if app.settings.skip_existing { "[x]" } else { "[ ]" };
+                spans.push(Span::styled(value, label_style));
+            }
+        }
+        lines.push(Line::from(spans));
     }
 
     let p = Paragraph::new(lines)
@@ -1600,8 +1849,9 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                 "Load class file — fuzzy search under {}",
                 search.root.display()
             );
-            let query_line = format!("  {}_", search.query);
-            let query_para = Paragraph::new(query_line)
+            let mut query_spans = vec![Span::raw("  ")];
+            query_spans.extend(render_text_input(&search.query, true, false));
+            let query_para = Paragraph::new(Line::from(query_spans))
                 .block(Block::default().borders(Borders::ALL).title(title));
             f.render_widget(query_para, inner[0]);
 
@@ -1666,39 +1916,29 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
             for field in ContractField::ALL {
                 let focused = field == form.focused;
                 let marker = if focused { "> " } else { "  " };
-                let value = match field {
-                    ContractField::Class => class_display.clone(),
-                    ContractField::Label => format!(
-                        "{}{}",
-                        form.label,
-                        if focused { "_" } else { "" }
-                    ),
-                    ContractField::Salt => format!(
-                        "{}{}",
-                        form.salt,
-                        if focused { "_" } else { "" }
-                    ),
-                    ContractField::Unique => unique.to_string(),
-                    ContractField::Calldata => format!(
-                        "{}{}",
-                        form.calldata,
-                        if focused { "_" } else { "" }
-                    ),
-                };
-                let style = if focused {
+                let label_style = if focused {
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
-                lines.push(Line::from(vec![
-                    Span::styled(format!("{marker}{:<10}", field.label()), style),
+                let mut spans = vec![
+                    Span::styled(format!("{marker}{:<10}", field.label()), label_style),
                     Span::raw("  "),
-                    Span::styled(value, style),
-                ]));
+                ];
+                match field {
+                    ContractField::Class => spans.push(Span::styled(class_display.clone(), label_style)),
+                    ContractField::Label => spans.extend(render_text_input(&form.label, focused, false)),
+                    ContractField::Salt => spans.extend(render_text_input(&form.salt, focused, false)),
+                    ContractField::Unique => spans.push(Span::styled(unique.to_string(), label_style)),
+                    ContractField::Calldata => {
+                        spans.extend(render_text_input(&form.calldata, focused, false))
+                    }
+                }
+                lines.push(Line::from(spans));
             }
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "[Tab] next field  [←/→] cycle class  [Space] toggle unique  [Enter] save  [Esc] cancel",
+                "[Tab] next field  [←/→] cycle class  [Space] toggle unique  [^A/^E/^W/^U/^K] edit  [Enter] save  [Esc] cancel",
                 Style::default().fg(Color::DarkGray),
             )));
             if let Some(e) = &form.error {
@@ -1713,15 +1953,15 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
             f.render_widget(p, area);
         }
         Modal::SaveManifest { path, error } => {
-            let mut lines = vec![
-                Line::from("Save manifest to:"),
-                Line::from(format!("  {path}_")),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "[Enter] save  [Esc] cancel",
-                    Style::default().fg(Color::DarkGray),
-                )),
-            ];
+            let mut lines = vec![Line::from("Save manifest to:")];
+            let mut input_spans = vec![Span::raw("  ")];
+            input_spans.extend(render_text_input(path, true, false));
+            lines.push(Line::from(input_spans));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "[Enter] save  [Esc] cancel",
+                Style::default().fg(Color::DarkGray),
+            )));
             if let Some(e) = error {
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
@@ -1739,6 +1979,159 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ----- TextInput basics ----------------------------------------------------
+
+    #[test]
+    fn text_input_insert_and_backspace() {
+        let mut t = TextInput::new();
+        for c in "hello".chars() {
+            t.insert_char(c);
+        }
+        assert_eq!(t.as_str(), "hello");
+        assert_eq!(t.cursor, 5);
+        t.backspace();
+        t.backspace();
+        assert_eq!(t.as_str(), "hel");
+        assert_eq!(t.cursor, 3);
+    }
+
+    #[test]
+    fn text_input_cursor_motion_and_mid_insert() {
+        let mut t = TextInput::from_str("worl");
+        t.move_home();
+        assert_eq!(t.cursor, 0);
+        t.move_right();
+        t.move_right();
+        // Insert in the middle: "wo" + "X" + "rl"
+        t.insert_char('X');
+        assert_eq!(t.as_str(), "woXrl");
+        assert_eq!(t.cursor, 3);
+    }
+
+    #[test]
+    fn text_input_handles_multibyte_chars() {
+        let mut t = TextInput::new();
+        t.insert_char('日');
+        t.insert_char('本');
+        assert_eq!(t.cursor, t.len()); // both 3-byte chars
+        t.move_left();
+        // Cursor should now sit between the two chars (3 bytes in).
+        assert_eq!(t.cursor, 3);
+        t.backspace();
+        assert_eq!(t.as_str(), "本");
+    }
+
+    #[test]
+    fn text_input_delete_word_backward_eats_space_then_word() {
+        let mut t = TextInput::from_str("hello world");
+        t.delete_word_backward();
+        assert_eq!(t.as_str(), "hello ");
+        // A second invocation eats the trailing space and then "hello".
+        t.delete_word_backward();
+        assert_eq!(t.as_str(), "");
+    }
+
+    #[test]
+    fn text_input_kill_to_start_and_end() {
+        let mut t = TextInput::from_str("hello world");
+        // Cursor at index 6 → just before "world".
+        t.move_home();
+        for _ in 0..6 {
+            t.move_right();
+        }
+        let saved_cursor = t.cursor;
+        let mut a = t.clone();
+        a.kill_to_end();
+        assert_eq!(a.as_str(), "hello ");
+        assert_eq!(a.cursor, saved_cursor);
+
+        let mut b = t.clone();
+        b.kill_to_start();
+        assert_eq!(b.as_str(), "world");
+        assert_eq!(b.cursor, 0);
+    }
+
+    // ----- handle_text_edit (the readline shortcut handler) -------------------
+
+    fn key(c: char) -> (KeyCode, KeyModifiers) {
+        (KeyCode::Char(c), KeyModifiers::NONE)
+    }
+    fn ctrl(c: char) -> (KeyCode, KeyModifiers) {
+        (KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn apply(t: &mut TextInput, evs: &[(KeyCode, KeyModifiers)]) {
+        for (code, mods) in evs {
+            handle_text_edit(t, *code, *mods);
+        }
+    }
+
+    #[test]
+    fn ctrl_a_jumps_to_start_then_typing_inserts_there() {
+        let mut t = TextInput::from_str("world");
+        apply(&mut t, &[ctrl('a'), key('h'), key('i'), key(' ')]);
+        assert_eq!(t.as_str(), "hi world");
+    }
+
+    #[test]
+    fn ctrl_e_jumps_to_end() {
+        let mut t = TextInput::from_str("abc");
+        t.move_home();
+        apply(&mut t, &[ctrl('e'), key('!')]);
+        assert_eq!(t.as_str(), "abc!");
+    }
+
+    #[test]
+    fn ctrl_w_deletes_word_before_cursor() {
+        let mut t = TextInput::from_str("the quick brown fox");
+        apply(&mut t, &[ctrl('w')]);
+        assert_eq!(t.as_str(), "the quick brown ");
+    }
+
+    #[test]
+    fn ctrl_u_kills_to_start_ctrl_k_kills_to_end() {
+        let mut t = TextInput::from_str("hello world");
+        // Position cursor at index 6 (before "world")
+        t.move_home();
+        for _ in 0..6 {
+            apply(&mut t, &[(KeyCode::Right, KeyModifiers::NONE)]);
+        }
+        let mut a = t.clone();
+        apply(&mut a, &[ctrl('k')]);
+        assert_eq!(a.as_str(), "hello ");
+
+        let mut b = t.clone();
+        apply(&mut b, &[ctrl('u')]);
+        assert_eq!(b.as_str(), "world");
+    }
+
+    #[test]
+    fn arrow_keys_and_backspace() {
+        let mut t = TextInput::from_str("abcde");
+        apply(
+            &mut t,
+            &[
+                (KeyCode::Left, KeyModifiers::NONE),
+                (KeyCode::Left, KeyModifiers::NONE),
+                (KeyCode::Backspace, KeyModifiers::NONE),
+            ],
+        );
+        assert_eq!(t.as_str(), "abde");
+        assert_eq!(t.cursor, 2);
+    }
+
+    #[test]
+    fn handle_text_edit_returns_false_for_unknown_keys() {
+        let mut t = TextInput::from_str("x");
+        let consumed =
+            handle_text_edit(&mut t, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(!consumed);
+        let consumed = handle_text_edit(&mut t, KeyCode::Esc, KeyModifiers::NONE);
+        assert!(!consumed);
+        // Buffer untouched.
+        assert_eq!(t.as_str(), "x");
+    }
 
     #[test]
     fn fuzzy_score_subsequence_match() {
@@ -1771,7 +2164,7 @@ mod tests {
     #[test]
     fn file_search_recompute_filters_and_sorts() {
         let mut s = FileSearch {
-            query: String::new(),
+            query: TextInput::new(),
             candidates: vec![
                 PathBuf::from("a/b/c/d/e/foo.json"),
                 PathBuf::from("foo.json"),
@@ -1789,7 +2182,10 @@ mod tests {
         assert_eq!(s.matches[0].0, PathBuf::from("a/b/c/d/e/foo.json"));
 
         // After typing a query, only matches survive and they're sorted by score.
-        s.set_query("foo".to_string());
+        for c in "foo".chars() {
+            s.query.insert_char(c);
+        }
+        s.recompute();
         let paths: Vec<&PathBuf> = s.matches.iter().map(|(p, _)| p).collect();
         assert!(paths.contains(&&PathBuf::from("foo.json")));
         assert!(paths.contains(&&PathBuf::from("a/b/c/d/e/foo.json")));
