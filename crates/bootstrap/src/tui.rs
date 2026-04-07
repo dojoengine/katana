@@ -1782,7 +1782,24 @@ fn draw_hint_bar(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
     f.render_widget(p, area);
 }
 
+/// Min/max width of the name column on the Classes tab. The actual column width is
+/// the longest name in the current plan, clamped into this range — so the column
+/// expands to fit short lists nicely but caps out before a single pathological alias
+/// can push the source/hash columns off the right edge.
+const CLASS_NAME_WIDTH_MIN: usize = 4;
+const CLASS_NAME_WIDTH_MAX: usize = 32;
+
 fn draw_classes_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) {
+    let name_width = app
+        .classes
+        .iter()
+        .map(|c| c.name.chars().count())
+        .max()
+        .unwrap_or(CLASS_NAME_WIDTH_MIN)
+        .clamp(CLASS_NAME_WIDTH_MIN, CLASS_NAME_WIDTH_MAX);
+    // "embedded" is the longest source label at 8 chars; pin the column to that.
+    const SOURCE_WIDTH: usize = 8;
+
     let items: Vec<ListItem> = app
         .classes
         .iter()
@@ -1791,7 +1808,15 @@ fn draw_classes_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) 
                 ClassSource::Embedded(_) => "embedded",
                 ClassSource::File(_) => "file",
             };
-            ListItem::new(format!("{:<20} {:<10} {:#x}", c.name, source, c.class_hash))
+            let name = truncate_with_ellipsis(&c.name, name_width);
+            ListItem::new(format!(
+                "{:<name_w$}  {:<src_w$}  {:#x}",
+                name,
+                source,
+                c.class_hash,
+                name_w = name_width,
+                src_w = SOURCE_WIDTH,
+            ))
         })
         .collect();
     let list = List::new(items)
@@ -1799,6 +1824,25 @@ fn draw_classes_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) 
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol("> ");
     f.render_stateful_widget(list, area, &mut app.classes_state);
+}
+
+/// Truncate `s` to at most `max` displayed chars, replacing the last char with `…`
+/// when truncation actually happens. Char-counted (not byte-counted) so multi-byte
+/// scripts work the way the user expects, and operates on `chars()` rather than the
+/// raw bytes so we never split inside a UTF-8 sequence.
+fn truncate_with_ellipsis(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        return s.to_string();
+    }
+    if max == 0 {
+        return String::new();
+    }
+    // Reserve one slot for the ellipsis itself.
+    let take = max - 1;
+    let mut out: String = s.chars().take(take).collect();
+    out.push('…');
+    out
 }
 
 fn draw_contracts_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) {
@@ -2268,6 +2312,24 @@ mod tests {
         assert!(!consumed);
         // Buffer untouched.
         assert_eq!(t.as_str(), "x");
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_basics() {
+        // Below the cap → unchanged.
+        assert_eq!(truncate_with_ellipsis("foo", 10), "foo");
+        // At the cap → unchanged.
+        assert_eq!(truncate_with_ellipsis("foobarbaz", 9), "foobarbaz");
+        // Above the cap → truncated to exactly `max` chars, with the last as `…`.
+        let truncated = truncate_with_ellipsis("foobarbazquux", 6);
+        assert_eq!(truncated, "fooba…");
+        assert_eq!(truncated.chars().count(), 6);
+        // Multi-byte: don't split inside a UTF-8 sequence.
+        let truncated = truncate_with_ellipsis("日本語テスト", 4);
+        assert_eq!(truncated.chars().count(), 4);
+        assert!(truncated.ends_with('…'));
+        // Edge: max == 0 yields empty.
+        assert_eq!(truncate_with_ellipsis("anything", 0), "");
     }
 
     #[test]
