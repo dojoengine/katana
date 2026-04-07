@@ -30,16 +30,15 @@ pub fn load_compressed_class(compressed: &[u8]) -> katana_primitives::class::Con
 pub mod contracts {
     use katana_contracts_macro::contract;
 
+    /// Default account contract class implementation for the pre-deployed account contracts.
+    pub type Account = OpenZeppelinAccount_v0_20_0;
+
     contract!(LegacyERC20, "{CARGO_MANIFEST_DIR}/build/legacy/erc20.json");
     contract!(GenesisAccount, "{CARGO_MANIFEST_DIR}/build/legacy/account.json");
     contract!(UniversalDeployer, "{CARGO_MANIFEST_DIR}/build/legacy/universal_deployer.json");
     contract!(
         KatanaAccountLegacy,
         "{CARGO_MANIFEST_DIR}/build/katana_account_Account.contract_class.json"
-    );
-    contract!(
-        Account,
-        "{CARGO_MANIFEST_DIR}/build/openzeppelin_presets_AccountUpgradeable.contract_class.json"
     );
     contract!(
         OpenZeppelinAccount_v0_20_0,
