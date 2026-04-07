@@ -14,6 +14,7 @@ use crate::transaction::{RpcTx, RpcTxWithHash};
 pub type BlockTxCount = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(untagged)]
 pub enum MaybePreConfirmedBlock {
     Confirmed(BlockWithTxs),
@@ -34,6 +35,20 @@ pub struct BlockWithTxs {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
+    #[serde(default)]
+    pub event_commitment: Felt,
+    #[serde(default)]
+    pub event_count: u32,
+    #[serde(default)]
+    pub receipt_commitment: Felt,
+    #[serde(default)]
+    pub state_diff_commitment: Felt,
+    #[serde(default)]
+    pub state_diff_length: u32,
+    #[serde(default)]
+    pub transaction_commitment: Felt,
+    #[serde(default)]
+    pub transaction_count: u32,
     pub transactions: Vec<RpcTxWithHash>,
 }
 
@@ -70,6 +85,13 @@ impl BlockWithTxs {
             status: finality_status,
             l1_da_mode: block.header.l1_da_mode,
             l1_data_gas_price,
+            event_commitment: block.header.events_commitment,
+            event_count: block.header.events_count,
+            receipt_commitment: block.header.receipts_commitment,
+            state_diff_commitment: block.header.state_diff_commitment,
+            state_diff_length: block.header.state_diff_length,
+            transaction_commitment: block.header.transactions_commitment,
+            transaction_count: block.header.transaction_count,
         }
     }
 }
@@ -121,6 +143,7 @@ impl PreConfirmedBlockWithTxs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(untagged)]
 pub enum GetBlockWithTxHashesResponse {
     Block(BlockWithTxHashes),
@@ -141,6 +164,20 @@ pub struct BlockWithTxHashes {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
+    #[serde(default)]
+    pub event_commitment: Felt,
+    #[serde(default)]
+    pub event_count: u32,
+    #[serde(default)]
+    pub receipt_commitment: Felt,
+    #[serde(default)]
+    pub state_diff_commitment: Felt,
+    #[serde(default)]
+    pub state_diff_length: u32,
+    #[serde(default)]
+    pub transaction_commitment: Felt,
+    #[serde(default)]
+    pub transaction_count: u32,
     pub transactions: Vec<TxHash>,
 }
 
@@ -179,6 +216,13 @@ impl BlockWithTxHashes {
             status: finality_status,
             l1_da_mode: block.header.l1_da_mode,
             l1_data_gas_price,
+            event_commitment: block.header.events_commitment,
+            event_count: block.header.events_count,
+            receipt_commitment: block.header.receipts_commitment,
+            state_diff_commitment: block.header.state_diff_commitment,
+            state_diff_length: block.header.state_diff_length,
+            transaction_commitment: block.header.transactions_commitment,
+            transaction_count: block.header.transaction_count,
         }
     }
 }
@@ -266,6 +310,7 @@ impl BlockHashAndNumberResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(untagged)]
 pub enum GetBlockWithReceiptsResponse {
     Block(BlockWithReceipts),
@@ -291,6 +336,20 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
             l1_data_gas_price: ResourcePrice,
             l1_da_mode: L1DataAvailabilityMode,
             starknet_version: String,
+            #[serde(default)]
+            event_commitment: Felt,
+            #[serde(default)]
+            event_count: u32,
+            #[serde(default)]
+            receipt_commitment: Felt,
+            #[serde(default)]
+            state_diff_commitment: Felt,
+            #[serde(default)]
+            state_diff_length: u32,
+            #[serde(default)]
+            transaction_commitment: Felt,
+            #[serde(default)]
+            transaction_count: u32,
             transactions: Vec<RpcTxWithReceipt>,
         }
 
@@ -305,6 +364,13 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
             l1_data_gas_price,
             l1_da_mode,
             starknet_version,
+            event_commitment,
+            event_count,
+            receipt_commitment,
+            state_diff_commitment,
+            state_diff_length,
+            transaction_commitment,
+            transaction_count,
             transactions,
             status,
             block_hash,
@@ -325,6 +391,13 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
                 l1_data_gas_price,
                 l1_da_mode,
                 starknet_version,
+                event_commitment,
+                event_count,
+                receipt_commitment,
+                state_diff_commitment,
+                state_diff_length,
+                transaction_commitment,
+                transaction_count,
                 transactions,
             }))
         } else {
@@ -357,6 +430,20 @@ pub struct BlockWithReceipts {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
+    #[serde(default)]
+    pub event_commitment: Felt,
+    #[serde(default)]
+    pub event_count: u32,
+    #[serde(default)]
+    pub receipt_commitment: Felt,
+    #[serde(default)]
+    pub state_diff_commitment: Felt,
+    #[serde(default)]
+    pub state_diff_length: u32,
+    #[serde(default)]
+    pub transaction_commitment: Felt,
+    #[serde(default)]
+    pub transaction_count: u32,
     pub transactions: Vec<RpcTxWithReceipt>,
 }
 
@@ -403,6 +490,13 @@ impl BlockWithReceipts {
             l1_data_gas_price,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             starknet_version: header.starknet_version.to_string(),
+            event_commitment: header.events_commitment,
+            event_count: header.events_count,
+            receipt_commitment: header.receipts_commitment,
+            state_diff_commitment: header.state_diff_commitment,
+            state_diff_length: header.state_diff_length,
+            transaction_commitment: header.transactions_commitment,
+            transaction_count: header.transaction_count,
             transactions,
         }
     }

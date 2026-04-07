@@ -68,7 +68,6 @@ impl From<katana_rpc_types::StateDiff> for StateDiff {
 
         let migrated_compiled_classes = value
             .migrated_compiled_classes
-            .unwrap_or_default()
             .into_iter()
             .map(|(class_hash, compiled_class_hash)| DeclaredContract {
                 class_hash,
@@ -760,10 +759,10 @@ mod from_rpc_test {
             declared_classes,
             nonces: BTreeMap::new(),
             replaced_classes: BTreeMap::new(),
-            migrated_compiled_classes: Some(BTreeMap::from_iter([
+            migrated_compiled_classes: BTreeMap::from_iter([
                 (felt!("0xa1"), felt!("0xb1")),
                 (felt!("0xa2"), felt!("0xb2")),
-            ])),
+            ]),
         };
 
         let converted: StateDiff = rpc_state_diff.into();

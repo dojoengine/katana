@@ -75,11 +75,11 @@ pub struct EmittedEvent {
     /// The hash of the transaction where the event was emitted.
     pub transaction_hash: TxHash,
     /// The index of the transaction in the block.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub transaction_index: Option<u64>,
+    #[serde(default)]
+    pub transaction_index: u64,
     /// The index of the event within the transaction.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub event_index: Option<u64>,
+    #[serde(default)]
+    pub event_index: u64,
     /// The address of the contract that emitted the event.
     pub from_address: ContractAddress,
     pub keys: Vec<Felt>,
