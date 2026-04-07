@@ -47,18 +47,20 @@ struct MockState {
     /// Every captured method call, in order.
     calls: Vec<Recorded>,
     /// Class hashes the mock should pretend are already declared *before* bootstrap runs.
-    /// `get_class` consults this set in addition to the runtime-declared one.
+    /// `get_class` consults this set so the executor's pre-check can find them.
     pre_declared: std::collections::HashSet<Felt>,
-    /// Class hashes that have been declared via `add_declare_transaction` during the test.
-    declared: std::collections::HashSet<Felt>,
-    /// Contract addresses considered deployed (any address ever asked about gets recorded).
-    deployed: std::collections::HashSet<Felt>,
     /// FIFO of class hashes the mock should return from successive `add_declare_transaction`
     /// calls. The test pre-loads this with the hashes it expects bootstrap to declare.
     expected_declare_class_hashes: std::collections::VecDeque<Felt>,
-    /// FIFO of (address, class_hash) pairs that should be reported as deployed after
-    /// each `add_invoke_transaction` (which we treat as a UDC deploy invoke).
+    /// FIFO of (address, class_hash) pairs the test expects to be deployed via
+    /// `add_invoke_transaction` (UDC invokes). One pair is popped per call; the
+    /// address itself isn't validated against the request body because doing so would
+    /// require decoding the UDC `deployContract` calldata.
     expected_deploy_addresses: std::collections::VecDeque<(Felt, Felt)>,
+    /// Set of tx hashes handed out by the add_*_transaction handlers. Subsequent
+    /// `getTransactionStatus` / `getTransactionReceipt` queries return success for
+    /// any hash in this set — this is what the executor's `TxWaiter` polls.
+    submitted_tx_hashes: std::collections::HashSet<Felt>,
     /// Counter used to mint synthetic, unique transaction hashes for tx submission responses.
     next_tx_hash: u64,
 }
@@ -164,6 +166,9 @@ fn register_handlers(module: &mut RpcModule<Arc<Mutex<MockState>>>) {
 
     module
         .register_method("starknet_getClass", |params, state, _| {
+            // Used by the executor's `is_declared` precheck (one-shot lookup before
+            // every declare). Returns success only for class hashes registered via
+            // `MockServer::pre_declare`.
             record(state, "starknet_getClass", &params);
 
             let value = parse_value(&params);
@@ -175,9 +180,7 @@ fn register_handlers(module: &mut RpcModule<Arc<Mutex<MockState>>>) {
                 .and_then(|s| Felt::from_hex(s).ok());
 
             let guard = state.lock().unwrap();
-            let known = class_hash
-                .map(|h| guard.declared.contains(&h) || guard.pre_declared.contains(&h))
-                .unwrap_or(false);
+            let known = class_hash.map(|h| guard.pre_declared.contains(&h)).unwrap_or(false);
             drop(guard);
 
             if known {
@@ -188,27 +191,66 @@ fn register_handlers(module: &mut RpcModule<Arc<Mutex<MockState>>>) {
         })
         .unwrap();
 
-    module
-        .register_method("starknet_getClassHashAt", |params, state, _| {
-            record(state, "starknet_getClassHashAt", &params);
+    // ---- TxWaiter polling methods --------------------------------------------------
+    //
+    // After each declare/invoke submission the executor delegates the wait to
+    // `katana_utils::TxWaiter`, which alternates `getTransactionStatus` until the tx
+    // is included, then `getTransactionReceipt` to confirm execution succeeded. The
+    // mock returns "ACCEPTED_ON_L2 / SUCCEEDED" immediately for any hash it has handed
+    // out via add_*_transaction.
 
+    module
+        .register_method("starknet_getTransactionStatus", |params, state, _| {
+            record(state, "starknet_getTransactionStatus", &params);
             let value = parse_value(&params);
-            let address = value
-                .as_array()
-                .and_then(|arr| arr.get(1))
-                .or_else(|| value.get("contract_address"))
-                .and_then(|v| v.as_str())
-                .and_then(|s| Felt::from_hex(s).ok());
+            let hash = extract_first_felt(&value);
 
             let guard = state.lock().unwrap();
-            let known = address.map(|a| guard.deployed.contains(&a)).unwrap_or(false);
+            let known = hash.map(|h| guard.submitted_tx_hashes.contains(&h)).unwrap_or(false);
             drop(guard);
 
             if known {
-                Ok::<_, ErrorObjectOwned>(json!("0x1"))
+                // Tagged enum: { "finality_status": "ACCEPTED_ON_L2", "execution_status": "SUCCEEDED" }
+                Ok::<_, ErrorObjectOwned>(json!({
+                    "finality_status": "ACCEPTED_ON_L2",
+                    "execution_status": "SUCCEEDED",
+                }))
             } else {
-                Err(starknet_error(20, "Contract not found"))
+                Err(starknet_error(29, "Transaction hash not found"))
             }
+        })
+        .unwrap();
+
+    module
+        .register_method("starknet_getTransactionReceipt", |params, state, _| {
+            record(state, "starknet_getTransactionReceipt", &params);
+            let value = parse_value(&params);
+            let hash = extract_first_felt(&value);
+
+            let guard = state.lock().unwrap();
+            let known = hash.map(|h| guard.submitted_tx_hashes.contains(&h)).unwrap_or(false);
+            drop(guard);
+
+            if !known {
+                return Err(starknet_error(29, "Transaction hash not found"));
+            }
+
+            // Confirmed-block invoke receipt with SUCCEEDED execution. Shape matches
+            // katana_rpc_types::receipt::TxReceiptWithBlockInfo. Doubles as both
+            // declare and invoke responses since TxWaiter only inspects the
+            // `execution_status` and `finality_status` fields.
+            Ok::<_, ErrorObjectOwned>(json!({
+                "transaction_hash": format!("{:#x}", hash.unwrap_or(Felt::ZERO)),
+                "type": "INVOKE",
+                "actual_fee": { "amount": "0x0", "unit": "FRI" },
+                "finality_status": "ACCEPTED_ON_L2",
+                "execution_status": "SUCCEEDED",
+                "messages_sent": [],
+                "events": [],
+                "execution_resources": { "l1_gas": 0, "l1_data_gas": 0, "l2_gas": 0 },
+                "block_hash": "0x1",
+                "block_number": 1,
+            }))
         })
         .unwrap();
 
@@ -262,8 +304,8 @@ fn register_handlers(module: &mut RpcModule<Arc<Mutex<MockState>>>) {
                      hashes left)",
                 )
             })?;
-            guard.declared.insert(class_hash);
             let tx_hash = guard.next_tx_hash();
+            guard.submitted_tx_hashes.insert(tx_hash);
 
             Ok::<_, ErrorObjectOwned>(json!({
                 "transaction_hash": format!("{tx_hash:#x}"),
@@ -277,23 +319,36 @@ fn register_handlers(module: &mut RpcModule<Arc<Mutex<MockState>>>) {
             record(state, "starknet_addInvokeTransaction", &params);
             let mut guard = state.lock().unwrap();
 
-            let (address, class_hash) =
-                guard.expected_deploy_addresses.pop_front().ok_or_else(|| {
-                    starknet_error(
-                        1,
-                        "mock received an unexpected add_invoke_transaction call (no expected \
-                         deploy addresses left)",
-                    )
-                })?;
-            guard.deployed.insert(address);
-            guard.declared.insert(class_hash); // make get_class_hash_at-style follow-ups happy
+            // We still pop from the queue so the test can size-check that the right
+            // number of deploys were submitted, but the address itself isn't validated
+            // against the request body — the executor's BootstrapEvent::DeployCompleted
+            // already covers that contract.
+            let _ = guard.expected_deploy_addresses.pop_front().ok_or_else(|| {
+                starknet_error(
+                    1,
+                    "mock received an unexpected add_invoke_transaction call (no expected \
+                     deploy addresses left)",
+                )
+            })?;
             let tx_hash = guard.next_tx_hash();
+            guard.submitted_tx_hashes.insert(tx_hash);
 
             Ok::<_, ErrorObjectOwned>(json!({
                 "transaction_hash": format!("{tx_hash:#x}"),
             }))
         })
         .unwrap();
+}
+
+/// Pull the first felt out of a serde_json `Value`, regardless of whether the request
+/// arrived as a positional array (`["0x1"]`) or a named object (`{"transaction_hash": "0x1"}`).
+fn extract_first_felt(value: &Value) -> Option<Felt> {
+    let s = value
+        .as_array()
+        .and_then(|a| a.first())
+        .or_else(|| value.get("transaction_hash"))
+        .and_then(|v| v.as_str())?;
+    Felt::from_hex(s).ok()
 }
 
 fn record(state: &Arc<Mutex<MockState>>, method: &str, params: &Params<'_>) {

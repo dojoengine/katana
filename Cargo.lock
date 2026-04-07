@@ -6139,6 +6139,8 @@ dependencies = [
  "katana-contracts",
  "katana-primitives",
  "katana-rpc-types",
+ "katana-starknet",
+ "katana-utils",
  "ratatui",
  "serde",
  "serde_json",

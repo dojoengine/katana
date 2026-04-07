@@ -1,17 +1,25 @@
 //! RPC executor for [`BootstrapPlan`].
 //!
-//! Mirrors the pattern used by `crates/cartridge/src/vrf/server/bootstrap.rs`:
-//! a `SingleOwnerAccount` over a starknet-rs `JsonRpcClient`, with `declare_v3` for
-//! class declarations and `ContractFactory::deploy_v3` for deployments. Each step is
-//! followed by a polling wait so the next step observes the new state.
+//! Uses two parallel HTTP clients pointing at the same katana node:
+//!
+//! - a `starknet-rs` `JsonRpcClient` wrapped in a `SingleOwnerAccount`, for the
+//!   `declare_v3` / `deploy_v3` submission flow (signing + estimate_fee + send);
+//! - a `katana-starknet` `StarknetRpcClient`, for [`katana_utils::TxWaiter`] —
+//!   our project-standard poll-and-wait utility, which surfaces revert reasons and
+//!   shares timeout/interval defaults with the rest of the codebase.
+//!
+//! Each submitted tx is awaited via `TxWaiter` on its returned hash before the
+//! executor moves on to the next step.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use katana_primitives::class::ClassHash;
-use katana_primitives::{ContractAddress, Felt};
 use katana_primitives::utils::get_contract_address;
+use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::RpcSierraContractClass;
+use katana_starknet::rpc::StarknetRpcClient;
+use katana_utils::{TxWaiter, TxWaitingError};
 use starknet::accounts::{Account, ConnectedAccount, ExecutionEncoding, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
 use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
@@ -19,7 +27,6 @@ use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::time::sleep;
 use url::Url;
 
 use crate::plan::{BootstrapPlan, DeclareStep, DeployStep};
@@ -54,8 +61,12 @@ pub enum BootstrapEvent {
 /// Optional channel sink fed by [`execute_with_progress`].
 pub type EventSink = UnboundedSender<BootstrapEvent>;
 
-/// Default per-operation wait timeout for the on-chain visibility polls.
-pub const STEP_TIMEOUT: Duration = Duration::from_secs(15);
+/// Per-tx wait timeout passed to [`TxWaiter`]. Defaults are 30s in `katana-utils`,
+/// which is fine for a real chain; bootstrap is dev-leaning so we shorten it.
+const STEP_TIMEOUT: Duration = Duration::from_secs(30);
+/// How often [`TxWaiter`] re-polls. Default is 2.5s; for in-process katana we want
+/// snappier feedback in the TUI, so we tighten it.
+const STEP_POLL_INTERVAL_MS: u64 = 250;
 
 /// What actually happened on-chain. Returned to the caller for pretty-printing.
 #[derive(Debug, Clone, Default)]
@@ -141,6 +152,12 @@ async fn execute_inner(
         ExecutionEncoding::New,
     );
 
+    // Second client, same URL: TxWaiter expects a `katana_starknet::StarknetRpcClient`
+    // (which goes through jsonrpsee + the project's RPC trait), not a starknet-rs
+    // `JsonRpcClient`. Two clients is cheap — they share the underlying HTTP socket
+    // pool inside reqwest/hyper.
+    let starknet_client = StarknetRpcClient::new(cfg.rpc_url.clone());
+
     // Fetch the starting nonce once and increment locally per submission. This avoids
     // a per-tx round trip and gives us deterministic, contiguous nonces — which is also
     // required by the sequencer when batching multiple txs from the same account before
@@ -160,7 +177,8 @@ async fn execute_inner(
                 class_hash: step.class_hash,
             });
         }
-        let outcome = run_declare(&account, step, nonce, cfg.skip_existing).await?;
+        let outcome =
+            run_declare(&account, &starknet_client, step, nonce, cfg.skip_existing).await?;
         if !outcome.already_declared {
             nonce += Felt::ONE;
         }
@@ -183,7 +201,7 @@ async fn execute_inner(
                 class_name: step.class_name.clone(),
             });
         }
-        let outcome = run_deploy(&account, step, nonce).await?;
+        let outcome = run_deploy(&account, &starknet_client, step, nonce).await?;
         nonce += Felt::ONE;
         if let Some(tx) = sink {
             let _ = tx.send(BootstrapEvent::DeployCompleted {
@@ -202,13 +220,15 @@ async fn execute_inner(
 
 async fn run_declare(
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
+    starknet_client: &StarknetRpcClient,
     step: &DeclareStep,
     nonce: Felt,
     skip_existing: bool,
 ) -> Result<DeclaredClass> {
-    let provider = account_provider(account);
-
-    if is_declared(provider, step.class_hash).await? {
+    // Pre-check: if the class is already on chain, either skip cleanly or fail loudly.
+    // This still uses the starknet-rs provider directly because it's a one-shot lookup,
+    // not a wait — TxWaiter is the wrong shape for it.
+    if is_declared(account_provider(account), step.class_hash).await? {
         if skip_existing {
             return Ok(DeclaredClass {
                 name: step.name.clone(),
@@ -253,7 +273,9 @@ async fn run_declare(
         ));
     }
 
-    wait_for_class(provider, step.class_hash, STEP_TIMEOUT).await?;
+    wait_for_tx(starknet_client, result.transaction_hash)
+        .await
+        .with_context(|| format!("class `{}`: waiting for declare tx", step.name))?;
 
     Ok(DeclaredClass {
         name: step.name.clone(),
@@ -264,26 +286,18 @@ async fn run_declare(
 
 async fn run_deploy(
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
+    starknet_client: &StarknetRpcClient,
     step: &DeployStep,
     nonce: Felt,
 ) -> Result<DeployedContract> {
-    let provider = account_provider(account);
-
-    // Compute the deterministic deploy address up front so we can both display it and
-    // poll for it after submission. UDC with `unique = false` uses ContractAddress::ZERO
-    // as the deployer in the address derivation.
-    let deployer_for_address: ContractAddress = if step.unique {
-        account.address().into()
-    } else {
-        ContractAddress::ZERO
-    };
-    let address: ContractAddress = get_contract_address(
-        step.salt,
-        step.class_hash,
-        &step.calldata,
-        deployer_for_address,
-    )
-    .into();
+    // Compute the deterministic deploy address up front so we can both display it
+    // and emit it through the BootstrapEvent::DeployCompleted payload. UDC with
+    // `unique = false` uses ContractAddress::ZERO as the deployer in the derivation.
+    let deployer_for_address: ContractAddress =
+        if step.unique { account.address().into() } else { ContractAddress::ZERO };
+    let address: ContractAddress =
+        get_contract_address(step.salt, step.class_hash, &step.calldata, deployer_for_address)
+            .into();
 
     #[allow(deprecated)]
     let factory = ContractFactory::new(step.class_hash, &account);
@@ -294,7 +308,9 @@ async fn run_deploy(
         .await
         .with_context(|| format!("contract `{}`: deploy_v3 failed", step.class_name))?;
 
-    wait_for_contract(provider, address, STEP_TIMEOUT).await?;
+    wait_for_tx(starknet_client, result.transaction_hash)
+        .await
+        .with_context(|| format!("contract `{}`: waiting for deploy tx", step.class_name))?;
 
     Ok(DeployedContract {
         label: step.label.clone(),
@@ -307,7 +323,6 @@ async fn run_deploy(
 fn account_provider<'a>(
     account: &'a SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
 ) -> &'a JsonRpcClient<HttpTransport> {
-    use starknet::accounts::ConnectedAccount;
     account.provider()
 }
 
@@ -322,48 +337,20 @@ async fn is_declared(
     }
 }
 
-async fn is_deployed(
-    provider: &JsonRpcClient<HttpTransport>,
-    address: ContractAddress,
-) -> Result<bool> {
-    let address_felt: Felt = address.into();
-    match provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address_felt).await {
-        Ok(_) => Ok(true),
-        Err(ProviderError::StarknetError(StarknetError::ContractNotFound)) => Ok(false),
-        Err(e) => Err(anyhow!("failed to check contract deployment: {e}")),
-    }
-}
-
-async fn wait_for_class(
-    provider: &JsonRpcClient<HttpTransport>,
-    class_hash: ClassHash,
-    timeout: Duration,
-) -> Result<()> {
-    let start = Instant::now();
-    loop {
-        if is_declared(provider, class_hash).await? {
-            return Ok(());
-        }
-        if start.elapsed() > timeout {
-            return Err(anyhow!("class {class_hash:#x} not declared before timeout"));
-        }
-        sleep(Duration::from_millis(200)).await;
-    }
-}
-
-async fn wait_for_contract(
-    provider: &JsonRpcClient<HttpTransport>,
-    address: ContractAddress,
-    timeout: Duration,
-) -> Result<()> {
-    let start = Instant::now();
-    loop {
-        if is_deployed(provider, address).await? {
-            return Ok(());
-        }
-        if start.elapsed() > timeout {
-            return Err(anyhow!("contract {address} not deployed before timeout"));
-        }
-        sleep(Duration::from_millis(200)).await;
-    }
+/// Block on a single tx via [`TxWaiter`] until it's included and successful. Maps the
+/// project's `TxWaitingError` onto a flat `anyhow::Error` so callers can compose with
+/// the rest of the executor's error reporting.
+async fn wait_for_tx(client: &StarknetRpcClient, tx_hash: Felt) -> Result<()> {
+    TxWaiter::new(tx_hash, client)
+        .with_timeout(STEP_TIMEOUT)
+        .with_interval(STEP_POLL_INTERVAL_MS)
+        .await
+        .map(|_| ())
+        .map_err(|err| match err {
+            TxWaitingError::Timeout => anyhow!("timed out after {:?}", STEP_TIMEOUT),
+            TxWaitingError::TransactionReverted(reason) => {
+                anyhow!("transaction reverted: {reason}")
+            }
+            TxWaitingError::Client(e) => anyhow!("rpc error: {e}"),
+        })
 }

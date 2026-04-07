@@ -8,6 +8,8 @@ version.workspace = true
 katana-contracts.workspace = true
 katana-primitives.workspace = true
 katana-rpc-types.workspace = true
+katana-starknet.workspace = true
+katana-utils.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
