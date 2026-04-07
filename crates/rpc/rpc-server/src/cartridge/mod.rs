@@ -29,22 +29,16 @@ mod vrf;
 
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use cainome::cairo_serde::CairoSerde;
 use http::{HeaderMap, HeaderName, HeaderValue};
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::BlockProducer;
-use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
+use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_pool::TxPool;
-use katana_primitives::chain::ChainId;
-use katana_primitives::contract::Nonce;
 use katana_primitives::execution::Call;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
-use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::api::state::StateProvider;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::cartridge::CartridgeApiError;
@@ -58,8 +52,6 @@ use paymaster_rpc::{
     ExecuteRawRequest, ExecuteRawTransactionParameters, ExecutionParameters, FeeMode,
     RawInvokeParameters,
 };
-use starknet::macros::selector;
-use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_paymaster::core::types::Call as StarknetRsCall;
 use tracing::{debug, info, trace_span, Instrument};
 use url::Url;
@@ -268,104 +260,4 @@ pub fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
         execute_calldata.extend(Call::cairo_serialize(&call));
     }
     execute_calldata
-}
-
-/// Handles the deployment of a cartridge controller if the estimate fee is requested for a
-/// cartridge controller.
-///
-/// The controller accounts are created with a specific version of the controller.
-/// To ensure address determinism, the controller account must be deployed with the same version,
-/// which is included in the calldata retrieved from the Cartridge API.
-pub async fn get_controller_deploy_tx_if_controller_address(
-    paymaster_address: ContractAddress,
-    paymaster_private_key: Felt,
-    paymaster_nonce: Nonce,
-    tx: &ExecutableTxWithHash,
-    chain_id: ChainId,
-    state: Arc<Box<dyn StateProvider>>,
-    cartridge_api_client: &cartridge::CartridgeApiClient,
-) -> anyhow::Result<Option<ExecutableTxWithHash>> {
-    // The whole Cartridge paymaster flow would only be accessible mainly from the Controller
-    // wallet. The Controller wallet only supports V3 transactions (considering < V3
-    // transactions will soon be deprecated) hence why we're only checking for V3 transactions
-    // here.
-    //
-    // Yes, ideally it's better to handle all versions but it's probably fine for now.
-    if let ExecutableTx::Invoke(InvokeTx::V3(v3)) = &tx.transaction {
-        let maybe_controller_address = v3.sender_address;
-
-        // Avoid deploying the controller account if it is already deployed.
-        if state.class_hash_of_contract(maybe_controller_address)?.is_some() {
-            return Ok(None);
-        }
-
-        if let tx @ Some(..) = craft_deploy_cartridge_controller_tx(
-            cartridge_api_client,
-            maybe_controller_address,
-            paymaster_address,
-            paymaster_private_key,
-            chain_id,
-            paymaster_nonce,
-        )
-        .await?
-        {
-            debug!(target: "rpc::cartridge", address = %maybe_controller_address, "Deploying controller account.");
-            return Ok(tx);
-        }
-    }
-
-    Ok(None)
-}
-
-/// Crafts a deploy controller transaction for a cartridge controller.
-///
-/// Returns None if the provided `controller_address` is not registered in the Cartridge API.
-pub async fn craft_deploy_cartridge_controller_tx(
-    cartridge_api_client: &cartridge::CartridgeApiClient,
-    controller_address: ContractAddress,
-    paymaster_address: ContractAddress,
-    paymaster_private_key: Felt,
-    chain_id: ChainId,
-    paymaster_nonce: Felt,
-) -> anyhow::Result<Option<ExecutableTxWithHash>> {
-    if let Some(res) = cartridge_api_client
-        .get_account_calldata(controller_address)
-        .await
-        .map_err(|e| anyhow!("Failed to fetch controller constructor calldata: {e}"))?
-    {
-        let call = FunctionCall {
-            contract_address: DEFAULT_UDC_ADDRESS,
-            entry_point_selector: selector!("deployContract"),
-            calldata: res.constructor_calldata,
-        };
-
-        let mut tx = InvokeTxV3 {
-            chain_id,
-            tip: 0_u64,
-            signature: vec![],
-            paymaster_data: vec![],
-            account_deployment_data: vec![],
-            sender_address: paymaster_address,
-            calldata: encode_calls(vec![call]),
-            nonce: paymaster_nonce,
-            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
-        };
-
-        let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
-
-        let signer = LocalWallet::from(SigningKey::from_secret_scalar(paymaster_private_key));
-        let signature = signer
-            .sign_hash(&tx_hash)
-            .await
-            .map_err(|e| anyhow!("failed to sign hash with paymaster: {e}"))?;
-        tx.signature = vec![signature.r, signature.s];
-
-        let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
-
-        Ok(Some(tx))
-    } else {
-        Ok(None)
-    }
 }

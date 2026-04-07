@@ -6220,6 +6220,7 @@ dependencies = [
 name = "katana-contracts"
 version = "1.7.0"
 dependencies = [
+ "flate2",
  "katana-contracts-macro",
  "katana-primitives",
  "lazy_static",
@@ -6232,6 +6233,7 @@ name = "katana-contracts-macro"
 version = "1.7.0"
 dependencies = [
  "cairo-lang-starknet-classes",
+ "flate2",
  "katana-primitives",
  "proc-macro2",
  "quote",

@@ -10,6 +10,7 @@ version.workspace = true
 katana-contracts-macro = { path = "macro" }
 katana-primitives.workspace = true
 
+flate2.workspace = true
 lazy_static.workspace = true
 starknet.workspace = true
 
