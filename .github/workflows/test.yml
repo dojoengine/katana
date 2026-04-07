@@ -542,6 +542,12 @@ jobs:
             - name: Install saya-tee from feat/mock-prove
               run: cargo install --locked --path /tmp/saya/bin/persistent-tee --bin saya-tee
 
+            # The e2e test spawns a `katana --dev` subprocess for L2 (the L3
+            # stays in-process via TestNode). Build the binary first so the
+            # default `target/debug/katana` resolution works.
+            - name: Build katana binary
+              run: cargo build -p katana --bin katana
+
             - name: Run saya-tee e2e test
               env:
                   RUST_LOG: info,saya_tee_e2e_test=debug,persistent_tee=info
