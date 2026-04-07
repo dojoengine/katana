@@ -10288,6 +10288,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "saya-tee-e2e-test"
+version = "1.7.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "katana-chain-spec",
+ "katana-genesis",
+ "katana-messaging",
+ "katana-primitives",
+ "katana-sequencer-node",
+ "katana-tee",
+ "katana-utils",
+ "serde_json",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "starknet-types-core 0.2.3",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
