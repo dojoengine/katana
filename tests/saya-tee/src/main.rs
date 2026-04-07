@@ -68,8 +68,8 @@ async fn main() -> Result<()> {
     })?;
     info!("saya-tee sidecar spawned");
 
-    // 5. Drive L3 to advance block height — provable-mode rollups never
-    //    produce empty blocks, so we submit explicit no-op transfers.
+    // 5. Drive L3 to advance block height — provable-mode rollups never produce empty blocks, so we
+    //    submit explicit no-op transfers.
     nodes::drive_l3_blocks(&l3, 3).await?;
     info!("L3 advanced to block height >= 3");
 
