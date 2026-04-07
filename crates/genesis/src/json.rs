@@ -376,7 +376,7 @@ impl TryFrom<GenesisJson> for Genesis {
                     allocations.insert(
                         address,
                         GenesisAllocation::Account(GenesisAccountAlloc::DevAccount(
-                            DevGenesisAccount { private_key, inner },
+                            DevGenesisAccount { private_key, address_class_hash: None, inner },
                         )),
                     )
                 }
@@ -806,6 +806,7 @@ mod tests {
                 acc_4,
                 GenesisAllocation::Account(GenesisAccountAlloc::DevAccount(DevGenesisAccount {
                     private_key: felt!("0x115"),
+                    address_class_hash: None,
                     inner: GenesisAccount {
                         public_key: felt!("0x4"),
                         balance: Some(U256::from_str("0xD3C21BCECCEDA1000000").unwrap()),

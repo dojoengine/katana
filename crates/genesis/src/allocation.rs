@@ -142,6 +142,13 @@ pub struct GenesisContractAlloc {
 pub struct DevGenesisAccount {
     /// The private key associated with the public key of the account.
     pub private_key: Felt,
+    /// Optional class hash used only to derive a stable address for a predeployed dev account.
+    ///
+    /// This exists so `katana --dev` can keep its well-known account addresses stable across
+    /// account-class upgrades. The actual declared/deployed account class is still
+    /// [`GenesisAccount::class_hash`], so this must not be used for real deploy-account flows.
+    #[serde(skip)]
+    pub address_class_hash: Option<ClassHash>,
     #[deref]
     #[deref_mut]
     #[serde(flatten)]
@@ -153,7 +160,11 @@ impl DevGenesisAccount {
     /// Creates a new dev account with the given `private_key` and `class_hash`.
     pub fn new(private_key: Felt, class_hash: ClassHash) -> Self {
         let public_key = public_key_from_private_key(private_key);
-        Self { private_key, inner: GenesisAccount::new(public_key, class_hash) }
+        Self {
+            private_key,
+            address_class_hash: None,
+            inner: GenesisAccount::new(public_key, class_hash),
+        }
     }
 
     /// Creates a new dev account with the allocated `balance`.
@@ -164,7 +175,9 @@ impl DevGenesisAccount {
     }
 
     pub fn address(&self) -> ContractAddress {
-        self.inner.address()
+        let class_hash = self.address_class_hash.unwrap_or(self.inner.class_hash);
+        get_contract_address(self.salt, class_hash, &[self.public_key], ContractAddress::ZERO)
+            .into()
     }
 }
 
@@ -238,6 +251,7 @@ pub struct DevAllocationsGenerator {
     seed: [u8; 32],
     balance: Option<U256>,
     class_hash: Felt,
+    frozen_address_class_hash: Option<ClassHash>,
 }
 
 impl DevAllocationsGenerator {
@@ -245,7 +259,13 @@ impl DevAllocationsGenerator {
     ///
     /// This will return a [DevAllocationsGenerator] with the default parameters.
     pub fn new(total: u16) -> Self {
-        Self { total, seed: [0u8; 32], balance: None, class_hash: Account::HASH }
+        Self {
+            total,
+            seed: [0u8; 32],
+            balance: None,
+            class_hash: Account::HASH,
+            frozen_address_class_hash: None,
+        }
     }
 
     pub fn with_class(self, class_hash: ClassHash) -> Self {
@@ -258,6 +278,14 @@ impl DevAllocationsGenerator {
 
     pub fn with_balance<T: Into<U256>>(self, balance: T) -> Self {
         Self { balance: Some(balance.into()), ..self }
+    }
+
+    /// Override the class hash used to derive generated dev account addresses.
+    ///
+    /// This is a dev-UX compatibility escape hatch for direct-genesis accounts whose visible
+    /// addresses should remain stable even if their actual declared account class changes.
+    pub fn with_frozen_address_class_hash(self, class_hash: ClassHash) -> Self {
+        Self { frozen_address_class_hash: Some(class_hash), ..self }
     }
 
     /// Generate `total` number of accounts based on the `seed`.
@@ -275,11 +303,12 @@ impl DevAllocationsGenerator {
 
                 let private_key = Felt::from_bytes_be(&private_key_bytes);
 
-                let account = if let Some(amount) = self.balance {
+                let mut account = if let Some(amount) = self.balance {
                     DevGenesisAccount::new_with_balance(private_key, self.class_hash, amount)
                 } else {
                     DevGenesisAccount::new(private_key, self.class_hash)
                 };
+                account.address_class_hash = self.frozen_address_class_hash;
 
                 (account.address(), account)
             })
@@ -291,4 +320,58 @@ impl DevAllocationsGenerator {
 /// the Stark curve.
 fn public_key_from_private_key(private_key: Felt) -> Felt {
     SigningKey::from_secret_scalar(private_key).verifying_key().scalar()
+}
+
+#[cfg(test)]
+mod tests {
+    use katana_primitives::contract::ContractAddress;
+
+    use super::*;
+
+    #[test]
+    fn dev_account_address_uses_frozen_address_class_hash() {
+        let actual_class_hash = felt!("0x123");
+        let frozen_address_class_hash = felt!("0x456");
+
+        let mut account = DevGenesisAccount::new(felt!("0x789"), actual_class_hash);
+        account.address_class_hash = Some(frozen_address_class_hash);
+
+        let expected: ContractAddress = get_contract_address(
+            account.salt,
+            frozen_address_class_hash,
+            &[account.public_key],
+            ContractAddress::ZERO,
+        )
+        .into();
+
+        assert_eq!(account.address(), expected);
+        assert_eq!(account.class_hash, actual_class_hash);
+    }
+
+    #[test]
+    fn generator_freezes_address_without_changing_account_class_hash() {
+        let actual_class_hash = felt!("0xabc");
+        let frozen_address_class_hash = felt!("0xdef");
+
+        let (address, account) = DevAllocationsGenerator::new(1)
+            .with_class(actual_class_hash)
+            .with_frozen_address_class_hash(frozen_address_class_hash)
+            .generate()
+            .into_iter()
+            .next()
+            .expect("must generate one account");
+
+        let expected: ContractAddress = get_contract_address(
+            account.salt,
+            frozen_address_class_hash,
+            &[account.public_key],
+            ContractAddress::ZERO,
+        )
+        .into();
+
+        assert_eq!(address, expected);
+        assert_eq!(account.address(), expected);
+        assert_eq!(account.class_hash, actual_class_hash);
+        assert_eq!(account.address_class_hash, Some(frozen_address_class_hash));
+    }
 }

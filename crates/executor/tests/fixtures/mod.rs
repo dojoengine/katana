@@ -5,7 +5,9 @@ use katana_chain_spec::ChainSpec;
 use katana_contracts::contracts;
 use katana_executor::ExecutionFlags;
 use katana_genesis::allocation::DevAllocationsGenerator;
-use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use katana_genesis::constant::{
+    DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+};
 use katana_primitives::block::{
     Block, ExecutableBlock, FinalityStatus, GasPrices, PartialHeader, SealedBlockWithStatus,
 };
@@ -55,6 +57,7 @@ pub fn chain() -> ChainSpec {
     seed[0] = b'0';
 
     let accounts = DevAllocationsGenerator::new(10)
+        .with_frozen_address_class_hash(DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH)
         .with_seed(seed)
         .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
         .generate();

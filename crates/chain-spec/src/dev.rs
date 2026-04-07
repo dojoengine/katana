@@ -6,9 +6,10 @@ use katana_contracts::contracts;
 use katana_genesis::allocation::{DevAllocationsGenerator, GenesisAllocation};
 use katana_genesis::constant::{
     get_fee_token_balance_base_storage_address, DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
-    DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS, ERC20_DECIMAL_STORAGE_SLOT,
-    ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT, ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH,
+    DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
+    ERC20_DECIMAL_STORAGE_SLOT, ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT,
+    ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
 };
 use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
@@ -117,6 +118,7 @@ lazy_static! {
         let mut chain_spec = DEV_UNALLOCATED.clone();
 
         let accounts = DevAllocationsGenerator::new(10)
+            .with_frozen_address_class_hash(DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH)
             .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
             .generate();
 
@@ -252,6 +254,17 @@ mod tests {
     use starknet::macros::felt;
 
     use super::*;
+
+    #[test]
+    fn default_dev_accounts_keep_the_frozen_address_hash() {
+        let (address, allocation) = DEV.genesis.accounts().next().expect("must have dev accounts");
+        let GenesisAccountAlloc::DevAccount(account) = allocation else {
+            panic!("default dev chain must contain dev accounts");
+        };
+
+        assert_eq!(account.address_class_hash, Some(DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH));
+        assert_eq!(*address, account.address());
+    }
 
     #[test]
     fn genesis_block_and_state_updates() {

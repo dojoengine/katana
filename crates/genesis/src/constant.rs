@@ -55,6 +55,15 @@ pub const DEFAULT_LEGACY_UDC_CLASS_HASH: ClassHash = UniversalDeployer::HASH;
 /// The class hash of [`DEFAULT_ACCOUNT_CLASS`].
 pub const DEFAULT_ACCOUNT_CLASS_HASH: ClassHash = Account::HASH;
 
+/// Frozen class hash used to derive predeployed dev account addresses.
+///
+/// This stays pinned to Katana's legacy dev account hash so the well-known `katana --dev`
+/// account addresses remain stable even if the actual predeployed account class changes. It must
+/// only be used for direct-genesis dev allocations; the account is still declared and deployed
+/// with its real `class_hash`.
+pub const DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH: ClassHash =
+    felt!("0x07dc7899aa655b0aae51eadff6d801a58e97dd99cf4666ee59e704249e51adf2");
+
 /// A helper function to get the base storage address for the fee token balance of a given account.
 ///
 /// This is to compute the base storage address of the balance because the fee token balance is
