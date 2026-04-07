@@ -10,10 +10,9 @@ use serde::{Deserialize, Serialize};
 /// matches Piltover's `AppchainState` initial value). Deserializes the inverse:
 /// `Felt::MAX` becomes `None`, anything else becomes `Some(felt as u64)`.
 ///
-/// The non-optional `block_number` field uses `serde_utils::serialize_as_hex`
-/// + `serde_utils::deserialize_u64` directly. We can't reuse
-/// `serde_utils::{serialize_opt_as_hex, deserialize_opt_u64}` here because
-/// those map `None ↔ null`, not `None ↔ Felt::MAX`.
+/// The non-optional `block_number` field uses `serde_utils::serialize_as_hex` +
+/// `serde_utils::deserialize_u64` directly. We can't reuse `serde_utils::{serialize_opt_as_hex,
+/// deserialize_opt_u64}` here because those map `None ↔ null`, not `None ↔ Felt::MAX`.
 mod prev_block_number_serde {
     use katana_primitives::block::BlockNumber;
     use katana_primitives::Felt;
