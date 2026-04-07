@@ -43,18 +43,14 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap,
-};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 use ratatui::Terminal;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::embedded::{self, EmbeddedClass};
-use crate::executor::{
-    execute_with_progress, BootstrapEvent, BootstrapReport, ExecutorConfig,
-};
+use crate::executor::{execute_with_progress, BootstrapEvent, BootstrapReport, ExecutorConfig};
 use crate::manifest::{ClassEntry, ContractEntry, Manifest};
 use crate::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
 
@@ -565,8 +561,7 @@ fn render_text_input<'a>(input: &'a TextInput, focused: bool, mask: bool) -> Vec
     // For masked inputs, project the cursor by char count rather than bytes.
     let (before, at, after) = if mask {
         let chars: Vec<char> = display.chars().collect();
-        let cursor_chars =
-            input.value[..input.cursor].chars().count().min(chars.len());
+        let cursor_chars = input.value[..input.cursor].chars().count().min(chars.len());
         let before: String = chars[..cursor_chars].iter().collect();
         let at = chars.get(cursor_chars).copied();
         let after: String = chars.get(cursor_chars + 1..).into_iter().flatten().collect();
@@ -697,9 +692,8 @@ impl FileSearch {
 
         // Try to keep the same row highlighted across recomputes when possible — UX
         // sanity so the cursor doesn't jump every keystroke.
-        self.selected = prev
-            .and_then(|p| self.matches.iter().position(|(m, _)| *m == p))
-            .unwrap_or(0);
+        self.selected =
+            prev.and_then(|p| self.matches.iter().position(|(m, _)| *m == p)).unwrap_or(0);
     }
 
     fn move_down(&mut self) {
@@ -854,10 +848,7 @@ enum Modal {
         notice: Option<String>,
     },
     /// Add or edit a deploy. `editing_index = Some(i)` means we're editing in place.
-    ContractForm {
-        editing_index: Option<usize>,
-        form: ContractForm,
-    },
+    ContractForm { editing_index: Option<usize>, form: ContractForm },
     /// Save manifest path prompt shown after successful execution.
     SaveManifest { path: TextInput, error: Option<String> },
 }
@@ -939,19 +930,14 @@ impl ContractForm {
     }
 
     fn from_existing(step: &DeployStep, class_options: &[ClassOption]) -> Self {
-        let class_idx =
-            class_options.iter().position(|o| o.name == step.class_name).unwrap_or(0);
+        let class_idx = class_options.iter().position(|o| o.name == step.class_name).unwrap_or(0);
         Self {
             class_idx,
             label: TextInput::from_str(step.label.clone().unwrap_or_default()),
             salt: TextInput::from_str(format!("{:#x}", step.salt)),
             unique: step.unique,
             calldata: TextInput::from_str(
-                step.calldata
-                    .iter()
-                    .map(|f| format!("{f:#x}"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                step.calldata.iter().map(|f| format!("{f:#x}")).collect::<Vec<_>>().join(", "),
             ),
             focused: ContractField::Class,
             error: None,
@@ -974,11 +960,7 @@ impl ContractForm {
                 .collect::<std::result::Result<Vec<_>, _>>()?
         };
         Ok(DeployStep {
-            label: if self.label.is_empty() {
-                None
-            } else {
-                Some(self.label.as_str().to_string())
-            },
+            label: if self.label.is_empty() { None } else { Some(self.label.as_str().to_string()) },
             class_hash: class.class_hash,
             class_name: class.name.clone(),
             salt,
@@ -1016,10 +998,7 @@ fn class_options(app: &AppState) -> Vec<ClassOption> {
         .collect();
     for entry in embedded::REGISTRY {
         if !out.iter().any(|o| o.name == entry.name) {
-            out.push(ClassOption {
-                name: entry.name.to_string(),
-                class_hash: entry.class_hash,
-            });
+            out.push(ClassOption { name: entry.name.to_string(), class_hash: entry.class_hash });
         }
     }
     out
@@ -1119,12 +1098,11 @@ fn event_loop(
 
         // Tick any background work attached to the current modal:
         //
-        // 1. AddClassFile fuzzy search debounce — schedules a recompute once the user
-        //    has stopped typing for `FILE_SEARCH_DEBOUNCE`.
-        // 2. LoadingClass receiver — drains the background loader's result if ready;
-        //    on success closes the modal and adds the class, on failure transitions
-        //    back to AddClassFile with the error attached and the previous search
-        //    state preserved.
+        // 1. AddClassFile fuzzy search debounce — schedules a recompute once the user has stopped
+        //    typing for `FILE_SEARCH_DEBOUNCE`.
+        // 2. LoadingClass receiver — drains the background loader's result if ready; on success
+        //    closes the modal and adds the class, on failure transitions back to AddClassFile with
+        //    the error attached and the previous search state preserved.
         if let Some(Modal::AddClassFile { search, .. }) = app.modal.as_mut() {
             search.tick(Instant::now());
         }
@@ -1231,9 +1209,7 @@ fn drain_progress(app: &mut AppState) {
                     row.status = RowStatus::Running;
                 }
             }
-            BootstrapEvent::DeclareCompleted {
-                idx, class_hash, already_declared, ..
-            } => {
+            BootstrapEvent::DeclareCompleted { idx, class_hash, already_declared, .. } => {
                 if let Some(row) = rows.get_mut(idx) {
                     let suffix = if already_declared { " (already)" } else { "" };
                     row.status = RowStatus::Done(format!("{class_hash:#x}{suffix}"));
@@ -1245,14 +1221,11 @@ fn drain_progress(app: &mut AppState) {
                     row.status = RowStatus::Running;
                 }
             }
-            BootstrapEvent::DeployCompleted {
-                idx, address, already_deployed, ..
-            } => {
+            BootstrapEvent::DeployCompleted { idx, address, already_deployed, .. } => {
                 let row_idx = classes_len + idx;
                 if let Some(row) = rows.get_mut(row_idx) {
                     let suffix = if already_deployed { " (already)" } else { "" };
-                    row.status =
-                        RowStatus::Done(format!("{:#x}{suffix}", Felt::from(address)));
+                    row.status = RowStatus::Done(format!("{:#x}{suffix}", Felt::from(address)));
                 }
             }
             BootstrapEvent::Failed { error } => {
@@ -1321,10 +1294,8 @@ fn handle_classes_key(app: &mut AppState, code: KeyCode) {
     match code {
         KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
         KeyCode::Char('a') => {
-            app.modal = Some(Modal::AddClassPicker {
-                picker_state: ListState::default(),
-                info: None,
-            });
+            app.modal =
+                Some(Modal::AddClassPicker { picker_state: ListState::default(), info: None });
         }
         KeyCode::Char('d') => {
             if let Some(i) = app.classes_state.selected() {
@@ -1344,8 +1315,12 @@ fn handle_classes_key(app: &mut AppState, code: KeyCode) {
                 }
             }
         }
-        KeyCode::Down | KeyCode::Char('j') => move_list(&mut app.classes_state, app.classes.len(), 1),
-        KeyCode::Up | KeyCode::Char('k') => move_list(&mut app.classes_state, app.classes.len(), -1),
+        KeyCode::Down | KeyCode::Char('j') => {
+            move_list(&mut app.classes_state, app.classes.len(), 1)
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            move_list(&mut app.classes_state, app.classes.len(), -1)
+        }
         _ => {}
     }
 }
@@ -1354,10 +1329,8 @@ fn handle_contracts_key(app: &mut AppState, code: KeyCode) {
     match code {
         KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
         KeyCode::Char('a') => {
-            app.modal = Some(Modal::ContractForm {
-                editing_index: None,
-                form: ContractForm::new(),
-            });
+            app.modal =
+                Some(Modal::ContractForm { editing_index: None, form: ContractForm::new() });
         }
         KeyCode::Char('e') => {
             if let Some(i) = app.contracts_state.selected() {
@@ -1421,11 +1394,7 @@ fn handle_settings_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
     }
 }
 
-fn handle_execute_key(
-    app: &mut AppState,
-    code: KeyCode,
-    runtime: &tokio::runtime::Handle,
-) {
+fn handle_execute_key(app: &mut AppState, code: KeyCode, runtime: &tokio::runtime::Handle) {
     match code {
         KeyCode::Char('q') => {
             // Don't allow quit while a task is mid-flight; the executor isn't cancellable.
@@ -1475,8 +1444,7 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
         }
     };
 
-    let plan =
-        BootstrapPlan { declares: app.classes.clone(), deploys: app.contracts.clone() };
+    let plan = BootstrapPlan { declares: app.classes.clone(), deploys: app.contracts.clone() };
 
     // Build the per-row state up front from the plan, so the user sees every step
     // queued before any of them run.
@@ -1503,9 +1471,8 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
     let cfg_arc = Arc::new(cfg);
     let plan_for_task = plan_arc.clone();
     let cfg_for_task = cfg_arc.clone();
-    let handle: JoinHandle<Result<BootstrapReport>> = runtime.spawn(async move {
-        execute_with_progress(&plan_for_task, &cfg_for_task, Some(tx)).await
-    });
+    let handle: JoinHandle<Result<BootstrapReport>> = runtime
+        .spawn(async move { execute_with_progress(&plan_for_task, &cfg_for_task, Some(tx)).await });
 
     app.execution = ExecutionState::Running { rx, _handle: handle, rows, tick: 0 };
 }
@@ -1544,8 +1511,7 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                         // Manual dup check so we can keep the modal open and show
                         // the message inline. We deliberately don't reuse
                         // `push_embedded_class`'s flash-based path here.
-                        let already =
-                            app.classes.iter().any(|c| c.class_hash == entry.class_hash);
+                        let already = app.classes.iter().any(|c| c.class_hash == entry.class_hash);
                         if already {
                             app.modal = Some(Modal::AddClassPicker {
                                 picker_state,
@@ -1556,10 +1522,8 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                         }
                     } else {
                         // "Load from file…" → switch modals (cwd walk happens here).
-                        app.modal = Some(Modal::AddClassFile {
-                            search: FileSearch::open(),
-                            error: None,
-                        });
+                        app.modal =
+                            Some(Modal::AddClassFile { search: FileSearch::open(), error: None });
                     }
                 }
                 _ => {
@@ -1617,20 +1581,16 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
             //
             // Esc semantics depend on whether the modal is showing a duplicate
             // notice or still spinning:
-            //   - Notice visible → close the modal entirely (job is done, the user
-            //     just saw the result, sending them back to the search would feel
-            //     redundant).
-            //   - Still loading → restore the previous AddClassFile so the user
-            //     can pick a different file. The worker thread keeps running and
-            //     its eventual send into the dropped receiver is a no-op.
+            //   - Notice visible → close the modal entirely (job is done, the user just saw the
+            //     result, sending them back to the search would feel redundant).
+            //   - Still loading → restore the previous AddClassFile so the user can pick a
+            //     different file. The worker thread keeps running and its eventual send into the
+            //     dropped receiver is a no-op.
             if code == KeyCode::Esc {
                 if notice.is_some() {
                     // discard — modal closed
                 } else {
-                    app.modal = Some(Modal::AddClassFile {
-                        search: return_to_search,
-                        error: None,
-                    });
+                    app.modal = Some(Modal::AddClassFile { search: return_to_search, error: None });
                 }
             } else {
                 app.modal = Some(Modal::LoadingClass { pending, return_to_search, notice });
@@ -1767,16 +1727,12 @@ fn build_manifest_from_app(app: &AppState) -> Manifest {
         .classes
         .iter()
         .map(|d| match &d.source {
-            ClassSource::Embedded(name) => ClassEntry {
-                name: d.name.clone(),
-                embedded: Some((*name).to_string()),
-                path: None,
-            },
-            ClassSource::File(path) => ClassEntry {
-                name: d.name.clone(),
-                embedded: None,
-                path: Some(path.clone()),
-            },
+            ClassSource::Embedded(name) => {
+                ClassEntry { name: d.name.clone(), embedded: Some((*name).to_string()), path: None }
+            }
+            ClassSource::File(path) => {
+                ClassEntry { name: d.name.clone(), embedded: None, path: Some(path.clone()) }
+            }
         })
         .collect();
     let contracts = app
@@ -1828,11 +1784,13 @@ fn draw_app(f: &mut ratatui::Frame<'_>, app: &mut AppState) {
 }
 
 fn draw_tab_bar(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
-    let titles: Vec<Line> = Tab::ALL.iter().map(|t| Line::from(t.title())).collect();
+    let titles: Vec<Line<'_>> = Tab::ALL.iter().map(|t| Line::from(t.title())).collect();
     let tabs = Tabs::new(titles)
         .block(Block::default().borders(Borders::ALL).title("katana bootstrap"))
         .select(app.current_tab.idx())
-        .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
+        );
     f.render_widget(tabs, area);
 }
 
@@ -1841,9 +1799,7 @@ fn draw_hint_bar(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
         Tab::Classes => "[a] add  [d] delete  [j/k] navigate  [Tab] next tab  [q] quit",
         Tab::Contracts => "[a] add  [e] edit  [d] delete  [j/k] navigate  [Tab] next tab  [q] quit",
         Tab::Settings if app.settings.editing => "[Esc/Enter] stop editing",
-        Tab::Settings => {
-            "[j/k] move  [e/Enter] edit  [Tab] next tab  [q] quit"
-        }
+        Tab::Settings => "[j/k] move  [e/Enter] edit  [Tab] next tab  [q] quit",
         Tab::Execute => match &app.execution {
             ExecutionState::Idle => "[x] run  [Tab] next tab  [q] quit",
             ExecutionState::Running { .. } => "running…",
@@ -1851,11 +1807,8 @@ fn draw_hint_bar(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
             ExecutionState::Done { .. } => "[q] quit",
         },
     };
-    let text = if let Some(flash) = &app.flash {
-        format!("{flash}    {base}")
-    } else {
-        base.to_string()
-    };
+    let text =
+        if let Some(flash) = &app.flash { format!("{flash}    {base}") } else { base.to_string() };
     let style =
         if app.flash.is_some() { Style::default().fg(Color::Yellow) } else { Style::default() };
     let p = Paragraph::new(text).style(style);
@@ -1880,7 +1833,7 @@ fn draw_classes_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) 
     // "embedded" is the longest source label at 8 chars; pin the column to that.
     const SOURCE_WIDTH: usize = 8;
 
-    let items: Vec<ListItem> = app
+    let items: Vec<ListItem<'_>> = app
         .classes
         .iter()
         .map(|c| {
@@ -1926,7 +1879,7 @@ fn truncate_with_ellipsis(s: &str, max: usize) -> String {
 }
 
 fn draw_contracts_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) {
-    let items: Vec<ListItem> = app
+    let items: Vec<ListItem<'_>> = app
         .contracts
         .iter()
         .map(|c| {
@@ -1958,8 +1911,10 @@ fn draw_settings_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
             Style::default()
         };
 
-        let mut spans =
-            vec![Span::styled(format!("{marker}{:<14}", field.label()), label_style), Span::raw("  ")];
+        let mut spans = vec![
+            Span::styled(format!("{marker}{:<14}", field.label()), label_style),
+            Span::raw("  "),
+        ];
 
         match field {
             SettingsField::RpcUrl => {
@@ -1994,11 +1949,7 @@ fn draw_settings_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
 }
 
 fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
-    let header = format!(
-        "Plan: {} declares, {} deploys",
-        app.classes.len(),
-        app.contracts.len()
-    );
+    let header = format!("Plan: {} declares, {} deploys", app.classes.len(), app.contracts.len());
 
     let (rows, tick): (&[ExecRow], u64) = match &app.execution {
         ExecutionState::Idle => (&[], 0),
@@ -2006,7 +1957,7 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
         ExecutionState::Done { rows, .. } => (rows.as_slice(), 0),
     };
 
-    let mut lines: Vec<Line> = vec![Line::from(header), Line::from("")];
+    let mut lines: Vec<Line<'_>> = vec![Line::from(header), Line::from("")];
     if rows.is_empty() {
         lines.push(Line::from("(press `x` to start)"));
     } else {
@@ -2049,7 +2000,7 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
                 Span::styled(icon, icon_style),
                 Span::raw(format!("{:<KIND_WIDTH$}  ", row.kind.as_str())),
                 Span::raw(format!("{:<primary_width$}  ", row.primary)),
-                Span::raw(format!("{:<secondary_width$}  ", secondary_cell)),
+                Span::raw(format!("{secondary_cell:<secondary_width$}  ")),
                 Span::styled(detail, Style::default().fg(Color::DarkGray)),
             ]));
         }
@@ -2104,7 +2055,7 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
             // We compare by class hash so the marker stays correct even if the user
             // picks the same class under a different alias via the file loader. The
             // marker itself is yellow so it pops against the dimmed body of the row.
-            let mut items: Vec<ListItem> = embedded::REGISTRY
+            let mut items: Vec<ListItem<'_>> = embedded::REGISTRY
                 .iter()
                 .map(|c| {
                     let already_in_plan =
@@ -2154,10 +2105,7 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                 .split(area);
 
             // Query box.
-            let title = format!(
-                "Load class file — fuzzy search under {}",
-                search.root.display()
-            );
+            let title = format!("Load class file — fuzzy search under {}", search.root.display());
             let mut query_spans = vec![Span::raw("  ")];
             query_spans.extend(render_text_input(&search.query, true, false));
             let query_para = Paragraph::new(Line::from(query_spans))
@@ -2166,7 +2114,7 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
 
             // Matches list.
             let total = search.matches.len();
-            let items: Vec<ListItem> = search
+            let items: Vec<ListItem<'_>> = search
                 .matches
                 .iter()
                 .map(|(path, _)| {
@@ -2216,13 +2164,7 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
             f.render_widget(hint, inner[2]);
         }
         Modal::LoadingClass { pending, notice, return_to_search } => {
-            draw_loading_class_modal(
-                f,
-                area,
-                pending,
-                &return_to_search.root,
-                notice.as_deref(),
-            );
+            draw_loading_class_modal(f, area, pending, &return_to_search.root, notice.as_deref());
         }
         Modal::ContractForm { editing_index, form } => {
             let opts = class_options(app);
@@ -2249,10 +2191,18 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                     Span::raw("  "),
                 ];
                 match field {
-                    ContractField::Class => spans.push(Span::styled(class_display.clone(), label_style)),
-                    ContractField::Label => spans.extend(render_text_input(&form.label, focused, false)),
-                    ContractField::Salt => spans.extend(render_text_input(&form.salt, focused, false)),
-                    ContractField::Unique => spans.push(Span::styled(unique.to_string(), label_style)),
+                    ContractField::Class => {
+                        spans.push(Span::styled(class_display.clone(), label_style))
+                    }
+                    ContractField::Label => {
+                        spans.extend(render_text_input(&form.label, focused, false))
+                    }
+                    ContractField::Salt => {
+                        spans.extend(render_text_input(&form.salt, focused, false))
+                    }
+                    ContractField::Unique => {
+                        spans.push(Span::styled(unique.to_string(), label_style))
+                    }
                     ContractField::Calldata => {
                         spans.extend(render_text_input(&form.calldata, focused, false))
                     }
@@ -2261,7 +2211,8 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
             }
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "[Tab] next field  [←/→] cycle class  [Space] toggle unique  [^A/^E/^W/^U/^K] edit  [Enter] save  [Esc] cancel",
+                "[Tab] next field  [←/→] cycle class  [Space] toggle unique  [^A/^E/^W/^U/^K] \
+                 edit  [Enter] save  [Esc] cancel",
                 Style::default().fg(Color::DarkGray),
             )));
             if let Some(e) = &form.error {
@@ -2447,8 +2398,7 @@ mod tests {
     #[test]
     fn handle_text_edit_returns_false_for_unknown_keys() {
         let mut t = TextInput::from_str("x");
-        let consumed =
-            handle_text_edit(&mut t, KeyCode::Enter, KeyModifiers::NONE);
+        let consumed = handle_text_edit(&mut t, KeyCode::Enter, KeyModifiers::NONE);
         assert!(!consumed);
         let consumed = handle_text_edit(&mut t, KeyCode::Esc, KeyModifiers::NONE);
         assert!(!consumed);
@@ -2496,10 +2446,7 @@ mod tests {
         // Adjacent matches outrank scattered ones for the same candidate length.
         let adjacent = fuzzy_score("abc", "xabcx").unwrap();
         let scattered = fuzzy_score("abc", "axbxc").unwrap();
-        assert!(
-            adjacent > scattered,
-            "adjacent {adjacent} should outrank scattered {scattered}"
-        );
+        assert!(adjacent > scattered, "adjacent {adjacent} should outrank scattered {scattered}");
     }
 
     fn make_search(candidates: Vec<&str>) -> FileSearch {
@@ -2524,12 +2471,8 @@ mod tests {
 
     #[test]
     fn file_search_recompute_filters_and_sorts() {
-        let mut s = make_search(vec![
-            "a/b/c/d/e/foo.json",
-            "foo.json",
-            "bar.json",
-            "baz/foo_2.json",
-        ]);
+        let mut s =
+            make_search(vec!["a/b/c/d/e/foo.json", "foo.json", "bar.json", "baz/foo_2.json"]);
 
         // After typing a query, only matches survive and they're sorted by score.
         for c in "foo".chars() {
@@ -2641,23 +2584,16 @@ fn draw_loading_class_modal(
             Span::raw("  "),
             Span::styled("✓", Style::default().fg(Color::Green)),
             Span::raw("  "),
-            Span::styled(
-                file_name,
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(file_name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         ])
     } else {
         let elapsed = pending.started.elapsed();
-        let frame =
-            SPINNER_FRAMES[(elapsed.as_millis() / 80) as usize % SPINNER_FRAMES.len()];
+        let frame = SPINNER_FRAMES[(elapsed.as_millis() / 80) as usize % SPINNER_FRAMES.len()];
         Line::from(vec![
             Span::raw("  "),
             Span::styled(frame.to_string(), Style::default().fg(Color::Yellow)),
             Span::raw("  "),
-            Span::styled(
-                file_name,
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(file_name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         ])
     };
 

@@ -33,8 +33,8 @@ pub struct Manifest {
 ///
 /// Exactly one of `embedded` or `path` must be set:
 /// - `embedded = "dev_account"` selects a class compiled into the binary;
-/// - `path = "./build/foo.json"` loads a Sierra class from disk. The CASM hash is
-///   re-derived at runtime by recompiling the Sierra program.
+/// - `path = "./build/foo.json"` loads a Sierra class from disk. The CASM hash is re-derived at
+///   runtime by recompiling the Sierra program.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassEntry {
     /// Local alias used by [`ContractEntry::class`] to reference this declaration.

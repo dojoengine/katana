@@ -2,11 +2,11 @@
 //!
 //! Uses two parallel HTTP clients pointing at the same katana node:
 //!
-//! - a `starknet-rs` `JsonRpcClient` wrapped in a `SingleOwnerAccount`, for the
-//!   `declare_v3` / `deploy_v3` submission flow (signing + estimate_fee + send);
-//! - a `katana-starknet` `StarknetRpcClient`, for [`katana_utils::TxWaiter`] —
-//!   our project-standard poll-and-wait utility, which surfaces revert reasons and
-//!   shares timeout/interval defaults with the rest of the codebase.
+//! - a `starknet-rs` `JsonRpcClient` wrapped in a `SingleOwnerAccount`, for the `declare_v3` /
+//!   `deploy_v3` submission flow (signing + estimate_fee + send);
+//! - a `katana-starknet` `StarknetRpcClient`, for [`katana_utils::TxWaiter`] — our project-standard
+//!   poll-and-wait utility, which surfaces revert reasons and shares timeout/interval defaults with
+//!   the rest of the codebase.
 //!
 //! Each submitted tx is awaited via `TxWaiter` on its returned hash before the
 //! executor moves on to the next step.
@@ -35,7 +35,11 @@ use crate::plan::{BootstrapPlan, DeclareStep, DeployStep};
 /// receive these in order on a tokio mpsc channel as the executor walks through the plan.
 #[derive(Debug, Clone)]
 pub enum BootstrapEvent {
-    DeclareStarted { idx: usize, name: String, class_hash: ClassHash },
+    DeclareStarted {
+        idx: usize,
+        name: String,
+        class_hash: ClassHash,
+    },
     DeclareCompleted {
         idx: usize,
         name: String,
@@ -43,7 +47,11 @@ pub enum BootstrapEvent {
         /// `true` if the class was already on-chain and the declare was skipped.
         already_declared: bool,
     },
-    DeployStarted { idx: usize, label: Option<String>, class_name: String },
+    DeployStarted {
+        idx: usize,
+        label: Option<String>,
+        class_name: String,
+    },
     DeployCompleted {
         idx: usize,
         label: Option<String>,
@@ -59,9 +67,13 @@ pub enum BootstrapEvent {
     /// Terminal event on failure. The executor returns the error to its direct caller as
     /// well; this event exists so async consumers (the TUI) don't have to await the join
     /// handle to learn about it.
-    Failed { error: String },
+    Failed {
+        error: String,
+    },
     /// Terminal event on success.
-    Done { report: BootstrapReport },
+    Done {
+        report: BootstrapReport,
+    },
 }
 
 /// Optional channel sink fed by [`execute_with_progress`].
@@ -103,6 +115,7 @@ pub struct DeployedContract {
 }
 
 /// Knobs the CLI surface lets the user pass through.
+#[derive(Debug)]
 pub struct ExecutorConfig {
     pub rpc_url: Url,
     pub account_address: ContractAddress,
@@ -337,9 +350,9 @@ async fn run_deploy(
     })
 }
 
-fn account_provider<'a>(
-    account: &'a SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
-) -> &'a JsonRpcClient<HttpTransport> {
+fn account_provider(
+    account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
+) -> &JsonRpcClient<HttpTransport> {
     account.provider()
 }
 

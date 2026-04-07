@@ -73,8 +73,7 @@ impl BootstrapPlan {
 
         for entry in &manifest.classes {
             let declare = resolve_class_entry(entry)?;
-            local_aliases
-                .insert(declare.name.clone(), (declare.class_hash, declare.name.clone()));
+            local_aliases.insert(declare.name.clone(), (declare.class_hash, declare.name.clone()));
             declares.push(declare);
         }
 
@@ -89,8 +88,8 @@ impl BootstrapPlan {
 
 fn resolve_class_entry(entry: &ClassEntry) -> Result<DeclareStep> {
     if let Some(name) = entry.embedded.as_deref() {
-        let embedded = embedded::require(name)
-            .with_context(|| format!("class `{}`", entry.name))?;
+        let embedded =
+            embedded::require(name).with_context(|| format!("class `{}`", entry.name))?;
         return Ok(declare_from_embedded(&entry.name, embedded));
     }
 
@@ -116,8 +115,8 @@ fn declare_from_file(local_name: &str, path: &std::path::Path) -> Result<Declare
 
     if class.is_legacy() {
         return Err(anyhow!(
-            "class `{local_name}`: legacy (Cairo 0) classes are not supported by bootstrap; \
-             use a Sierra class"
+            "class `{local_name}`: legacy (Cairo 0) classes are not supported by bootstrap; use a \
+             Sierra class"
         ));
     }
 

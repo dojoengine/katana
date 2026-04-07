@@ -18,9 +18,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use jsonrpsee::server::{RpcModule, Server, ServerHandle};
 use jsonrpsee::types::error::ErrorObjectOwned;
 use jsonrpsee::types::Params;
-use katana_bootstrap::executor::{
-    self, execute_with_progress, BootstrapEvent, ExecutorConfig,
-};
+use katana_bootstrap::executor::{self, execute_with_progress, BootstrapEvent, ExecutorConfig};
 use katana_bootstrap::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
 use katana_contracts::contracts::Account as DevAccountClass;
 use katana_primitives::class::ContractClass;
@@ -249,7 +247,8 @@ fn register_handlers(module: &mut RpcModule<Arc<Mutex<MockState>>>) {
             drop(guard);
 
             if known {
-                // Tagged enum: { "finality_status": "ACCEPTED_ON_L2", "execution_status": "SUCCEEDED" }
+                // Tagged enum: { "finality_status": "ACCEPTED_ON_L2", "execution_status":
+                // "SUCCEEDED" }
                 Ok::<_, ErrorObjectOwned>(json!({
                     "finality_status": "ACCEPTED_ON_L2",
                     "execution_status": "SUCCEEDED",
@@ -365,8 +364,8 @@ fn register_handlers(module: &mut RpcModule<Arc<Mutex<MockState>>>) {
             let _ = guard.expected_deploy_addresses.pop_front().ok_or_else(|| {
                 starknet_error(
                     1,
-                    "mock received an unexpected add_invoke_transaction call (no expected \
-                     deploy addresses left)",
+                    "mock received an unexpected add_invoke_transaction call (no expected deploy \
+                     addresses left)",
                 )
             })?;
             let tx_hash = guard.next_tx_hash();

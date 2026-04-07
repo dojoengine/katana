@@ -9,6 +9,7 @@ use katana_contracts::contracts;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 
 /// A Sierra class compiled into the katana binary, exposed to bootstrap by name.
+#[derive(Debug)]
 pub struct EmbeddedClass {
     /// The CLI/manifest-visible identifier (e.g. `dev_account`).
     pub name: &'static str,

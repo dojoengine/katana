@@ -12,9 +12,11 @@ pub fn print(report: &BootstrapReport) {
     if !report.declared.is_empty() {
         println!("\nDeclared classes:");
         let mut table = Table::new();
-        table
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_header(["name", "class hash", "status"]);
+        table.set_content_arrangement(ContentArrangement::Dynamic).set_header([
+            "name",
+            "class hash",
+            "status",
+        ]);
         for c in &report.declared {
             let status = if c.already_declared { "already declared" } else { "declared" };
             table.add_row([c.name.clone(), format!("{:#x}", c.class_hash), status.to_string()]);
@@ -25,9 +27,12 @@ pub fn print(report: &BootstrapReport) {
     if !report.deployed.is_empty() {
         println!("\nDeployed contracts:");
         let mut table = Table::new();
-        table
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_header(["label", "class", "address", "status / tx hash"]);
+        table.set_content_arrangement(ContentArrangement::Dynamic).set_header([
+            "label",
+            "class",
+            "address",
+            "status / tx hash",
+        ]);
         for d in &report.deployed {
             let status = match d.tx_hash {
                 Some(hash) => format!("{hash:#x}"),

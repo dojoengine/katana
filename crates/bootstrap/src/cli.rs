@@ -22,9 +22,8 @@ use url::Url;
 use crate::executor::{self, ExecutorConfig};
 use crate::manifest::Manifest;
 use crate::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
-use crate::report;
 use crate::tui::{self, SignerDefaults};
-use crate::embedded;
+use crate::{embedded, report};
 
 #[derive(Debug, Args, PartialEq, Eq)]
 pub struct BootstrapArgs {
@@ -64,18 +63,14 @@ impl BootstrapArgs {
     pub async fn execute(self) -> Result<()> {
         // Decide mode. If --interactive is set, or no actionable inputs are present,
         // run the TUI. Otherwise build a plan from the flags/manifest.
-        let no_inputs = self.manifest.is_none()
-            && self.declares.is_empty()
-            && self.deploys.is_empty();
+        let no_inputs =
+            self.manifest.is_none() && self.declares.is_empty() && self.deploys.is_empty();
 
         if self.interactive || no_inputs {
             // The TUI collects --account / --private-key in its Settings tab if they
             // weren't passed on the CLI, so we don't validate them here.
-            let initial = if let Some(path) = &self.manifest {
-                Some(Manifest::load(path)?)
-            } else {
-                None
-            };
+            let initial =
+                if let Some(path) = &self.manifest { Some(Manifest::load(path)?) } else { None };
             let defaults = SignerDefaults {
                 rpc_url: Some(self.rpc_url.to_string()),
                 account: self.account,
@@ -93,17 +88,9 @@ impl BootstrapArgs {
     }
 
     fn executor_config(&self) -> Result<ExecutorConfig> {
-        let account = self
-            .account
-            .ok_or_else(|| anyhow!("--account is required"))?;
-        let private_key = self
-            .private_key
-            .ok_or_else(|| anyhow!("--private-key is required"))?;
-        Ok(ExecutorConfig {
-            rpc_url: self.rpc_url.clone(),
-            account_address: account,
-            private_key,
-        })
+        let account = self.account.ok_or_else(|| anyhow!("--account is required"))?;
+        let private_key = self.private_key.ok_or_else(|| anyhow!("--private-key is required"))?;
+        Ok(ExecutorConfig { rpc_url: self.rpc_url.clone(), account_address: account, private_key })
     }
 
     fn build_programmatic_plan(&self) -> Result<BootstrapPlan> {
@@ -210,8 +197,8 @@ fn parse_deploy_flag(spec: &str, declares: &[DeclareStep]) -> Result<DeployStep>
         (e.class_hash, e.name.to_string())
     } else {
         return Err(anyhow!(
-            "--deploy `{spec}`: unknown class `{class}` (not in --declare/--manifest and not \
-             an embedded class)"
+            "--deploy `{spec}`: unknown class `{class}` (not in --declare/--manifest and not an \
+             embedded class)"
         ));
     };
 
@@ -274,11 +261,9 @@ mod tests {
 
     #[test]
     fn parse_deploy_with_all_kvs() {
-        let s = parse_deploy_flag(
-            "dev_account:label=alice,salt=0x7,unique,calldata=0x1,0x2,0x3",
-            &[],
-        )
-        .unwrap();
+        let s =
+            parse_deploy_flag("dev_account:label=alice,salt=0x7,unique,calldata=0x1,0x2,0x3", &[])
+                .unwrap();
         assert_eq!(s.label.as_deref(), Some("alice"));
         assert_eq!(s.salt, Felt::from(7u32));
         assert!(s.unique);
