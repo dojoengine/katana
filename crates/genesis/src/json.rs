@@ -588,7 +588,9 @@ fn class_artifact_at_path(
 
 #[cfg(test)]
 mod tests {
-    use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
+    use katana_contracts::contracts::{
+        Account, KatanaAccountLegacy, LegacyERC20, UniversalDeployer,
+    };
     use katana_primitives::{address, felt};
 
     use super::*;
@@ -732,7 +734,7 @@ mod tests {
                     name: Some("Foo".to_string()),
                 },
                 GenesisClassJson {
-                    class: serde_json::to_value(Account::CLASS.as_sierra().unwrap())
+                    class: serde_json::to_value(KatanaAccountLegacy::CLASS.as_sierra().unwrap())
                         .unwrap()
                         .into(),
                     name: None,
@@ -752,6 +754,8 @@ mod tests {
 
         expected_classes.insert(LegacyERC20::HASH, LegacyERC20::CLASS.clone().into());
         expected_classes.insert(UniversalDeployer::HASH, UniversalDeployer::CLASS.clone().into());
+        expected_classes
+            .insert(KatanaAccountLegacy::HASH, KatanaAccountLegacy::CLASS.clone().into());
         expected_classes.insert(Account::HASH, Account::CLASS.clone().into());
 
         let acc_1 = address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a");
@@ -785,7 +789,7 @@ mod tests {
                 GenesisAllocation::Account(GenesisAccountAlloc::Account(GenesisAccount {
                     public_key: felt!("0x2"),
                     balance: Some(U256::from_str("0xD3C21BCECCEDA1000000").unwrap()),
-                    class_hash: Account::HASH,
+                    class_hash: KatanaAccountLegacy::HASH,
                     nonce: None,
                     storage: None,
                     salt: GenesisAccount::DEFAULT_SALT,
@@ -894,7 +898,21 @@ mod tests {
         let json_again = GenesisJson::try_from(genesis.clone()).unwrap();
         let genesis_again = Genesis::try_from(json_again.clone()).unwrap();
 
-        similar_asserts::assert_eq!(genesis, genesis_again);
+        assert_eq!(genesis.parent_hash, genesis_again.parent_hash);
+        assert_eq!(genesis.state_root, genesis_again.state_root);
+        assert_eq!(genesis.number, genesis_again.number);
+        assert_eq!(genesis.timestamp, genesis_again.timestamp);
+        assert_eq!(genesis.sequencer_address, genesis_again.sequencer_address);
+        assert_eq!(genesis.gas_prices, genesis_again.gas_prices);
+        assert_eq!(genesis.allocations, genesis_again.allocations);
+        assert_eq!(genesis.classes.len(), genesis_again.classes.len());
+
+        // Sierra debug info maps are not stable under serde round-trips, so compare the declared
+        // classes by hash rather than by exact JSON-derived ordering.
+        for (hash, class) in genesis.classes {
+            let class_again = genesis_again.classes.get(&hash).expect("class must exist");
+            assert_eq!(class.class_hash().unwrap(), class_again.class_hash().unwrap());
+        }
     }
 
     #[test]
