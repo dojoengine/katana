@@ -837,7 +837,13 @@ fn expand_tilde(s: &str) -> PathBuf {
 #[derive(Debug)]
 enum Modal {
     /// Pick an embedded class to declare, or open the file-load sub-modal.
-    AddClassPicker { picker_state: ListState },
+    AddClassPicker {
+        picker_state: ListState,
+        /// In-modal status line. Set when the user clicks an entry that's already in
+        /// the plan, so the dup notice shows up at the bottom of the picker instead
+        /// of in the global flash bar.
+        info: Option<String>,
+    },
     /// Fuzzy file picker for loading a Sierra class JSON from disk. The user types
     /// a query and we live-filter the cached file list as they go; absolute paths
     /// (starting with `/` or `~`) bypass fuzzy matching and are treated as literal.
@@ -853,6 +859,10 @@ enum Modal {
         /// The search state we came from. Restored verbatim on cancel/failure so the
         /// user doesn't have to retype their query and pick the file again.
         return_to_search: FileSearch,
+        /// In-modal notice. Set after the worker completes when the freshly-loaded
+        /// class turns out to already be in the plan — the spinner is replaced by
+        /// this message and Esc dismisses the modal entirely.
+        notice: Option<String>,
     },
     /// Add or edit a deploy. `editing_index = Some(i)` means we're editing in place.
     ContractForm {
@@ -1107,25 +1117,56 @@ fn event_loop(
             search.tick(Instant::now());
         }
         let mut completed_load: Option<Result<DeclareStep>> = None;
-        if let Some(Modal::LoadingClass { pending, .. }) = app.modal.as_mut() {
-            match pending.rx.try_recv() {
-                Ok(result) => completed_load = Some(result),
-                Err(std::sync::mpsc::TryRecvError::Empty) => {} // still loading
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    completed_load = Some(Err(anyhow!(
-                        "background class loader thread disconnected without sending a result"
-                    )));
+        if let Some(Modal::LoadingClass { pending, notice, .. }) = app.modal.as_mut() {
+            // Once a `notice` has been set the load is already settled — the worker
+            // thread has dropped its sender, so a fresh `try_recv` would return
+            // `Disconnected` and we'd misreport that as "thread vanished without
+            // sending a result". Skip the drain entirely in that state.
+            if notice.is_none() {
+                match pending.rx.try_recv() {
+                    Ok(result) => completed_load = Some(result),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {} // still loading
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        completed_load = Some(Err(anyhow!(
+                            "background class loader thread disconnected without sending a result"
+                        )));
+                    }
                 }
             }
         }
         if let Some(result) = completed_load {
-            // Take the modal so we can move out of `return_to_search` on failure.
+            // Take the modal so we can move out of `return_to_search` on failure
+            // or transition the modal in place on success.
             let modal = app.modal.take();
             match (result, modal) {
-                (Ok(step), _) => {
-                    app.classes.push(step);
-                    app.classes_state.select(Some(app.classes.len() - 1));
-                    // Modal already None — we just added the class to the plan.
+                (Ok(step), Some(Modal::LoadingClass { pending, return_to_search, .. })) => {
+                    // Dedup by class hash. We can only do this *after* loading
+                    // because the hash isn't known until the Sierra has been parsed
+                    // and compiled — by which point the worker has already paid the
+                    // CPU cost. That's fine: dedup is best-effort, and the rare case
+                    // of paying for a redundant compile is preferable to either
+                    // blocking on a synchronous pre-load or letting duplicate
+                    // declares slip through.
+                    let dup = app.classes.iter().any(|c| c.class_hash == step.class_hash);
+                    if dup {
+                        // Stay in the LoadingClass modal but swap the spinner for an
+                        // inline notice. The user dismisses with Esc.
+                        app.modal = Some(Modal::LoadingClass {
+                            pending,
+                            return_to_search,
+                            notice: Some("Class is already selected".to_string()),
+                        });
+                    } else {
+                        app.classes.push(step);
+                        app.classes_state.select(Some(app.classes.len() - 1));
+                        // Modal closed by `take()` — class added to the plan.
+                    }
+                }
+                (Ok(_), other) => {
+                    // Defensive: completed_load should only be Ok when the modal is
+                    // LoadingClass. If we somehow get here, restore whatever modal
+                    // was up and drop the result.
+                    app.modal = other;
                 }
                 (Err(err), Some(Modal::LoadingClass { return_to_search, .. })) => {
                     app.modal = Some(Modal::AddClassFile {
@@ -1134,8 +1175,9 @@ fn event_loop(
                     });
                 }
                 (Err(err), other) => {
-                    // Defensive: shouldn't happen — completed_load is only set when
-                    // the modal is LoadingClass.
+                    // Defensive: completed_load should only be set when the modal
+                    // is LoadingClass. Surface the error via the global flash bar
+                    // since we have nowhere better to put it.
                     app.flash(format!("background load error: {err}"));
                     app.modal = other;
                 }
@@ -1271,7 +1313,10 @@ fn handle_classes_key(app: &mut AppState, code: KeyCode) {
     match code {
         KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
         KeyCode::Char('a') => {
-            app.modal = Some(Modal::AddClassPicker { picker_state: ListState::default() });
+            app.modal = Some(Modal::AddClassPicker {
+                picker_state: ListState::default(),
+                info: None,
+            });
         }
         KeyCode::Char('d') => {
             if let Some(i) = app.classes_state.selected() {
@@ -1469,7 +1514,7 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
     // borrows of `app`.
     let Some(modal) = app.modal.take() else { return };
     match modal {
-        Modal::AddClassPicker { mut picker_state } => {
+        Modal::AddClassPicker { mut picker_state, info: _ } => {
             // Picker entries: every embedded class + a final "Load from file…" row.
             let total = embedded::REGISTRY.len() + 1;
             match code {
@@ -1478,17 +1523,32 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     move_list(&mut picker_state, total, 1);
-                    app.modal = Some(Modal::AddClassPicker { picker_state });
+                    // Moving the cursor clears any stale "already in plan" notice;
+                    // it'd be confusing to keep showing it for an entry the user
+                    // is no longer hovering.
+                    app.modal = Some(Modal::AddClassPicker { picker_state, info: None });
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
                     move_list(&mut picker_state, total, -1);
-                    app.modal = Some(Modal::AddClassPicker { picker_state });
+                    app.modal = Some(Modal::AddClassPicker { picker_state, info: None });
                 }
                 KeyCode::Enter => {
                     let i = picker_state.selected().unwrap_or(0);
                     if i < embedded::REGISTRY.len() {
                         let entry = &embedded::REGISTRY[i];
-                        push_embedded_class(app, entry);
+                        // Manual dup check so we can keep the modal open and show
+                        // the message inline. We deliberately don't reuse
+                        // `push_embedded_class`'s flash-based path here.
+                        let already =
+                            app.classes.iter().any(|c| c.class_hash == entry.class_hash);
+                        if already {
+                            app.modal = Some(Modal::AddClassPicker {
+                                picker_state,
+                                info: Some("Class is already selected".to_string()),
+                            });
+                        } else {
+                            push_embedded_class(app, entry);
+                        }
                     } else {
                         // "Load from file…" → switch modals (cwd walk happens here).
                         app.modal = Some(Modal::AddClassFile {
@@ -1498,7 +1558,7 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                     }
                 }
                 _ => {
-                    app.modal = Some(Modal::AddClassPicker { picker_state });
+                    app.modal = Some(Modal::AddClassPicker { picker_state, info: None });
                 }
             }
         }
@@ -1517,6 +1577,7 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                     app.modal = Some(Modal::LoadingClass {
                         pending: PendingLoad { path: pb, rx, started: Instant::now() },
                         return_to_search: search,
+                        notice: None,
                     });
                 }
                 None => {
@@ -1544,18 +1605,30 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                 app.modal = Some(Modal::AddClassFile { search, error: None });
             }
         },
-        Modal::LoadingClass { pending, return_to_search } => {
+        Modal::LoadingClass { pending, return_to_search, notice } => {
             // Loading is non-interactive: every key except Esc is dropped, since
-            // there's nothing to do until the worker thread finishes. Esc cancels
-            // by restoring the previous AddClassFile modal — the worker keeps
-            // running but its result is discarded once the receiver is dropped.
+            // there's nothing to do until the worker thread finishes (or, in the
+            // duplicate-class notice state, until the user dismisses).
+            //
+            // Esc semantics depend on whether the modal is showing a duplicate
+            // notice or still spinning:
+            //   - Notice visible → close the modal entirely (job is done, the user
+            //     just saw the result, sending them back to the search would feel
+            //     redundant).
+            //   - Still loading → restore the previous AddClassFile so the user
+            //     can pick a different file. The worker thread keeps running and
+            //     its eventual send into the dropped receiver is a no-op.
             if code == KeyCode::Esc {
-                app.modal = Some(Modal::AddClassFile {
-                    search: return_to_search,
-                    error: None,
-                });
+                if notice.is_some() {
+                    // discard — modal closed
+                } else {
+                    app.modal = Some(Modal::AddClassFile {
+                        search: return_to_search,
+                        error: None,
+                    });
+                }
             } else {
-                app.modal = Some(Modal::LoadingClass { pending, return_to_search });
+                app.modal = Some(Modal::LoadingClass { pending, return_to_search, notice });
             }
         }
         Modal::ContractForm { editing_index, mut form } => {
@@ -1635,9 +1708,11 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
 }
 
 fn push_embedded_class(app: &mut AppState, entry: &'static EmbeddedClass) {
-    // Don't add a duplicate by name.
-    if app.classes.iter().any(|c| c.name == entry.name) {
-        app.flash(format!("class `{}` is already in the plan", entry.name));
+    // Dedupe by class hash, not name: two embedded entries that happen to share the
+    // same alias would still be unique on disk, and conversely the same class loaded
+    // under a different alias is still a duplicate as far as the chain is concerned.
+    if app.classes.iter().any(|c| c.class_hash == entry.class_hash) {
+        app.flash("Class is already selected");
         return;
     }
     app.classes.push(DeclareStep {
@@ -1985,17 +2060,46 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
     // would feel like overkill — and we don't want to obscure the plan tabs more
     // than we have to.
     let area = match modal {
-        Modal::LoadingClass { .. } => centered_rect(50, 25, f.area()),
+        // Loader modal is small but still wide enough to comfortably fit a typical
+        // file path on one line; long paths and the dup-class notice still wrap via
+        // the Paragraph below.
+        Modal::LoadingClass { .. } => centered_rect(60, 35, f.area()),
         _ => centered_rect(60, 70, f.area()),
     };
     f.render_widget(Clear, area);
     match modal {
-        Modal::AddClassPicker { picker_state } => {
+        Modal::AddClassPicker { picker_state, info } => {
+            // Two-row layout: list on top, single info line at the bottom. The info
+            // row is always present (even when empty) so the picker height doesn't
+            // jitter as the message comes and goes.
+            let inner = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(0), Constraint::Length(1)])
+                .split(area);
+
+            // Mark embedded classes that are already in the plan with a yellow `*`.
+            // We compare by class hash so the marker stays correct even if the user
+            // picks the same class under a different alias via the file loader. The
+            // marker itself is yellow so it pops against the dimmed body of the row.
             let mut items: Vec<ListItem> = embedded::REGISTRY
                 .iter()
-                .map(|c| ListItem::new(format!("{} — {}", c.name, c.description)))
+                .map(|c| {
+                    let already_in_plan =
+                        app.classes.iter().any(|existing| existing.class_hash == c.class_hash);
+                    let body = format!("{} — {}", c.name, c.description);
+                    if already_in_plan {
+                        ListItem::new(Line::from(vec![
+                            Span::styled("* ", Style::default().fg(Color::Yellow)),
+                            Span::styled(body, Style::default().fg(Color::DarkGray)),
+                        ]))
+                    } else {
+                        ListItem::new(Line::from(vec![Span::raw("  "), Span::raw(body)]))
+                    }
+                })
                 .collect();
-            items.push(ListItem::new("[Load Sierra class from file…]"));
+            // The "load from file…" sentinel never gets a marker — the user's selection
+            // here is the path, not a known class hash.
+            items.push(ListItem::new("  [Load Sierra class from file…]"));
             let mut state = picker_state.clone();
             if state.selected().is_none() {
                 state.select(Some(0));
@@ -2004,7 +2108,16 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
                 .block(Block::default().borders(Borders::ALL).title("Add a class"))
                 .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
                 .highlight_symbol("> ");
-            f.render_stateful_widget(list, area, &mut state);
+            f.render_stateful_widget(list, inner[0], &mut state);
+
+            // Inline notice (e.g. "class `dev_account` is already in the plan").
+            if let Some(msg) = info {
+                let p = Paragraph::new(Line::from(Span::styled(
+                    format!("  {msg}"),
+                    Style::default().fg(Color::Yellow),
+                )));
+                f.render_widget(p, inner[1]);
+            }
         }
         Modal::AddClassFile { search, error } => {
             // Three-row layout inside the modal: query + matches list + hint/error.
@@ -2079,8 +2192,14 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
             let hint = Paragraph::new(Line::from(hint_text));
             f.render_widget(hint, inner[2]);
         }
-        Modal::LoadingClass { pending, .. } => {
-            draw_loading_class_modal(f, area, pending);
+        Modal::LoadingClass { pending, notice, return_to_search } => {
+            draw_loading_class_modal(
+                f,
+                area,
+                pending,
+                &return_to_search.root,
+                notice.as_deref(),
+            );
         }
         Modal::ContractForm { editing_index, form } => {
             let opts = class_options(app);
@@ -2451,15 +2570,25 @@ mod tests {
     }
 }
 
-/// Render the dedicated "compiling class" overlay. Lives in its own function rather
+/// Render the dedicated "loading class" overlay. Lives in its own function rather
 /// than inline in `draw_modal` because the layout (centred spinner + filename + parent
 /// dir + footer) is significantly different from any other modal — there's no shared
 /// query box or list state to factor with.
-fn draw_loading_class_modal(f: &mut ratatui::Frame<'_>, area: Rect, pending: &PendingLoad) {
-    let elapsed = pending.started.elapsed();
-    let frame =
-        SPINNER_FRAMES[(elapsed.as_millis() / 80) as usize % SPINNER_FRAMES.len()];
-
+///
+/// `cwd` is the directory the user opened the file picker from (i.e.
+/// `FileSearch::root`); it's used to render the parent path *relative* to where the
+/// user actually is, since long absolute paths just clutter the modal.
+///
+/// When `notice` is `Some`, the spinner row is replaced by the notice text and the
+/// footer hint flips from `[Esc] cancel` to `[Esc] dismiss`. This is how the
+/// "class is already selected" path surfaces to the user.
+fn draw_loading_class_modal(
+    f: &mut ratatui::Frame<'_>,
+    area: Rect,
+    pending: &PendingLoad,
+    cwd: &std::path::Path,
+    notice: Option<&str>,
+) {
     // Display name = file name only (the parent dir gets its own dimmer line below).
     // Falls back to the full path if file_name() fails for some odd reason.
     let file_name = pending
@@ -2467,16 +2596,37 @@ fn draw_loading_class_modal(f: &mut ratatui::Frame<'_>, area: Rect, pending: &Pe
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| pending.path.to_string_lossy().into_owned());
+    // Render the parent dir relative to cwd when possible. For paths inside cwd this
+    // strips the noisy absolute prefix; for paths outside cwd we fall back to the
+    // full absolute parent. The empty string ("") that `strip_prefix` produces when
+    // the file lives directly in cwd becomes "./" so the line still has *some*
+    // visible content.
     let parent = pending
         .path
         .parent()
-        .map(|p| p.to_string_lossy().into_owned())
+        .map(|abs_parent| match abs_parent.strip_prefix(cwd) {
+            Ok(rel) if rel.as_os_str().is_empty() => "./".to_string(),
+            Ok(rel) => format!("./{}", rel.display()),
+            Err(_) => abs_parent.to_string_lossy().into_owned(),
+        })
         .unwrap_or_default();
-    let elapsed_text =
-        format!("{}.{:01}s elapsed", elapsed.as_secs(), elapsed.subsec_millis() / 100);
 
-    let lines = vec![
-        Line::from(""),
+    // Header line: spinner + bold file name (during loading) or static check + name
+    // (once we have something to say about the result).
+    let header = if notice.is_some() {
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("✓", Style::default().fg(Color::Green)),
+            Span::raw("  "),
+            Span::styled(
+                file_name,
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            ),
+        ])
+    } else {
+        let elapsed = pending.started.elapsed();
+        let frame =
+            SPINNER_FRAMES[(elapsed.as_millis() / 80) as usize % SPINNER_FRAMES.len()];
         Line::from(vec![
             Span::raw("  "),
             Span::styled(frame.to_string(), Style::default().fg(Color::Yellow)),
@@ -2485,24 +2635,48 @@ fn draw_loading_class_modal(f: &mut ratatui::Frame<'_>, area: Rect, pending: &Pe
                 file_name,
                 Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             ),
-        ]),
-        Line::from(vec![Span::raw("     "), Span::styled(parent, Style::default().fg(Color::DarkGray))]),
-        Line::from(""),
-        Line::from(vec![
+        ])
+    };
+
+    // Body line: either the notice (yellow) when present, or an elapsed-time row
+    // alongside the parent dir.
+    let mut lines = vec![Line::from(""), header];
+    lines.push(Line::from(vec![
+        Span::raw("     "),
+        Span::styled(parent, Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(""));
+
+    if let Some(msg) = notice {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(msg.to_string(), Style::default().fg(Color::Yellow)),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("[Esc] dismiss", Style::default().fg(Color::DarkGray)),
+        ]));
+    } else {
+        let elapsed = pending.started.elapsed();
+        let elapsed_text =
+            format!("{}.{:01}s elapsed", elapsed.as_secs(), elapsed.subsec_millis() / 100);
+        lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(elapsed_text, Style::default().fg(Color::DarkGray)),
             Span::raw("       "),
             Span::styled("[Esc] cancel", Style::default().fg(Color::DarkGray)),
-        ]),
-    ];
+        ]));
+    }
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(Span::styled(
-            " Loading class ",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        ));
-    let p = Paragraph::new(lines).block(block);
+    let block = Block::default().borders(Borders::ALL).title(Span::styled(
+        " Loading class ",
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    ));
+    // Wrap so a long file name, deeply-nested parent path, or wide notice flows
+    // onto multiple lines instead of getting clipped at the modal's right edge.
+    // `trim: false` keeps the leading whitespace we use for indentation.
+    let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }
 
