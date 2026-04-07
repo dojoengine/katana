@@ -59,6 +59,9 @@ tee = [
 	"katana-rpc-server/tee",
 ]
 tee-snp = [ "katana-tee/snp", "tee" ]
+# Enables `TeeProviderType::Mock` (software-only attestation provider) for use
+# by integration test crates. Not intended for production binaries.
+tee-mock = [ "katana-tee/tee-mock", "tee" ]
 vrf = [ "cartridge", "katana-rpc-server/vrf" ]
 
 [dev-dependencies]

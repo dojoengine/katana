@@ -410,6 +410,8 @@ where
                             );
                         }
                     }
+                    #[cfg(feature = "tee-mock")]
+                    TeeProviderType::Mock => Arc::new(katana_tee::MockProvider::new()),
                 };
 
                 let api = TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
