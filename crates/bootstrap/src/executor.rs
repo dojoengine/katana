@@ -40,6 +40,7 @@ pub enum BootstrapEvent {
         idx: usize,
         name: String,
         class_hash: ClassHash,
+        /// `true` if the class was already on-chain and the declare was skipped.
         already_declared: bool,
     },
     DeployStarted { idx: usize, label: Option<String>, class_name: String },
@@ -48,7 +49,12 @@ pub enum BootstrapEvent {
         label: Option<String>,
         class_name: String,
         address: ContractAddress,
-        tx_hash: Felt,
+        /// Tx hash of the submitted invoke. `None` when the deploy was skipped because
+        /// a contract was already at the deterministic address.
+        tx_hash: Option<Felt>,
+        /// `true` if a contract was already at the target address and the deploy was
+        /// skipped.
+        already_deployed: bool,
     },
     /// Terminal event on failure. The executor returns the error to its direct caller as
     /// well; this event exists so async consumers (the TUI) don't have to await the join
@@ -88,7 +94,12 @@ pub struct DeployedContract {
     pub label: Option<String>,
     pub class_name: String,
     pub address: ContractAddress,
-    pub tx_hash: Felt,
+    /// `None` when the deploy was skipped because a contract was already at the
+    /// deterministic address. `Some(hash)` for genuinely-submitted deploys.
+    pub tx_hash: Option<Felt>,
+    /// `true` if a contract was already at the target address and the deploy was
+    /// skipped (mirrors [`DeclaredClass::already_declared`]).
+    pub already_deployed: bool,
 }
 
 /// Knobs the CLI surface lets the user pass through.
@@ -96,9 +107,6 @@ pub struct ExecutorConfig {
     pub rpc_url: Url,
     pub account_address: ContractAddress,
     pub private_key: Felt,
-    /// If `true`, declares whose class is already on-chain are reported as a no-op
-    /// instead of returning an error.
-    pub skip_existing: bool,
 }
 
 /// Run the plan against a live katana node. Convenience wrapper around
@@ -177,8 +185,7 @@ async fn execute_inner(
                 class_hash: step.class_hash,
             });
         }
-        let outcome =
-            run_declare(&account, &starknet_client, step, nonce, cfg.skip_existing).await?;
+        let outcome = run_declare(&account, &starknet_client, step, nonce).await?;
         if !outcome.already_declared {
             nonce += Felt::ONE;
         }
@@ -202,7 +209,9 @@ async fn execute_inner(
             });
         }
         let outcome = run_deploy(&account, &starknet_client, step, nonce).await?;
-        nonce += Felt::ONE;
+        if !outcome.already_deployed {
+            nonce += Felt::ONE;
+        }
         if let Some(tx) = sink {
             let _ = tx.send(BootstrapEvent::DeployCompleted {
                 idx,
@@ -210,6 +219,7 @@ async fn execute_inner(
                 class_name: outcome.class_name.clone(),
                 address: outcome.address,
                 tx_hash: outcome.tx_hash,
+                already_deployed: outcome.already_deployed,
             });
         }
         report.deployed.push(outcome);
@@ -223,24 +233,16 @@ async fn run_declare(
     starknet_client: &StarknetRpcClient,
     step: &DeclareStep,
     nonce: Felt,
-    skip_existing: bool,
 ) -> Result<DeclaredClass> {
-    // Pre-check: if the class is already on chain, either skip cleanly or fail loudly.
-    // This still uses the starknet-rs provider directly because it's a one-shot lookup,
-    // not a wait — TxWaiter is the wrong shape for it.
+    // Pre-check: if the class is already on chain, skip cleanly. Bootstrap is
+    // canonically idempotent — re-running the same plan against the same chain
+    // should converge on the desired state without errors.
     if is_declared(account_provider(account), step.class_hash).await? {
-        if skip_existing {
-            return Ok(DeclaredClass {
-                name: step.name.clone(),
-                class_hash: step.class_hash,
-                already_declared: true,
-            });
-        }
-        return Err(anyhow!(
-            "class `{}` ({:#x}) is already declared on-chain; pass --skip-existing to ignore",
-            step.name,
-            step.class_hash
-        ));
+        return Ok(DeclaredClass {
+            name: step.name.clone(),
+            class_hash: step.class_hash,
+            already_declared: true,
+        });
     }
 
     let sierra = step
@@ -290,14 +292,28 @@ async fn run_deploy(
     step: &DeployStep,
     nonce: Felt,
 ) -> Result<DeployedContract> {
-    // Compute the deterministic deploy address up front so we can both display it
-    // and emit it through the BootstrapEvent::DeployCompleted payload. UDC with
-    // `unique = false` uses ContractAddress::ZERO as the deployer in the derivation.
+    // Compute the deterministic deploy address up front. Used both for the precheck
+    // below (skip if a contract already lives at that address) and for the
+    // BootstrapEvent::DeployCompleted payload. UDC with `unique = false` uses
+    // ContractAddress::ZERO as the deployer in the derivation.
     let deployer_for_address: ContractAddress =
         if step.unique { account.address().into() } else { ContractAddress::ZERO };
     let address: ContractAddress =
         get_contract_address(step.salt, step.class_hash, &step.calldata, deployer_for_address)
             .into();
+
+    // Pre-check: if a contract is already at the deterministic address, skip the
+    // deploy (mirrors the declare-side precheck — bootstrap is canonically
+    // idempotent).
+    if is_deployed(account_provider(account), address).await? {
+        return Ok(DeployedContract {
+            label: step.label.clone(),
+            class_name: step.class_name.clone(),
+            address,
+            tx_hash: None,
+            already_deployed: true,
+        });
+    }
 
     #[allow(deprecated)]
     let factory = ContractFactory::new(step.class_hash, &account);
@@ -316,7 +332,8 @@ async fn run_deploy(
         label: step.label.clone(),
         class_name: step.class_name.clone(),
         address,
-        tx_hash: result.transaction_hash,
+        tx_hash: Some(result.transaction_hash),
+        already_deployed: false,
     })
 }
 
@@ -334,6 +351,18 @@ async fn is_declared(
         Ok(_) => Ok(true),
         Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => Ok(false),
         Err(e) => Err(anyhow!("failed to check class declaration: {e}")),
+    }
+}
+
+async fn is_deployed(
+    provider: &JsonRpcClient<HttpTransport>,
+    address: ContractAddress,
+) -> Result<bool> {
+    let address_felt: Felt = address.into();
+    match provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address_felt).await {
+        Ok(_) => Ok(true),
+        Err(ProviderError::StarknetError(StarknetError::ContractNotFound)) => Ok(false),
+        Err(e) => Err(anyhow!("failed to check contract deployment: {e}")),
     }
 }
 

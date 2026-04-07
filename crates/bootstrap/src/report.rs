@@ -27,13 +27,18 @@ pub fn print(report: &BootstrapReport) {
         let mut table = Table::new();
         table
             .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_header(["label", "class", "address", "tx hash"]);
+            .set_header(["label", "class", "address", "status / tx hash"]);
         for d in &report.deployed {
+            let status = match d.tx_hash {
+                Some(hash) => format!("{hash:#x}"),
+                None if d.already_deployed => "already deployed".to_string(),
+                None => "—".to_string(),
+            };
             table.add_row([
                 d.label.clone().unwrap_or_default(),
                 d.class_name.clone(),
                 format!("{:#x}", Into::<katana_primitives::Felt>::into(d.address)),
-                format!("{:#x}", d.tx_hash),
+                status,
             ]);
         }
         println!("{table}");

@@ -61,6 +61,11 @@ struct MockState {
     /// `getTransactionStatus` / `getTransactionReceipt` queries return success for
     /// any hash in this set — this is what the executor's `TxWaiter` polls.
     submitted_tx_hashes: std::collections::HashSet<Felt>,
+    /// Contract addresses the mock should pretend are already deployed *before* the
+    /// bootstrap runs. `get_class_hash_at` returns success for any address in this
+    /// set so the executor's deploy precheck can find them; everything else gets
+    /// `ContractNotFound`.
+    pre_deployed: std::collections::HashSet<Felt>,
     /// Counter used to mint synthetic, unique transaction hashes for tx submission responses.
     next_tx_hash: u64,
 }
@@ -117,6 +122,12 @@ impl MockServer {
     /// Mark a class as already-declared on the chain so the executor's pre-check sees it.
     fn pre_declare(&self, class_hash: Felt) {
         self.state.lock().unwrap().pre_declared.insert(class_hash);
+    }
+
+    /// Mark a contract address as already-deployed so the executor's deploy
+    /// precheck sees it (mirrors `pre_declare` for the deploy side).
+    fn pre_deploy(&self, address: Felt) {
+        self.state.lock().unwrap().pre_deployed.insert(address);
     }
 }
 
@@ -187,6 +198,34 @@ fn register_handlers(module: &mut RpcModule<Arc<Mutex<MockState>>>) {
                 Ok::<_, ErrorObjectOwned>((*canned_class_response()).clone())
             } else {
                 Err(starknet_error(28, "Class hash not found"))
+            }
+        })
+        .unwrap();
+
+    module
+        .register_method("starknet_getClassHashAt", |params, state, _| {
+            // Used by the executor's `is_deployed` precheck (one-shot lookup before
+            // every deploy). Returns success only for addresses registered via
+            // `MockServer::pre_deploy`; everything else gets ContractNotFound so the
+            // submission proceeds.
+            record(state, "starknet_getClassHashAt", &params);
+
+            let value = parse_value(&params);
+            let address = value
+                .as_array()
+                .and_then(|arr| arr.get(1))
+                .or_else(|| value.get("contract_address"))
+                .and_then(|v| v.as_str())
+                .and_then(|s| Felt::from_hex(s).ok());
+
+            let guard = state.lock().unwrap();
+            let known = address.map(|a| guard.pre_deployed.contains(&a)).unwrap_or(false);
+            drop(guard);
+
+            if known {
+                Ok::<_, ErrorObjectOwned>(json!("0x1"))
+            } else {
+                Err(starknet_error(20, "Contract not found"))
             }
         })
         .unwrap();
@@ -405,7 +444,6 @@ fn dummy_signer_config(url: Url) -> ExecutorConfig {
         rpc_url: url,
         account_address: Felt::from(0x1234u64).into(),
         private_key: Felt::from(0xabcdu64),
-        skip_existing: false,
     }
 }
 
@@ -511,13 +549,14 @@ async fn multiple_deploys_increment_nonce() {
 }
 
 #[tokio::test]
-async fn skip_existing_skips_already_declared_class_and_does_not_burn_a_nonce() {
+async fn already_declared_class_is_skipped_and_does_not_burn_a_nonce() {
+    // Bootstrap is canonically idempotent: re-running a plan whose classes are
+    // already on-chain should converge silently. The skipped declare must NOT
+    // consume a nonce, so the following deploy starts at nonce 0.
     let mock = MockServer::start().await;
     let class_hash = katana_contracts::contracts::Account::HASH;
     mock.pre_declare(class_hash);
 
-    // We will deploy the (already-declared) class, so the deploy address still needs
-    // to be expected by the mock.
     let salt = Felt::from(0x9u64);
     let calldata = vec![Felt::from(0xbbu64)];
     let address = katana_primitives::utils::get_contract_address(
@@ -533,14 +572,13 @@ async fn skip_existing_skips_already_declared_class_and_does_not_burn_a_nonce() 
         deploys: vec![deploy_step("a", class_hash, salt, calldata)],
     };
 
-    let mut cfg = dummy_signer_config(mock.url.clone());
-    cfg.skip_existing = true;
+    let cfg = dummy_signer_config(mock.url.clone());
     executor::execute(&plan, &cfg).await.expect("bootstrap should succeed");
 
     assert_eq!(
         mock.calls_to("starknet_addDeclareTransaction").len(),
         0,
-        "skip_existing should suppress the declare submission"
+        "already-declared classes should be silently skipped"
     );
 
     let invokes = mock.calls_to("starknet_addInvokeTransaction");
@@ -548,6 +586,54 @@ async fn skip_existing_skips_already_declared_class_and_does_not_burn_a_nonce() 
     // Critical: because the declare was skipped (not just deduped post-submit), the
     // deploy must reuse nonce 0 — bootstrap should NOT burn a nonce on a no-op declare.
     assert_eq!(invoke_nonce(&invokes[0]), Felt::ZERO);
+}
+
+#[tokio::test]
+async fn already_deployed_contract_is_skipped_and_does_not_burn_a_nonce() {
+    // Mirror of the declare-side test on the deploy side. A contract that's already
+    // at the deterministic address should be silently skipped, and the next op (here
+    // a fresh deploy of a different salt) should reuse the un-burned nonce.
+    let mock = MockServer::start().await;
+    let class_hash = katana_contracts::contracts::Account::HASH;
+    mock.expect_declare(class_hash);
+
+    // Deploy 1: pre-deployed → should be skipped.
+    let salt_a = Felt::from(0x1u64);
+    let calldata_a = vec![Felt::from(0xaau64)];
+    let addr_a = katana_primitives::utils::get_contract_address(
+        salt_a,
+        class_hash,
+        &calldata_a,
+        Felt::ZERO.into(),
+    );
+    mock.pre_deploy(addr_a);
+
+    // Deploy 2: not pre-deployed → should go through.
+    let salt_b = Felt::from(0x2u64);
+    let calldata_b = vec![Felt::from(0xbbu64)];
+    let addr_b = katana_primitives::utils::get_contract_address(
+        salt_b,
+        class_hash,
+        &calldata_b,
+        Felt::ZERO.into(),
+    );
+    mock.expect_deploy(addr_b, class_hash);
+
+    let plan = BootstrapPlan {
+        declares: vec![dev_account_step("a")],
+        deploys: vec![
+            deploy_step("a", class_hash, salt_a, calldata_a),
+            deploy_step("a", class_hash, salt_b, calldata_b),
+        ],
+    };
+
+    let cfg = dummy_signer_config(mock.url.clone());
+    executor::execute(&plan, &cfg).await.expect("bootstrap should succeed");
+
+    let invokes = mock.calls_to("starknet_addInvokeTransaction");
+    assert_eq!(invokes.len(), 1, "only the not-yet-deployed contract should submit");
+    // Declare took nonce 0; deploy 1 was skipped (no nonce burned); deploy 2 takes nonce 1.
+    assert_eq!(invoke_nonce(&invokes[0]), Felt::ONE);
 }
 
 #[tokio::test]

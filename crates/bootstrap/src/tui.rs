@@ -68,7 +68,6 @@ pub struct SignerDefaults {
     pub rpc_url: Option<String>,
     pub account: Option<ContractAddress>,
     pub private_key: Option<Felt>,
-    pub skip_existing: bool,
 }
 
 /// Run the interactive TUI. Blocks (off the async runtime via `spawn_blocking`) until
@@ -218,16 +217,11 @@ enum SettingsField {
     RpcUrl,
     Account,
     PrivateKey,
-    SkipExisting,
 }
 
 impl SettingsField {
-    const ALL: [SettingsField; 4] = [
-        SettingsField::RpcUrl,
-        SettingsField::Account,
-        SettingsField::PrivateKey,
-        SettingsField::SkipExisting,
-    ];
+    const ALL: [SettingsField; 3] =
+        [SettingsField::RpcUrl, SettingsField::Account, SettingsField::PrivateKey];
 
     fn idx(self) -> usize {
         Self::ALL.iter().position(|f| *f == self).unwrap()
@@ -246,7 +240,6 @@ impl SettingsField {
             SettingsField::RpcUrl => "RPC URL",
             SettingsField::Account => "Account",
             SettingsField::PrivateKey => "Private key",
-            SettingsField::SkipExisting => "Skip existing",
         }
     }
 }
@@ -256,7 +249,6 @@ struct SettingsForm {
     rpc_url: TextInput,
     account: TextInput,
     private_key: TextInput,
-    skip_existing: bool,
     focused: SettingsField,
     /// `true` while the user is typing into the focused field.
     editing: bool,
@@ -274,7 +266,6 @@ impl SettingsForm {
             private_key: TextInput::from_str(
                 d.private_key.map(|k| format!("{k:#x}")).unwrap_or_default(),
             ),
-            skip_existing: d.skip_existing,
             focused: SettingsField::RpcUrl,
             editing: false,
         }
@@ -320,7 +311,6 @@ impl SettingsForm {
                 rpc_url: rpc_url.unwrap(),
                 account_address: account.unwrap(),
                 private_key: private_key.unwrap(),
-                skip_existing: self.skip_existing,
             })
         } else {
             Err(errs)
@@ -332,7 +322,6 @@ impl SettingsForm {
             SettingsField::RpcUrl => Some(&mut self.rpc_url),
             SettingsField::Account => Some(&mut self.account),
             SettingsField::PrivateKey => Some(&mut self.private_key),
-            SettingsField::SkipExisting => None,
         }
     }
 }
@@ -1238,11 +1227,18 @@ fn drain_progress(app: &mut AppState) {
                 }
             }
             BootstrapEvent::DeployCompleted {
-                idx, label, class_name, address, ..
+                idx,
+                label,
+                class_name,
+                address,
+                already_deployed,
+                ..
             } => {
                 let row_idx = classes_len + idx;
                 if let Some(row) = rows.get_mut(row_idx) {
-                    row.status = RowStatus::Done(format!("{:#x}", Felt::from(address)));
+                    let suffix = if already_deployed { " (already)" } else { "" };
+                    row.status =
+                        RowStatus::Done(format!("{:#x}{suffix}", Felt::from(address)));
                     row.label =
                         format!("deploy   {} ({class_name})", label.as_deref().unwrap_or("-"));
                 }
@@ -1407,14 +1403,7 @@ fn handle_settings_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
             app.settings.focused = app.settings.focused.prev();
         }
         KeyCode::Enter | KeyCode::Char('e') => {
-            if app.settings.focused == SettingsField::SkipExisting {
-                app.settings.skip_existing = !app.settings.skip_existing;
-            } else {
-                app.settings.editing = true;
-            }
-        }
-        KeyCode::Char(' ') if app.settings.focused == SettingsField::SkipExisting => {
-            app.settings.skip_existing = !app.settings.skip_existing;
+            app.settings.editing = true;
         }
         _ => {}
     }
@@ -1837,7 +1826,7 @@ fn draw_hint_bar(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
         Tab::Contracts => "[a] add  [e] edit  [d] delete  [j/k] navigate  [Tab] next tab  [q] quit",
         Tab::Settings if app.settings.editing => "[Esc/Enter] stop editing",
         Tab::Settings => {
-            "[j/k] move  [e/Enter] edit  [Space] toggle  [Tab] next tab  [q] quit"
+            "[j/k] move  [e/Enter] edit  [Tab] next tab  [q] quit"
         }
         Tab::Execute => match &app.execution {
             ExecutionState::Idle => "[x] run  [Tab] next tab  [q] quit",
@@ -1977,10 +1966,6 @@ fn draw_settings_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
                 } else {
                     spans.extend(render_text_input(&app.settings.private_key, editing, true));
                 }
-            }
-            SettingsField::SkipExisting => {
-                let value = if app.settings.skip_existing { "[x]" } else { "[ ]" };
-                spans.push(Span::styled(value, label_style));
             }
         }
         lines.push(Line::from(spans));

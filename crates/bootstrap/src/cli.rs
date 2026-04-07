@@ -58,10 +58,6 @@ pub struct BootstrapArgs {
     /// embedded class name, or a class declared by the `--manifest`. May be repeated.
     #[arg(long = "deploy", value_name = "SPEC")]
     deploys: Vec<String>,
-
-    /// Treat already-declared classes as a no-op instead of an error.
-    #[arg(long)]
-    skip_existing: bool,
 }
 
 impl BootstrapArgs {
@@ -84,7 +80,6 @@ impl BootstrapArgs {
                 rpc_url: Some(self.rpc_url.to_string()),
                 account: self.account,
                 private_key: self.private_key,
-                skip_existing: self.skip_existing,
             };
             tui::run(initial, defaults).await?;
             return Ok(());
@@ -108,7 +103,6 @@ impl BootstrapArgs {
             rpc_url: self.rpc_url.clone(),
             account_address: account,
             private_key,
-            skip_existing: self.skip_existing,
         })
     }
 
