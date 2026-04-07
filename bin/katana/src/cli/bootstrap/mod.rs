@@ -23,12 +23,13 @@ pub mod embedded;
 pub mod executor;
 pub mod manifest;
 pub mod plan;
-mod prompt;
 mod report;
+mod tui;
 
 use executor::ExecutorConfig;
 use manifest::Manifest;
 use plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
+use tui::SignerDefaults;
 
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -72,21 +73,30 @@ pub struct BootstrapArgs {
 impl BootstrapArgs {
     pub async fn execute(self) -> Result<()> {
         // Decide mode. If --interactive is set, or no actionable inputs are present,
-        // run the wizard. Otherwise build a plan from the flags/manifest.
+        // run the TUI. Otherwise build a plan from the flags/manifest.
         let no_inputs = self.manifest.is_none()
             && self.declares.is_empty()
             && self.deploys.is_empty();
 
-        let cfg = self.executor_config()?;
-
         if self.interactive || no_inputs {
-            let (plan, manifest) = prompt::run()?;
-            let report = executor::execute(&plan, &cfg).await?;
-            report::print(&report);
-            prompt::maybe_save_manifest(&manifest)?;
+            // The TUI collects --account / --private-key in its Settings tab if they
+            // weren't passed on the CLI, so we don't validate them here.
+            let initial = if let Some(path) = &self.manifest {
+                Some(Manifest::load(path)?)
+            } else {
+                None
+            };
+            let defaults = SignerDefaults {
+                rpc_url: Some(self.rpc_url.to_string()),
+                account: self.account,
+                private_key: self.private_key,
+                skip_existing: self.skip_existing,
+            };
+            tui::run(initial, defaults).await?;
             return Ok(());
         }
 
+        let cfg = self.executor_config()?;
         let plan = self.build_programmatic_plan()?;
         let report = executor::execute(&plan, &cfg).await?;
         report::print(&report);

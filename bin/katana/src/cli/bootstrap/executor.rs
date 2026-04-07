@@ -18,10 +18,41 @@ use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetErr
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::sleep;
 use url::Url;
 
 use super::plan::{BootstrapPlan, DeclareStep, DeployStep};
+
+/// Streaming progress events emitted by [`execute_with_progress`]. Consumers (the TUI)
+/// receive these in order on a tokio mpsc channel as the executor walks through the plan.
+#[derive(Debug, Clone)]
+pub enum BootstrapEvent {
+    DeclareStarted { idx: usize, name: String, class_hash: ClassHash },
+    DeclareCompleted {
+        idx: usize,
+        name: String,
+        class_hash: ClassHash,
+        already_declared: bool,
+    },
+    DeployStarted { idx: usize, label: Option<String>, class_name: String },
+    DeployCompleted {
+        idx: usize,
+        label: Option<String>,
+        class_name: String,
+        address: ContractAddress,
+        tx_hash: Felt,
+    },
+    /// Terminal event on failure. The executor returns the error to its direct caller as
+    /// well; this event exists so async consumers (the TUI) don't have to await the join
+    /// handle to learn about it.
+    Failed { error: String },
+    /// Terminal event on success.
+    Done { report: BootstrapReport },
+}
+
+/// Optional channel sink fed by [`execute_with_progress`].
+pub type EventSink = UnboundedSender<BootstrapEvent>;
 
 /// Default per-operation wait timeout for the on-chain visibility polls.
 pub const STEP_TIMEOUT: Duration = Duration::from_secs(15);
@@ -59,8 +90,42 @@ pub struct ExecutorConfig {
     pub skip_existing: bool,
 }
 
-/// Run the plan against a live katana node.
+/// Run the plan against a live katana node. Convenience wrapper around
+/// [`execute_with_progress`] for callers that don't care about per-step events.
 pub async fn execute(plan: &BootstrapPlan, cfg: &ExecutorConfig) -> Result<BootstrapReport> {
+    execute_with_progress(plan, cfg, None).await
+}
+
+/// Run the plan against a live katana node, optionally streaming per-step progress
+/// events to `sink`. The returned `Result<BootstrapReport>` is identical to what the
+/// terminal `Done`/`Failed` event carries — both reporting paths exist so synchronous
+/// callers don't have to wire a channel just to learn the outcome.
+pub async fn execute_with_progress(
+    plan: &BootstrapPlan,
+    cfg: &ExecutorConfig,
+    sink: Option<EventSink>,
+) -> Result<BootstrapReport> {
+    match execute_inner(plan, cfg, sink.as_ref()).await {
+        Ok(report) => {
+            if let Some(tx) = &sink {
+                let _ = tx.send(BootstrapEvent::Done { report: report.clone() });
+            }
+            Ok(report)
+        }
+        Err(err) => {
+            if let Some(tx) = &sink {
+                let _ = tx.send(BootstrapEvent::Failed { error: format!("{err:#}") });
+            }
+            Err(err)
+        }
+    }
+}
+
+async fn execute_inner(
+    plan: &BootstrapPlan,
+    cfg: &ExecutorConfig,
+    sink: Option<&EventSink>,
+) -> Result<BootstrapReport> {
     let provider = JsonRpcClient::new(HttpTransport::new(cfg.rpc_url.clone()));
     let chain_id = provider
         .chain_id()
@@ -87,17 +152,49 @@ pub async fn execute(plan: &BootstrapPlan, cfg: &ExecutorConfig) -> Result<Boots
 
     let mut report = BootstrapReport::default();
 
-    for step in &plan.declares {
+    for (idx, step) in plan.declares.iter().enumerate() {
+        if let Some(tx) = sink {
+            let _ = tx.send(BootstrapEvent::DeclareStarted {
+                idx,
+                name: step.name.clone(),
+                class_hash: step.class_hash,
+            });
+        }
         let outcome = run_declare(&account, step, nonce, cfg.skip_existing).await?;
         if !outcome.already_declared {
             nonce += Felt::ONE;
         }
+        if let Some(tx) = sink {
+            let _ = tx.send(BootstrapEvent::DeclareCompleted {
+                idx,
+                name: outcome.name.clone(),
+                class_hash: outcome.class_hash,
+                already_declared: outcome.already_declared,
+            });
+        }
         report.declared.push(outcome);
     }
 
-    for step in &plan.deploys {
-        report.deployed.push(run_deploy(&account, step, nonce).await?);
+    for (idx, step) in plan.deploys.iter().enumerate() {
+        if let Some(tx) = sink {
+            let _ = tx.send(BootstrapEvent::DeployStarted {
+                idx,
+                label: step.label.clone(),
+                class_name: step.class_name.clone(),
+            });
+        }
+        let outcome = run_deploy(&account, step, nonce).await?;
         nonce += Felt::ONE;
+        if let Some(tx) = sink {
+            let _ = tx.send(BootstrapEvent::DeployCompleted {
+                idx,
+                label: outcome.label.clone(),
+                class_name: outcome.class_name.clone(),
+                address: outcome.address,
+                tx_hash: outcome.tx_hash,
+            });
+        }
+        report.deployed.push(outcome);
     }
 
     Ok(report)

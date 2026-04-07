@@ -18,7 +18,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use jsonrpsee::server::{RpcModule, Server, ServerHandle};
 use jsonrpsee::types::error::ErrorObjectOwned;
 use jsonrpsee::types::Params;
-use katana::cli::bootstrap::executor::{self, ExecutorConfig};
+use katana::cli::bootstrap::executor::{
+    self, execute_with_progress, BootstrapEvent, ExecutorConfig,
+};
 use katana::cli::bootstrap::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
 use katana_contracts::contracts::Account as DevAccountClass;
 use katana_primitives::class::ContractClass;
@@ -491,6 +493,72 @@ async fn skip_existing_skips_already_declared_class_and_does_not_burn_a_nonce() 
     // Critical: because the declare was skipped (not just deduped post-submit), the
     // deploy must reuse nonce 0 — bootstrap should NOT burn a nonce on a no-op declare.
     assert_eq!(invoke_nonce(&invokes[0]), Felt::ZERO);
+}
+
+#[tokio::test]
+async fn execute_with_progress_emits_events_in_order() {
+    // Verifies the streaming variant used by the TUI: with one declare and two deploys,
+    // the receiver should observe Started/Completed pairs in plan order, then Done.
+    let mock = MockServer::start().await;
+    let class_hash = katana_contracts::contracts::Account::HASH;
+    mock.expect_declare(class_hash);
+
+    let mut deploys = Vec::new();
+    for salt in [Felt::from(0x10u64), Felt::from(0x20u64)] {
+        let calldata = vec![Felt::from(0x99u64)];
+        let addr = katana_primitives::utils::get_contract_address(
+            salt,
+            class_hash,
+            &calldata,
+            Felt::ZERO.into(),
+        );
+        mock.expect_deploy(addr, class_hash);
+        deploys.push(deploy_step("a", class_hash, salt, calldata));
+    }
+
+    let plan = BootstrapPlan { declares: vec![dev_account_step("a")], deploys };
+    let cfg = dummy_signer_config(mock.url.clone());
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    execute_with_progress(&plan, &cfg, Some(tx)).await.expect("bootstrap should succeed");
+
+    // Drain the receiver into a Vec for ordered assertions.
+    let mut events = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        events.push(event);
+    }
+
+    // Map each event to a short tag so the assertion is readable.
+    fn tag(e: &BootstrapEvent) -> String {
+        match e {
+            BootstrapEvent::DeclareStarted { idx, .. } => format!("declare-start[{idx}]"),
+            BootstrapEvent::DeclareCompleted { idx, .. } => format!("declare-done[{idx}]"),
+            BootstrapEvent::DeployStarted { idx, .. } => format!("deploy-start[{idx}]"),
+            BootstrapEvent::DeployCompleted { idx, .. } => format!("deploy-done[{idx}]"),
+            BootstrapEvent::Done { .. } => "done".to_string(),
+            BootstrapEvent::Failed { .. } => "failed".to_string(),
+        }
+    }
+    let tags: Vec<String> = events.iter().map(tag).collect();
+    assert_eq!(
+        tags,
+        vec![
+            "declare-start[0]",
+            "declare-done[0]",
+            "deploy-start[0]",
+            "deploy-done[0]",
+            "deploy-start[1]",
+            "deploy-done[1]",
+            "done",
+        ],
+    );
+
+    // Spot-check the typed payloads of the terminal Done event.
+    let Some(BootstrapEvent::Done { report }) = events.last() else {
+        panic!("last event should be Done");
+    };
+    assert_eq!(report.declared.len(), 1);
+    assert_eq!(report.deployed.len(), 2);
 }
 
 // ---------------------------------------------------------------------------
