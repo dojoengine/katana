@@ -4,7 +4,7 @@
 //! `dojoengine/saya@feat/mock-prove`) to declare and deploy:
 //!
 //! 1. The `mock_amd_tee_registry` contract — a permissive `IAMDTeeRegistry` mock from
-//!    `cartridge-gg/piltover@feat/tee-mock-registry`, vendored into saya at
+//!    `cartridge-gg/piltover` (added in piltover#15), vendored into saya at
 //!    `contracts/tee_registry_mock.json` and embedded in the `saya-ops` binary.
 //! 2. The Piltover core contract.
 //! 3. `setup-program` against Piltover, pointing the `fact_registry_address` at the deployed mock
@@ -22,66 +22,114 @@ use anyhow::{anyhow, Context, Result};
 use starknet_types_core::felt::Felt;
 use tracing::{debug, info};
 
-use crate::nodes::L2Subprocess;
+use crate::nodes::L2Node;
 
 const CHAIN_ID_SHORT_STRING: &str = "katana_e2e";
 const FACT_REGISTRY_SALT: &str = "0x53fac7";
 const PILTOVER_SALT: &str = "0x9117f0";
 const TEE_REGISTRY_SALT: &str = "0x7ee";
 
-#[derive(Debug, Clone)]
-pub struct BootstrapResult {
-    pub piltover_address: Felt,
-    pub tee_registry_address: Felt,
-    pub account_address: Felt,
-    pub account_private_key: Felt,
-}
-
 /// Runs the full L2 bootstrap sequence.
-pub async fn bootstrap_l2(l2: &L2Subprocess) -> Result<BootstrapResult> {
+pub async fn bootstrap_l2(l2: &L2Node) -> Result<BootstrapResult> {
     let l2_url = l2.url();
 
     // Pull the prefunded account from the dev genesis.
     let (account_address, account_private_key) = l2.prefunded_account_keys();
 
-    let env = SayaOpsEnv {
+    let saya = SayaOps {
         rpc_url: l2_url.to_string(),
-        account_address,
+        account_address: account_address.into(),
         account_private_key,
         chain_id: "SN_SEPOLIA".to_string(),
     };
 
     info!("Declaring + deploying mock TEE registry on L2");
-    let tee_registry_address = run_declare_and_deploy_tee_registry_mock(&env)?;
+    let tee_registry_address = saya.declare_and_deploy_tee_registry_mock()?;
     info!(tee_registry_address = %hex(&tee_registry_address));
 
     info!("Declaring Piltover core contract on L2");
-    run_declare_core_contract(&env)?;
+    saya.declare_core_contract()?;
 
     info!("Deploying Piltover core contract on L2");
-    let piltover_address = run_deploy_core_contract(&env)?;
+    let piltover_address = saya.deploy_core_contract()?;
     info!(piltover_address = %hex(&piltover_address));
 
     info!("Configuring Piltover with mock TEE registry as fact_registry_address");
-    run_setup_program(&env, piltover_address, tee_registry_address)?;
+    saya.setup_program(piltover_address, tee_registry_address)?;
 
     Ok(BootstrapResult {
         piltover_address,
         tee_registry_address,
-        account_address,
+        account_address: account_address.into(),
         account_private_key,
     })
 }
 
 #[derive(Debug, Clone)]
-struct SayaOpsEnv {
+pub struct BootstrapResult {
+    /// The address of the deployed Piltover core contract on the settlement layer.
+    pub piltover_address: Felt,
+    /// The address of the deployed TEE regsitry contract on the settlement layer.
+    pub tee_registry_address: Felt,
+    /// The address of the account used for the bootstrapping.
+    pub account_address: Felt,
+    /// The private key of the account used for the bootstrapping.
+    pub account_private_key: Felt,
+}
+
+#[derive(Debug, Clone)]
+struct SayaOps {
     rpc_url: String,
     account_address: Felt,
     account_private_key: Felt,
     chain_id: String,
 }
 
-impl SayaOpsEnv {
+impl SayaOps {
+    fn declare_and_deploy_tee_registry_mock(&self) -> Result<Felt> {
+        let mut cmd = self.base_command()?;
+        cmd.args([
+            "core-contract",
+            "declare-and-deploy-tee-registry-mock",
+            "--salt",
+            TEE_REGISTRY_SALT,
+        ]);
+
+        let output = run(cmd, "declare-and-deploy-tee-registry-mock")?;
+        parse_address("TEE registry mock address", &output)
+    }
+
+    fn declare_core_contract(&self) -> Result<()> {
+        let mut cmd = self.base_command()?;
+        cmd.args(["core-contract", "declare"]);
+        run(cmd, "core-contract declare")?;
+        Ok(())
+    }
+
+    fn deploy_core_contract(&self) -> Result<Felt> {
+        let mut cmd = self.base_command()?;
+        cmd.args(["core-contract", "deploy", "--salt", PILTOVER_SALT]);
+        let output = run(cmd, "core-contract deploy")?;
+        parse_address("Core contract address", &output)
+    }
+
+    fn setup_program(&self, core_contract: Felt, fact_registry: Felt) -> Result<()> {
+        let mut cmd = self.base_command()?;
+        cmd.args([
+            "core-contract",
+            "setup-program",
+            "--core-contract-address",
+            &hex(&core_contract),
+            "--fact-registry-address",
+            &hex(&fact_registry),
+            "--chain-id",
+            CHAIN_ID_SHORT_STRING,
+        ]);
+        let _ = FACT_REGISTRY_SALT; // currently unused — left for future fact-registry-mock variant
+        run(cmd, "core-contract setup-program")?;
+        Ok(())
+    }
+
     fn base_command(&self) -> Result<Command> {
         let bin = resolve_saya_ops_bin()?;
         let mut cmd = Command::new(bin);
@@ -93,49 +141,6 @@ impl SayaOpsEnv {
             .stderr(Stdio::piped());
         Ok(cmd)
     }
-}
-
-fn run_declare_and_deploy_tee_registry_mock(env: &SayaOpsEnv) -> Result<Felt> {
-    let mut cmd = env.base_command()?;
-    cmd.args([
-        "core-contract",
-        "declare-and-deploy-tee-registry-mock",
-        "--salt",
-        TEE_REGISTRY_SALT,
-    ]);
-    let output = run(cmd, "declare-and-deploy-tee-registry-mock")?;
-    parse_address("TEE registry mock address", &output)
-}
-
-fn run_declare_core_contract(env: &SayaOpsEnv) -> Result<()> {
-    let mut cmd = env.base_command()?;
-    cmd.args(["core-contract", "declare"]);
-    run(cmd, "core-contract declare")?;
-    Ok(())
-}
-
-fn run_deploy_core_contract(env: &SayaOpsEnv) -> Result<Felt> {
-    let mut cmd = env.base_command()?;
-    cmd.args(["core-contract", "deploy", "--salt", PILTOVER_SALT]);
-    let output = run(cmd, "core-contract deploy")?;
-    parse_address("Core contract address", &output)
-}
-
-fn run_setup_program(env: &SayaOpsEnv, core_contract: Felt, fact_registry: Felt) -> Result<()> {
-    let mut cmd = env.base_command()?;
-    cmd.args([
-        "core-contract",
-        "setup-program",
-        "--core-contract-address",
-        &hex(&core_contract),
-        "--fact-registry-address",
-        &hex(&fact_registry),
-        "--chain-id",
-        CHAIN_ID_SHORT_STRING,
-    ]);
-    let _ = FACT_REGISTRY_SALT; // currently unused — left for future fact-registry-mock variant
-    run(cmd, "core-contract setup-program")?;
-    Ok(())
 }
 
 /// Captured output of a saya-ops invocation.

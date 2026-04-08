@@ -6,7 +6,7 @@
 //!
 //! 1. Spawn an L2 dev Katana via [`katana_utils::TestNode`].
 //! 2. Shell out to `saya-ops` to declare and deploy:
-//!    - `mock_amd_tee_registry` (the on-chain mock from cartridge-gg/piltover#15), and
+//!    - `mock_amd_tee_registry` (the on-chain mock added in cartridge-gg/piltover#15), and
 //!    - the Piltover core contract pointed at the mock registry.
 //! 3. Spawn an L3 rollup Katana via `TestNode` with `SettlementLayer::Starknet { … }` pointing at
 //!    L2's Piltover, and `TeeConfig { provider_type: Mock, .. }` so its `tee_generateQuote` RPC
@@ -47,11 +47,7 @@ async fn main() -> Result<()> {
 
     // 2. Bootstrap mock TEE registry + Piltover on L2 via saya-ops.
     let bootstrap = bootstrap::bootstrap_l2(&l2).await?;
-    info!(
-        piltover = %hex_felt(&bootstrap.piltover_address),
-        tee_registry = %hex_felt(&bootstrap.tee_registry_address),
-        "L2 contracts deployed"
-    );
+    info!(piltover = %hex_felt(&bootstrap.piltover_address), tee_registry = %hex_felt(&bootstrap.tee_registry_address), "L2 contracts deployed");
 
     // 3. Spawn L3 rollup Katana with TEE config + settlement pointed at L2.
     let l3 = nodes::spawn_l3(&l2, bootstrap.piltover_address).await;
