@@ -20,3 +20,7 @@ tempfile.workspace = true
 [features]
 default = [  ]
 snp = [ "dep:bincode", "dep:sev-snp", "dep:tracing" ]
+# Exposes `MockProvider` and `TeeProviderType::Mock` for use by integration test
+# crates that need to serve `tee_generateQuote` without real SEV-SNP hardware.
+# Not intended for production binaries.
+tee-mock = []

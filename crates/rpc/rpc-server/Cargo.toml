@@ -37,27 +37,27 @@ tokio.workspace = true
 tower.workspace = true
 tower-http = { workspace = true, features = [ "cors", "trace" ] }
 tracing.workspace = true
-serde.workspace = true
 
 cainome = { workspace = true, optional = true }
 cartridge = { workspace = true, optional = true }
 paymaster-rpc = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 hex = { workspace = true, optional = true }
 katana-tee = { workspace = true, optional = true }
 katana-trie = { workspace = true, optional = true }
-starknet-types-core = { workspace = true, optional = true }
 regex.workspace = true
+starknet-types-core = { workspace = true, optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
-katana-rpc-types = { workspace = true, features = ["arbitrary"] }
 katana-contracts.workspace = true
 katana-db.workspace = true
 katana-genesis.workspace = true
 katana-messaging.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
+katana-rpc-types = { workspace = true, features = [ "arbitrary" ] }
 katana-sequencer-node = { workspace = true, features = [ "cartridge" ] }
 katana-starknet.workspace = true
 katana-trie.workspace = true
@@ -69,7 +69,6 @@ alloy-primitives = { workspace = true, features = [ "serde" ] }
 alloy-provider = { workspace = true, default-features = false, features = [ "anvil-node", "reqwest", "reqwest-rustls-tls" ] }
 alloy-sol-types.workspace = true
 
-parking_lot.workspace = true
 assert_matches.workspace = true
 axum.workspace = true
 cainome.workspace = true
@@ -77,6 +76,7 @@ cairo-lang-starknet-classes.workspace = true
 indexmap.workspace = true
 jsonrpsee = { workspace = true, features = [ "client" ] }
 num-traits.workspace = true
+parking_lot.workspace = true
 proptest.workspace = true
 rand.workspace = true
 rstest.workspace = true
@@ -94,6 +94,7 @@ cartridge = [
 	"dep:cainome",
 	"dep:cartridge",
 	"dep:katana-genesis",
+	"dep:serde",
 	"dep:starknet",
 	"dep:starknet-paymaster",
 	"katana-rpc-api/cartridge",
