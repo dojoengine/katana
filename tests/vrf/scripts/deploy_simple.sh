@@ -45,8 +45,6 @@ if [[ -z "$RPC_URL" || -z "$ACCOUNT_ADDRESS" || -z "$PRIVATE_KEY" || -z "$VRF_PR
     exit 1
 fi
 
-set -x
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACTS_DIR="$SCRIPT_DIR/../contracts"
 ACCOUNT_NAME="deployer"
@@ -71,6 +69,7 @@ sncast --accounts-file "$ACCOUNTS_FILE" \
 echo "Declaring Simple contract..."
 cd "$CONTRACTS_DIR"
 DECLARE_OUTPUT=$(sncast --accounts-file "$ACCOUNTS_FILE" --account "$ACCOUNT_NAME" \
+    --wait \
     declare \
     --url "$RPC_URL" \
     --contract-name Simple 2>&1) || true
@@ -120,5 +119,9 @@ fi
 
 echo ""
 echo "Done."
-echo "  Class hash:       $CLASS_HASH"
-echo "  Contract address: $CONTRACT_ADDRESS"
+SEP='+------------------+--------------------------------------------------------------------+'
+printf '%s\n' "$SEP"
+printf '| %-16s | %-66s |\n' "Class hash"       "$CLASS_HASH"
+printf '%s\n' "$SEP"
+printf '| %-16s | %-66s |\n' "Contract address" "$CONTRACT_ADDRESS"
+printf '%s\n' "$SEP"
