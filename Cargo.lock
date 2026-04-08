@@ -6132,6 +6132,7 @@ name = "katana-bootstrap"
 version = "1.7.0"
 dependencies = [
  "anyhow",
+ "cairo-lang-starknet-classes",
  "clap",
  "comfy-table",
  "crossterm 0.28.1",
