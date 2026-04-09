@@ -265,15 +265,17 @@ fn resolve_type(
     structs: &HashMap<&str, &Struct>,
     enums: &HashMap<&str, &Enum>,
 ) -> TypeNode {
-    // u256 is a two-member struct (`low: u128`, `high: u128`) in the ABI, but
-    // the user should be able to enter a single number and have it split
-    // automatically. Treat it as a primitive so the `to_calldata` u256 branch
-    // (which calls `split_u256`) handles it.
+    // Several Cairo types are represented as structs in the ABI but should be
+    // entered as a single value by the user. Treat them as primitives so the
+    // `to_calldata` branches handle encoding transparently:
     //
-    // ByteArray is a struct (`data: Array<bytes31>`, `pending_word: felt252`,
-    // `pending_word_len: u32`) but the user should be able to enter a plain
-    // string and have it chunked into the 31-byte-per-felt encoding.
-    if type_str == "core::integer::u256" || type_str == "core::byte_array::ByteArray" {
+    // - `u256`: two-member struct (low, high) — user enters one number, `split_u256` produces the
+    //   two felts.
+    // - `ByteArray`: three-member struct (data, pending_word, pending_word_len) — user enters a
+    //   plain string, `encode_byte_array` chunks it.
+    // - `ContractAddress`, `ClassHash`, `EthAddress`, `StorageAddress`: single- felt wrapper
+    //   structs — user enters one hex/decimal value.
+    if is_transparent_struct(type_str) {
         return TypeNode::Primitive { name: type_str.to_string() };
     }
 
@@ -345,6 +347,21 @@ fn resolve_type(
     }
 
     TypeNode::Primitive { name: type_str.to_string() }
+}
+
+/// Types that the ABI defines as structs but that the user should enter as a
+/// single scalar value. Each of these either wraps a single felt (addresses,
+/// hashes) or has custom encoding logic in [`to_calldata`] (u256, ByteArray).
+fn is_transparent_struct(type_str: &str) -> bool {
+    matches!(
+        type_str,
+        "core::integer::u256"
+            | "core::byte_array::ByteArray"
+            | "core::starknet::contract_address::ContractAddress"
+            | "core::starknet::class_hash::ClassHash"
+            | "core::starknet::eth_address::EthAddress"
+            | "core::starknet::storage_access::StorageAddress"
+    )
 }
 
 /// Extract `T` from `...<T>`. Returns `None` if there are no angle brackets.
@@ -774,6 +791,39 @@ mod tests {
 
         let absent = to_calldata(&node, &Value::Null).unwrap();
         assert_eq!(absent, vec![Felt::ONE]);
+    }
+
+    #[test]
+    fn contract_address_struct_in_abi_resolved_as_primitive() {
+        let abi = make_contract(json!([
+            {
+                "type": "struct",
+                "name": "core::starknet::contract_address::ContractAddress",
+                "members": [{ "name": "address", "type": "core::felt252" }]
+            },
+            {
+                "type": "constructor",
+                "name": "constructor",
+                "inputs": [
+                    { "name": "owner", "type": "core::starknet::contract_address::ContractAddress" }
+                ]
+            }
+        ]));
+
+        let parsed = parse_abi(&abi).unwrap();
+        let ctor = parsed.constructor.unwrap();
+        match &ctor.inputs[0].ty {
+            TypeNode::Primitive { name } => {
+                assert_eq!(name, "core::starknet::contract_address::ContractAddress")
+            }
+            other => panic!("expected Primitive for ContractAddress, got {other:?}"),
+        }
+
+        // User enters a hex address — encodes as a single felt.
+        let addr = "0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec";
+        let calldata = to_calldata(&ctor.inputs[0].ty, &json!(addr)).unwrap();
+        assert_eq!(calldata.len(), 1);
+        assert_eq!(calldata[0], Felt::from_str(addr).unwrap());
     }
 
     #[test]
