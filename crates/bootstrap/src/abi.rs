@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use cairo_lang_starknet_classes::abi::{Contract, Enum, Item, StateMutability, Struct};
+use katana_primitives::class::{ContractClass, MaybeInvalidSierraContractAbi};
 use katana_primitives::utils::split_u256;
 use katana_primitives::{Felt, U256};
 use serde_json::Value;
@@ -86,6 +87,57 @@ pub enum AbiError {
 /// `pure`, so `view` is the only read variant).
 pub fn is_read_function(f: &FunctionAbi) -> bool {
     matches!(f.state_mutability, StateMutability::View)
+}
+
+/// Extract the constructor signature from a Sierra class, returning `None` for
+/// legacy classes, classes without an ABI, classes with a corrupted ABI, and
+/// classes whose ABI doesn't declare a constructor.
+pub fn extract_constructor(class: &ContractClass) -> Option<ConstructorAbi> {
+    let abi = class.as_sierra()?.abi.as_ref()?;
+    let contract = match abi {
+        MaybeInvalidSierraContractAbi::Valid(c) => c,
+        MaybeInvalidSierraContractAbi::Invalid(_) => return None,
+    };
+    parse_abi(contract).ok()?.constructor
+}
+
+/// Render a [`TypeNode`] as a short, human-friendly type string. Strips the
+/// `core::...::` prefix from primitive/struct/enum names so the TUI doesn't
+/// show `core::starknet::contract_address::ContractAddress` for every input.
+pub fn pretty_type(node: &TypeNode) -> String {
+    fn short(name: &str) -> String {
+        // Take the segment after the last `::`, but tolerate generic suffixes
+        // like `Span::<core::felt252>` by stripping the `<...>` first.
+        let head = name.split_once('<').map(|(h, _)| h.trim_end_matches("::")).unwrap_or(name);
+        head.rsplit("::").next().unwrap_or(name).to_string()
+    }
+    match node {
+        TypeNode::Primitive { name } => short(name),
+        TypeNode::Struct { name, .. } => short(name),
+        TypeNode::Enum { name, .. } => short(name),
+        TypeNode::Array { element, .. } => format!("Array<{}>", pretty_type(element)),
+        TypeNode::Option { element, .. } => format!("Option<{}>", pretty_type(element)),
+        TypeNode::Unknown { name } => short(name),
+    }
+}
+
+/// Convert a free-form text input from a TUI/CLI into a [`serde_json::Value`]
+/// suitable for [`to_calldata`].
+///
+/// The rules try to do the least surprising thing:
+///
+/// - Empty / whitespace input → `Value::Null` (so `Option<T>` users can leave the field blank to
+///   mean "absent").
+/// - Otherwise, try to parse as JSON first. This handles numbers, booleans, arrays (`[1, 2, 3]`),
+///   and structs (`{"a": 1}`).
+/// - On JSON parse failure, fall back to `Value::String(text)`. This is what lets users type bare
+///   hex literals like `0x42` without quoting.
+pub fn parse_text_value(text: &str) -> Value {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Value::Null;
+    }
+    serde_json::from_str(trimmed).unwrap_or_else(|_| Value::String(trimmed.to_string()))
 }
 
 /// Walk an ABI and return the constructor + sorted read/write function lists.
@@ -213,6 +265,14 @@ fn resolve_type(
     structs: &HashMap<&str, &Struct>,
     enums: &HashMap<&str, &Enum>,
 ) -> TypeNode {
+    // u256 is a two-member struct (`low: u128`, `high: u128`) in the ABI, but
+    // the user should be able to enter a single number and have it split
+    // automatically. Treat it as a primitive so the `to_calldata` u256 branch
+    // (which calls `split_u256`) handles it.
+    if type_str == "core::integer::u256" {
+        return TypeNode::Primitive { name: type_str.to_string() };
+    }
+
     // Struct lookup, with the `core::array::Span` special case.
     if let Some(s) = structs.get(type_str) {
         if s.name.starts_with("core::array::Span") {
@@ -573,6 +633,42 @@ mod tests {
     }
 
     #[test]
+    fn u256_struct_in_abi_resolved_as_primitive() {
+        // In a real Sierra ABI, u256 is defined as a struct with `low` and
+        // `high` members. Verify that `resolve_type` short-circuits to
+        // `Primitive` so the user can type a single number instead of a
+        // JSON struct literal.
+        let abi = make_contract(json!([
+            {
+                "type": "struct",
+                "name": "core::integer::u256",
+                "members": [
+                    { "name": "low", "type": "core::integer::u128" },
+                    { "name": "high", "type": "core::integer::u128" }
+                ]
+            },
+            {
+                "type": "constructor",
+                "name": "constructor",
+                "inputs": [{ "name": "amount", "type": "core::integer::u256" }]
+            }
+        ]));
+
+        let parsed = parse_abi(&abi).unwrap();
+        let ctor = parsed.constructor.unwrap();
+        assert_eq!(ctor.inputs.len(), 1);
+        match &ctor.inputs[0].ty {
+            TypeNode::Primitive { name } => assert_eq!(name, "core::integer::u256"),
+            other => panic!("expected Primitive for u256, got {other:?}"),
+        }
+
+        // End-to-end: the user types a single hex literal in the TUI and the
+        // encoding produces [low, high].
+        let calldata = to_calldata(&ctor.inputs[0].ty, &json!("0x1")).unwrap();
+        assert_eq!(calldata, vec![Felt::ONE, Felt::ZERO]);
+    }
+
+    #[test]
     fn calldata_u256_hex_decimal_and_number() {
         let node = TypeNode::Primitive { name: "core::integer::u256".to_string() };
 
@@ -636,6 +732,55 @@ mod tests {
         let node = TypeNode::Enum { name: "core::bool".to_string(), variants: vec![] };
         assert_eq!(to_calldata(&node, &json!(true)).unwrap(), vec![Felt::ONE]);
         assert_eq!(to_calldata(&node, &json!(false)).unwrap(), vec![Felt::ZERO]);
+    }
+
+    #[test]
+    fn pretty_type_strips_core_prefixes() {
+        assert_eq!(
+            pretty_type(&TypeNode::Primitive { name: "core::integer::u256".to_string() }),
+            "u256"
+        );
+        assert_eq!(
+            pretty_type(&TypeNode::Struct {
+                name: "core::starknet::contract_address::ContractAddress".to_string(),
+                members: vec![],
+            }),
+            "ContractAddress"
+        );
+        assert_eq!(
+            pretty_type(&TypeNode::Array {
+                name: "core::array::Array::<core::felt252>".to_string(),
+                element: Box::new(TypeNode::Primitive { name: "core::felt252".to_string() }),
+            }),
+            "Array<felt252>"
+        );
+        assert_eq!(
+            pretty_type(&TypeNode::Option {
+                name: "core::option::Option::<core::integer::u32>".to_string(),
+                element: Box::new(TypeNode::Primitive { name: "core::integer::u32".to_string() }),
+            }),
+            "Option<u32>"
+        );
+        // Generic struct with `<...>` suffix should still strip cleanly.
+        assert_eq!(
+            pretty_type(&TypeNode::Struct {
+                name: "core::array::Span::<core::felt252>".to_string(),
+                members: vec![],
+            }),
+            "Span"
+        );
+    }
+
+    #[test]
+    fn parse_text_value_handles_blank_json_and_bare_hex() {
+        assert_eq!(parse_text_value(""), Value::Null);
+        assert_eq!(parse_text_value("   "), Value::Null);
+        assert_eq!(parse_text_value("42"), json!(42));
+        assert_eq!(parse_text_value("true"), json!(true));
+        assert_eq!(parse_text_value(r#"[1,2,3]"#), json!([1, 2, 3]));
+        assert_eq!(parse_text_value(r#"{"a":1}"#), json!({ "a": 1 }));
+        // Bare hex literal isn't valid JSON; should fall back to a string.
+        assert_eq!(parse_text_value("0x42"), Value::String("0x42".to_string()));
     }
 
     #[test]
