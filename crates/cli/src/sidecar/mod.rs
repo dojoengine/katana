@@ -67,7 +67,7 @@ use anyhow::{anyhow, Result};
 #[cfg(feature = "vrf")]
 pub use cartridge::vrf::server::{
     get_vrf_account, VrfAccountCredentials, VrfBootstrapResult, VrfServer, VrfServerConfig,
-    VrfServiceProcess, VRF_SERVER_PORT,
+    VrfServiceProcess,
 };
 use katana_chain_spec::ChainSpec;
 use katana_genesis::allocation::GenesisAccountAlloc;
@@ -114,6 +114,7 @@ pub async fn bootstrap_paymaster(
 
 pub async fn bootstrap_vrf(
     bin_path: PathBuf,
+    vrf_url: Url,
     rpc_addr: SocketAddr,
     chain: &ChainSpec,
 ) -> Result<VrfServer> {
@@ -123,6 +124,7 @@ pub async fn bootstrap_vrf(
     let result = cartridge::vrf::server::bootstrap_vrf(rpc_url, account_address, pk).await?;
 
     let vrf_service = VrfServer::new(VrfServerConfig {
+        port: vrf_url.port().unwrap(),
         secret_key: result.secret_key,
         vrf_account_address: result.vrf_account_address,
         vrf_private_key: result.vrf_account_private_key,

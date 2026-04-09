@@ -238,11 +238,19 @@ impl SequencerNodeArgs {
             let mut vrf = if let Some(bin_path) = vrf_bin {
                 use crate::sidecar::bootstrap_vrf;
 
-                let vrf =
-                    bootstrap_vrf(bin_path, *handle.rpc().addr(), &handle.node().config().chain)
-                        .await?
-                        .start()
-                        .await?;
+                let paymaster_cfg = handle.node().config().paymaster.as_ref().unwrap();
+                let cartridge_api_cfg = paymaster_cfg.cartridge_api.as_ref().unwrap();
+                let vrf_url = cartridge_api_cfg.vrf.as_ref().unwrap().url.clone();
+
+                let vrf = bootstrap_vrf(
+                    bin_path,
+                    vrf_url,
+                    *handle.rpc().addr(),
+                    &handle.node().config().chain,
+                )
+                .await?
+                .start()
+                .await?;
 
                 Some(vrf)
             } else {
@@ -309,10 +317,15 @@ impl SequencerNodeArgs {
 
             #[cfg(feature = "vrf")]
             let mut vrf = if let Some(bin_path) = vrf_bin {
-                use crate::sidecar;
+                use crate::sidecar::bootstrap_vrf;
 
-                let vrf = sidecar::bootstrap_vrf(
+                let paymaster_cfg = handle.node().config().paymaster.as_ref().unwrap();
+                let cartridge_api_cfg = paymaster_cfg.cartridge_api.as_ref().unwrap();
+                let vrf_url = cartridge_api_cfg.vrf.as_ref().unwrap().url.clone();
+
+                let vrf = bootstrap_vrf(
                     bin_path,
+                    vrf_url,
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
