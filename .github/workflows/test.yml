@@ -486,8 +486,8 @@ jobs:
 
             - name: Install paymaster-service and vrf-server sidecars
               run: |
-                  cargo install --locked --git https://github.com/cartridge-gg/paymaster --rev 4748365 paymaster-service
-                  cargo install --locked --git https://github.com/cartridge-gg/vrf.git --rev 6d1c0f60a53558f19618b2bff81c3da0849db270 vrf-server
+                  cargo install --locked --git https://github.com/cartridge-gg/paymaster --rev 4346827 paymaster-service
+                  cargo install --locked --git https://github.com/cartridge-gg/vrf.git --rev 6d1c0f6 vrf-server
 
             - name: Run cartridge e2e test
               run: cargo run -p vrf-e2e-test

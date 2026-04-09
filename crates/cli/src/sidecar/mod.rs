@@ -106,7 +106,7 @@ pub async fn bootstrap_paymaster(
         .tokens(DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS)
         .program_path(bin_path);
 
-    let mut paymaster = PaymasterService::new(builder.build().await?);
+    let mut paymaster = PaymasterService::new(builder.build().await?).chain_id(chain.id());
     paymaster.bootstrap().await?;
 
     Ok(paymaster)

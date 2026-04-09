@@ -849,7 +849,8 @@ fn write_paymaster_profile(profile: &PaymasterProfile) -> Result<PathBuf> {
 fn paymaster_chain_id(chain_id: ChainId) -> String {
     match chain_id {
         ChainId::Named(NamedChainId::Mainnet) => "mainnet".to_string(),
-        _ => "sepolia".to_string(),
+        ChainId::Named(_) => "sepolia".to_string(),
+        ChainId::Id(felt) => felt.to_hex_string(),
     }
 }
 
