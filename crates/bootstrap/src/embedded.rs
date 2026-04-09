@@ -37,13 +37,22 @@ impl EmbeddedClass {
 /// Future additions (`oz_account`, `controller_account`, `erc20`, `erc721`) require adding
 /// the cairo source under `crates/contracts/contracts/`, registering it in
 /// `crates/contracts/src/lib.rs`, and then appending an entry here.
-pub const REGISTRY: &[EmbeddedClass] = &[EmbeddedClass {
-    name: "dev_account",
-    description: "Default katana dev account (Cairo 1)",
-    load: || contracts::Account::CLASS.clone(),
-    class_hash: contracts::Account::HASH,
-    casm_hash: contracts::Account::CASM_HASH,
-}];
+pub const REGISTRY: &[EmbeddedClass] = &[
+    EmbeddedClass {
+        name: "dev_account",
+        description: "Default katana dev account (Cairo 1)",
+        load: || contracts::Account::CLASS.clone(),
+        class_hash: contracts::Account::HASH,
+        casm_hash: contracts::Account::CASM_HASH,
+    },
+    EmbeddedClass {
+        name: "udc",
+        description: "OpenZeppelin Universal Deployer Contract (mainnet class)",
+        load: || contracts::OpenZeppelinUniversalDeployer::CLASS.clone(),
+        class_hash: contracts::OpenZeppelinUniversalDeployer::HASH,
+        casm_hash: contracts::OpenZeppelinUniversalDeployer::CASM_HASH,
+    },
+];
 
 /// Look up an embedded class by name.
 pub fn get(name: &str) -> Option<&'static EmbeddedClass> {
@@ -70,6 +79,22 @@ mod tests {
     #[test]
     fn dev_account_is_registered_and_sierra() {
         let entry = get("dev_account").expect("dev_account must be registered");
+        let class = entry.class();
+        assert!(class.as_sierra().is_some(), "embedded classes must be Sierra");
+        assert_eq!(class.class_hash().unwrap(), entry.class_hash);
+    }
+
+    /// The `udc` entry must resolve to the OpenZeppelin Universal Deployer Sierra class
+    /// currently deployed on Starknet mainnet. Pinning the hash here guards against
+    /// accidental swaps of the load function or the underlying vendored artifact.
+    #[test]
+    fn udc_is_registered_with_mainnet_hash() {
+        use katana_primitives::Felt;
+        const MAINNET_UDC: Felt = Felt::from_hex_unchecked(
+            "0x01b2df6d8861670d4a8ca4670433b2418d78169c2947f46dc614e69f333745c8",
+        );
+        let entry = get("udc").expect("udc must be registered");
+        assert_eq!(entry.class_hash, MAINNET_UDC);
         let class = entry.class();
         assert!(class.as_sierra().is_some(), "embedded classes must be Sierra");
         assert_eq!(class.class_hash().unwrap(), entry.class_hash);

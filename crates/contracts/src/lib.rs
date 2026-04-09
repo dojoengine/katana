@@ -44,6 +44,12 @@ pub mod contracts {
         OpenZeppelinAccount_v0_20_0,
         "{CARGO_MANIFEST_DIR}/build/openzeppelin_presets_AccountUpgradeable.contract_class.json"
     );
+    // Vendored straight from Starknet mainnet rather than recompiled from source — see
+    // `contracts/openzeppelin_udc/README.md` for the rationale.
+    contract!(
+        OpenZeppelinUniversalDeployer,
+        "{CARGO_MANIFEST_DIR}/contracts/openzeppelin_udc/UniversalDeployer.contract_class.json"
+    );
 }
 
 pub mod vrf {
@@ -91,8 +97,30 @@ mod tests {
             OpenZeppelinAccount_v0_20_0::HASH
         );
         assert_eq!(
+            OpenZeppelinUniversalDeployer::CLASS.class_hash().unwrap(),
+            OpenZeppelinUniversalDeployer::HASH
+        );
+        assert_eq!(
             controller::ControllerLatest::CLASS.class_hash().unwrap(),
             controller::ControllerLatest::HASH
         );
+    }
+
+    /// Pins the Universal Deployer Sierra class hash to the value currently deployed on
+    /// Starknet mainnet. The vendored class JSON under `contracts/openzeppelin_udc/` was
+    /// fetched directly from a mainnet RPC via `starknet_getClass`; we don't recompile from
+    /// source because no scarb release we tried (2.11.4 / 2.12.2 / 2.13.1 / 2.15.0)
+    /// reproduces this hash from the OZ source. See `contracts/openzeppelin_udc/README.md`.
+    ///
+    /// If this assertion ever fails, the vendored JSON has been corrupted or replaced — do
+    /// not silently re-pin: the on-chain class hash is part of the contract's identity and
+    /// any change diverges from mainnet.
+    #[test]
+    fn openzeppelin_udc_hash_matches_mainnet() {
+        use katana_primitives::Felt;
+        const EXPECTED: Felt = Felt::from_hex_unchecked(
+            "0x01b2df6d8861670d4a8ca4670433b2418d78169c2947f46dc614e69f333745c8",
+        );
+        assert_eq!(contracts::OpenZeppelinUniversalDeployer::HASH, EXPECTED);
     }
 }
