@@ -474,6 +474,109 @@ pub fn to_calldata(node: &TypeNode, value: &Value) -> Result<Vec<Felt>, AbiError
     }
 }
 
+/// Try to decode felts back into a human-readable text value for a given type.
+///
+/// Returns `(display_string, felts_consumed)` on success, or `None` if the
+/// decoding can't be done (not enough felts, unsupported type, etc). This is
+/// best-effort — it covers the common primitives, u256, ByteArray, and simple
+/// structs so the TUI can pre-fill inputs when editing an existing deploy.
+pub fn from_calldata(node: &TypeNode, felts: &[Felt]) -> Option<(String, usize)> {
+    match node {
+        TypeNode::Primitive { name } => match name.as_str() {
+            "core::integer::u256" => {
+                let (low, high) = (felts.first()?, felts.get(1)?);
+                // Reconstruct the U256 from low + high.
+                let low_u128: u128 = (*low).try_into().ok()?;
+                let high_u128: u128 = (*high).try_into().ok()?;
+                let value = U256::from(high_u128) << 128 | U256::from(low_u128);
+                Some((format!("{value:#x}"), 2))
+            }
+            "core::byte_array::ByteArray" => {
+                let num_chunks: u64 = (*felts.first()?).try_into().ok()?;
+                let total = 1 + num_chunks as usize + 2; // len + chunks + pending + pending_len
+                if felts.len() < total {
+                    return None;
+                }
+                let mut bytes = Vec::new();
+                for i in 0..num_chunks as usize {
+                    let chunk = felts[1 + i].to_bytes_be();
+                    // Each chunk is 31 bytes — the last 31 bytes of the 32-byte BE repr.
+                    bytes.extend_from_slice(&chunk[1..]);
+                }
+                let pending_word = felts[1 + num_chunks as usize];
+                let pending_len: u64 = felts[2 + num_chunks as usize].try_into().ok()?;
+                if pending_len > 0 {
+                    let pw_bytes = pending_word.to_bytes_be();
+                    let start = 32 - pending_len as usize;
+                    bytes.extend_from_slice(&pw_bytes[start..]);
+                }
+                let s = String::from_utf8(bytes).ok()?;
+                Some((s, total))
+            }
+            "core::bool" => {
+                // bool is an enum in Cairo, but if it was encoded as a primitive
+                // it's a single felt: 0 = false, 1 = true.
+                let f = felts.first()?;
+                let display = if *f == Felt::ONE { "true" } else { "false" };
+                Some((display.to_string(), 1))
+            }
+            _ => {
+                // Single-felt primitive (felt252, u8..u128, ContractAddress, etc).
+                let f = felts.first()?;
+                Some((format!("{f:#x}"), 1))
+            }
+        },
+
+        TypeNode::Struct { members, .. } => {
+            let mut consumed = 0;
+            let mut obj = serde_json::Map::new();
+            for (member_name, member_ty) in members {
+                let (val_str, n) = from_calldata(member_ty, &felts[consumed..])?;
+                obj.insert(member_name.clone(), Value::String(val_str));
+                consumed += n;
+            }
+            let json = serde_json::to_string(&Value::Object(obj)).ok()?;
+            Some((json, consumed))
+        }
+
+        TypeNode::Enum { name, .. } => {
+            if name == "core::bool" {
+                let f = felts.first()?;
+                let display = if *f == Felt::ONE { "true" } else { "false" };
+                Some((display.to_string(), 1))
+            } else {
+                None // Can't decode arbitrary enums
+            }
+        }
+
+        TypeNode::Option { element, .. } => {
+            let tag = felts.first()?;
+            if *tag == Felt::ONE {
+                // None
+                Some((String::new(), 1))
+            } else {
+                let (inner, n) = from_calldata(element, &felts[1..])?;
+                Some((inner, 1 + n))
+            }
+        }
+
+        TypeNode::Array { element, .. } => {
+            let len: u64 = (*felts.first()?).try_into().ok()?;
+            let mut consumed = 1;
+            let mut items = Vec::new();
+            for _ in 0..len {
+                let (val_str, n) = from_calldata(element, &felts[consumed..])?;
+                items.push(val_str);
+                consumed += n;
+            }
+            let json = serde_json::to_string(&items).ok()?;
+            Some((json, consumed))
+        }
+
+        TypeNode::Unknown { .. } => None,
+    }
+}
+
 fn parse_felt(value: &Value) -> Option<Felt> {
     match value {
         Value::String(s) => Felt::from_str(s).ok(),
@@ -733,6 +836,56 @@ mod tests {
         let calldata = to_calldata(&ctor.inputs[0].ty, &json!("0x1")).unwrap();
         assert_eq!(calldata, vec![Felt::ONE, Felt::ZERO]);
     }
+
+    // ----- from_calldata round-trip tests ------------------------------------
+
+    #[test]
+    fn from_calldata_felt_round_trips() {
+        let node = TypeNode::Primitive { name: "core::felt252".to_string() };
+        let felts = [Felt::from(0x42u64)];
+        let (display, consumed) = from_calldata(&node, &felts).unwrap();
+        assert_eq!(display, "0x42");
+        assert_eq!(consumed, 1);
+    }
+
+    #[test]
+    fn from_calldata_u256_round_trips() {
+        let node = TypeNode::Primitive { name: "core::integer::u256".to_string() };
+        // 256 = low=0x100, high=0x0
+        let felts = [Felt::from(0x100u64), Felt::ZERO];
+        let (display, consumed) = from_calldata(&node, &felts).unwrap();
+        assert_eq!(display, "0x100");
+        assert_eq!(consumed, 2);
+    }
+
+    #[test]
+    fn from_calldata_byte_array_round_trips() {
+        let node = TypeNode::Primitive { name: "core::byte_array::ByteArray".to_string() };
+        let encoded = to_calldata(&node, &json!("hello")).unwrap();
+        let (display, consumed) = from_calldata(&node, &encoded).unwrap();
+        assert_eq!(display, "hello");
+        assert_eq!(consumed, encoded.len());
+    }
+
+    #[test]
+    fn from_calldata_bool_round_trips() {
+        let node = TypeNode::Enum { name: "core::bool".to_string(), variants: vec![] };
+        let (display, consumed) = from_calldata(&node, &[Felt::ONE]).unwrap();
+        assert_eq!(display, "true");
+        assert_eq!(consumed, 1);
+        let (display, consumed) = from_calldata(&node, &[Felt::ZERO]).unwrap();
+        assert_eq!(display, "false");
+        assert_eq!(consumed, 1);
+    }
+
+    #[test]
+    fn from_calldata_returns_none_on_insufficient_felts() {
+        let node = TypeNode::Primitive { name: "core::integer::u256".to_string() };
+        assert!(from_calldata(&node, &[]).is_none());
+        assert!(from_calldata(&node, &[Felt::ONE]).is_none());
+    }
+
+    // ----- to_calldata tests ------------------------------------------------
 
     #[test]
     fn calldata_u256_hex_decimal_and_number() {

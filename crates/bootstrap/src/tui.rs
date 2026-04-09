@@ -936,15 +936,28 @@ impl ContractForm {
 
     fn from_existing(step: &DeployStep, opts: &[ClassOption]) -> Self {
         let class_idx = opts.iter().position(|o| o.name == step.class_name).unwrap_or(0);
-        // We can't reverse-encode raw felts back into typed values: Cairo's
-        // calldata is variable-width (structs flatten, options/arrays carry
-        // length prefixes) so the mapping isn't injective. The compromise:
-        // - If the existing entry has no calldata, default to typed mode so the user can fill in
-        //   fresh values.
-        // - Otherwise drop into raw mode with the existing felts pre-filled, so editing doesn't
-        //   silently lose data.
-        let calldata = if step.calldata.is_empty() {
-            build_calldata_input(opts.get(class_idx).and_then(|o| o.constructor.as_ref()))
+        // Always prefer typed mode when the class has a constructor ABI, and
+        // pre-fill the inputs by decoding the existing raw felts back into
+        // display strings. Falls back to raw mode only when the class has no
+        // introspectable constructor.
+        let ctor = opts.get(class_idx).and_then(|o| o.constructor.as_ref());
+        let calldata = if let Some(ctor) = ctor {
+            let mut typed = build_calldata_input(Some(ctor));
+            // Walk the existing calldata and try to decode each arg's portion.
+            if let CalldataInput::Typed { ref mut args } = typed {
+                let mut offset = 0;
+                for arg in args.iter_mut() {
+                    if offset < step.calldata.len() {
+                        if let Some((display, consumed)) =
+                            crate::abi::from_calldata(&arg.ty, &step.calldata[offset..])
+                        {
+                            arg.input = TextInput::from_str(display);
+                            offset += consumed;
+                        }
+                    }
+                }
+            }
+            typed
         } else {
             CalldataInput::Raw(TextInput::from_str(
                 step.calldata.iter().map(|f| format!("{f:#x}")).collect::<Vec<_>>().join(", "),
@@ -2746,10 +2759,36 @@ mod tests {
     }
 
     #[test]
-    fn contract_form_from_existing_with_calldata_stays_in_raw_mode() {
-        // Even when the class has a constructor, an existing entry with raw
-        // felts should land in raw mode so editing doesn't drop the data.
-        let opts = vec![opt_with_ctor("foo", vec![("a", type_felt())])];
+    fn contract_form_from_existing_prefers_typed_mode_and_prefills() {
+        // When the class has a constructor ABI, editing uses typed mode and
+        // pre-fills each input by decoding the existing raw calldata.
+        let opts = vec![opt_with_ctor("foo", vec![("a", type_felt()), ("b", type_u256())])];
+        let step = DeployStep {
+            label: None,
+            class_hash: Felt::ZERO,
+            class_name: "foo".to_string(),
+            salt: Felt::ZERO,
+            unique: false,
+            // felt252(0x42) + u256(256) encoded as [0x42, low=0x100, high=0x0]
+            calldata: vec![Felt::from(0x42u64), Felt::from(0x100u64), Felt::ZERO],
+        };
+        let form = ContractForm::from_existing(&step, &opts);
+        match &form.calldata {
+            CalldataInput::Typed { args } => {
+                assert_eq!(args.len(), 2);
+                assert_eq!(args[0].name, "a");
+                assert_eq!(args[0].input.as_str(), "0x42");
+                assert_eq!(args[1].name, "b");
+                assert_eq!(args[1].input.as_str(), "0x100");
+            }
+            CalldataInput::Raw(_) => panic!("expected typed mode when class has constructor"),
+        }
+    }
+
+    #[test]
+    fn contract_form_from_existing_falls_back_to_raw_without_abi() {
+        // Without an introspectable constructor, raw mode is the only option.
+        let opts = vec![opt_no_ctor("foo")];
         let step = DeployStep {
             label: None,
             class_hash: Felt::ZERO,
