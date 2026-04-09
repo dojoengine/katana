@@ -269,7 +269,11 @@ fn resolve_type(
     // the user should be able to enter a single number and have it split
     // automatically. Treat it as a primitive so the `to_calldata` u256 branch
     // (which calls `split_u256`) handles it.
-    if type_str == "core::integer::u256" {
+    //
+    // ByteArray is a struct (`data: Array<bytes31>`, `pending_word: felt252`,
+    // `pending_word_len: u32`) but the user should be able to enter a plain
+    // string and have it chunked into the 31-byte-per-felt encoding.
+    if type_str == "core::integer::u256" || type_str == "core::byte_array::ByteArray" {
         return TypeNode::Primitive { name: type_str.to_string() };
     }
 
@@ -366,6 +370,13 @@ pub fn to_calldata(node: &TypeNode, value: &Value) -> Result<Vec<Felt>, AbiError
                 let (low, high) = split_u256(big);
                 Ok(vec![low, high])
             }
+            "core::byte_array::ByteArray" => {
+                let s = value.as_str().ok_or_else(|| AbiError::TypeMismatch {
+                    ty: name.clone(),
+                    message: "expected a string".to_string(),
+                })?;
+                Ok(encode_byte_array(s.as_bytes()))
+            }
             _ => {
                 let f = parse_felt(value).ok_or_else(|| AbiError::InvalidInteger {
                     ty: name.clone(),
@@ -461,6 +472,44 @@ fn parse_u256(value: &Value) -> Option<U256> {
         Value::Number(n) => n.as_u128().map(U256::from).or_else(|| n.as_u64().map(U256::from)),
         _ => None,
     }
+}
+
+/// Encode a byte slice into the Cairo `ByteArray` calldata format.
+///
+/// Layout: `[num_full_chunks, ...chunk_felts, pending_word, pending_word_len]`
+///
+/// Each full chunk is 31 bytes, big-endian encoded as a felt. The remaining
+/// `len % 31` bytes go into `pending_word` (also big-endian), with
+/// `pending_word_len` recording how many bytes that is.
+fn encode_byte_array(bytes: &[u8]) -> Vec<Felt> {
+    const CHUNK: usize = 31;
+
+    let full_chunks = bytes.len() / CHUNK;
+    let remainder = bytes.len() % CHUNK;
+
+    let mut out = Vec::with_capacity(full_chunks + 3);
+
+    // Number of full 31-byte words.
+    out.push(Felt::from(full_chunks as u64));
+
+    // Each full chunk as a big-endian felt.
+    for i in 0..full_chunks {
+        let chunk = &bytes[i * CHUNK..(i + 1) * CHUNK];
+        out.push(Felt::from_bytes_be_slice(chunk));
+    }
+
+    // Pending word (the leftover bytes, big-endian).
+    if remainder > 0 {
+        let tail = &bytes[full_chunks * CHUNK..];
+        out.push(Felt::from_bytes_be_slice(tail));
+    } else {
+        out.push(Felt::ZERO);
+    }
+
+    // Pending word length.
+    out.push(Felt::from(remainder as u64));
+
+    out
 }
 
 #[cfg(test)]
@@ -725,6 +774,84 @@ mod tests {
 
         let absent = to_calldata(&node, &Value::Null).unwrap();
         assert_eq!(absent, vec![Felt::ONE]);
+    }
+
+    #[test]
+    fn byte_array_struct_in_abi_resolved_as_primitive() {
+        let abi = make_contract(json!([
+            {
+                "type": "struct",
+                "name": "core::byte_array::ByteArray",
+                "members": [
+                    { "name": "data", "type": "core::array::Array::<core::bytes_31::bytes31>" },
+                    { "name": "pending_word", "type": "core::felt252" },
+                    { "name": "pending_word_len", "type": "core::integer::u32" }
+                ]
+            },
+            {
+                "type": "constructor",
+                "name": "constructor",
+                "inputs": [{ "name": "name", "type": "core::byte_array::ByteArray" }]
+            }
+        ]));
+
+        let parsed = parse_abi(&abi).unwrap();
+        let ctor = parsed.constructor.unwrap();
+        match &ctor.inputs[0].ty {
+            TypeNode::Primitive { name } => assert_eq!(name, "core::byte_array::ByteArray"),
+            other => panic!("expected Primitive for ByteArray, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn calldata_byte_array_short_string() {
+        // "hello" (5 bytes) fits entirely in the pending word.
+        let node = TypeNode::Primitive { name: "core::byte_array::ByteArray".to_string() };
+        let out = to_calldata(&node, &json!("hello")).unwrap();
+        assert_eq!(
+            out,
+            vec![
+                Felt::ZERO,                          // 0 full chunks
+                Felt::from_bytes_be_slice(b"hello"), // pending_word
+                Felt::from(5u64),                    // pending_word_len
+            ]
+        );
+    }
+
+    #[test]
+    fn calldata_byte_array_long_string() {
+        // 37 bytes = 1 full 31-byte chunk + 6 remaining.
+        let node = TypeNode::Primitive { name: "core::byte_array::ByteArray".to_string() };
+        let input = "Long string, more than 31 characters.";
+        assert_eq!(input.len(), 37);
+
+        let out = to_calldata(&node, &json!(input)).unwrap();
+        assert_eq!(out.len(), 4); // 1 (len) + 1 (chunk) + 1 (pending) + 1 (pending_len)
+        assert_eq!(out[0], Felt::from(1u64)); // 1 full chunk
+        assert_eq!(out[1], Felt::from_bytes_be_slice(&input.as_bytes()[..31]));
+        assert_eq!(out[2], Felt::from_bytes_be_slice(&input.as_bytes()[31..]));
+        assert_eq!(out[3], Felt::from(6u64)); // 6 remaining bytes
+    }
+
+    #[test]
+    fn calldata_byte_array_exact_31_bytes() {
+        // Exactly 31 bytes = 1 full chunk, 0 pending.
+        let node = TypeNode::Primitive { name: "core::byte_array::ByteArray".to_string() };
+        let input = "abcdefghijklmnopqrstuvwxyz01234";
+        assert_eq!(input.len(), 31);
+
+        let out = to_calldata(&node, &json!(input)).unwrap();
+        assert_eq!(out[0], Felt::from(1u64));
+        assert_eq!(out[1], Felt::from_bytes_be_slice(input.as_bytes()));
+        assert_eq!(out[2], Felt::ZERO); // empty pending
+        assert_eq!(out[3], Felt::ZERO); // pending_len = 0
+    }
+
+    #[test]
+    fn calldata_byte_array_empty() {
+        let node = TypeNode::Primitive { name: "core::byte_array::ByteArray".to_string() };
+        let out = to_calldata(&node, &json!("")).unwrap();
+        assert_eq!(out, vec![Felt::ZERO, Felt::ZERO, Felt::ZERO]);
     }
 
     #[test]
