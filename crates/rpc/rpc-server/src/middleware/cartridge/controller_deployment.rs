@@ -14,14 +14,12 @@ use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::execution::Call;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::ContractAddress;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::{BroadcastedTx, BroadcastedTxWithChainId};
-use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate, FeeSource, OutsideExecution};
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate};
 use starknet::core::types::SimulationFlagForEstimateFee;
 use starknet::macros::selector;
 use starknet::signers::local_wallet::SignError;
@@ -29,12 +27,13 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tower::Layer;
 use tracing::{debug, trace};
 
+use super::shared::{
+    parse_params, AddExecuteOutsideParams, AddExecuteOutsideRequestParams, EstimateFeeParams,
+    EstimateFeeRequestParams, CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE,
+    CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX, STARKNET_ESTIMATE_FEE,
+};
 use crate::cartridge::encode_calls;
 use crate::starknet::{PendingBlockProvider, StarknetApi};
-
-const STARKNET_ESTIMATE_FEE: &str = "starknet_estimateFee";
-const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE: &str = "cartridge_addExecuteFromOutside";
-const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX: &str = "cartridge_addExecuteOutsideTransaction";
 
 #[derive(Debug)]
 struct ControllerDeploymentContext<Pool, PP, PF>
@@ -505,81 +504,4 @@ pub enum Error {
 
     #[error("failed to sign deploy transaction: {0}")]
     SigningError(SignError),
-}
-
-#[allow(dead_code)]
-#[derive(Deserialize)]
-struct AddExecuteOutsideParams {
-    address: ContractAddress,
-    outside_execution: OutsideExecution,
-    signature: Vec<Felt>,
-    fee_source: Option<FeeSource>,
-}
-
-#[derive(Deserialize)]
-struct EstimateFeeParams {
-    #[serde(alias = "request")]
-    transactions: Vec<BroadcastedTx>,
-    #[serde(alias = "simulationFlags")]
-    simulation_flags: Vec<SimulationFlagForEstimateFee>,
-    #[serde(alias = "blockId")]
-    block_id: BlockIdOrTag,
-}
-
-#[derive(Deserialize)]
-struct AddExecuteOutsidePositionalParams(
-    ContractAddress,
-    OutsideExecution,
-    Vec<Felt>,
-    #[serde(default)] Option<FeeSource>,
-);
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum AddExecuteOutsideRequestParams {
-    Named(AddExecuteOutsideParams),
-    Positional(AddExecuteOutsidePositionalParams),
-}
-
-impl From<AddExecuteOutsideRequestParams> for AddExecuteOutsideParams {
-    fn from(value: AddExecuteOutsideRequestParams) -> Self {
-        match value {
-            AddExecuteOutsideRequestParams::Named(params) => params,
-            AddExecuteOutsideRequestParams::Positional(params) => Self {
-                address: params.0,
-                outside_execution: params.1,
-                signature: params.2,
-                fee_source: params.3,
-            },
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct EstimateFeePositionalParams(
-    Vec<BroadcastedTx>,
-    Vec<SimulationFlagForEstimateFee>,
-    BlockIdOrTag,
-);
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum EstimateFeeRequestParams {
-    Named(EstimateFeeParams),
-    Positional(EstimateFeePositionalParams),
-}
-
-impl From<EstimateFeeRequestParams> for EstimateFeeParams {
-    fn from(value: EstimateFeeRequestParams) -> Self {
-        match value {
-            EstimateFeeRequestParams::Named(params) => params,
-            EstimateFeeRequestParams::Positional(params) => {
-                Self { transactions: params.0, simulation_flags: params.1, block_id: params.2 }
-            }
-        }
-    }
-}
-
-fn parse_params<T: DeserializeOwned>(request: &Request<'_>) -> Result<T, ErrorObjectOwned> {
-    request.params().parse()
 }

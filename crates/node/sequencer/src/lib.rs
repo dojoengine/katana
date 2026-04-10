@@ -52,7 +52,7 @@ use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::dev::DevApi;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
+use katana_rpc_server::middleware::cartridge::{ControllerDeploymentLayer, VrfLayer};
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::middleware::logger::RpcLoggerLayer;
 use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
@@ -77,8 +77,11 @@ use crate::exit::NodeStoppedFuture;
 /// The concrete type of the RPC middleware stack used by the node.
 #[cfg(feature = "cartridge")]
 type NodeRpcMiddleware<PF> = Stack<
-    Either<ControllerDeploymentLayer<TxPool, BlockProducer<PF>, PF>, Identity>,
-    Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
+    Either<VrfLayer, Identity>,
+    Stack<
+        Either<ControllerDeploymentLayer<TxPool, BlockProducer<PF>, PF>, Identity>,
+        Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
+    >,
 >;
 
 #[cfg(not(feature = "cartridge"))]
@@ -322,31 +325,14 @@ where
         // --- build cartridge api (plus middleware)
 
         #[cfg(feature = "cartridge")]
-        let controller_deployment_layer = if let Some(cfg) = &config.paymaster {
+        let (controller_deployment_layer, vrf_layer) = if let Some(cfg) = &config.paymaster {
             if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
                 use anyhow::ensure;
-                use katana_rpc_server::middleware::cartridge::ControllerDeploymentLayer;
 
                 ensure!(
                     config.rpc.apis.contains(&RpcModuleKind::Cartridge),
                     "Cartridge API should be enabled when paymaster is set"
                 );
-
-                #[cfg(feature = "vrf")]
-                let vrf = if let Some(vrf) = &cartridge_api_cfg.vrf {
-                    use url::Url;
-
-                    let rpc_url = Url::parse(&format!("http://{}", config.rpc.socket_addr()))
-                        .expect("valid rpc url");
-
-                    Some(katana_rpc_server::cartridge::VrfServiceConfig {
-                        rpc_url,
-                        service_url: vrf.url.clone(),
-                        vrf_contract: vrf.vrf_account,
-                    })
-                } else {
-                    None
-                };
 
                 let cartridge_api_client =
                     cartridge::CartridgeApiClient::new(cartridge_api_cfg.cartridge_api_url.clone());
@@ -355,8 +341,6 @@ where
                     paymaster_url: cfg.url.clone(),
                     paymaster_api_key: cfg.api_key.clone(),
                     api_url: cartridge_api_cfg.cartridge_api_url.clone(),
-                    #[cfg(feature = "vrf")]
-                    vrf: vrf.clone(),
                 };
 
                 let cartrige_api = CartridgeApi::new(
@@ -369,19 +353,43 @@ where
 
                 rpc_modules.merge(CartridgeApiServer::into_rpc(cartrige_api))?;
 
-                Some(ControllerDeploymentLayer::new(
+                let controller_deployment_layer = ControllerDeploymentLayer::new(
                     starknet_api.clone(),
                     cartridge_api_client,
                     cartridge_api_cfg.controller_deployer_address,
                     SigningKey::from_secret_scalar(
                         cartridge_api_cfg.controller_deployer_private_key,
                     ),
-                ))
+                );
+
+                #[cfg(feature = "vrf")]
+                let vrf_layer = if let Some(vrf) = &cartridge_api_cfg.vrf {
+                    use katana_rpc_server::cartridge::{VrfService, VrfServiceConfig};
+                    use url::Url;
+
+                    let rpc_url = Url::parse(&format!("http://{}", config.rpc.socket_addr()))
+                        .expect("valid rpc url");
+
+                    let vrf_service = VrfService::new(VrfServiceConfig {
+                        rpc_url,
+                        service_url: vrf.url.clone(),
+                        vrf_contract: vrf.vrf_account,
+                    });
+
+                    Some(VrfLayer::new(vrf_service, backend.chain_spec.id()))
+                } else {
+                    None
+                };
+
+                #[cfg(not(feature = "vrf"))]
+                let vrf_layer: Option<VrfLayer> = None;
+
+                (Some(controller_deployment_layer), vrf_layer)
             } else {
-                None
+                (None, None)
             }
         } else {
-            None
+            (None, None)
         };
 
         // --- build tee api (if configured)
@@ -422,7 +430,8 @@ where
             .layer(RpcLoggerLayer::new());
 
         #[cfg(feature = "cartridge")]
-        let rpc_middleware = rpc_middleware.option_layer(controller_deployment_layer);
+        let rpc_middleware =
+            rpc_middleware.option_layer(controller_deployment_layer).option_layer(vrf_layer);
 
         #[allow(unused_mut)]
         let mut rpc_server = RpcServer::new()

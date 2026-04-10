@@ -55,8 +55,6 @@ use paymaster_rpc::{
 use starknet_paymaster::core::types::Call as StarknetRsCall;
 use tracing::{debug, info, trace_span, Instrument};
 use url::Url;
-#[cfg(feature = "vrf")]
-use vrf::find_and_get_request_random_call;
 pub use vrf::{VrfService, VrfServiceConfig};
 
 #[derive(Debug, Clone)]
@@ -64,8 +62,6 @@ pub struct CartridgeConfig {
     pub api_url: Url,
     pub paymaster_url: Url,
     pub paymaster_api_key: Option<String>,
-    #[cfg(feature = "vrf")]
-    pub vrf: Option<vrf::VrfServiceConfig>,
 }
 
 #[allow(missing_debug_implementations)]
@@ -76,8 +72,6 @@ pub struct CartridgeApi<PF: ProviderFactory> {
     pool: TxPool,
     api_client: cartridge::CartridgeApiClient,
     paymaster_client: HttpClient,
-    #[cfg(feature = "vrf")]
-    vrf_service: Option<VrfService>,
 }
 
 impl<PF> Clone for CartridgeApi<PF>
@@ -92,8 +86,6 @@ where
             pool: self.pool.clone(),
             api_client: self.api_client.clone(),
             paymaster_client: self.paymaster_client.clone(),
-            #[cfg(feature = "vrf")]
-            vrf_service: self.vrf_service.clone(),
         }
     }
 }
@@ -113,10 +105,7 @@ where
     ) -> anyhow::Result<Self> {
         let api_client = cartridge::CartridgeApiClient::new(config.api_url);
 
-        #[cfg(feature = "vrf")]
-        let vrf_service = config.vrf.map(VrfService::new);
-
-        info!(target: "rpc::cartridge", vrf_enabled = vrf_service.is_some(), "Cartridge API initialized.");
+        info!(target: "rpc::cartridge", "Cartridge API initialized.");
 
         let paymaster_client = {
             let headers = if let Some(api_key) = &config.paymaster_api_key {
@@ -130,16 +119,7 @@ where
             HttpClientBuilder::default().set_headers(headers).build(config.paymaster_url)?
         };
 
-        Ok(Self {
-            task_spawner,
-            backend,
-            block_producer,
-            pool,
-            api_client,
-            paymaster_client,
-            #[cfg(feature = "vrf")]
-            vrf_service,
-        })
+        Ok(Self { task_spawner, backend, block_producer, pool, api_client, paymaster_client })
     }
 
     pub async fn execute_outside(
@@ -151,40 +131,8 @@ where
     ) -> Result<AddInvokeTransactionResponse, CartridgeApiError> {
         debug!(target: "rpc::cartridge", %contract_address, ?fee_source, "Adding execute outside transaction.");
 
-        let mut signed =
+        let signed =
             SignedOutsideExecution { address: contract_address, outside_execution, signature };
-
-        #[cfg(feature = "vrf")]
-        if let Some(vrf_service) = &self.vrf_service {
-            // check first if the outside execution calls include a request_random call
-            if let Some((req_rand_call, pos)) =
-                find_and_get_request_random_call(&signed.outside_execution)
-            {
-                debug!(target: "rpc::cartridge", "Found a request_random call.");
-
-                // Ensure there is a follow-up call after the request_random call
-                //
-                // Case: request_random is the only call or the last call
-                if (pos + 1) == signed.outside_execution.calls().len() {
-                    return Err(CartridgeApiError::VrfMissingFollowUpCall);
-                }
-
-                if req_rand_call.contract_address != vrf_service.account_address() {
-                    return Err(CartridgeApiError::VrfInvalidTarget {
-                        requested: req_rand_call.contract_address,
-                        supported: vrf_service.account_address(),
-                    });
-                }
-
-                let chain_id = self.backend.chain_spec.id();
-                let vrf_signed_outside_execution = vrf_service
-                    .outside_execution(&signed, chain_id)
-                    .instrument(trace_span!(target: "rpc::cartridge", "vrf.outside_execution"))
-                    .await?;
-
-                signed = vrf_signed_outside_execution;
-            }
-        }
 
         let call = Call::from(signed);
 
