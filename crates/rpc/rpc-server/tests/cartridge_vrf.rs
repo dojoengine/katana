@@ -16,7 +16,7 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use cartridge::vrf::{vrf_signed_outside_execution_serde, RequestContext};
+use cartridge::vrf::RequestContext;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::server::ServerBuilder;
 use katana_primitives::execution::Call;
@@ -28,9 +28,9 @@ use katana_utils::node::test_config;
 use katana_utils::TestNode;
 use parking_lot::Mutex;
 use paymaster_rpc::{
-    BuildTransactionRequest, BuildTransactionResponse, ExecuteRawRequest, ExecuteRawResponse,
-    ExecuteRawTransactionParameters, ExecuteRequest, ExecuteResponse, RawInvokeParameters,
-    TokenPrice,
+    BuildTransactionRequest, BuildTransactionResponse, DirectInvokeParameters,
+    ExecuteDirectRequest, ExecuteDirectResponse, ExecuteDirectTransactionParameters,
+    ExecuteRequest, ExecuteResponse, TokenPrice,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -264,7 +264,7 @@ async fn start_mock_cartridge_api() -> url::Url {
 #[derive(Default, Clone)]
 struct MockPaymasterState {
     // track execute_raw_transaction requests
-    execute_raw_tx_requests: Arc<Mutex<HashMap<ContractAddress, Vec<RawInvokeParameters>>>>,
+    execute_raw_tx_requests: Arc<Mutex<HashMap<ContractAddress, Vec<DirectInvokeParameters>>>>,
 }
 
 #[async_trait]
@@ -288,12 +288,12 @@ impl PaymasterApiServer for MockPaymasterState {
         unimplemented!()
     }
 
-    async fn execute_raw_transaction(
+    async fn execute_direct_transaction(
         &self,
-        req: ExecuteRawRequest,
-    ) -> RpcResult<ExecuteRawResponse> {
+        req: ExecuteDirectRequest,
+    ) -> RpcResult<ExecuteDirectResponse> {
         match req.transaction {
-            ExecuteRawTransactionParameters::RawInvoke { invoke } => {
+            ExecuteDirectTransactionParameters::Invoke { invoke } => {
                 let sender_address = invoke.user_address;
                 self.execute_raw_tx_requests
                     .lock()
@@ -303,7 +303,7 @@ impl PaymasterApiServer for MockPaymasterState {
             }
         }
 
-        Ok(ExecuteRawResponse { transaction_hash: felt!("0xcafe"), tracking_id: Felt::ZERO })
+        Ok(ExecuteDirectResponse { transaction_hash: felt!("0xcafe"), tracking_id: Felt::ZERO })
     }
 
     async fn get_supported_tokens(&self) -> RpcResult<Vec<TokenPrice>> {
@@ -351,7 +351,6 @@ async fn vrf_info_handler() -> axum::response::Response {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct OutsideExecutionRequest {
-    #[serde(with = "vrf_signed_outside_execution_serde")]
     request: SignedOutsideExecution,
     context: RequestContext,
 }

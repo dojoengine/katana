@@ -34,7 +34,7 @@ export function Dice() {
 				},
 				{
 					contractAddress: SIMPLE_CONTRACT_ADDRESS,
-					entrypoint: "set_with_nonce",
+					entrypoint: "vrf_set_with_nonce",
 					calldata: [],
 				},
 			]);
@@ -63,7 +63,7 @@ export function Dice() {
 				},
 				{
 					contractAddress: SIMPLE_CONTRACT_ADDRESS,
-					entrypoint: "set_with_salt",
+					entrypoint: "vrf_set_with_salt",
 					calldata: [],
 				},
 			]);

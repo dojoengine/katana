@@ -50,11 +50,11 @@ const policies: SessionPolicies = {
 			methods: [
 				{
 					name: "Roll dice with Nonce",
-					entrypoint: "set_with_nonce",
+					entrypoint: "vrf_set_with_nonce",
 				},
 				{
 					name: "Roll dice with Salt",
-					entrypoint: "set_with_salt",
+					entrypoint: "vrf_set_with_salt",
 				},
 			],
 		},

@@ -49,8 +49,8 @@ use katana_rpc_types::outside_execution::OutsideExecution;
 use katana_rpc_types::{FunctionCall, SignedOutsideExecution};
 use katana_tasks::TaskSpawner;
 use paymaster_rpc::{
-    ExecuteRawRequest, ExecuteRawTransactionParameters, ExecutionParameters, FeeMode,
-    RawInvokeParameters,
+    DirectInvokeParameters, ExecuteDirectRequest, ExecuteDirectTransactionParameters,
+    ExecutionParameters, FeeMode,
 };
 use starknet_paymaster::core::types::Call as StarknetRsCall;
 use tracing::{debug, info, trace_span, Instrument};
@@ -197,9 +197,7 @@ where
             Some(FeeSource::Paymaster) | None => FeeMode::Sponsored { tip: Default::default() },
         };
 
-        let invoke = RawInvokeParameters {
-            gas_token: None,
-            max_gas_token_amount: None,
+        let invoke = DirectInvokeParameters {
             user_address: call.contract_address.into(),
             execute_from_outside_call: StarknetRsCall {
                 calldata: call.calldata,
@@ -208,14 +206,14 @@ where
             },
         };
 
-        let request = ExecuteRawRequest {
-            transaction: ExecuteRawTransactionParameters::RawInvoke { invoke },
+        let request = ExecuteDirectRequest {
+            transaction: ExecuteDirectTransactionParameters::Invoke { invoke },
             parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
         };
 
         let response = self
             .paymaster_client
-            .execute_raw_transaction(request)
+            .execute_direct_transaction(request)
             .instrument(trace_span!(target: "rpc::cartridge", "paymaster.execute_raw_transaction"))
             .await
             .map_err(|e| CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() })?;

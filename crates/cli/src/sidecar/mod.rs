@@ -66,7 +66,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Result};
 #[cfg(feature = "vrf")]
 pub use cartridge::vrf::server::{
-    get_vrf_account, VrfAccountCredentials, VrfBootstrapResult, VrfServer, VrfServerConfig,
+    get_default_vrf_account, VrfAccountCredentials, VrfBootstrapResult, VrfServer, VrfServerConfig,
     VrfServiceProcess,
 };
 use katana_chain_spec::ChainSpec;

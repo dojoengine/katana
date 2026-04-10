@@ -9,7 +9,7 @@
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use paymaster_rpc::{
-    BuildTransactionRequest, BuildTransactionResponse, ExecuteRawRequest, ExecuteRawResponse,
+    BuildTransactionRequest, BuildTransactionResponse, ExecuteDirectRequest, ExecuteDirectResponse,
     ExecuteRequest, ExecuteResponse, TokenPrice,
 };
 
@@ -36,11 +36,11 @@ pub trait PaymasterApi {
     async fn execute_transaction(&self, request: ExecuteRequest) -> RpcResult<ExecuteResponse>;
 
     /// Execute a raw transaction with paymaster support.
-    #[method(name = "executeRawTransaction")]
-    async fn execute_raw_transaction(
+    #[method(name = "executeDirectTransaction")]
+    async fn execute_direct_transaction(
         &self,
-        request: ExecuteRawRequest,
-    ) -> RpcResult<ExecuteRawResponse>;
+        request: ExecuteDirectRequest,
+    ) -> RpcResult<ExecuteDirectResponse>;
 
     /// Get the list of supported tokens for gas payment.
     #[method(name = "getSupportedTokens")]

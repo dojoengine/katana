@@ -1,9 +1,9 @@
 [paymaster-service]
 repo = "https://github.com/cartridge-gg/paymaster"
-rev = "4346827" # copenhagen-4cb4
+rev = "788aeac" # main
 package = "paymaster-service"
 
 [vrf-server]
 repo = "https://github.com/cartridge-gg/vrf.git"
-rev = "6d1c0f6"
+rev = "8490dee" # main
 package = "vrf-server"

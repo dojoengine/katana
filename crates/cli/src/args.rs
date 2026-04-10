@@ -733,13 +733,13 @@ impl SequencerNodeArgs {
 
             Ok(Some(VrfConfig { url, vrf_account }))
         } else {
-            use cartridge::get_vrf_account;
+            use cartridge::get_default_vrf_account;
 
             let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
             let addr = listener.local_addr()?;
             let url = Url::parse(&format!("http://{addr}"))?;
 
-            let vrf_account_info = get_vrf_account()?;
+            let vrf_account_info = get_default_vrf_account()?;
             let vrf_account_address = vrf_account_info.account_address;
 
             Ok(Some(VrfConfig { url, vrf_account: vrf_account_address }))

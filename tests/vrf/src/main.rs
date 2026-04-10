@@ -1,7 +1,7 @@
 mod utils;
 
 use cainome::rs::abigen;
-use cartridge::vrf::server::get_vrf_account;
+use cartridge::vrf::server::get_default_vrf_account;
 use katana_cli::sidecar;
 use katana_primitives::execution::Call;
 use katana_primitives::utils::get_contract_address;
@@ -23,14 +23,14 @@ abigen!(SimpleVrfApp,
 [
     {
         "type": "function",
-        "name": "set_with_nonce",
+        "name": "vrf_set_with_nonce",
         "inputs": [],
         "outputs": [],
         "state_mutability": "external"
     },
     {
         "type": "function",
-        "name": "set_with_salt",
+        "name": "vrf_set_with_salt",
         "inputs": [],
         "outputs": [],
         "state_mutability": "external"
@@ -41,6 +41,13 @@ abigen!(SimpleVrfApp,
         "inputs": [],
         "outputs": [{ "type": "core::felt252" }],
         "state_mutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "set",
+        "inputs": [{ "name": "value", "type": "core::felt252" }],
+        "outputs": [],
+        "state_mutability": "external"
     }
 ]);
 
@@ -56,7 +63,7 @@ async fn main() {
         Url::parse(&format!("http://127.0.0.1:{paymaster_port}")).expect("valid url");
     let vrf_url = Url::parse(&format!("http://127.0.0.1:3000")).expect("valid url");
 
-    let vrf_cred = get_vrf_account().expect("failed to derive VRF account");
+    let vrf_cred = get_default_vrf_account().expect("failed to derive VRF account");
     let vrf_account_address = vrf_cred.account_address;
 
     let cartridge_api_url = start_mock_cartridge_api().await;
@@ -116,7 +123,7 @@ async fn main() {
         .await
         .expect("failed to bootstrap VRF");
 
-    let vrf_result = get_vrf_account().expect("failed to derive VRF account");
+    let vrf_result = get_default_vrf_account().expect("failed to derive VRF account");
     println!("VRF bootstrapped: account={:#x}", Felt::from(vrf_result.account_address));
 
     // Compute the AVNU forwarder address (deterministic from salt + constructor args).
@@ -188,7 +195,7 @@ async fn main() {
                 },
                 Call {
                     contract_address: simple_contract_address.into(),
-                    entry_point_selector: selector!("set_with_nonce"),
+                    entry_point_selector: selector!("vrf_set_with_nonce"),
                     calldata: vec![],
                 },
             ],
@@ -211,9 +218,9 @@ async fn main() {
                 None,
             )
             .await
-            .expect("set_with_nonce outside execution failed");
+            .expect("vrf_set_with_nonce outside execution failed");
 
-        println!("set_with_nonce tx: {:#x}", res.transaction_hash);
+        println!("vrf_set_with_nonce tx: {:#x}", res.transaction_hash);
     }
 
     // Test set_with_salt
@@ -231,7 +238,7 @@ async fn main() {
                 },
                 Call {
                     contract_address: simple_contract_address.into(),
-                    entry_point_selector: selector!("set_with_salt"),
+                    entry_point_selector: selector!("vrf_set_with_salt"),
                     calldata: vec![],
                 },
             ],
@@ -254,9 +261,9 @@ async fn main() {
                 None,
             )
             .await
-            .expect("set_with_salt outside execution failed");
+            .expect("vrf_set_with_salt outside execution failed");
 
-        println!("set_with_salt tx: {:#x}", res.transaction_hash);
+        println!("vrf_set_with_salt tx: {:#x}", res.transaction_hash);
     }
 
     // --- F. Verify results ---
