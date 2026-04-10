@@ -63,7 +63,7 @@ pub struct OutsideExecutionV3 {
     pub calls: Vec<Call>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, derive_more::From)]
 #[serde(untagged)]
 pub enum OutsideExecution {
     /// SNIP-9 standard version.
@@ -209,14 +209,117 @@ mod calls_serde {
 #[cfg(test)]
 mod tests {
 
+    use cainome_cairo_serde::CairoSerde;
     use katana_primitives::{address, felt, Felt};
     use serde_json::json;
     use starknet::macros::selector;
 
     use crate::outside_execution::{Call, NonceChannel, OutsideExecutionV2, OutsideExecutionV3};
+    use crate::OutsideExecution;
 
     #[test]
-    fn outside_execution_v2_serialization() {
+    fn outside_execution_v2_cairo_serialization() {
+        let expected_deserialized = OutsideExecutionV2 {
+            caller: address!("0x414e595f43414c4c4552"),
+            nonce: felt!("0x6716dcf8796086bd5a2db25d87e99b1f14e96caa105d54823bcc6c3fe01561"),
+            execute_after: 0x0,
+            execute_before: 0xb2d05e00,
+            calls: vec![Call {
+                contract_address: address!(
+                    "0x1153499afc678b92c825c86219d742f86c9385465c64aeb41a950e2ee34b1fd"
+                ),
+                entry_point_selector: felt!(
+                    "0x2d1af4265f4530c75b41282ed3b71617d3d435e96fe13b08848482173692f4f"
+                ),
+                calldata: vec![felt!("0x14d"), felt!("0x1")],
+            }],
+        };
+
+        let expected_serialized = vec![
+            felt!("0x414e595f43414c4c4552"),
+            felt!("0x6716dcf8796086bd5a2db25d87e99b1f14e96caa105d54823bcc6c3fe01561"),
+            felt!("0x0"),
+            felt!("0xb2d05e00"),
+            felt!("0x1"),
+            felt!("0x1153499afc678b92c825c86219d742f86c9385465c64aeb41a950e2ee34b1fd"),
+            felt!("0x2d1af4265f4530c75b41282ed3b71617d3d435e96fe13b08848482173692f4f"),
+            felt!("0x2"),
+            felt!("0x14d"),
+            felt!("0x1"),
+        ];
+
+        // serialize directly from OutsideExecutionV2
+        let serialized = OutsideExecutionV2::cairo_serialize(&expected_deserialized);
+        assert_eq!(serialized, expected_serialized);
+
+        // serialize from OutsideExecutionV3
+        let serialized = OutsideExecution::cairo_serialize(&expected_deserialized.clone().into());
+        assert_eq!(serialized, expected_serialized);
+
+        // deserialize directly from OutsideExecutionV2
+        let deserialized = OutsideExecutionV2::cairo_deserialize(&expected_serialized, 0).unwrap();
+        assert_eq!(deserialized, expected_deserialized);
+
+        // deserialize from OutsideExecution enum
+        let deserialized = OutsideExecution::cairo_deserialize(&expected_serialized, 0).unwrap();
+        assert_eq!(deserialized, expected_deserialized.into());
+    }
+
+    #[test]
+    fn outside_execution_v3_cairo_serialization() {
+        let expected_deserialized = OutsideExecutionV3 {
+            caller: address!("0x414e595f43414c4c4552"),
+            nonce: NonceChannel(
+                felt!("0x4e0120d114cb35ab264eb450058eebfef6393337f23291b99979c2a65df02b2"),
+                0x1,
+            ),
+            execute_after: 0x0,
+            execute_before: 0x69d6d324,
+            calls: vec![Call {
+                contract_address: address!(
+                    "0xcce923b653e892b5e4cce256770df005a5dcf9812ff825b66cf5bc41136f15"
+                ),
+                entry_point_selector: felt!(
+                    "0xf2f7c15cbe06c8d94597cd91fd7f3369eae842359235712def5584f8d270cd"
+                ),
+                calldata: vec![felt!(
+                    "0x743c83c41ce99ad470aa308823f417b2141e02e04571f5c0004e743556e7faf"
+                )],
+            }],
+        };
+
+        let expected_serialized = vec![
+            felt!("0x414e595f43414c4c4552"),
+            felt!("0x4e0120d114cb35ab264eb450058eebfef6393337f23291b99979c2a65df02b2"),
+            felt!("0x1"),
+            felt!("0x0"),
+            felt!("0x69d6d324"),
+            felt!("0x1"),
+            felt!("0xcce923b653e892b5e4cce256770df005a5dcf9812ff825b66cf5bc41136f15"),
+            felt!("0xf2f7c15cbe06c8d94597cd91fd7f3369eae842359235712def5584f8d270cd"),
+            felt!("0x1"),
+            felt!("0x743c83c41ce99ad470aa308823f417b2141e02e04571f5c0004e743556e7faf"),
+        ];
+
+        // serialize directly from OutsideExecutionV3
+        let serialized = OutsideExecutionV3::cairo_serialize(&expected_deserialized);
+        assert_eq!(serialized, expected_serialized);
+
+        // serialize from OutsideExecutionV3
+        let serialized = OutsideExecution::cairo_serialize(&expected_deserialized.clone().into());
+        assert_eq!(serialized, expected_serialized);
+
+        // deserialize directly from OutsideExecutionV3
+        let deserialized = OutsideExecutionV3::cairo_deserialize(&expected_serialized, 0).unwrap();
+        assert_eq!(deserialized, expected_deserialized);
+
+        // deserialize from OutsideExecution enum
+        let deserialized = OutsideExecution::cairo_deserialize(&expected_serialized, 0).unwrap();
+        assert_eq!(deserialized, expected_deserialized.into());
+    }
+
+    #[test]
+    fn outside_execution_v2_json_serialization() {
         let outside_execution = OutsideExecutionV2 {
             caller: address!("0x414e595f43414c4c4552"),
             execute_after: 0,
@@ -281,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn outside_execution_v3_serialization() {
+    fn outside_execution_v3_json_serialization() {
         let outside_execution = OutsideExecutionV3 {
             caller: address!("0x414e595f43414c4c4552"),
             execute_after: 0,

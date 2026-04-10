@@ -15,6 +15,7 @@ serde-utils.workspace = true
 
 arbitrary = { workspace = true, optional = true }
 cainome.workspace = true
+derive_more.workspace = true
 cainome-cairo-serde.workspace = true
 cairo-lang-starknet-classes.workspace = true
 cairo-lang-utils.workspace = true
