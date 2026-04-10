@@ -12,4 +12,5 @@ proc-macro2.workspace = true
 quote.workspace = true
 syn = { workspace = true, features = [ "parsing", "proc-macro" ] }
 
+alloy-primitives = { workspace = true, default-features = false }
 starknet-types-core.workspace = true

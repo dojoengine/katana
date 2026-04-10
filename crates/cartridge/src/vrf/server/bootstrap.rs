@@ -90,7 +90,7 @@ pub struct VrfAccountCredentials {
 ///
 /// This computes the deterministic VRF account address and VRF key pair
 /// from a fixed VRF private key.
-pub fn get_vrf_account() -> Result<VrfAccountCredentials> {
+pub fn get_default_vrf_account() -> Result<VrfAccountCredentials> {
     let secret_key = VRF_HARDCODED_SECRET_KEY;
     let vrf_account_private_key = Felt::from(secret_key);
     let public_key = generate_public_key(scalar_from_felt(secret_key.into()));
@@ -158,7 +158,7 @@ async fn bootstrap_vrf_account(
 ) -> Result<VrfAccountCredentials> {
     let provider = bootstrapper_account.provider();
 
-    let vrf_acc_cred = get_vrf_account()?;
+    let vrf_acc_cred = get_default_vrf_account()?;
     let vrf_account_address = vrf_acc_cred.account_address;
 
     if !is_declared(provider, CartridgeVrfAccount::HASH).await? {
@@ -380,19 +380,19 @@ fn felt_from_field<T: std::fmt::Display>(value: T) -> Result<Felt> {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_vrf_account, VRF_HARDCODED_SECRET_KEY};
+    use super::{get_default_vrf_account, VRF_HARDCODED_SECRET_KEY};
 
     #[test]
     fn derive_vrf_accounts_uses_hardcoded_secret_key() {
-        let derived = get_vrf_account().expect("must derive");
+        let derived = get_default_vrf_account().expect("must derive");
         assert_eq!(derived.secret_key, VRF_HARDCODED_SECRET_KEY);
         assert_eq!(derived.private_key, VRF_HARDCODED_SECRET_KEY.into());
     }
 
     #[test]
     fn derive_vrf_accounts_is_deterministic() {
-        let first = get_vrf_account().expect("first derivation");
-        let second = get_vrf_account().expect("second derivation");
+        let first = get_default_vrf_account().expect("first derivation");
+        let second = get_default_vrf_account().expect("second derivation");
 
         assert_eq!(first.account_address, second.account_address);
         assert_eq!(first.vrf_public_key_x, second.vrf_public_key_x);

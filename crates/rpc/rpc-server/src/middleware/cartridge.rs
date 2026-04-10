@@ -134,15 +134,31 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
-    fn estimate_fee_candidate_addresses(transactions: &[BroadcastedTx]) -> Vec<ContractAddress> {
-        transactions
-            .iter()
-            .filter_map(|tx| match tx {
-                BroadcastedTx::Invoke(tx) => Some(tx.sender_address),
-                BroadcastedTx::Declare(tx) => Some(tx.sender_address),
-                _ => None,
-            })
-            .collect()
+    async fn estimate_fee_candidate_addresses(
+        &self,
+        block_id: BlockIdOrTag,
+        transactions: &[BroadcastedTx],
+    ) -> Result<Vec<ContractAddress>, CartridgeApiError> {
+        let mut undeployed_address = Vec::with_capacity(transactions.len());
+
+        for tx in transactions {
+            let address = match tx {
+                BroadcastedTx::Invoke(tx) => tx.sender_address,
+                BroadcastedTx::Declare(tx) => tx.sender_address,
+                _ => continue,
+            };
+
+            match self.context.starknet.class_hash_at_address(block_id, address).await {
+                Err(StarknetApiError::ContractNotFound) => undeployed_address.push(address),
+
+                Ok(..) => {}
+                Err(e) => {
+                    return Err(CartridgeApiError::ControllerDeployment { error: Box::new(e) })
+                }
+            };
+        }
+
+        Ok(undeployed_address)
     }
 
     fn build_estimate_fee_request<'a>(
@@ -192,7 +208,8 @@ where
         request: Request<'a>,
     ) -> Result<S::MethodResponse, CartridgeApiError> {
         let EstimateFeeParams { block_id, simulation_flags, transactions } = params;
-        let candidate_addresses = Self::estimate_fee_candidate_addresses(&transactions);
+        let candidate_addresses =
+            self.estimate_fee_candidate_addresses(block_id, &transactions).await?;
 
         let deployer_nonce = self
             .context
@@ -208,12 +225,13 @@ where
 
         // No Controller to deploy, simply forward the request.
         if deploy_controller_txs.is_empty() {
-            let response = self.service.call(request).await;
-            return Ok(response);
+            trace!(target: "middleware::cartridge", "No controller to deploy - forwarding request.");
+            return Ok(self.service.call(request).await);
         }
 
         let og_txs_len = transactions.len();
         let deploy_txs_len = deploy_controller_txs.len();
+        trace!(target: "middleware::cartridge", deployment_count = deploy_txs_len, "Prepending controller deployment transactions to estimate fee.");
 
         // Build a new estimateFee request with the deploy controller transactions prepended.
         let new_estimates_txs = [deploy_controller_txs, transactions].concat();

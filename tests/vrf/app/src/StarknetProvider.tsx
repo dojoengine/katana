@@ -7,12 +7,12 @@ import {
 import { ControllerConnector } from "@cartridge/connector";
 import type { SessionPolicies } from "@cartridge/presets";
 
-import { SIMPLE_CONTRACT_ADDRESS, VRF_PROVIDER_ADDRESS } from "./constants";
+import { SIMPLE_CONTRACT_ADDRESS, VRF_ACCOUNT_ADDRESS } from "./constants";
 
 const STRK_TOKEN_ADDRESS =
 	"0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";
 
-const KATANA_CHAIN_ID = "0x534e5f4d41494e"; // SN_MAIN
+const KATANA_CHAIN_ID = "0x4b4154414e41"; // KATANA
 const KATANA_RPC_URL = "http://localhost:5050";
 
 const katana: Chain = {
@@ -38,7 +38,7 @@ const katana: Chain = {
 // Define session policies
 const policies: SessionPolicies = {
 	contracts: {
-		[VRF_PROVIDER_ADDRESS]: {
+		[VRF_ACCOUNT_ADDRESS]: {
 			methods: [
 				{
 					name: "Request random",
@@ -50,11 +50,11 @@ const policies: SessionPolicies = {
 			methods: [
 				{
 					name: "Roll dice with Nonce",
-					entrypoint: "roll_dice_with_nonce",
+					entrypoint: "vrf_set_with_nonce",
 				},
 				{
 					name: "Roll dice with Salt",
-					entrypoint: "roll_dice_with_salt",
+					entrypoint: "vrf_set_with_salt",
 				},
 			],
 		},

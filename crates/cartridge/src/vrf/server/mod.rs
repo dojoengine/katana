@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use std::{env, io};
 
 pub use bootstrap::{
-    bootstrap_vrf, get_vrf_account, VrfAccountCredentials, VrfBootstrap, VrfBootstrapConfig,
-    VrfBootstrapResult, BOOTSTRAP_TIMEOUT, VRF_ACCOUNT_SALT, VRF_CONSUMER_SALT,
+    bootstrap_vrf, get_default_vrf_account, VrfAccountCredentials, VrfBootstrap,
+    VrfBootstrapConfig, VrfBootstrapResult, BOOTSTRAP_TIMEOUT, VRF_ACCOUNT_SALT, VRF_CONSUMER_SALT,
     VRF_HARDCODED_SECRET_KEY,
 };
 use katana_primitives::{ContractAddress, Felt};
@@ -21,7 +21,6 @@ use crate::vrf::client::VrfClient;
 
 const LOG_TARGET: &str = "katana::cartridge::vrf::sidecar";
 
-pub const VRF_SERVER_PORT: u16 = 3000;
 const DEFAULT_VRF_SERVICE_PATH: &str = "vrf-server";
 pub const SIDECAR_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -50,6 +49,7 @@ pub struct VrfServerConfig {
     pub vrf_account_address: ContractAddress,
     pub vrf_private_key: Felt,
     pub secret_key: u64,
+    pub port: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +61,10 @@ pub struct VrfServer {
 impl VrfServer {
     pub fn new(config: VrfServerConfig) -> Self {
         Self { config, path: PathBuf::from(DEFAULT_VRF_SERVICE_PATH) }
+    }
+
+    pub fn config(&self) -> &VrfServerConfig {
+        &self.config
     }
 
     /// Sets the path to the vrf service program.
@@ -77,7 +81,7 @@ impl VrfServer {
         let mut command = Command::new(bin);
         command
             .arg("--port")
-            .arg(VRF_SERVER_PORT.to_string())
+            .arg(self.config.port.to_string())
             .arg("--account-address")
             .arg(self.config.vrf_account_address.to_hex_string())
             .arg("--account-private-key")
@@ -89,13 +93,13 @@ impl VrfServer {
             .kill_on_drop(true);
 
         let process = command.spawn().map_err(Error::Spawn)?;
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), VRF_SERVER_PORT);
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.config.port);
 
         let url = Url::parse(&format!("http://{addr}")).expect("valid url");
         let client = VrfClient::new(url);
         wait_for_http_ok(&client, "vrf info", SIDECAR_TIMEOUT).await?;
 
-        info!(%addr, "VRF service started.");
+        info!(%addr, vrf_account_address = %self.config.vrf_account_address, "VRF server started.");
 
         Ok(VrfServiceProcess { process, addr, inner: self })
     }
