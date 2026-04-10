@@ -8,6 +8,35 @@ use starknet_types_core::felt::{Felt, NonZeroFelt};
 use syn::parse::{Parse, ParseStream};
 use syn::{parse_macro_input, LitStr, Token};
 
+/// Computes a value that fits in a Starknet field element using eth-keccak.
+fn starknet_keccak(data: &[u8]) -> Felt {
+    use alloy_primitives::Keccak256;
+
+    let mut hasher = Keccak256::new();
+    hasher.update(data);
+    let hash = hasher.finalize();
+
+    let mut bytes: [u8; 32] = hash.into();
+    // Mask the first 6 bits to ensure the result is less than 2**250 - 1
+    bytes[0] &= 0b00000011;
+
+    Felt::from_bytes_be(&bytes)
+}
+
+/// Returns the entrypoint selector from a human-readable function name.
+fn get_selector_from_name(func_name: &str) -> Felt {
+    const DEFAULT_ENTRY_POINT_NAME: &str = "__default__";
+    const DEFAULT_L1_ENTRY_POINT_NAME: &str = "__l1_default__";
+
+    match func_name {
+        DEFAULT_ENTRY_POINT_NAME | DEFAULT_L1_ENTRY_POINT_NAME => Felt::ZERO,
+        _ => {
+            assert!(func_name.is_ascii(), "selector name must be ASCII: `{func_name}`");
+            starknet_keccak(func_name.as_bytes())
+        }
+    }
+}
+
 /// 2 ** 251 - 256
 ///
 /// Valid storage addresses should satisfy `address + offset < 2**251` where `offset <
@@ -117,6 +146,34 @@ pub fn address(input: TokenStream) -> TokenStream {
     format!(
         "{}::ContractAddress::from_raw([{}, {}, {}, {}])",
         crate_path, felt_raw[0], felt_raw[1], felt_raw[2], felt_raw[3],
+    )
+    .parse()
+    .unwrap()
+}
+
+/// Defines a compile-time constant for an entrypoint selector of a Starknet contract.
+///
+/// # Examples
+///
+/// ```ignore
+/// use katana_primitives::selector;
+///
+/// // Compute selector from function name (uses default crate path)
+/// let transfer = selector!("transfer");
+///
+/// // With custom crate path (for use inside katana-primitives itself)
+/// let transfer = selector!("transfer", crate);
+/// ```
+#[proc_macro]
+pub fn selector(input: TokenStream) -> TokenStream {
+    let MacroInput { value, crate_path } = parse_macro_input!(input as MacroInput);
+
+    let selector_value = get_selector_from_name(&value.value());
+    let selector_raw = selector_value.to_raw();
+
+    format!(
+        "{}::Felt::from_raw([{}, {}, {}, {}])",
+        crate_path, selector_raw[0], selector_raw[1], selector_raw[2], selector_raw[3],
     )
     .parse()
     .unwrap()
