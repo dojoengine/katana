@@ -2871,7 +2871,7 @@ fn draw_contract_form_modal(
         } else {
             Style::default()
         };
-        Span::styled(format!("{marker}{:<width$}", label, width = LABEL_WIDTH), style)
+        Span::styled(format!("{marker}{label:<LABEL_WIDTH$}"), style)
     };
 
     // Outer frame: title only, no borders. The inner blocks supply their own
