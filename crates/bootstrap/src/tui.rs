@@ -1368,8 +1368,8 @@ fn drain_progress(app: &mut AppState) {
             }
             BootstrapEvent::DeclareCompleted { idx, class_hash, already_declared, .. } => {
                 if let Some(row) = rows.get_mut(idx) {
-                    let suffix = if already_declared { " (already)" } else { "" };
-                    row.status = RowStatus::Done(format!("{class_hash:#x}{suffix}"));
+                    let suffix = if already_declared { " (already declared)" } else { "" };
+                    row.status = RowStatus::Done(format!("class hash:  {class_hash:#x}{suffix}"));
                 }
             }
             BootstrapEvent::DeployStarted { idx, .. } => {
@@ -1381,8 +1381,9 @@ fn drain_progress(app: &mut AppState) {
             BootstrapEvent::DeployCompleted { idx, address, already_deployed, .. } => {
                 let row_idx = classes_len + idx;
                 if let Some(row) = rows.get_mut(row_idx) {
-                    let suffix = if already_deployed { " (already)" } else { "" };
-                    row.status = RowStatus::Done(format!("{:#x}{suffix}", Felt::from(address)));
+                    let suffix = if already_deployed { " (already deployed)" } else { "" };
+                    row.status =
+                        RowStatus::Done(format!("address:     {:#x}{suffix}", Felt::from(address)));
                 }
             }
             BootstrapEvent::Failed { error } => {
@@ -2152,9 +2153,10 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
                 RowStatus::Done(_) => ("✓ ".to_string(), Style::default().fg(Color::Green)),
                 RowStatus::Failed(_) => ("✗ ".to_string(), Style::default().fg(Color::Red)),
             };
-            let detail = match &row.status {
-                RowStatus::Done(s) | RowStatus::Failed(s) => s.clone(),
-                _ => String::new(),
+            let (detail, detail_style) = match &row.status {
+                RowStatus::Done(s) => (s.clone(), Style::default().fg(Color::Cyan)),
+                RowStatus::Failed(s) => (s.clone(), Style::default().fg(Color::Red)),
+                _ => (String::new(), Style::default()),
             };
             let secondary_cell = match &row.secondary {
                 Some(s) => format!("({s})"),
@@ -2166,7 +2168,7 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
                 Span::raw(format!("{:<KIND_WIDTH$}  ", row.kind.as_str())),
                 Span::raw(format!("{:<primary_width$}  ", row.primary)),
                 Span::raw(format!("{secondary_cell:<secondary_width$}  ")),
-                Span::styled(detail, Style::default().fg(Color::DarkGray)),
+                Span::styled(detail, detail_style),
             ]));
         }
     }
