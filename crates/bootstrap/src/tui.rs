@@ -866,98 +866,211 @@ struct PendingLoad {
     started: Instant,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A field address inside the contract form. The set of valid fields depends
+/// on the form's current `calldata` state — when the selected class has a
+/// constructor with N inputs, there are N `Arg(i)` fields; otherwise there's
+/// a single `RawCalldata` field. The `ContractForm::fields` helper materializes
+/// the live list for navigation.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ContractField {
     Class,
     Label,
     Salt,
     Unique,
-    Calldata,
+    /// Index into [`CalldataInput::Typed`]'s `args` vec.
+    Arg(usize),
+    /// The single fallback raw calldata input, used when the class has no
+    /// introspectable constructor.
+    RawCalldata,
 }
 
-impl ContractField {
-    const ALL: [ContractField; 5] = [
-        ContractField::Class,
-        ContractField::Label,
-        ContractField::Salt,
-        ContractField::Unique,
-        ContractField::Calldata,
-    ];
+/// Form state for the constructor calldata. Either a list of typed inputs
+/// (one per constructor argument, with the type known up-front), or a single
+/// freeform felt list when we couldn't introspect the class.
+#[derive(Debug)]
+enum CalldataInput {
+    Typed { args: Vec<TypedArg> },
+    Raw(TextInput),
+}
 
-    fn idx(self) -> usize {
-        Self::ALL.iter().position(|f| *f == self).unwrap()
-    }
-    fn next(self) -> Self {
-        Self::ALL[(self.idx() + 1) % Self::ALL.len()]
-    }
-    fn prev(self) -> Self {
-        Self::ALL[(self.idx() + Self::ALL.len() - 1) % Self::ALL.len()]
-    }
-    fn label(self) -> &'static str {
-        match self {
-            ContractField::Class => "Class",
-            ContractField::Label => "Label",
-            ContractField::Salt => "Salt",
-            ContractField::Unique => "Unique",
-            ContractField::Calldata => "Calldata",
-        }
-    }
+#[derive(Debug)]
+struct TypedArg {
+    name: String,
+    ty: crate::abi::TypeNode,
+    input: TextInput,
 }
 
 #[derive(Debug)]
 struct ContractForm {
     /// Index into the resolved class options list (declared + embedded).
     class_idx: usize,
+    /// Cached display name for the currently-selected class. Updated by
+    /// [`ContractForm::sync_class`] so the renderer doesn't have to call
+    /// the expensive [`class_options`] on every frame.
+    class_name: String,
     label: TextInput,
     salt: TextInput,
     unique: bool,
-    calldata: TextInput,
+    /// Constructor inputs for the currently-selected class. Rebuilt whenever
+    /// the class selection changes via [`ContractForm::sync_class`].
+    calldata: CalldataInput,
     focused: ContractField,
     error: Option<String>,
 }
 
 impl ContractForm {
-    fn new() -> Self {
+    fn new(opts: &[ClassOption]) -> Self {
+        let calldata = build_calldata_input(opts.first().and_then(|o| o.constructor.as_ref()));
+        let class_name = opts.first().map(|o| o.name.clone()).unwrap_or_default();
         Self {
             class_idx: 0,
+            class_name,
             label: TextInput::new(),
             salt: TextInput::from_str("0x0"),
             unique: false,
-            calldata: TextInput::new(),
+            calldata,
             focused: ContractField::Class,
             error: None,
         }
     }
 
-    fn from_existing(step: &DeployStep, class_options: &[ClassOption]) -> Self {
-        let class_idx = class_options.iter().position(|o| o.name == step.class_name).unwrap_or(0);
+    fn from_existing(step: &DeployStep, opts: &[ClassOption]) -> Self {
+        let class_idx = opts.iter().position(|o| o.name == step.class_name).unwrap_or(0);
+        // Always prefer typed mode when the class has a constructor ABI, and
+        // pre-fill the inputs by decoding the existing raw felts back into
+        // display strings. Falls back to raw mode only when the class has no
+        // introspectable constructor.
+        let ctor = opts.get(class_idx).and_then(|o| o.constructor.as_ref());
+        let calldata = if let Some(ctor) = ctor {
+            let mut typed = build_calldata_input(Some(ctor));
+            // Walk the existing calldata and try to decode each arg's portion.
+            if let CalldataInput::Typed { ref mut args } = typed {
+                let mut offset = 0;
+                for arg in args.iter_mut() {
+                    if offset < step.calldata.len() {
+                        if let Some((display, consumed)) =
+                            crate::abi::from_calldata(&arg.ty, &step.calldata[offset..])
+                        {
+                            arg.input = TextInput::from_str(display);
+                            offset += consumed;
+                        }
+                    }
+                }
+            }
+            typed
+        } else {
+            CalldataInput::Raw(TextInput::from_str(
+                step.calldata.iter().map(|f| format!("{f:#x}")).collect::<Vec<_>>().join(", "),
+            ))
+        };
+        let class_name = opts.get(class_idx).map(|o| o.name.clone()).unwrap_or_default();
         Self {
             class_idx,
+            class_name,
             label: TextInput::from_str(step.label.clone().unwrap_or_default()),
             salt: TextInput::from_str(format!("{:#x}", step.salt)),
             unique: step.unique,
-            calldata: TextInput::from_str(
-                step.calldata.iter().map(|f| format!("{f:#x}")).collect::<Vec<_>>().join(", "),
-            ),
+            calldata,
             focused: ContractField::Class,
             error: None,
         }
     }
 
-    fn build(&self, class_options: &[ClassOption]) -> std::result::Result<DeployStep, String> {
-        if class_options.is_empty() {
+    /// Live list of focusable fields. Recomputed each time because the tail
+    /// (`Arg(_)` vs `RawCalldata`) depends on the current `calldata` state.
+    fn fields(&self) -> Vec<ContractField> {
+        let mut out = vec![
+            ContractField::Class,
+            ContractField::Label,
+            ContractField::Salt,
+            ContractField::Unique,
+        ];
+        match &self.calldata {
+            CalldataInput::Typed { args } => {
+                for i in 0..args.len() {
+                    out.push(ContractField::Arg(i));
+                }
+            }
+            CalldataInput::Raw(_) => out.push(ContractField::RawCalldata),
+        }
+        out
+    }
+
+    fn focus_next(&mut self) {
+        let fields = self.fields();
+        let idx = fields.iter().position(|f| f == &self.focused).unwrap_or(0);
+        self.focused = fields[(idx + 1) % fields.len()].clone();
+    }
+
+    fn focus_prev(&mut self) {
+        let fields = self.fields();
+        let idx = fields.iter().position(|f| f == &self.focused).unwrap_or(0);
+        self.focused = fields[(idx + fields.len() - 1) % fields.len()].clone();
+    }
+
+    /// Reapply the constructor template after a class change. Must be called
+    /// every time `class_idx` is updated. Uses positional carry-over so that
+    /// values the user already typed survive the swap when the new class has
+    /// at least as many args.
+    fn sync_class(&mut self, opts: &[ClassOption]) {
+        self.class_name = opts.get(self.class_idx).map(|o| o.name.clone()).unwrap_or_default();
+        let ctor = opts.get(self.class_idx).and_then(|o| o.constructor.as_ref());
+        let new_calldata = build_calldata_input(ctor);
+
+        // Carry typed values across the swap when both sides are typed. We
+        // copy by position rather than by name because constructor argument
+        // names often match between similar classes (`recipient`, `amount`)
+        // and matching by name would silently drop renames.
+        if let (CalldataInput::Typed { args: old }, CalldataInput::Typed { args: mut new }) =
+            (&self.calldata, new_calldata)
+        {
+            for (i, arg) in new.iter_mut().enumerate() {
+                if let Some(prev) = old.get(i) {
+                    arg.input = prev.input.clone();
+                }
+            }
+            self.calldata = CalldataInput::Typed { args: new };
+        } else {
+            self.calldata = build_calldata_input(ctor);
+        }
+
+        // If the focus is now off-the-end of the args list, snap it back.
+        let fields = self.fields();
+        if !fields.contains(&self.focused) {
+            self.focused = ContractField::Class;
+        }
+    }
+
+    fn build(&self, opts: &[ClassOption]) -> std::result::Result<DeployStep, String> {
+        if opts.is_empty() {
             return Err("no classes available — add one in the Classes tab first".to_string());
         }
-        let class = &class_options[self.class_idx];
+        let class = &opts[self.class_idx];
         let salt = Felt::from_str(self.salt.as_str().trim()).map_err(|e| format!("salt: {e}"))?;
-        let calldata = if self.calldata.as_str().trim().is_empty() {
-            Vec::new()
-        } else {
-            self.calldata
-                .as_str()
-                .split(',')
-                .map(|s| Felt::from_str(s.trim()).map_err(|e| format!("calldata `{s}`: {e}")))
-                .collect::<std::result::Result<Vec<_>, _>>()?
+        let calldata = match &self.calldata {
+            CalldataInput::Typed { args } => {
+                let mut out = Vec::new();
+                for arg in args {
+                    let value = crate::abi::parse_text_value(arg.input.as_str());
+                    let encoded = crate::abi::to_calldata(&arg.ty, &value)
+                        .map_err(|e| format!("arg `{}`: {e}", arg.name))?;
+                    out.extend(encoded);
+                }
+                out
+            }
+            CalldataInput::Raw(input) => {
+                if input.as_str().trim().is_empty() {
+                    Vec::new()
+                } else {
+                    input
+                        .as_str()
+                        .split(',')
+                        .map(|s| {
+                            Felt::from_str(s.trim()).map_err(|e| format!("calldata `{s}`: {e}"))
+                        })
+                        .collect::<std::result::Result<Vec<_>, _>>()?
+                }
+            }
         };
         Ok(DeployStep {
             label: if self.label.is_empty() { None } else { Some(self.label.as_str().to_string()) },
@@ -972,12 +1085,40 @@ impl ContractForm {
     /// Mutable handle to whichever field is currently focused, used by the modal
     /// keyboard handler to forward edit ops generically.
     fn focused_input_mut(&mut self) -> Option<&mut TextInput> {
-        match self.focused {
+        match &self.focused {
             ContractField::Label => Some(&mut self.label),
             ContractField::Salt => Some(&mut self.salt),
-            ContractField::Calldata => Some(&mut self.calldata),
+            ContractField::RawCalldata => match &mut self.calldata {
+                CalldataInput::Raw(input) => Some(input),
+                CalldataInput::Typed { .. } => None,
+            },
+            ContractField::Arg(i) => match &mut self.calldata {
+                CalldataInput::Typed { args } => args.get_mut(*i).map(|a| &mut a.input),
+                CalldataInput::Raw(_) => None,
+            },
             ContractField::Class | ContractField::Unique => None,
         }
+    }
+}
+
+/// Build a fresh [`CalldataInput`] from a constructor. `None` (no ABI / no
+/// constructor) yields the raw fallback. A constructor with zero inputs
+/// yields an empty typed list — still typed mode, since the build will emit
+/// `Vec::new()` either way and there's nothing to ask the user.
+fn build_calldata_input(ctor: Option<&crate::abi::ConstructorAbi>) -> CalldataInput {
+    match ctor {
+        Some(c) => CalldataInput::Typed {
+            args: c
+                .inputs
+                .iter()
+                .map(|a| TypedArg {
+                    name: a.name.clone(),
+                    ty: a.ty.clone(),
+                    input: TextInput::new(),
+                })
+                .collect(),
+        },
+        None => CalldataInput::Raw(TextInput::new()),
     }
 }
 
@@ -988,17 +1129,33 @@ impl ContractForm {
 struct ClassOption {
     name: String,
     class_hash: katana_primitives::class::ClassHash,
+    /// Parsed constructor signature, when the class has a Sierra ABI we can
+    /// introspect. `None` for legacy classes, classes whose ABI is missing
+    /// or invalid, and classes whose ABI doesn't declare a constructor.
+    constructor: Option<crate::abi::ConstructorAbi>,
 }
 
 fn class_options(app: &AppState) -> Vec<ClassOption> {
     let mut out: Vec<ClassOption> = app
         .classes
         .iter()
-        .map(|c| ClassOption { name: c.name.clone(), class_hash: c.class_hash })
+        .map(|c| ClassOption {
+            name: c.name.clone(),
+            class_hash: c.class_hash,
+            constructor: crate::abi::extract_constructor(&c.class),
+        })
         .collect();
     for entry in embedded::REGISTRY {
         if !out.iter().any(|o| o.name == entry.name) {
-            out.push(ClassOption { name: entry.name.to_string(), class_hash: entry.class_hash });
+            // Materialize the embedded class once so we can read its ABI. The
+            // load is gated behind the modal-open path, so the cost only hits
+            // when the user is actively choosing a class.
+            let class = entry.class();
+            out.push(ClassOption {
+                name: entry.name.to_string(),
+                class_hash: entry.class_hash,
+                constructor: crate::abi::extract_constructor(&class),
+            });
         }
     }
     out
@@ -1211,8 +1368,8 @@ fn drain_progress(app: &mut AppState) {
             }
             BootstrapEvent::DeclareCompleted { idx, class_hash, already_declared, .. } => {
                 if let Some(row) = rows.get_mut(idx) {
-                    let suffix = if already_declared { " (already)" } else { "" };
-                    row.status = RowStatus::Done(format!("{class_hash:#x}{suffix}"));
+                    let suffix = if already_declared { " (already declared)" } else { "" };
+                    row.status = RowStatus::Done(format!("class hash:  {class_hash:#x}{suffix}"));
                 }
             }
             BootstrapEvent::DeployStarted { idx, .. } => {
@@ -1224,8 +1381,9 @@ fn drain_progress(app: &mut AppState) {
             BootstrapEvent::DeployCompleted { idx, address, already_deployed, .. } => {
                 let row_idx = classes_len + idx;
                 if let Some(row) = rows.get_mut(row_idx) {
-                    let suffix = if already_deployed { " (already)" } else { "" };
-                    row.status = RowStatus::Done(format!("{:#x}{suffix}", Felt::from(address)));
+                    let suffix = if already_deployed { " (already deployed)" } else { "" };
+                    row.status =
+                        RowStatus::Done(format!("address:     {:#x}{suffix}", Felt::from(address)));
                 }
             }
             BootstrapEvent::Failed { error } => {
@@ -1329,8 +1487,9 @@ fn handle_contracts_key(app: &mut AppState, code: KeyCode) {
     match code {
         KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
         KeyCode::Char('a') => {
+            let opts = class_options(app);
             app.modal =
-                Some(Modal::ContractForm { editing_index: None, form: ContractForm::new() });
+                Some(Modal::ContractForm { editing_index: None, form: ContractForm::new(&opts) });
         }
         KeyCode::Char('e') => {
             if let Some(i) = app.contracts_state.selected() {
@@ -1597,28 +1756,32 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
             }
         }
         Modal::ContractForm { editing_index, mut form } => {
-            // Reconstruct the class options every keystroke so the form always reflects
-            // the up-to-date set (in case the user added classes elsewhere).
-            let opts = class_options(app);
+            // `class_options` is expensive (ABI parsing, embedded class
+            // decompression) so only compute it for the branches that
+            // actually need it — class cycling and Enter/build.
             match code {
                 KeyCode::Esc => {} // discard
                 KeyCode::Tab | KeyCode::Down => {
-                    form.focused = form.focused.next();
+                    form.focus_next();
                     app.modal = Some(Modal::ContractForm { editing_index, form });
                 }
                 KeyCode::BackTab | KeyCode::Up => {
-                    form.focused = form.focused.prev();
+                    form.focus_prev();
                     app.modal = Some(Modal::ContractForm { editing_index, form });
                 }
                 KeyCode::Left if form.focused == ContractField::Class => {
+                    let opts = class_options(app);
                     if !opts.is_empty() {
                         form.class_idx = (form.class_idx + opts.len() - 1) % opts.len();
+                        form.sync_class(&opts);
                     }
                     app.modal = Some(Modal::ContractForm { editing_index, form });
                 }
                 KeyCode::Right if form.focused == ContractField::Class => {
+                    let opts = class_options(app);
                     if !opts.is_empty() {
                         form.class_idx = (form.class_idx + 1) % opts.len();
+                        form.sync_class(&opts);
                     }
                     app.modal = Some(Modal::ContractForm { editing_index, form });
                 }
@@ -1626,23 +1789,26 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                     form.unique = !form.unique;
                     app.modal = Some(Modal::ContractForm { editing_index, form });
                 }
-                KeyCode::Enter => match form.build(&opts) {
-                    Ok(step) => match editing_index {
-                        Some(i) => {
-                            if let Some(slot) = app.contracts.get_mut(i) {
-                                *slot = step;
+                KeyCode::Enter => {
+                    let opts = class_options(app);
+                    match form.build(&opts) {
+                        Ok(step) => match editing_index {
+                            Some(i) => {
+                                if let Some(slot) = app.contracts.get_mut(i) {
+                                    *slot = step;
+                                }
                             }
+                            None => {
+                                app.contracts.push(step);
+                                app.contracts_state.select(Some(app.contracts.len() - 1));
+                            }
+                        },
+                        Err(e) => {
+                            form.error = Some(e);
+                            app.modal = Some(Modal::ContractForm { editing_index, form });
                         }
-                        None => {
-                            app.contracts.push(step);
-                            app.contracts_state.select(Some(app.contracts.len() - 1));
-                        }
-                    },
-                    Err(e) => {
-                        form.error = Some(e);
-                        app.modal = Some(Modal::ContractForm { editing_index, form });
                     }
-                },
+                }
                 _ => {
                     // Forward to the focused text input (label/salt/calldata). Class
                     // and Unique fields don't accept text input, so the helper just
@@ -1987,9 +2153,10 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
                 RowStatus::Done(_) => ("✓ ".to_string(), Style::default().fg(Color::Green)),
                 RowStatus::Failed(_) => ("✗ ".to_string(), Style::default().fg(Color::Red)),
             };
-            let detail = match &row.status {
-                RowStatus::Done(s) | RowStatus::Failed(s) => s.clone(),
-                _ => String::new(),
+            let (detail, detail_style) = match &row.status {
+                RowStatus::Done(s) => (s.clone(), Style::default().fg(Color::Cyan)),
+                RowStatus::Failed(s) => (s.clone(), Style::default().fg(Color::Red)),
+                _ => (String::new(), Style::default()),
             };
             let secondary_cell = match &row.secondary {
                 Some(s) => format!("({s})"),
@@ -2001,7 +2168,7 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
                 Span::raw(format!("{:<KIND_WIDTH$}  ", row.kind.as_str())),
                 Span::raw(format!("{:<primary_width$}  ", row.primary)),
                 Span::raw(format!("{secondary_cell:<secondary_width$}  ")),
-                Span::styled(detail, Style::default().fg(Color::DarkGray)),
+                Span::styled(detail, detail_style),
             ]));
         }
     }
@@ -2167,64 +2334,7 @@ fn draw_modal(f: &mut ratatui::Frame<'_>, app: &AppState, modal: &Modal) {
             draw_loading_class_modal(f, area, pending, &return_to_search.root, notice.as_deref());
         }
         Modal::ContractForm { editing_index, form } => {
-            let opts = class_options(app);
-            let class_display = if opts.is_empty() {
-                "(no classes)".to_string()
-            } else {
-                let c = &opts[form.class_idx];
-                format!("◀ {} ▶", c.name)
-            };
-            let unique = if form.unique { "[x]" } else { "[ ]" };
-            let title = if editing_index.is_some() { "Edit contract" } else { "Add contract" };
-
-            let mut lines = Vec::new();
-            for field in ContractField::ALL {
-                let focused = field == form.focused;
-                let marker = if focused { "> " } else { "  " };
-                let label_style = if focused {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                let mut spans = vec![
-                    Span::styled(format!("{marker}{:<10}", field.label()), label_style),
-                    Span::raw("  "),
-                ];
-                match field {
-                    ContractField::Class => {
-                        spans.push(Span::styled(class_display.clone(), label_style))
-                    }
-                    ContractField::Label => {
-                        spans.extend(render_text_input(&form.label, focused, false))
-                    }
-                    ContractField::Salt => {
-                        spans.extend(render_text_input(&form.salt, focused, false))
-                    }
-                    ContractField::Unique => {
-                        spans.push(Span::styled(unique.to_string(), label_style))
-                    }
-                    ContractField::Calldata => {
-                        spans.extend(render_text_input(&form.calldata, focused, false))
-                    }
-                }
-                lines.push(Line::from(spans));
-            }
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "[Tab] next field  [←/→] cycle class  [Space] toggle unique  [^A/^E/^W/^U/^K] \
-                 edit  [Enter] save  [Esc] cancel",
-                Style::default().fg(Color::DarkGray),
-            )));
-            if let Some(e) = &form.error {
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled(
-                    format!("error: {e}"),
-                    Style::default().fg(Color::Red),
-                )));
-            }
-            let p =
-                Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(title));
-            f.render_widget(p, area);
+            draw_contract_form_modal(f, area, app, *editing_index, form);
         }
         Modal::SaveManifest { path, error } => {
             let mut lines = vec![Line::from("Save manifest to:")];
@@ -2534,6 +2644,186 @@ mod tests {
             "subsequent mark_dirty must not bring the deadline forward"
         );
     }
+
+    // ----- Contract form: typed constructor calldata -------------------------
+
+    use crate::abi::{ArgumentNode, ConstructorAbi, TypeNode};
+
+    fn opt_no_ctor(name: &str) -> ClassOption {
+        ClassOption { name: name.to_string(), class_hash: Felt::ZERO, constructor: None }
+    }
+
+    fn opt_with_ctor(name: &str, args: Vec<(&str, TypeNode)>) -> ClassOption {
+        ClassOption {
+            name: name.to_string(),
+            class_hash: Felt::ZERO,
+            constructor: Some(ConstructorAbi {
+                name: "constructor".to_string(),
+                inputs: args
+                    .into_iter()
+                    .map(|(n, t)| ArgumentNode { name: n.to_string(), ty: t })
+                    .collect(),
+            }),
+        }
+    }
+
+    fn type_felt() -> TypeNode {
+        TypeNode::Primitive { name: "core::felt252".to_string() }
+    }
+    fn type_u256() -> TypeNode {
+        TypeNode::Primitive { name: "core::integer::u256".to_string() }
+    }
+
+    #[test]
+    fn contract_form_new_uses_typed_inputs_when_class_has_constructor() {
+        let opts = vec![opt_with_ctor("foo", vec![("a", type_felt()), ("b", type_u256())])];
+        let form = ContractForm::new(&opts);
+        match &form.calldata {
+            CalldataInput::Typed { args } => {
+                assert_eq!(args.len(), 2);
+                assert_eq!(args[0].name, "a");
+                assert_eq!(args[1].name, "b");
+            }
+            CalldataInput::Raw(_) => panic!("expected typed mode"),
+        }
+        // Fields list now includes Arg(0) and Arg(1) — no RawCalldata.
+        let fields = form.fields();
+        assert!(fields.contains(&ContractField::Arg(0)));
+        assert!(fields.contains(&ContractField::Arg(1)));
+        assert!(!fields.contains(&ContractField::RawCalldata));
+    }
+
+    #[test]
+    fn contract_form_new_falls_back_to_raw_when_no_constructor() {
+        let opts = vec![opt_no_ctor("foo")];
+        let form = ContractForm::new(&opts);
+        assert!(matches!(form.calldata, CalldataInput::Raw(_)));
+        assert!(form.fields().contains(&ContractField::RawCalldata));
+    }
+
+    #[test]
+    fn contract_form_build_encodes_typed_args() {
+        let opts = vec![opt_with_ctor("foo", vec![("a", type_felt()), ("b", type_u256())])];
+        let mut form = ContractForm::new(&opts);
+        if let CalldataInput::Typed { args } = &mut form.calldata {
+            args[0].input = TextInput::from_str("0x42");
+            args[1].input = TextInput::from_str("256");
+        }
+        let step = form.build(&opts).expect("build should succeed");
+        // felt252 -> [0x42], u256 256 -> [256, 0]
+        assert_eq!(step.calldata, vec![Felt::from(0x42u64), Felt::from(256u64), Felt::ZERO]);
+    }
+
+    #[test]
+    fn contract_form_build_reports_arg_name_in_error() {
+        let opts = vec![opt_with_ctor("foo", vec![("amount", type_u256())])];
+        let mut form = ContractForm::new(&opts);
+        if let CalldataInput::Typed { args } = &mut form.calldata {
+            args[0].input = TextInput::from_str("not-a-number");
+        }
+        let err = form.build(&opts).unwrap_err();
+        assert!(err.contains("amount"), "error should name the offending arg, got: {err}");
+    }
+
+    #[test]
+    fn contract_form_sync_class_swaps_typed_template_and_keeps_values() {
+        let opts = vec![
+            opt_with_ctor("a", vec![("x", type_felt())]),
+            opt_with_ctor("b", vec![("y", type_u256())]),
+        ];
+        let mut form = ContractForm::new(&opts);
+        if let CalldataInput::Typed { args } = &mut form.calldata {
+            args[0].input = TextInput::from_str("0x99");
+        }
+
+        // Switch to class B. Args are positional, so the value carries over to
+        // `y` even though the name and type changed — the user's keystrokes
+        // shouldn't get lost just because they cycled the picker by mistake.
+        form.class_idx = 1;
+        form.sync_class(&opts);
+        match &form.calldata {
+            CalldataInput::Typed { args } => {
+                assert_eq!(args.len(), 1);
+                assert_eq!(args[0].name, "y");
+                assert_eq!(args[0].input.as_str(), "0x99");
+            }
+            _ => panic!("expected typed mode"),
+        }
+    }
+
+    #[test]
+    fn contract_form_sync_class_swaps_to_raw_when_target_has_no_constructor() {
+        let opts = vec![opt_with_ctor("a", vec![("x", type_felt())]), opt_no_ctor("b")];
+        let mut form = ContractForm::new(&opts);
+        form.class_idx = 1;
+        form.sync_class(&opts);
+        assert!(matches!(form.calldata, CalldataInput::Raw(_)));
+    }
+
+    #[test]
+    fn contract_form_from_existing_prefers_typed_mode_and_prefills() {
+        // When the class has a constructor ABI, editing uses typed mode and
+        // pre-fills each input by decoding the existing raw calldata.
+        let opts = vec![opt_with_ctor("foo", vec![("a", type_felt()), ("b", type_u256())])];
+        let step = DeployStep {
+            label: None,
+            class_hash: Felt::ZERO,
+            class_name: "foo".to_string(),
+            salt: Felt::ZERO,
+            unique: false,
+            // felt252(0x42) + u256(256) encoded as [0x42, low=0x100, high=0x0]
+            calldata: vec![Felt::from(0x42u64), Felt::from(0x100u64), Felt::ZERO],
+        };
+        let form = ContractForm::from_existing(&step, &opts);
+        match &form.calldata {
+            CalldataInput::Typed { args } => {
+                assert_eq!(args.len(), 2);
+                assert_eq!(args[0].name, "a");
+                assert_eq!(args[0].input.as_str(), "0x42");
+                assert_eq!(args[1].name, "b");
+                assert_eq!(args[1].input.as_str(), "0x100");
+            }
+            CalldataInput::Raw(_) => panic!("expected typed mode when class has constructor"),
+        }
+    }
+
+    #[test]
+    fn contract_form_from_existing_falls_back_to_raw_without_abi() {
+        // Without an introspectable constructor, raw mode is the only option.
+        let opts = vec![opt_no_ctor("foo")];
+        let step = DeployStep {
+            label: None,
+            class_hash: Felt::ZERO,
+            class_name: "foo".to_string(),
+            salt: Felt::ZERO,
+            unique: false,
+            calldata: vec![Felt::from(7u64)],
+        };
+        let form = ContractForm::from_existing(&step, &opts);
+        match &form.calldata {
+            CalldataInput::Raw(input) => assert!(input.as_str().contains("0x7")),
+            _ => panic!("expected raw mode"),
+        }
+    }
+
+    #[test]
+    fn contract_form_focus_navigation_skips_through_args() {
+        let opts = vec![opt_with_ctor("foo", vec![("a", type_felt()), ("b", type_felt())])];
+        let mut form = ContractForm::new(&opts);
+        // Class -> Label -> Salt -> Unique -> Arg(0) -> Arg(1) -> Class
+        let expected = vec![
+            ContractField::Label,
+            ContractField::Salt,
+            ContractField::Unique,
+            ContractField::Arg(0),
+            ContractField::Arg(1),
+            ContractField::Class,
+        ];
+        for want in expected {
+            form.focus_next();
+            assert_eq!(form.focused, want);
+        }
+    }
 }
 
 /// Render the dedicated "loading class" overlay. Lives in its own function rather
@@ -2545,6 +2835,173 @@ mod tests {
 /// `FileSearch::root`); it's used to render the parent path *relative* to where the
 /// user actually is, since long absolute paths just clutter the modal.
 ///
+/// Render the contract form modal as three stacked sections:
+///
+/// 1. **Contract** — class picker, label, salt, unique flag.
+/// 2. **Constructor** — one row per typed constructor argument, or a single raw-felts editor when
+///    the selected class has no introspectable ABI.
+/// 3. **Footer** — keyboard hints, value-format tip, and validation error.
+///
+/// Splitting the form this way makes the constructor block visually distinct
+/// from the contract metadata and lets the per-arg row count grow without
+/// pushing the basic fields around.
+fn draw_contract_form_modal(
+    f: &mut ratatui::Frame<'_>,
+    area: Rect,
+    _app: &AppState,
+    editing_index: Option<usize>,
+    form: &ContractForm,
+) {
+    let class_display = if form.class_name.is_empty() {
+        "(no classes)".to_string()
+    } else {
+        format!("◀ {} ▶", form.class_name)
+    };
+    let unique = if form.unique { "[x]" } else { "[ ]" };
+    let title = if editing_index.is_some() { "Edit contract" } else { "Add contract" };
+
+    // Wider label column to accommodate constructor argument names like
+    // `account_address`. Picked empirically — narrower wraps ugly.
+    const LABEL_WIDTH: usize = 16;
+
+    let render_label = |label: &str, focused: bool| -> Span<'static> {
+        let marker = if focused { "> " } else { "  " };
+        let style = if focused {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        Span::styled(format!("{marker}{label:<LABEL_WIDTH$}"), style)
+    };
+
+    // Outer frame: title only, no borders. The inner blocks supply their own
+    // borders so the section structure is the visible affordance.
+    let outer = Block::default().borders(Borders::ALL).title(title);
+    let inner_area = outer.inner(area);
+    f.render_widget(outer, area);
+
+    // Contract block: 4 fixed rows + 2 borders = 6 lines.
+    // Constructor block: takes the remaining space minus the footer reservation.
+    // Footer: hint (1) + tip (1, when typed) + error (2, when present) + slack.
+    let footer_height: u16 = 1
+        + if matches!(form.calldata, CalldataInput::Typed { .. }) { 1 } else { 0 }
+        + if form.error.is_some() { 2 } else { 0 };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(6),
+            Constraint::Min(3),
+            Constraint::Length(footer_height + 1),
+        ])
+        .split(inner_area);
+
+    // ----- Contract section --------------------------------------------------
+    let mut contract_lines = Vec::new();
+    for field in
+        [ContractField::Class, ContractField::Label, ContractField::Salt, ContractField::Unique]
+    {
+        let focused = field == form.focused;
+        match field {
+            ContractField::Class => {
+                let style = if focused {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                contract_lines.push(Line::from(vec![
+                    render_label("Class", focused),
+                    Span::raw("  "),
+                    Span::styled(class_display.clone(), style),
+                ]));
+            }
+            ContractField::Label => {
+                let mut spans = vec![render_label("Label", focused), Span::raw("  ")];
+                spans.extend(render_text_input(&form.label, focused, false));
+                contract_lines.push(Line::from(spans));
+            }
+            ContractField::Salt => {
+                let mut spans = vec![render_label("Salt", focused), Span::raw("  ")];
+                spans.extend(render_text_input(&form.salt, focused, false));
+                contract_lines.push(Line::from(spans));
+            }
+            ContractField::Unique => {
+                let style = if focused {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                contract_lines.push(Line::from(vec![
+                    render_label("Unique", focused),
+                    Span::raw("  "),
+                    Span::styled(unique.to_string(), style),
+                ]));
+            }
+            _ => {}
+        }
+    }
+    let contract_block = Block::default().borders(Borders::ALL).title(" Contract ");
+    f.render_widget(Paragraph::new(contract_lines).block(contract_block), chunks[0]);
+
+    // ----- Constructor section -----------------------------------------------
+    let (ctor_title, ctor_lines) = match &form.calldata {
+        CalldataInput::Typed { args } if args.is_empty() => (
+            " Constructor ".to_string(),
+            vec![Line::from(Span::styled(
+                "  (no inputs)",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            ))],
+        ),
+        CalldataInput::Typed { args } => {
+            let mut lines = Vec::with_capacity(args.len());
+            for (i, arg) in args.iter().enumerate() {
+                let focused = ContractField::Arg(i) == form.focused;
+                let mut spans = vec![render_label(&arg.name, focused), Span::raw("  ")];
+                spans.push(Span::styled(
+                    format!("{:<14}", crate::abi::pretty_type(&arg.ty)),
+                    Style::default().fg(Color::DarkGray),
+                ));
+                spans.push(Span::raw("  "));
+                spans.extend(render_text_input(&arg.input, focused, false));
+                lines.push(Line::from(spans));
+            }
+            (" Constructor ".to_string(), lines)
+        }
+        CalldataInput::Raw(input) => {
+            let focused = form.focused == ContractField::RawCalldata;
+            let mut spans = vec![render_label("Calldata", focused), Span::raw("  ")];
+            spans.extend(render_text_input(input, focused, false));
+            // Heads-up so the user knows why they're seeing the raw editor.
+            let note = Line::from(Span::styled(
+                "  No ABI available — enter raw felts (comma-separated)",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            ));
+            (" Calldata (raw) ".to_string(), vec![note, Line::from(""), Line::from(spans)])
+        }
+    };
+    let ctor_block = Block::default().borders(Borders::ALL).title(ctor_title);
+    f.render_widget(Paragraph::new(ctor_lines).block(ctor_block), chunks[1]);
+
+    // ----- Footer ------------------------------------------------------------
+    let mut footer_lines = vec![Line::from(Span::styled(
+        "[Tab] next field  [←/→] cycle class  [Space] toggle unique  [^A/^E/^W/^U/^K] edit  \
+         [Enter] save  [Esc] cancel",
+        Style::default().fg(Color::DarkGray),
+    ))];
+    if let CalldataInput::Typed { .. } = &form.calldata {
+        footer_lines.push(Line::from(Span::styled(
+            "Tip: bare hex (0x..) for felts, JSON for arrays/structs, blank for None",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    if let Some(e) = &form.error {
+        footer_lines.push(Line::from(""));
+        footer_lines
+            .push(Line::from(Span::styled(format!("error: {e}"), Style::default().fg(Color::Red))));
+    }
+    f.render_widget(Paragraph::new(footer_lines).wrap(Wrap { trim: false }), chunks[2]);
+}
+
 /// When `notice` is `Some`, the spinner row is replaced by the notice text and the
 /// footer hint flips from `[Esc] cancel` to `[Esc] dismiss`. This is how the
 /// "class is already selected" path surfaces to the user.

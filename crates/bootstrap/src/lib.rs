@@ -14,6 +14,7 @@
 //! other module here is reachable through it but can also be used standalone (e.g. by
 //! tests or downstream tooling).
 
+pub mod abi;
 pub mod embedded;
 pub mod executor;
 pub mod manifest;
