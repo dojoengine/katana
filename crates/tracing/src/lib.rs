@@ -99,7 +99,7 @@ pub async fn init(
          executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
          messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,\
          katana_stage::downloader=trace,katana_paymaster=trace,middleware::cartridge=trace,\
-         katana_rpc_server::cartridge=debug,info";
+         rpc::cartridge=debug,info";
 
     let default_filter = EnvFilter::try_new(DEFAULT_LOG_FILTER);
     let filter = EnvFilter::try_from_default_env().or(default_filter)?;
