@@ -27,7 +27,7 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tower::Layer;
 use tracing::{debug, trace};
 
-use super::shared::{
+use super::utils::{
     parse_params, AddExecuteOutsideParams, AddExecuteOutsideRequestParams, EstimateFeeParams,
     EstimateFeeRequestParams, CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE,
     CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX, STARKNET_ESTIMATE_FEE,
@@ -435,7 +435,7 @@ where
 
             match method {
                 STARKNET_ESTIMATE_FEE => {
-                    trace!(target: "middleware::cartridge", %method, "Intercepting JSON-RPC method.");
+                    trace!(target: "middleware::cartridge::controller", %method, "Intercepting JSON-RPC method.");
                     if let Ok(params) = parse_params::<EstimateFeeRequestParams>(&request)
                         .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
                     {
@@ -444,7 +444,7 @@ where
                 }
 
                 CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE | CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX => {
-                    trace!(target: "middleware::cartridge", %method, "Intercepting JSON-RPC method.");
+                    trace!(target: "middleware::cartridge::controller", %method, "Intercepting JSON-RPC method.");
                     if let Ok(params) = parse_params::<AddExecuteOutsideRequestParams>(&request)
 	                    .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
                     {

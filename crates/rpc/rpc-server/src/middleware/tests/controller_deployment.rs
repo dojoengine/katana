@@ -28,9 +28,8 @@ async fn estimate_fee_forwards_when_deployed_account() {
     let tx = make_invoke_tx(DEPLOYER_ADDRESS);
     let response = test.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
 
-    // Regardless of whether the address is a Controller, if it is undeployed, a getAccountCalldata
-    // request should be made.
-    assert!(test.mock_api_state.has_get_account_calldata_request(DEPLOYER_ADDRESS));
+    // If it is deployed, a getAccountCalldata request should not be made.
+    assert!(!test.mock_api_state.has_get_account_calldata_request(DEPLOYER_ADDRESS));
 
     let calls = test.rpc.estimate_fee_calls();
     assert_eq!(calls.len(), 1, "expected only one call to estimateFee");
@@ -62,16 +61,19 @@ async fn estimate_fee_prepends_deploy_tx_for_controller() {
     let expected_estimates = vec![arbitrary!(FeeEstimate), arbitrary!(FeeEstimate)];
     let rpc_responses = HashMap::from_iter([("starknet_estimateFee", expected_estimates.clone())]);
 
-    let setup = setup_test(cartridge_responses, rpc_responses).await;
+    let test = setup_test(cartridge_responses, rpc_responses).await;
 
     let tx = make_invoke_tx(CONTROLLER_ADDRESS);
-    let response = setup.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
+    let response = test.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
 
-    let calls = setup.rpc.estimate_fee_calls();
+    // If it is undeployed, a getAccountCalldata request should be made.
+    assert!(test.mock_api_state.has_get_account_calldata_request(CONTROLLER_ADDRESS));
+
+    let calls = test.rpc.estimate_fee_calls();
     assert_eq!(calls.len(), 1, "expected only one call to estimateFee");
     assert_eq!(calls[0].tx_count, 2, "rpc service should receive 2 txs (deploy + original)");
 
-    let calls_count = setup.rpc.outside_execute_calls_count();
+    let calls_count = test.rpc.outside_execute_calls_count();
     assert_eq!(calls_count, 0, "rpc service should not receive any outside execute calls");
 
     // The middleware should remove the deploy tx estimate and return only the original tx
@@ -96,20 +98,20 @@ async fn estimate_fee_forwards_for_undeployed_non_controller() {
     let expected_estimates = vec![arbitrary!(FeeEstimate)];
     let rpc_responses = HashMap::from_iter([("starknet_estimateFee", expected_estimates.clone())]);
 
-    let setup = setup_test(HashMap::new(), rpc_responses).await;
+    let test = setup_test(HashMap::new(), rpc_responses).await;
 
     let tx = make_invoke_tx(NON_CONTROLLER_ADDRESS);
-    let response = setup.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
+    let response = test.call("starknet_estimateFee", &json!([[tx], [], "latest"])).await;
 
-    // Regardless of whether the address is a Controller, if it is undeployed, a getAccountCalldata
-    // request should be made.
-    assert!(setup.mock_api_state.has_get_account_calldata_request(NON_CONTROLLER_ADDRESS));
+    // If it is undeployed, a getAccountCalldata request should be made regardless if it's a
+    // Controller or not.
+    assert!(test.mock_api_state.has_get_account_calldata_request(NON_CONTROLLER_ADDRESS));
 
-    let calls = setup.rpc.estimate_fee_calls();
+    let calls = test.rpc.estimate_fee_calls();
     assert_eq!(calls.len(), 1, "expected only one call to estimateFee");
     assert_eq!(calls[0].tx_count, 1, "rpc service should get 1 tx (no deploy)");
 
-    let calls_count = setup.rpc.outside_execute_calls_count();
+    let calls_count = test.rpc.outside_execute_calls_count();
     assert_eq!(calls_count, 0, "rpc service should not receive any outside execute calls");
 
     let actual_estimates: Vec<FeeEstimate> = get_result(response);

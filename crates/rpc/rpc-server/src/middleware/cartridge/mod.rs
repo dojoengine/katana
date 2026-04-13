@@ -1,5 +1,5 @@
 mod controller_deployment;
-mod shared;
+mod utils;
 mod vrf;
 
 pub use controller_deployment::*;
