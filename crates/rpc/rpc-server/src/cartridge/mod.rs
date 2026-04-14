@@ -124,17 +124,12 @@ where
 
     pub async fn execute_outside(
         &self,
-        contract_address: ContractAddress,
+        address: ContractAddress,
         outside_execution: OutsideExecution,
         signature: Vec<Felt>,
         fee_source: Option<FeeSource>,
     ) -> Result<AddInvokeTransactionResponse, CartridgeApiError> {
-        debug!(target: "rpc::cartridge", %contract_address, ?fee_source, "Adding execute outside transaction.");
-
-        let signed =
-            SignedOutsideExecution { address: contract_address, outside_execution, signature };
-
-        let call = Call::from(signed);
+        debug!(target: "rpc::cartridge", %address, ?fee_source, "Adding execute outside transaction.");
 
         let fee_mode = match fee_source {
             Some(FeeSource::Credits) => FeeMode::Default {
@@ -145,6 +140,7 @@ where
             Some(FeeSource::Paymaster) | None => FeeMode::Sponsored { tip: Default::default() },
         };
 
+        let call = Call::from(SignedOutsideExecution { address, outside_execution, signature });
         let invoke = DirectInvokeParameters {
             user_address: call.contract_address.into(),
             execute_from_outside_call: StarknetRsCall {
@@ -154,19 +150,15 @@ where
             },
         };
 
-        let request = ExecuteDirectRequest {
-            transaction: ExecuteDirectTransactionParameters::Invoke { invoke },
-            parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
-        };
+        let transaction = ExecuteDirectTransactionParameters::Invoke { invoke };
+        let parameters = ExecutionParameters::V1 { fee_mode, time_bounds: None };
 
-        let response = self
-            .paymaster_client
-            .execute_direct_transaction(request)
+        self.paymaster_client
+            .execute_direct_transaction(ExecuteDirectRequest { transaction, parameters })
             .instrument(trace_span!(target: "rpc::cartridge", "paymaster.execute_raw_transaction"))
             .await
-            .map_err(|e| CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() })?;
-
-        Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })
+            .map(|resp| AddInvokeTransactionResponse { transaction_hash: resp.transaction_hash })
+            .map_err(|e| CartridgeApiError::PaymasterExecutionFailed { reason: e.to_string() })
     }
 }
 
