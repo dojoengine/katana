@@ -1,6 +1,7 @@
 use anyhow::Result;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::SpanExporterBuilder;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::{RandomIdGenerator, SdkTracerProvider};
 use opentelemetry_sdk::Resource;
 
@@ -30,6 +31,15 @@ pub fn init_tracer(otlp_config: &OtlpConfig) -> Result<opentelemetry_sdk::trace:
         .with_batch_exporter(exporter)
         .with_resource(resource)
         .build();
+
+    // Install a W3C TraceContext propagator so the `MakeSpan` used by the
+    // RPC server's `tower_http::TraceLayer` can extract inbound `traceparent`
+    // headers and chain exported spans under the caller's trace_id. Without
+    // this, every inbound request starts a fresh root trace even when the
+    // caller sent a trace context — breaking distributed tracing across
+    // services. The `gcloud` path installs its own propagator; the OTLP
+    // path was missing one.
+    opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 
     opentelemetry::global::set_tracer_provider(provider.clone());
 
