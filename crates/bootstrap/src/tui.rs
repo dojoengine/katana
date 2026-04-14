@@ -2142,22 +2142,31 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
     };
 }
 
-/// Spawn a Settings-change refresh task. For every currently-Done item, probe
-/// the new RPC concurrently to see whether it's still "done" on the target
-/// node. Items transition to Done/Pending based on the probe, or Unknown on
-/// RPC failure. Items that aren't currently Done stay as-is — we only
-/// re-verify things the user thinks are already on-chain.
+/// Spawn a Settings-change refresh task. For every item in a refreshable
+/// state (Done or Unknown), probe the new RPC concurrently to see what's
+/// actually there. Items transition to Done/Pending based on the probe, or
+/// Unknown on RPC failure. Pending and Failed items are left alone — those
+/// go through the regular `x` re-run flow, not the refresh path.
+///
+/// `Unknown` is included alongside `Done` so that recovering from a failed
+/// refresh (e.g. user typed an invalid RPC URL, all items went Unknown)
+/// actually re-probes when the user fixes the URL. Without this, a single
+/// bad refresh would strand items as Unknown forever.
+fn needs_refresh(state: &ItemExecState) -> bool {
+    matches!(state, ItemExecState::Done { .. } | ItemExecState::Unknown { .. })
+}
+
 fn start_refresh(app: &mut AppState, runtime: &tokio::runtime::Handle) {
     // Nothing to verify? No-op.
-    if !app.classes.iter().any(|c| matches!(c.exec, ItemExecState::Done { .. }))
-        && !app.contracts.iter().any(|c| matches!(c.exec, ItemExecState::Done { .. }))
+    if !app.classes.iter().any(|c| needs_refresh(&c.exec))
+        && !app.contracts.iter().any(|c| needs_refresh(&c.exec))
     {
         return;
     }
 
     // Can't probe without valid settings. Flash and bail; the user still sees
-    // the stale Done badges, but we can't do anything useful until they fix
-    // the URL or account.
+    // the stale Done/Unknown badges, but we can't do anything useful until
+    // they fix the URL or account.
     let cfg = match app.settings.build() {
         Ok(c) => c,
         Err(_) => {
@@ -2170,14 +2179,14 @@ fn start_refresh(app: &mut AppState, runtime: &tokio::runtime::Handle) {
     // stale state while the async probe is in flight.
     let mut declare_probes: Vec<(usize, katana_primitives::class::ClassHash)> = Vec::new();
     for (i, item) in app.classes.iter_mut().enumerate() {
-        if matches!(item.exec, ItemExecState::Done { .. }) {
+        if needs_refresh(&item.exec) {
             item.exec = ItemExecState::Unknown { reason: "verifying…".to_string() };
             declare_probes.push((i, item.step.class_hash));
         }
     }
     let mut deploy_probes: Vec<(usize, ContractAddress)> = Vec::new();
     for (i, item) in app.contracts.iter_mut().enumerate() {
-        if matches!(item.exec, ItemExecState::Done { .. }) {
+        if needs_refresh(&item.exec) {
             item.exec = ItemExecState::Unknown { reason: "verifying…".to_string() };
             let addr = compute_deploy_address(&item.step, cfg.account_address);
             deploy_probes.push((i, addr));
@@ -3850,6 +3859,21 @@ mod tests {
         assert!(matches!(app.contracts[0].exec, ItemExecState::Pending));
         assert_eq!(app.contracts[0].step.label.as_deref(), Some("edited"));
         assert!(app.last_run.is_some(), "last_run must survive the edit");
+    }
+
+    /// Regression: after a failed refresh (e.g. user typed a bad RPC URL),
+    /// items end up in Unknown, not Done. A second Settings change that fixes
+    /// the URL must still re-probe them — otherwise the items are stranded
+    /// as Unknown until the user manually presses `x`. The `needs_refresh`
+    /// predicate is the single source of truth for "is this item eligible
+    /// for re-probing."
+    #[test]
+    fn needs_refresh_includes_done_and_unknown_but_not_pending_or_failed() {
+        assert!(needs_refresh(&ItemExecState::Done { detail: "x".into() }));
+        assert!(needs_refresh(&ItemExecState::Unknown { reason: "x".into() }));
+        assert!(!needs_refresh(&ItemExecState::Pending));
+        assert!(!needs_refresh(&ItemExecState::Running));
+        assert!(!needs_refresh(&ItemExecState::Failed { detail: "x".into() }));
     }
 
     #[test]
