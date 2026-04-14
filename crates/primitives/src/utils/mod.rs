@@ -76,12 +76,32 @@ pub fn starknet_keccak(data: &[u8]) -> Felt {
     hasher.update(data);
     let hash = hasher.finalize();
 
-    // Safety: The output of the hash function is guaranteed to be 32 bytes long.
-    let mut hash = unsafe { *(hash[..].as_ptr() as *const [u8; 32]) };
+    let mut bytes: [u8; 32] = hash.into();
     // Mask the first 6 bits to ensure the result is less than 2**250 - 1
-    hash[0] &= 0b00000011;
+    bytes[0] &= 0b00000011;
 
-    Felt::from_bytes_be(&hash)
+    Felt::from_bytes_be(&bytes)
+}
+
+/// Returns the entrypoint selector from a human-readable function name.
+///
+/// For the special names `__default__` and `__l1_default__`, this returns [`Felt::ZERO`].
+/// For all other names, it computes the Starknet keccak hash of the name.
+///
+/// # Panics
+///
+/// Panics if `func_name` is not a valid ASCII string.
+pub fn get_selector_from_name(func_name: &str) -> Felt {
+    const DEFAULT_ENTRY_POINT_NAME: &str = "__default__";
+    const DEFAULT_L1_ENTRY_POINT_NAME: &str = "__l1_default__";
+
+    match func_name {
+        DEFAULT_ENTRY_POINT_NAME | DEFAULT_L1_ENTRY_POINT_NAME => Felt::ZERO,
+        _ => {
+            assert!(func_name.is_ascii(), "selector name must be ASCII: `{func_name}`");
+            starknet_keccak(func_name.as_bytes())
+        }
+    }
 }
 
 /// Error type for non-ASCII storage variable names.

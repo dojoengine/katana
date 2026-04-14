@@ -21,6 +21,7 @@ katana-utils.workspace = true
 crossterm = "0.28"
 ratatui = "0.29"
 
+cairo-lang-starknet-classes.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 byte-unit = "5.1.4"
@@ -74,4 +75,5 @@ client = [ "dep:colored_json", "dep:serde_json" ]
 init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]
+debug = [  ]
 native = [ "katana-cli/native" ]
