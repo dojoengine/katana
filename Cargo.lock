@@ -2895,6 +2895,7 @@ name = "cartridge"
 version = "1.7.0"
 dependencies = [
  "anyhow",
+ "ark-ec 0.4.2",
  "ark-ff 0.4.2",
  "katana-contracts",
  "katana-genesis",
@@ -6088,6 +6089,7 @@ dependencies = [
  "async-trait",
  "byte-unit",
  "cainome",
+ "cairo-lang-starknet-classes",
  "clap",
  "clap_complete",
  "colored_json",
@@ -6529,7 +6531,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tower 0.5.2",
- "tower-http 0.6.6",
+ "tower-http",
  "tracing",
 ]
 
@@ -6676,6 +6678,7 @@ dependencies = [
 name = "katana-paymaster"
 version = "1.7.0"
 dependencies = [
+ "cainome",
  "http 1.3.1",
  "jsonrpsee 0.26.0",
  "katana-contracts",
@@ -6918,7 +6921,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tower 0.5.2",
- "tower-http 0.6.6",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -6948,6 +6951,7 @@ dependencies = [
  "serde_with",
  "similar-asserts",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "starknet-crypto 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "starknet_api",
  "thiserror 1.0.69",
 ]
@@ -7119,20 +7123,20 @@ dependencies = [
  "dirs 6.0.0",
  "http 1.3.1",
  "http-body-util",
- "opentelemetry 0.30.0",
+ "opentelemetry",
  "opentelemetry-gcloud-trace",
- "opentelemetry-http 0.30.0",
- "opentelemetry-otlp 0.30.0",
+ "opentelemetry-http",
+ "opentelemetry-otlp",
  "opentelemetry-stackdriver",
- "opentelemetry_sdk 0.30.0",
+ "opentelemetry_sdk",
  "rustls 0.23.31",
  "serde",
  "thiserror 1.0.69",
- "tower-http 0.6.6",
+ "tower-http",
  "tracing",
  "tracing-appender",
  "tracing-log 0.1.4",
- "tracing-opentelemetry 0.31.0",
+ "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 
@@ -8156,20 +8160,6 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry"
-version = "0.29.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e87237e2775f74896f9ad219d26a2081751187eb7c9f5c58dde20a23b95d16c"
-dependencies = [
- "futures-core",
- "futures-sink",
- "js-sys",
- "pin-project-lite",
- "thiserror 2.0.12",
- "tracing",
-]
-
-[[package]]
-name = "opentelemetry"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aaf416e4cb72756655126f7dd7bb0af49c674f4c1b9903e80c009e0c37e552e6"
@@ -8191,27 +8181,13 @@ dependencies = [
  "async-trait",
  "futures",
  "gcloud-sdk",
- "opentelemetry 0.30.0",
+ "opentelemetry",
  "opentelemetry-semantic-conventions",
- "opentelemetry_sdk 0.30.0",
+ "opentelemetry_sdk",
  "rsb_derive",
  "rvstruct",
  "tokio",
  "tokio-stream",
- "tracing",
-]
-
-[[package]]
-name = "opentelemetry-http"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46d7ab32b827b5b495bd90fa95a6cb65ccc293555dcc3199ae2937d2d237c8ed"
-dependencies = [
- "async-trait",
- "bytes",
- "http 1.3.1",
- "opentelemetry 0.29.1",
- "reqwest",
  "tracing",
 ]
 
@@ -8224,26 +8200,8 @@ dependencies = [
  "async-trait",
  "bytes",
  "http 1.3.1",
- "opentelemetry 0.30.0",
+ "opentelemetry",
  "reqwest",
-]
-
-[[package]]
-name = "opentelemetry-otlp"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d899720fe06916ccba71c01d04ecd77312734e2de3467fd30d9d580c8ce85656"
-dependencies = [
- "futures-core",
- "http 1.3.1",
- "opentelemetry 0.29.1",
- "opentelemetry-http 0.29.0",
- "opentelemetry-proto 0.29.0",
- "opentelemetry_sdk 0.29.0",
- "prost 0.13.5",
- "reqwest",
- "thiserror 2.0.12",
- "tracing",
 ]
 
 [[package]]
@@ -8253,10 +8211,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbee664a43e07615731afc539ca60c6d9f1a9425e25ca09c57bc36c87c55852b"
 dependencies = [
  "http 1.3.1",
- "opentelemetry 0.30.0",
- "opentelemetry-http 0.30.0",
- "opentelemetry-proto 0.30.0",
- "opentelemetry_sdk 0.30.0",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry-proto",
+ "opentelemetry_sdk",
  "prost 0.13.5",
  "reqwest",
  "thiserror 2.0.12",
@@ -8267,24 +8225,12 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-proto"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c40da242381435e18570d5b9d50aca2a4f4f4d8e146231adb4e7768023309b3"
-dependencies = [
- "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
- "prost 0.13.5",
- "tonic 0.12.3",
-]
-
-[[package]]
-name = "opentelemetry-proto"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e046fd7660710fe5a05e8748e70d9058dc15c94ba914e7c4faa7c728f0e8ddc"
 dependencies = [
- "opentelemetry 0.30.0",
- "opentelemetry_sdk 0.30.0",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "prost 0.13.5",
  "tonic 0.13.1",
 ]
@@ -8306,31 +8252,13 @@ dependencies = [
  "gcp_auth",
  "hex",
  "http 1.3.1",
- "opentelemetry 0.30.0",
+ "opentelemetry",
  "opentelemetry-semantic-conventions",
- "opentelemetry_sdk 0.30.0",
+ "opentelemetry_sdk",
  "prost 0.13.5",
  "prost-types 0.13.5",
  "thiserror 2.0.12",
  "tonic 0.13.1",
- "tracing",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afdefb21d1d47394abc1ba6c57363ab141be19e27cc70d0e422b7f303e4d290b"
-dependencies = [
- "futures-channel",
- "futures-executor",
- "futures-util",
- "glob",
- "opentelemetry 0.29.1",
- "percent-encoding",
- "rand 0.9.2",
- "serde_json",
- "thiserror 2.0.12",
  "tracing",
 ]
 
@@ -8343,7 +8271,7 @@ dependencies = [
  "futures-channel",
  "futures-executor",
  "futures-util",
- "opentelemetry 0.30.0",
+ "opentelemetry",
  "percent-encoding",
  "rand 0.9.2",
  "serde_json",
@@ -8460,34 +8388,37 @@ checksum = "17359afc20d7ab31fdb42bb844c8b3bb1dabd7dcf7e68428492da7f16966fcef"
 [[package]]
 name = "paymaster-common"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?rev=788aeac#788aeac1f8c01bd40852ecb67b7115a50be34778"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=d89b5d2#d89b5d27f3a4662f8004fd84e7eba6d48e206826"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "failsafe",
  "futures-core",
+ "http 1.3.1",
  "log",
  "moka",
- "opentelemetry 0.29.1",
- "opentelemetry-otlp 0.29.0",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "serde",
  "thiserror 2.0.12",
  "tokio",
+ "tower-http",
  "tracing",
- "tracing-opentelemetry 0.30.0",
+ "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "paymaster-execution"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?rev=788aeac#788aeac1f8c01bd40852ecb67b7115a50be34778"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=d89b5d2#d89b5d27f3a4662f8004fd84e7eba6d48e206826"
 dependencies = [
  "async-trait",
  "jsonrpsee 0.24.10",
  "moka",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "paymaster-common",
  "paymaster-prices",
  "paymaster-relayer",
@@ -8507,7 +8438,7 @@ dependencies = [
 [[package]]
 name = "paymaster-prices"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?rev=788aeac#788aeac1f8c01bd40852ecb67b7115a50be34778"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=d89b5d2#d89b5d27f3a4662f8004fd84e7eba6d48e206826"
 dependencies = [
  "async-trait",
  "bigdecimal 0.4.10",
@@ -8526,13 +8457,13 @@ dependencies = [
 [[package]]
 name = "paymaster-relayer"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?rev=788aeac#788aeac1f8c01bd40852ecb67b7115a50be34778"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=d89b5d2#d89b5d27f3a4662f8004fd84e7eba6d48e206826"
 dependencies = [
  "async-trait",
  "deadpool-redis",
  "futures",
  "num-traits",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "paymaster-common",
  "paymaster-prices",
  "paymaster-starknet",
@@ -8550,14 +8481,14 @@ dependencies = [
 [[package]]
 name = "paymaster-rpc"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?rev=788aeac#788aeac1f8c01bd40852ecb67b7115a50be34778"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=d89b5d2#d89b5d27f3a4662f8004fd84e7eba6d48e206826"
 dependencies = [
  "async-trait",
  "bigdecimal 0.4.10",
  "futures",
  "hyper 1.6.0",
  "jsonrpsee 0.24.10",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "paste",
  "paymaster-common",
  "paymaster-execution",
@@ -8572,14 +8503,14 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tower 0.4.13",
- "tower-http 0.5.2",
+ "tower-http",
  "tracing",
 ]
 
 [[package]]
 name = "paymaster-sponsoring"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?rev=788aeac#788aeac1f8c01bd40852ecb67b7115a50be34778"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=d89b5d2#d89b5d27f3a4662f8004fd84e7eba6d48e206826"
 dependencies = [
  "paymaster-common",
  "reqwest",
@@ -8594,7 +8525,7 @@ dependencies = [
 [[package]]
 name = "paymaster-starknet"
 version = "1.0.0"
-source = "git+https://github.com/cartridge-gg/paymaster?rev=788aeac#788aeac1f8c01bd40852ecb67b7115a50be34778"
+source = "git+https://github.com/cartridge-gg/paymaster?rev=d89b5d2#d89b5d27f3a4662f8004fd84e7eba6d48e206826"
 dependencies = [
  "async-trait",
  "chrono",
@@ -9680,7 +9611,7 @@ dependencies = [
  "tokio-rustls 0.26.2",
  "tokio-util",
  "tower 0.5.2",
- "tower-http 0.6.6",
+ "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -12173,27 +12104,6 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877c5b330756d856ffcc4553ab34a5684481ade925ecc54bcd1bf02b1d0d4d52"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "http 1.3.1",
- "http-body 1.0.1",
- "http-body-util",
- "percent-encoding",
- "pin-project 1.1.10",
- "prost 0.13.5",
- "tokio-stream",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "tonic"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
@@ -12287,22 +12197,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "tower-http"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
-dependencies = [
- "bitflags 2.11.0",
- "bytes",
- "http 1.3.1",
- "http-body 1.0.1",
- "http-body-util",
- "pin-project-lite",
- "tower-layer",
- "tower-service",
 ]
 
 [[package]]
@@ -12428,32 +12322,14 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd8e764bd6f5813fd8bebc3117875190c5b0415be8f7f8059bffb6ecd979c444"
-dependencies = [
- "js-sys",
- "once_cell",
- "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
- "smallvec",
- "tracing",
- "tracing-core",
- "tracing-log 0.2.0",
- "tracing-subscriber",
- "web-time",
-]
-
-[[package]]
-name = "tracing-opentelemetry"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddcf5959f39507d0d04d6413119c04f33b623f4f951ebcbdddddfad2d0623a9c"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry 0.30.0",
- "opentelemetry_sdk 0.30.0",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "smallvec",
  "tracing",
  "tracing-core",

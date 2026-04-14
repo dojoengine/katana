@@ -8,8 +8,8 @@
 //!
 //! An important note is that the `execute_from_outside_[v2/v3]` functions are not expecting
 //! the serialized enum [`OutsideExecution`] but instead the variant already serialized for the
-//! matching version.
-//! This is why [`OutsideExecution`] is not deriving `CairoSerde` directly.
+//! matching version. This is why [`OutsideExecution`] is not deriving `CairoSerde` directly.
+//!
 //! <https://github.com/cartridge-gg/argent-contracts-starknet/blob/35f21a533e7636f926484546652fb3470d2d478d/src/outside_execution/interface.cairo#L38>
 
 use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex};
@@ -18,7 +18,8 @@ use cainome_cairo_serde::CairoSerde;
 use katana_primitives::execution::Call;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::macros::selector;
+use starknet::macros::{selector, short_string};
+use starknet_crypto::poseidon_hash_many;
 
 /// Nonce channel
 #[derive(Clone, CairoSerde, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -132,6 +133,145 @@ impl CairoSerde for OutsideExecution {
     }
 }
 
+trait StructHashRev1 {
+    const TYPE_HASH_REV_1: Felt;
+    fn get_struct_hash_rev_1(&self) -> Felt;
+}
+
+pub trait MessageHashRev1 {
+    fn get_message_hash_rev_1(&self, chain_id: Felt, contract_address: ContractAddress) -> Felt;
+}
+
+struct StarknetDomain {
+    name: Felt,
+    version: Felt,
+    chain_id: Felt,
+    revision: Felt,
+}
+
+impl StructHashRev1 for StarknetDomain {
+    const TYPE_HASH_REV_1: Felt = selector!(
+        "\"StarknetDomain\"(\"name\":\"shortstring\",\"version\":\"shortstring\",\"chainId\":\"\
+         shortstring\",\"revision\":\"shortstring\")"
+    );
+
+    fn get_struct_hash_rev_1(&self) -> Felt {
+        poseidon_hash_many(&[
+            Self::TYPE_HASH_REV_1,
+            self.name,
+            self.version,
+            self.chain_id,
+            self.revision,
+        ])
+    }
+}
+
+impl StructHashRev1 for Call {
+    const TYPE_HASH_REV_1: Felt = selector!(
+        "\"Call\"(\"To\":\"ContractAddress\",\"Selector\":\"selector\",\"Calldata\":\"felt*\")"
+    );
+
+    fn get_struct_hash_rev_1(&self) -> Felt {
+        poseidon_hash_many(&[
+            Self::TYPE_HASH_REV_1,
+            self.contract_address.into(),
+            self.entry_point_selector,
+            poseidon_hash_many(&self.calldata),
+        ])
+    }
+}
+
+impl StructHashRev1 for OutsideExecutionV2 {
+    const TYPE_HASH_REV_1: Felt = selector!(
+        "\"OutsideExecution\"(\"Caller\":\"ContractAddress\",\"Nonce\":\"felt\",\"Execute \
+         After\":\"u128\",\"Execute \
+         Before\":\"u128\",\"Calls\":\"Call*\")\"Call\"(\"To\":\"ContractAddress\",\"Selector\":\"\
+         selector\",\"Calldata\":\"felt*\")"
+    );
+
+    fn get_struct_hash_rev_1(&self) -> Felt {
+        let hashed_calls =
+            self.calls.iter().map(StructHashRev1::get_struct_hash_rev_1).collect::<Vec<_>>();
+        poseidon_hash_many(&[
+            Self::TYPE_HASH_REV_1,
+            self.caller.into(),
+            self.nonce,
+            self.execute_after.into(),
+            self.execute_before.into(),
+            poseidon_hash_many(&hashed_calls),
+        ])
+    }
+}
+
+impl MessageHashRev1 for OutsideExecutionV2 {
+    fn get_message_hash_rev_1(&self, chain_id: Felt, contract_address: ContractAddress) -> Felt {
+        // Version and Revision should be shortstring '1' and not felt 1 for SNIP-9 due to a
+        // mistake in the Braavos contracts and has been copied for compatibility.
+        // Revision will also be a number for all SNIP12-rev1 signatures because of the same issue.
+        let domain = StarknetDomain {
+            name: short_string!("Account.execute_from_outside"),
+            version: Felt::TWO,
+            chain_id,
+            revision: Felt::ONE,
+        };
+        poseidon_hash_many(&[
+            short_string!("StarkNet Message"),
+            domain.get_struct_hash_rev_1(),
+            contract_address.into(),
+            self.get_struct_hash_rev_1(),
+        ])
+    }
+}
+
+impl StructHashRev1 for OutsideExecutionV3 {
+    const TYPE_HASH_REV_1: Felt = selector!(
+        "\"OutsideExecution\"(\"Caller\":\"ContractAddress\",\"Nonce\":\"(felt,u128)\",\"Execute \
+         After\":\"u128\",\"Execute \
+         Before\":\"u128\",\"Calls\":\"Call*\")\"Call\"(\"To\":\"ContractAddress\",\"Selector\":\"\
+         selector\",\"Calldata\":\"felt*\")"
+    );
+
+    fn get_struct_hash_rev_1(&self) -> Felt {
+        let hashed_calls =
+            self.calls.iter().map(StructHashRev1::get_struct_hash_rev_1).collect::<Vec<_>>();
+        poseidon_hash_many(&[
+            Self::TYPE_HASH_REV_1,
+            self.caller.into(),
+            self.nonce.0,
+            self.nonce.1.into(),
+            self.execute_after.into(),
+            self.execute_before.into(),
+            poseidon_hash_many(&hashed_calls),
+        ])
+    }
+}
+
+impl MessageHashRev1 for OutsideExecutionV3 {
+    fn get_message_hash_rev_1(&self, chain_id: Felt, contract_address: ContractAddress) -> Felt {
+        let domain = StarknetDomain {
+            name: short_string!("Account.execute_from_outside"),
+            version: Felt::TWO,
+            chain_id,
+            revision: Felt::TWO,
+        };
+        poseidon_hash_many(&[
+            short_string!("StarkNet Message"),
+            domain.get_struct_hash_rev_1(),
+            contract_address.into(),
+            self.get_struct_hash_rev_1(),
+        ])
+    }
+}
+
+impl MessageHashRev1 for OutsideExecution {
+    fn get_message_hash_rev_1(&self, chain_id: Felt, contract_address: ContractAddress) -> Felt {
+        match self {
+            OutsideExecution::V2(v2) => v2.get_message_hash_rev_1(chain_id, contract_address),
+            OutsideExecution::V3(v3) => v3.get_message_hash_rev_1(chain_id, contract_address),
+        }
+    }
+}
+
 /// An outside execution request that has been signed by the caller.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SignedOutsideExecution {
@@ -210,11 +350,13 @@ mod calls_serde {
 mod tests {
 
     use cainome_cairo_serde::CairoSerde;
-    use katana_primitives::{address, felt, Felt};
+    use katana_primitives::{address, felt, ContractAddress, Felt};
     use serde_json::json;
     use starknet::macros::selector;
 
-    use crate::outside_execution::{Call, NonceChannel, OutsideExecutionV2, OutsideExecutionV3};
+    use crate::outside_execution::{
+        Call, MessageHashRev1, NonceChannel, OutsideExecutionV2, OutsideExecutionV3,
+    };
     use crate::OutsideExecution;
 
     #[test]
@@ -449,5 +591,80 @@ mod tests {
         });
 
         similar_asserts::assert_eq!(serialized, expected);
+    }
+
+    #[test]
+    fn outside_execution_v2_message_hash_rev_1() {
+        let outside_execution = OutsideExecutionV2 {
+            caller: address!("0x414e595f43414c4c4552"),
+            nonce: felt!("0x6716dcf8796086bd5a2db25d87e99b1f14e96caa105d54823bcc6c3fe01561"),
+            execute_after: 0,
+            execute_before: 0xb2d05e00,
+            calls: vec![Call {
+                contract_address: address!(
+                    "0x1153499afc678b92c825c86219d742f86c9385465c64aeb41a950e2ee34b1fd"
+                ),
+                entry_point_selector: felt!(
+                    "0x2d1af4265f4530c75b41282ed3b71617d3d435e96fe13b08848482173692f4f"
+                ),
+                calldata: vec![felt!("0x14d"), felt!("0x1")],
+            }],
+        };
+
+        let chain_id = felt!("0x534e5f5345504f4c4941"); // SN_SEPOLIA
+        let contract_address = address!("0xdeadbeef");
+
+        let hash = outside_execution.get_message_hash_rev_1(chain_id, contract_address);
+
+        // Dispatching through the enum must produce the same hash.
+        let wrapped: OutsideExecution = outside_execution.clone().into();
+        assert_eq!(hash, wrapped.get_message_hash_rev_1(chain_id, contract_address));
+
+        // Distinct inputs produce distinct hashes.
+        assert_ne!(hash, outside_execution.get_message_hash_rev_1(chain_id, ContractAddress::ZERO));
+        assert_ne!(hash, outside_execution.get_message_hash_rev_1(Felt::ZERO, contract_address));
+    }
+
+    #[test]
+    fn outside_execution_v3_message_hash_rev_1() {
+        let outside_execution = OutsideExecutionV3 {
+            caller: address!("0x414e595f43414c4c4552"),
+            nonce: NonceChannel(
+                felt!("0x4e0120d114cb35ab264eb450058eebfef6393337f23291b99979c2a65df02b2"),
+                1,
+            ),
+            execute_after: 0,
+            execute_before: 0x69d6d324,
+            calls: vec![Call {
+                contract_address: address!(
+                    "0xcce923b653e892b5e4cce256770df005a5dcf9812ff825b66cf5bc41136f15"
+                ),
+                entry_point_selector: felt!(
+                    "0xf2f7c15cbe06c8d94597cd91fd7f3369eae842359235712def5584f8d270cd"
+                ),
+                calldata: vec![felt!(
+                    "0x743c83c41ce99ad470aa308823f417b2141e02e04571f5c0004e743556e7faf"
+                )],
+            }],
+        };
+
+        let chain_id = felt!("0x534e5f5345504f4c4941");
+        let contract_address = address!("0xdeadbeef");
+
+        let hash = outside_execution.get_message_hash_rev_1(chain_id, contract_address);
+
+        let wrapped: OutsideExecution = outside_execution.clone().into();
+        assert_eq!(hash, wrapped.get_message_hash_rev_1(chain_id, contract_address));
+
+        // V3 uses a different domain revision than V2, so the hashes must differ even
+        // when the shared fields are equal.
+        let v2 = OutsideExecutionV2 {
+            caller: outside_execution.caller,
+            nonce: outside_execution.nonce.0,
+            execute_after: outside_execution.execute_after,
+            execute_before: outside_execution.execute_before,
+            calls: outside_execution.calls.clone(),
+        };
+        assert_ne!(hash, v2.get_message_hash_rev_1(chain_id, contract_address));
     }
 }

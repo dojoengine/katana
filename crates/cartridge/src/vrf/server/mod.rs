@@ -130,6 +130,12 @@ impl VrfServiceProcess {
     pub async fn shutdown(&mut self) -> io::Result<()> {
         self.process.kill().await
     }
+
+    /// Returns the [`VrfClient`] associated with this server.
+    pub fn client(&self) -> VrfClient {
+        let url = format!("http://{}", self.addr());
+        VrfClient::new(Url::parse(&url).expect("qed; valid url"))
+    }
 }
 
 /// Resolve an executable path, searching in PATH if necessary.

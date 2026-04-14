@@ -11,6 +11,7 @@ katana-primitives.workspace = true
 katana-rpc-types.workspace = true
 
 http.workspace = true
+cainome.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "http-client", "macros", "server" ] }
 paymaster-rpc.workspace = true
 serde.workspace = true

@@ -23,6 +23,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 starknet.workspace = true
+starknet-crypto.workspace = true
 starknet_api.workspace = true
 thiserror.workspace = true
 

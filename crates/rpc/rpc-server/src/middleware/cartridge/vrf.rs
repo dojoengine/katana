@@ -84,7 +84,7 @@ where
             return Ok(None);
         };
 
-        debug!(target: "middleware::cartridge", "Found a request_random call.");
+        debug!(target: "middleware::cartridge::vrf", "Found a request_random call.");
 
         if (pos + 1) == outside_execution.calls().len() {
             return Err(CartridgeApiError::VrfMissingFollowUpCall);
@@ -97,24 +97,26 @@ where
             });
         }
 
-        let signed = SignedOutsideExecution { address, outside_execution, signature };
-        let resolved = self
+        let vrf_signed_execution = self
             .context
             .vrf
-            .outside_execution(&signed, self.context.chain_id)
-            .instrument(trace_span!(target: "middleware::cartridge", "vrf.outside_execution"))
+            .outside_execution(
+                &SignedOutsideExecution { address, outside_execution, signature },
+                self.context.chain_id,
+            )
+            .instrument(trace_span!(target: "middleware::cartridge::vrf", "vrf.outside_execution"))
             .await?;
 
         let params = rpc_params!(
-            resolved.address,
-            resolved.outside_execution,
-            resolved.signature,
+            vrf_signed_execution.address,
+            vrf_signed_execution.outside_execution,
+            vrf_signed_execution.signature,
             fee_source
-        );
-        let params =
-            params.to_rpc_params().map_err(|err| CartridgeApiError::VrfExecutionFailed {
-                reason: format!("failed to build rpc params: {err}"),
-            })?;
+        )
+        .to_rpc_params()
+        .map_err(|err| CartridgeApiError::VrfExecutionFailed {
+            reason: format!("failed to build rpc params: {err}"),
+        })?;
 
         let mut new_request = request.clone();
         new_request.params = params.map(Cow::Owned);
@@ -183,11 +185,7 @@ where
         let mut calls = match Vec::<Call>::cairo_deserialize(calldata, 0) {
             Ok(calls) => calls,
             Err(err) => {
-                trace!(
-                    target: "middleware::cartridge",
-                    %err,
-                    "Failed to decode invoke calldata as Vec<Call>."
-                );
+                trace!(target: "middleware::cartridge::vrf", %err, "Failed to decode invoke calldata as Vec<Call>.");
                 return Ok(None);
             }
         };
@@ -203,11 +201,7 @@ where
             let outside_execution = match OutsideExecution::cairo_deserialize(&call.calldata, 0) {
                 Ok(oe) => oe,
                 Err(err) => {
-                    trace!(
-                        target: "middleware::cartridge",
-                        %err,
-                        "Failed to decode OutsideExecution from inner call calldata."
-                    );
+                    trace!(target: "middleware::cartridge::vrf", %err, "Failed to decode OutsideExecution from inner call calldata.");
                     continue;
                 }
             };
@@ -217,7 +211,7 @@ where
                 continue;
             };
 
-            debug!(target: "middleware::cartridge", "Found a request_random call in estimateFee.");
+            debug!(target: "middleware::cartridge::vrf", "Found a request_random call in estimateFee.");
 
             if (pos + 1) == outside_execution.calls().len() {
                 return Err(CartridgeApiError::VrfMissingFollowUpCall);
@@ -234,11 +228,7 @@ where
             let signature = match Vec::<Felt>::cairo_deserialize(&call.calldata, oe_size) {
                 Ok(sig) => sig,
                 Err(err) => {
-                    trace!(
-                        target: "middleware::cartridge",
-                        %err,
-                        "Failed to decode signature tail of execute_from_outside call."
-                    );
+                    trace!(target: "middleware::cartridge::vrf", %err, "Failed to decode signature tail of execute_from_outside call.");
                     continue;
                 }
             };
@@ -254,7 +244,7 @@ where
                 .vrf
                 .outside_execution(&signed, self.context.chain_id)
                 .instrument(trace_span!(
-                    target: "middleware::cartridge",
+                    target: "middleware::cartridge::vrf",
                     "vrf.outside_execution"
                 ))
                 .await?;
@@ -292,7 +282,7 @@ where
                 STARKNET_ESTIMATE_FEE => {
                     trace!(target: "middleware::cartridge::vrf", %method, "Intercepting JSON-RPC method.");
                     if let Ok(params) = parse_params::<EstimateFeeRequestParams>(&request)
-                        .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
+                        .inspect_err(|error| debug!(target: "middleware::cartridge::vrf", %method, %error, "Failed to parse params."))
                     {
                         return this.starknet_estimate_fee(params.into(), request).await;
                     }
@@ -301,7 +291,7 @@ where
                 CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE | CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX => {
                     trace!(target: "middleware::cartridge::vrf", %method, "Intercepting JSON-RPC method.");
                     if let Ok(params) = parse_params::<AddExecuteOutsideRequestParams>(&request)
-                        .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
+                        .inspect_err(|error| debug!(target: "middleware::cartridge::vrf", %method, %error, "Failed to parse params."))
                     {
                         return this.cartridge_add_execute_from_outside(params.into(), request).await;
                     }
