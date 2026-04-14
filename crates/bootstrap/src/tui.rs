@@ -1428,6 +1428,18 @@ enum RefreshEvent {
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+/// Cap on in-flight idempotency probes during a Settings-change refresh.
+/// Unbounded parallelism (one tokio task per probe) works fine for local
+/// katana but trips rate limits on hosted Starknet RPC providers at higher
+/// manifest sizes. 8 is a deliberate soft cap: high enough that the common
+/// 2–10-item case completes in one batch with no measurable overhead, low
+/// enough that a 50+ item manifest stays well under typical free-tier
+/// rate limits (often 20 req/s).
+const REFRESH_CONCURRENCY: usize = 8;
+// `buffer_unordered(0)` never advances, which would deadlock the refresh
+// task. Assert at compile time so a future refactor can't silently break it.
+const _: () = assert!(REFRESH_CONCURRENCY >= 1);
+
 // =============================================================================
 // Event loop
 // =============================================================================
@@ -2196,16 +2208,29 @@ fn start_refresh(app: &mut AppState, runtime: &tokio::runtime::Handle) {
     let (tx, rx) = unbounded_channel();
     let rpc_url = cfg.rpc_url.clone();
     let handle: JoinHandle<()> = runtime.spawn(async move {
-        // Fire all probes concurrently. FuturesUnordered gives us best-effort
-        // parallelism without imposing a concurrency cap; see TODOS.md for
-        // when to revisit (large manifests hitting RPC rate limits).
-        use futures::stream::{FuturesUnordered, StreamExt};
+        // Cap concurrency at REFRESH_CONCURRENCY so a large manifest
+        // flipping RPC doesn't send a burst of requests that hosted nodes
+        // would rate-limit. For the common case (2-10 items) the cap is a
+        // no-op; for a 50-item manifest it smooths the burst to at most
+        // REFRESH_CONCURRENCY in flight at once.
+        use std::future::Future;
+        use std::pin::Pin;
 
-        let mut tasks = FuturesUnordered::new();
+        use futures::stream::{self, StreamExt};
+
+        type ProbeFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+        // Box each probe into a uniform future type so declare and deploy
+        // probes can share one stream (their async blocks have distinct
+        // anonymous types otherwise). Each future already forwards its own
+        // RefreshEvent on completion, so draining the stream is just for
+        // join ordering.
+        let mut probes: Vec<ProbeFuture> =
+            Vec::with_capacity(declare_probes.len() + deploy_probes.len());
         for (app_idx, class_hash) in declare_probes {
             let url = rpc_url.clone();
             let tx = tx.clone();
-            tasks.push(tokio::spawn(async move {
+            probes.push(Box::pin(async move {
                 let result =
                     check_already_declared(&url, class_hash).await.map_err(|e| format!("{e:#}"));
                 let _ = tx.send(RefreshEvent::ClassResolved { app_idx, result });
@@ -2214,17 +2239,15 @@ fn start_refresh(app: &mut AppState, runtime: &tokio::runtime::Handle) {
         for (app_idx, address) in deploy_probes {
             let url = rpc_url.clone();
             let tx = tx.clone();
-            tasks.push(tokio::spawn(async move {
+            probes.push(Box::pin(async move {
                 let result =
                     check_already_deployed(&url, address).await.map_err(|e| format!("{e:#}"));
                 let _ = tx.send(RefreshEvent::ContractResolved { app_idx, result });
             }));
         }
 
-        while (tasks.next().await).is_some() {
-            // Per-probe result already forwarded by the spawn body; we just
-            // drain for join completion here.
-        }
+        let mut stream = stream::iter(probes).buffer_unordered(REFRESH_CONCURRENCY);
+        while stream.next().await.is_some() {}
 
         let _ = tx.send(RefreshEvent::Done);
     });
@@ -3874,6 +3897,55 @@ mod tests {
         assert!(!needs_refresh(&ItemExecState::Pending));
         assert!(!needs_refresh(&ItemExecState::Running));
         assert!(!needs_refresh(&ItemExecState::Failed { detail: "x".into() }));
+    }
+
+    /// Account change in Settings is a real event today — the dirty flag
+    /// fires on any field edit, not just RPC URL. This test locks that
+    /// behaviour down: after editing only the Account field, `take_dirty()`
+    /// must return true so the tab-exit commit boundary triggers a refresh.
+    #[test]
+    fn settings_dirty_fires_on_account_edit_not_just_rpc() {
+        let mut app = AppState::new(valid_defaults());
+        app.current_tab = Tab::Settings;
+        app.settings.focused = SettingsField::Account;
+        // Enter edit mode and type a single character into the Account field.
+        handle_settings_key(&mut app, KeyCode::Char('e'), KeyModifiers::NONE);
+        assert!(app.settings.editing);
+        handle_settings_key(&mut app, KeyCode::Char('9'), KeyModifiers::NONE);
+        assert!(app.settings.take_dirty(), "dirty must be set for Account edits");
+    }
+
+    /// `start_refresh` relies on `compute_deploy_address` to derive the
+    /// probe target from the CURRENT Settings' account. For `unique = true`
+    /// deploys, a different account yields a different address — so the
+    /// refresh path naturally handles account changes for both UDC modes
+    /// without needing a separate code path. Lock that coupling down.
+    #[test]
+    fn compute_deploy_address_uses_current_account_for_unique_deploys() {
+        let step = DeployStep {
+            label: None,
+            class_hash: Felt::from(1u64),
+            class_name: "a".into(),
+            salt: Felt::from(42u64),
+            unique: true,
+            calldata: vec![],
+        };
+        let addr_a = compute_deploy_address(&step, Felt::from(0x111u64).into());
+        let addr_b = compute_deploy_address(&step, Felt::from(0x222u64).into());
+        assert_ne!(
+            Felt::from(addr_a),
+            Felt::from(addr_b),
+            "unique=true must produce different addresses per caller",
+        );
+
+        let step_non_unique = DeployStep { unique: false, ..step };
+        let addr_c = compute_deploy_address(&step_non_unique, Felt::from(0x111u64).into());
+        let addr_d = compute_deploy_address(&step_non_unique, Felt::from(0x222u64).into());
+        assert_eq!(
+            Felt::from(addr_c),
+            Felt::from(addr_d),
+            "unique=false must be caller-independent",
+        );
     }
 
     #[test]
