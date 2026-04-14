@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775855846515,
+  "lastUpdate": 1776193990173,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -18107,6 +18107,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 289,
             "range": "± 11",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3db9b65723dc794b1fcccd25dc7eb473caeb386e",
+          "message": "fix(tracing): install W3C TraceContext propagator in OTLP path (#532)\n\n## Summary\n\nThe OTLP init path never installed a text-map propagator, so katana\nsilently dropped inbound `traceparent` headers under that backend —\nevery request became a fresh root trace even when the caller had a live\ntrace context. The `gcloud` path installs a\n`GoogleTraceContextPropagator`; OTLP was missing the equivalent W3C one.\n\nOne-line fix: add\n`opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new())`\nin `otlp::init_tracer`.\n\n## Why this matters\n\n`crates/rpc/rpc-server/src/middleware/...` wraps incoming HTTP in a\n`tower_http::TraceLayer` configured with `GoogleStackDriverMakeSpan`,\nwhich calls `opentelemetry::global::get_text_map_propagator(|p|\np.extract(&HeaderExtractor(req.headers())))`. With no propagator\ninstalled, `get_text_map_propagator` returns a `NoopTextMapPropagator`\nand the extract call silently produces an empty context. Result:\n`span.set_parent(cx)` is effectively a no-op, and the exported span\nstarts a new trace instead of chaining to the caller's.\n\n## Repro (before this PR)\n\n```bash\n# Start jaeger v2 as an OTLP collector:\njaeger --config file:/tmp/jaeger-config.yaml  # OTLP gRPC on :4317, UI on :16686\n\n# Start katana with OTLP:\nkatana --tracer.otlp --tracer.otlp-endpoint http://localhost:4317 --http.port 5055\n\n# Send a request with a synthetic traceparent:\ncurl http://localhost:5055 \\\n  -H 'traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' \\\n  -d '{\"jsonrpc\":\"2.0\",\"method\":\"starknet_chainId\",\"id\":1}'\n\n# Check jaeger — the exported trace has a random trace_id, NOT 0af7651916cd43dd8448eb211c80319c\ncurl \"http://localhost:16686/api/traces?service=katana&limit=1\"\n```\n\nAfter this PR, the exported `http_request` span has\n`trace_id=0af7651916cd43dd8448eb211c80319c` — the caller's context is\npreserved, and any spans katana fans out downstream chain under the same\ntrace.\n\n## Discovered during\n\nWiring distributed tracing into the cartridge sidecar services\n([cartridge-gg/vrf#46](https://github.com/cartridge-gg/vrf/pull/46),\n[cartridge-gg/paymaster#15](https://github.com/cartridge-gg/paymaster/pull/15)).\nThose PRs correctly install the W3C propagator; this PR closes the gap\non the katana side so the three-service chain stitches under one\ntrace_id in the collector.\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-14T13:42:15-05:00",
+          "tree_id": "d406516a3aba23af2760043398a5fd2d4a0705ee",
+          "url": "https://github.com/dojoengine/katana/commit/3db9b65723dc794b1fcccd25dc7eb473caeb386e"
+        },
+        "date": 1776193988327,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2574151,
+            "range": "± 8127",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2840607,
+            "range": "± 12378",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 35,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 27,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 35,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 27,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 658,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 866,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 81,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 40,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 183,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 155,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 184,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 261,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 217,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 281,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 170,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 347,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 139,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 111,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 91,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 64,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 91,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 61,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 91,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 61,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 90,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 61,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 90,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 61,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 51,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 26,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 51,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 26,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 13,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 14845,
+            "range": "± 45",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3709,
+            "range": "± 70",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 362,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 814,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 179,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 162,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1524,
+            "range": "± 78",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2395,
+            "range": "± 422",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 653,
+            "range": "± 101",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 980,
+            "range": "± 164",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 28030,
+            "range": "± 1145",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6431,
+            "range": "± 268",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 159,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 242,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 292,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 280,
+            "range": "± 12",
             "unit": "ns/iter"
           }
         ]
