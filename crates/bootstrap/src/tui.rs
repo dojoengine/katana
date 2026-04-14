@@ -50,7 +50,10 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::embedded::{self, EmbeddedClass};
-use crate::executor::{execute_with_progress, BootstrapEvent, BootstrapReport, ExecutorConfig};
+use crate::executor::{
+    check_already_declared, check_already_deployed, compute_deploy_address, execute_with_progress,
+    BootstrapEvent, BootstrapReport, ExecutorConfig,
+};
 use crate::manifest::{ClassEntry, ContractEntry, Manifest};
 use crate::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
 
@@ -156,13 +159,17 @@ impl Tab {
 
 struct AppState {
     current_tab: Tab,
-    classes: Vec<DeclareStep>,
+    classes: Vec<ClassItem>,
     classes_state: ListState,
-    contracts: Vec<DeployStep>,
+    contracts: Vec<ContractItem>,
     contracts_state: ListState,
     settings: SettingsForm,
     modal: Option<Modal>,
     execution: ExecutionState,
+    /// Frozen snapshot of the last completed run. Preserved across editing so the
+    /// Execute tab keeps showing "what happened last" even as the user queues up
+    /// new work. Cleared only on explicit reset (none today — we just append).
+    last_run: Option<LastRunReport>,
     quit: bool,
     /// Transient banner (e.g. validation errors) shown in the bottom hint bar.
     flash: Option<String>,
@@ -179,6 +186,7 @@ impl AppState {
             settings: SettingsForm::from_defaults(defaults),
             modal: None,
             execution: ExecutionState::Idle,
+            last_run: None,
             quit: false,
             flash: None,
         }
@@ -188,8 +196,8 @@ impl AppState {
         // Reuse the existing manifest → plan resolver so we get the same validation,
         // file IO, and class-hash computation as programmatic mode.
         let plan = BootstrapPlan::from_manifest(manifest)?;
-        self.classes = plan.declares;
-        self.contracts = plan.deploys;
+        self.classes = plan.declares.into_iter().map(ClassItem::from_step).collect();
+        self.contracts = plan.deploys.into_iter().map(ContractItem::from_step).collect();
         if !self.classes.is_empty() {
             self.classes_state.select(Some(0));
         }
@@ -202,6 +210,125 @@ impl AppState {
     fn flash<S: Into<String>>(&mut self, msg: S) {
         self.flash = Some(msg.into());
     }
+
+    /// True while any async task (Running or Refreshing) is in flight. Mutation
+    /// handlers (add/edit/delete) gate on this: index maps stored in the active
+    /// task point at positions in `classes`/`contracts`, so shifting those lists
+    /// mid-flight would corrupt progress updates.
+    fn is_busy(&self) -> bool {
+        !matches!(self.execution, ExecutionState::Idle)
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Per-item durable exec state
+// -----------------------------------------------------------------------------
+
+/// Per-item execution status carried across runs. Distinct from
+/// [`RowStatus`], which is the per-row live display status inside a single
+/// executor run — this one persists on the source item so the Classes and
+/// Contracts tabs can show a durable "Done (hash …)" badge after the user
+/// adds more items and navigates away from the Execute tab.
+///
+/// Truth model: the executor's live RPC checks at run time are authoritative.
+/// `ItemExecState` is a UI hint populated by `drain_progress` on completion
+/// events and reconciled on every run — a cached summary of "what the last
+/// interaction with the node said about this item."
+#[derive(Debug, Clone)]
+enum ItemExecState {
+    /// Never executed (default for new items) or reset by the user after an
+    /// edit. Eligible for inclusion in the next run.
+    Pending,
+    /// A run is in flight and this item is currently being submitted.
+    Running,
+    /// The item completed successfully. `detail` is the user-facing summary
+    /// (class hash for declares, contract address for deploys) rendered
+    /// inline in the Classes/Contracts tabs.
+    Done { detail: String },
+    /// The last run attempted this item and the submission failed. `detail`
+    /// is the error message. Eligible for retry on the next run.
+    Failed { detail: String },
+    /// Status was invalidated by a Settings change and the refresh couldn't
+    /// re-verify against the new node (network down, timeout, etc.). The user
+    /// sees a `?` badge. Eligible for inclusion in the next run — we treat
+    /// unknown as "try again and see what the node says."
+    Unknown { reason: String },
+}
+
+impl ItemExecState {
+    /// Whether this item should be included in the next [`BootstrapPlan`]
+    /// built by [`start_execution`]. Done items are already on the node
+    /// (according to our best-effort knowledge) and skipping them avoids a
+    /// round-trip to the idempotency check per item — the executor still
+    /// re-checks at run time, so this is a UX optimization, not a correctness
+    /// guarantee.
+    fn is_outstanding(&self) -> bool {
+        !matches!(self, ItemExecState::Done { .. })
+    }
+
+    /// Optional inline detail rendered next to the icon in the Classes and
+    /// Contracts tabs. Pending/Running have no detail; Done/Failed/Unknown
+    /// carry a user-facing summary.
+    fn detail(&self) -> Option<&str> {
+        match self {
+            ItemExecState::Pending | ItemExecState::Running => None,
+            ItemExecState::Done { detail } => Some(detail),
+            ItemExecState::Failed { detail } => Some(detail),
+            ItemExecState::Unknown { reason } => Some(reason),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ClassItem {
+    step: DeclareStep,
+    exec: ItemExecState,
+}
+
+impl ClassItem {
+    fn from_step(step: DeclareStep) -> Self {
+        Self { step, exec: ItemExecState::Pending }
+    }
+}
+
+// Allow reading the underlying `DeclareStep` fields without a `.step.` prefix
+// everywhere. This reduces diff noise in the draw/modal code that just needs
+// the plan data. We add this instead of `impl Deref` because `DeclareStep`
+// isn't obviously a "newtype of ClassItem" and we don't want to encourage
+// treating ClassItem as a drop-in replacement.
+impl std::ops::Deref for ClassItem {
+    type Target = DeclareStep;
+    fn deref(&self) -> &Self::Target {
+        &self.step
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ContractItem {
+    step: DeployStep,
+    exec: ItemExecState,
+}
+
+impl ContractItem {
+    fn from_step(step: DeployStep) -> Self {
+        Self { step, exec: ItemExecState::Pending }
+    }
+}
+
+impl std::ops::Deref for ContractItem {
+    type Target = DeployStep;
+    fn deref(&self) -> &Self::Target {
+        &self.step
+    }
+}
+
+/// Frozen snapshot of a completed run's Execute-tab view. Kept on
+/// [`AppState::last_run`] so the Execute tab still shows what happened most
+/// recently even after the user returns to Idle and starts queuing more work.
+#[derive(Debug, Clone)]
+struct LastRunReport {
+    rows: Vec<ExecRow>,
+    result: std::result::Result<BootstrapReport, String>,
 }
 
 // -----------------------------------------------------------------------------
@@ -248,6 +375,12 @@ struct SettingsForm {
     focused: SettingsField,
     /// `true` while the user is typing into the focused field.
     editing: bool,
+    /// Set whenever any field is mutated. Cleared by [`Self::take_dirty`] on
+    /// Settings tab-exit — that's the commit boundary that triggers the
+    /// refresh of previously-Done items against the new node. Without this
+    /// flag, every per-keystroke mutation would look like "settings changed"
+    /// and we'd spawn a storm of refresh tasks.
+    dirty: bool,
 }
 
 impl SettingsForm {
@@ -264,7 +397,16 @@ impl SettingsForm {
             ),
             focused: SettingsField::RpcUrl,
             editing: false,
+            dirty: false,
         }
+    }
+
+    /// Consume the dirty flag and return whether it was set. Used at the
+    /// Settings tab-exit commit boundary: if dirty, caller kicks off a refresh.
+    fn take_dirty(&mut self) -> bool {
+        let was = self.dirty;
+        self.dirty = false;
+        was
     }
 
     /// Validate and convert into an [`ExecutorConfig`]. Returns a list of human-readable
@@ -1140,9 +1282,9 @@ fn class_options(app: &AppState) -> Vec<ClassOption> {
         .classes
         .iter()
         .map(|c| ClassOption {
-            name: c.name.clone(),
-            class_hash: c.class_hash,
-            constructor: crate::abi::extract_constructor(&c.class),
+            name: c.step.name.clone(),
+            class_hash: c.step.class_hash,
+            constructor: crate::abi::extract_constructor(&c.step.class),
         })
         .collect();
     for entry in embedded::REGISTRY {
@@ -1203,32 +1345,85 @@ struct ExecRow {
 }
 
 enum ExecutionState {
+    /// No async task in flight. The tabs accept mutations; `x` starts a new
+    /// run; Settings tab-exit (after edits) kicks off a refresh.
     Idle,
+    /// The executor is running. The event loop drains `rx`; the `_handle` is
+    /// kept to own the spawned task (completion is detected via terminal
+    /// `Done`/`Failed` events on `rx`, not by polling the join handle). The
+    /// `run` field owns the transient row view and the index maps that let
+    /// `drain_progress` reconcile per-item state on the source classes /
+    /// contracts lists.
     Running {
         rx: UnboundedReceiver<BootstrapEvent>,
-        /// Handle to the executor task. We keep it for ownership / cleanup; completion
-        /// is detected via the terminal `Done`/`Failed` events on `rx`, not by polling
-        /// the join handle (which would force us to drag a runtime handle into draining).
         _handle: JoinHandle<Result<BootstrapReport>>,
-        rows: Vec<ExecRow>,
+        run: ActiveExecution,
         tick: u64,
     },
-    Done {
-        rows: Vec<ExecRow>,
-        result: std::result::Result<BootstrapReport, String>,
-    },
+    /// A Settings change invalidated previously-Done items and a background
+    /// task is re-probing the node to see what's actually there. Updates arrive
+    /// on `rx` as [`RefreshEvent`] messages; terminal state is the `Done`
+    /// event, after which we transition back to `Idle`. `dirty_items` is the
+    /// pair of indices `(classes_dirty, contracts_dirty)` that the task needs
+    /// to probe — we stage them in the struct so the UI can show "checking…"
+    /// on exactly those items.
+    Refreshing { rx: UnboundedReceiver<RefreshEvent>, _handle: JoinHandle<()>, tick: u64 },
+}
+
+/// Per-run transient state. Lives inside [`ExecutionState::Running`] so it gets
+/// dropped the moment the run terminates; the frozen view that survives into
+/// `last_run` is [`LastRunReport`], not this.
+struct ActiveExecution {
+    /// Row view of the current run. One `ExecRow` per submitted step, indexed
+    /// as `[declares..., deploys...]` so progress events from the executor
+    /// (which carry `idx` within their kind) can map back to a row.
+    rows: Vec<ExecRow>,
+    /// Mapping from "declare row index in `rows`" to "position in
+    /// `app.classes`". Populated at [`start_execution`] time so drain_progress
+    /// can write durable per-item state back to the source. `class_indices[i]`
+    /// is the app-level index for the i-th declare row.
+    class_indices: Vec<usize>,
+    /// Mirror of `class_indices` for deploys.
+    contract_indices: Vec<usize>,
 }
 
 impl std::fmt::Debug for ExecutionState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Idle => write!(f, "Idle"),
-            Self::Running { rows, tick, .. } => {
-                write!(f, "Running({} rows, tick={tick})", rows.len())
+            Self::Running { run, tick, .. } => {
+                write!(f, "Running({} rows, tick={tick})", run.rows.len())
             }
-            Self::Done { result, .. } => write!(f, "Done(ok={})", result.is_ok()),
+            Self::Refreshing { tick, .. } => write!(f, "Refreshing(tick={tick})"),
         }
     }
+}
+
+impl std::fmt::Debug for ActiveExecution {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ActiveExecution")
+            .field("rows", &self.rows.len())
+            .field("class_indices", &self.class_indices)
+            .field("contract_indices", &self.contract_indices)
+            .finish()
+    }
+}
+
+/// Progress events emitted by the Settings-change refresh task. Arrive on the
+/// [`ExecutionState::Refreshing`] channel and get applied to per-item state
+/// by [`drain_progress`].
+#[derive(Debug)]
+enum RefreshEvent {
+    /// One class's state was resolved. `Ok(true)` = already declared on the
+    /// new node, `Ok(false)` = not declared (mark Pending), `Err(reason)` =
+    /// network/RPC failure, mark Unknown so the user can retry.
+    ClassResolved { app_idx: usize, result: std::result::Result<bool, String> },
+    /// Same as `ClassResolved` but for deploys.
+    ContractResolved { app_idx: usize, result: std::result::Result<bool, String> },
+    /// Terminal event. The task emits this after all items have been probed
+    /// (or the task was canceled). No payload — per-item results arrive on the
+    /// Resolved events above.
+    Done,
 }
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -1294,7 +1489,7 @@ fn event_loop(
                     // of paying for a redundant compile is preferable to either
                     // blocking on a synchronous pre-load or letting duplicate
                     // declares slip through.
-                    let dup = app.classes.iter().any(|c| c.class_hash == step.class_hash);
+                    let dup = app.classes.iter().any(|c| c.step.class_hash == step.class_hash);
                     if dup {
                         // Stay in the LoadingClass modal but swap the spinner for an
                         // inline notice. The user dismisses with Esc.
@@ -1304,7 +1499,7 @@ fn event_loop(
                             notice: Some("Class is already selected".to_string()),
                         });
                     } else {
-                        app.classes.push(step);
+                        app.classes.push(ClassItem::from_step(step));
                         app.classes_state.select(Some(app.classes.len() - 1));
                         // Modal closed by `take()` — class added to the plan.
                     }
@@ -1348,61 +1543,265 @@ fn event_loop(
 }
 
 fn drain_progress(app: &mut AppState) {
-    // We need both the rows (mutable) and the classes len (immutable) at the same time,
-    // so split the borrow up front.
-    let classes_len = app.classes.len();
-    let ExecutionState::Running { rx, rows, .. } = &mut app.execution else {
-        return;
-    };
+    match &mut app.execution {
+        ExecutionState::Idle => {}
+        ExecutionState::Running { .. } => drain_exec_progress(app),
+        ExecutionState::Refreshing { .. } => drain_refresh_progress(app),
+    }
+}
 
-    // Collect terminal events as we go so we can transition state after the drain loop
-    // (the borrow checker would otherwise complain about reassigning `app.execution`).
+/// A per-item update the executor drain wants to apply to the source lists
+/// after it releases the `&mut app.execution` borrow. We stage these in a
+/// `Vec` and apply them in a second pass so we can mutate both `app.classes`
+/// and `app.contracts` without fighting the borrow checker over
+/// `app.execution.run`.
+#[derive(Debug)]
+enum SourceUpdate {
+    Class { app_idx: usize, exec: ItemExecState },
+    Contract { app_idx: usize, exec: ItemExecState },
+}
+
+fn drain_exec_progress(app: &mut AppState) {
+    // Stage every source-item write we want to do during this drain. We can't
+    // mutate `app.classes` / `app.contracts` while we hold a borrow on
+    // `app.execution.run`, so queue and apply below.
+    let mut updates: Vec<SourceUpdate> = Vec::new();
+
+    // Collect the terminal outcome (if any) so we can transition state after
+    // the drain loop releases its borrow on `app.execution`.
     let mut terminal: Option<std::result::Result<BootstrapReport, String>> = None;
 
-    while let Ok(event) = rx.try_recv() {
-        match event {
-            BootstrapEvent::DeclareStarted { idx, .. } => {
-                if let Some(row) = rows.get_mut(idx) {
-                    row.status = RowStatus::Running;
+    // Scope the mutable borrow on `app.execution` so it's released before we
+    // mutate `app.classes` / `app.contracts` and reassign `app.execution`.
+    let classes_len;
+    {
+        // Matched explicitly above, so the Some pattern is safe. Pull the fields
+        // we need into locals bound in this block.
+        let ExecutionState::Running { rx, run, .. } = &mut app.execution else {
+            return;
+        };
+        classes_len = run.class_indices.len();
+
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                BootstrapEvent::DeclareStarted { idx, .. } => {
+                    if let Some(row) = run.rows.get_mut(idx) {
+                        row.status = RowStatus::Running;
+                    }
+                    if let Some(app_idx) = run.class_indices.get(idx).copied() {
+                        updates.push(SourceUpdate::Class { app_idx, exec: ItemExecState::Running });
+                    }
                 }
-            }
-            BootstrapEvent::DeclareCompleted { idx, class_hash, already_declared, .. } => {
-                if let Some(row) = rows.get_mut(idx) {
+                BootstrapEvent::DeclareCompleted { idx, class_hash, already_declared, .. } => {
                     let suffix = if already_declared { " (already declared)" } else { "" };
-                    row.status = RowStatus::Done(format!("class hash:  {class_hash:#x}{suffix}"));
+                    let detail = format!("class hash:  {class_hash:#x}{suffix}");
+                    if let Some(row) = run.rows.get_mut(idx) {
+                        row.status = RowStatus::Done(detail.clone());
+                    }
+                    if let Some(app_idx) = run.class_indices.get(idx).copied() {
+                        // Durable per-item summary is the hash + already-declared
+                        // marker. Shown in the Classes tab after the run finishes.
+                        updates.push(SourceUpdate::Class {
+                            app_idx,
+                            exec: ItemExecState::Done {
+                                detail: format!("{class_hash:#x}{suffix}"),
+                            },
+                        });
+                    }
                 }
-            }
-            BootstrapEvent::DeployStarted { idx, .. } => {
-                let row_idx = classes_len + idx;
-                if let Some(row) = rows.get_mut(row_idx) {
-                    row.status = RowStatus::Running;
+                BootstrapEvent::DeployStarted { idx, .. } => {
+                    let row_idx = classes_len + idx;
+                    if let Some(row) = run.rows.get_mut(row_idx) {
+                        row.status = RowStatus::Running;
+                    }
+                    if let Some(app_idx) = run.contract_indices.get(idx).copied() {
+                        updates
+                            .push(SourceUpdate::Contract { app_idx, exec: ItemExecState::Running });
+                    }
                 }
-            }
-            BootstrapEvent::DeployCompleted { idx, address, already_deployed, .. } => {
-                let row_idx = classes_len + idx;
-                if let Some(row) = rows.get_mut(row_idx) {
+                BootstrapEvent::DeployCompleted { idx, address, already_deployed, .. } => {
                     let suffix = if already_deployed { " (already deployed)" } else { "" };
-                    row.status =
-                        RowStatus::Done(format!("address:     {:#x}{suffix}", Felt::from(address)));
+                    let row_idx = classes_len + idx;
+                    let address_felt: Felt = address.into();
+                    if let Some(row) = run.rows.get_mut(row_idx) {
+                        row.status =
+                            RowStatus::Done(format!("address:     {address_felt:#x}{suffix}"));
+                    }
+                    if let Some(app_idx) = run.contract_indices.get(idx).copied() {
+                        updates.push(SourceUpdate::Contract {
+                            app_idx,
+                            exec: ItemExecState::Done {
+                                detail: format!("{address_felt:#x}{suffix}"),
+                            },
+                        });
+                    }
+                }
+                BootstrapEvent::Failed { error } => {
+                    // Mark whichever row is currently Running as Failed for the
+                    // live view, and durably record the failure on the matching
+                    // source item — the user sees the red `✗` badge on the
+                    // Classes/Contracts tabs until they edit the item.
+                    let running_row_idx =
+                        run.rows.iter().position(|r| r.status == RowStatus::Running);
+                    if let Some(row_idx) = running_row_idx {
+                        if let Some(row) = run.rows.get_mut(row_idx) {
+                            row.status = RowStatus::Failed(error.clone());
+                        }
+                        // Translate the row index back to either classes or contracts.
+                        if row_idx < classes_len {
+                            if let Some(app_idx) = run.class_indices.get(row_idx).copied() {
+                                updates.push(SourceUpdate::Class {
+                                    app_idx,
+                                    exec: ItemExecState::Failed { detail: error.clone() },
+                                });
+                            }
+                        } else {
+                            let deploy_idx = row_idx - classes_len;
+                            if let Some(app_idx) = run.contract_indices.get(deploy_idx).copied() {
+                                updates.push(SourceUpdate::Contract {
+                                    app_idx,
+                                    exec: ItemExecState::Failed { detail: error.clone() },
+                                });
+                            }
+                        }
+                    }
+                    terminal = Some(Err(error));
+                }
+                BootstrapEvent::Done { report } => {
+                    terminal = Some(Ok(report));
                 }
             }
-            BootstrapEvent::Failed { error } => {
-                if let Some(row) = rows.iter_mut().find(|r| r.status == RowStatus::Running) {
-                    row.status = RowStatus::Failed(error.clone());
+        }
+
+        // Second safety net: if the executor task panicked or was dropped without
+        // sending a terminal event, `try_recv` eventually returns `Disconnected`.
+        // Without this check we'd stay in `Running` forever, blocking all input.
+        // The existing code pre-refactor had this same latent bug; we close it here.
+        if terminal.is_none()
+            && matches!(rx.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Disconnected))
+        {
+            terminal = Some(Err("executor task disconnected without a terminal event".to_string()));
+        }
+    } // end borrow on app.execution
+
+    // Apply staged per-item updates.
+    for u in updates {
+        match u {
+            SourceUpdate::Class { app_idx, exec } => {
+                if let Some(item) = app.classes.get_mut(app_idx) {
+                    item.exec = exec;
                 }
-                terminal = Some(Err(error));
             }
-            BootstrapEvent::Done { report } => {
-                terminal = Some(Ok(report));
+            SourceUpdate::Contract { app_idx, exec } => {
+                if let Some(item) = app.contracts.get_mut(app_idx) {
+                    item.exec = exec;
+                }
             }
         }
     }
 
     if let Some(result) = terminal {
+        // Transition Running → Idle and freeze the run view into last_run. We
+        // take the whole state by replace so the JoinHandle inside the
+        // Running variant is dropped at the same time.
         let prev = std::mem::replace(&mut app.execution, ExecutionState::Idle);
-        if let ExecutionState::Running { rows, .. } = prev {
-            app.execution = ExecutionState::Done { rows, result };
+        if let ExecutionState::Running { run, .. } = prev {
+            app.last_run = Some(LastRunReport { rows: run.rows, result });
         }
+    }
+}
+
+fn drain_refresh_progress(app: &mut AppState) {
+    // Same two-pass pattern as drain_exec_progress: collect updates, release
+    // the `app.execution` borrow, then apply to `app.classes` / `app.contracts`.
+    let mut updates: Vec<SourceUpdate> = Vec::new();
+    let mut done = false;
+
+    {
+        let ExecutionState::Refreshing { rx, .. } = &mut app.execution else {
+            return;
+        };
+
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                RefreshEvent::ClassResolved { app_idx, result } => {
+                    let exec = match result {
+                        Ok(true) => ItemExecState::Done {
+                            // We don't know the original detail string anymore (class hash
+                            // isn't in the Resolved payload); re-synthesize from the step.
+                            // The caller fills this in properly below when applying —
+                            // store a marker here.
+                            detail: "__refresh_done__".to_string(),
+                        },
+                        Ok(false) => ItemExecState::Pending,
+                        Err(reason) => ItemExecState::Unknown { reason },
+                    };
+                    updates.push(SourceUpdate::Class { app_idx, exec });
+                }
+                RefreshEvent::ContractResolved { app_idx, result } => {
+                    let exec = match result {
+                        Ok(true) => ItemExecState::Done { detail: "__refresh_done__".to_string() },
+                        Ok(false) => ItemExecState::Pending,
+                        Err(reason) => ItemExecState::Unknown { reason },
+                    };
+                    updates.push(SourceUpdate::Contract { app_idx, exec });
+                }
+                RefreshEvent::Done => {
+                    done = true;
+                }
+            }
+        }
+
+        // Disconnected-without-Done safety net, same as drain_exec_progress.
+        if !done
+            && matches!(rx.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Disconnected))
+        {
+            done = true;
+        }
+    } // end borrow on app.execution
+
+    for u in updates {
+        match u {
+            SourceUpdate::Class { app_idx, exec } => {
+                if let Some(item) = app.classes.get_mut(app_idx) {
+                    // Replace the placeholder detail with the real class-hash summary
+                    // when the refresh said "still declared."
+                    item.exec = match exec {
+                        ItemExecState::Done { .. } => ItemExecState::Done {
+                            detail: format!("{:#x} (verified)", item.step.class_hash),
+                        },
+                        other => other,
+                    };
+                }
+            }
+            SourceUpdate::Contract { app_idx, exec } => {
+                if let Some(item) = app.contracts.get_mut(app_idx) {
+                    // Deploy verification doesn't trivially give us the address back from
+                    // the refresh event, so recompute it from the step + current signer.
+                    // If we can't (account missing or invalid), fall back to a terse marker.
+                    item.exec = match exec {
+                        ItemExecState::Done { .. } => {
+                            let detail = app
+                                .settings
+                                .build()
+                                .ok()
+                                .map(|cfg| {
+                                    let addr =
+                                        compute_deploy_address(&item.step, cfg.account_address);
+                                    format!("{:#x} (verified)", Felt::from(addr))
+                                })
+                                .unwrap_or_else(|| "(verified)".to_string());
+                            ItemExecState::Done { detail }
+                        }
+                        other => other,
+                    };
+                }
+            }
+        }
+    }
+
+    if done {
+        app.execution = ExecutionState::Idle;
     }
 }
 
@@ -1426,17 +1825,44 @@ fn handle_key(
 
     // Modal-first: if a modal is up, route input to it.
     if app.modal.is_some() {
-        handle_modal_key(app, code, mods);
+        handle_modal_key(app, code, mods, runtime);
         return;
     }
 
-    // Global tab navigation (only when no modal is open).
+    // Global tab navigation (only when no modal is open). Leaving the Settings
+    // tab after any edit is the commit boundary that kicks off a refresh of
+    // previously-Done items against the (possibly-new) node.
     if code == KeyCode::Tab {
+        let leaving_settings = app.current_tab == Tab::Settings;
+        // Only the Execute tab blocks tab navigation during a run — every other
+        // tab is read-only in practice while busy, so we let the user navigate
+        // freely to observe progress. The Settings tab-exit refresh trigger
+        // intentionally only fires when we're Idle: kicking off a second async
+        // task while one's already running would be a race.
+        if app.is_busy() {
+            // Keep current behavior: during Running, blocking quit also
+            // effectively "parks" the user on the Execute tab. During
+            // Refreshing, nav is fine — but we skip the commit-boundary hook
+            // so we don't double-start the refresh.
+            app.current_tab = app.current_tab.next();
+            return;
+        }
         app.current_tab = app.current_tab.next();
+        if leaving_settings && app.settings.take_dirty() {
+            start_refresh(app, runtime);
+        }
         return;
     }
     if code == KeyCode::BackTab {
+        let leaving_settings = app.current_tab == Tab::Settings;
+        if app.is_busy() {
+            app.current_tab = app.current_tab.prev();
+            return;
+        }
         app.current_tab = app.current_tab.prev();
+        if leaving_settings && app.settings.take_dirty() {
+            start_refresh(app, runtime);
+        }
         return;
     }
 
@@ -1450,19 +1876,33 @@ fn handle_key(
 
 fn handle_classes_key(app: &mut AppState, code: KeyCode) {
     match code {
-        KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
+        KeyCode::Char('q') | KeyCode::Esc => {
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
+            } else {
+                app.quit = true;
+            }
+        }
         KeyCode::Char('a') => {
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
+                return;
+            }
             app.modal =
                 Some(Modal::AddClassPicker { picker_state: ListState::default(), info: None });
         }
         KeyCode::Char('d') => {
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
+                return;
+            }
             if let Some(i) = app.classes_state.selected() {
                 if i < app.classes.len() {
                     let removed = app.classes.remove(i);
-                    if app.contracts.iter().any(|c| c.class_name == removed.name) {
+                    if app.contracts.iter().any(|c| c.step.class_name == removed.step.name) {
                         app.flash(format!(
                             "warning: deleted class `{}` is referenced by a deploy",
-                            removed.name
+                            removed.step.name
                         ));
                     }
                     if app.classes.is_empty() {
@@ -1485,24 +1925,42 @@ fn handle_classes_key(app: &mut AppState, code: KeyCode) {
 
 fn handle_contracts_key(app: &mut AppState, code: KeyCode) {
     match code {
-        KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
+        KeyCode::Char('q') | KeyCode::Esc => {
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
+            } else {
+                app.quit = true;
+            }
+        }
         KeyCode::Char('a') => {
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
+                return;
+            }
             let opts = class_options(app);
             app.modal =
                 Some(Modal::ContractForm { editing_index: None, form: ContractForm::new(&opts) });
         }
         KeyCode::Char('e') => {
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
+                return;
+            }
             if let Some(i) = app.contracts_state.selected() {
                 if let Some(existing) = app.contracts.get(i) {
                     let opts = class_options(app);
                     app.modal = Some(Modal::ContractForm {
                         editing_index: Some(i),
-                        form: ContractForm::from_existing(existing, &opts),
+                        form: ContractForm::from_existing(&existing.step, &opts),
                     });
                 }
             }
         }
         KeyCode::Char('d') => {
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
+                return;
+            }
             if let Some(i) = app.contracts_state.selected() {
                 if i < app.contracts.len() {
                     app.contracts.remove(i);
@@ -1533,13 +1991,23 @@ fn handle_settings_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
             return;
         }
         if let Some(input) = app.settings.focused_input_mut() {
-            handle_text_edit(input, code, mods);
+            // Any consumed key is a mutation — mark the form dirty so the
+            // next tab-exit triggers a refresh of previously-Done items.
+            if handle_text_edit(input, code, mods) {
+                app.settings.dirty = true;
+            }
         }
         return;
     }
 
     match code {
-        KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
+        KeyCode::Char('q') | KeyCode::Esc => {
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
+            } else {
+                app.quit = true;
+            }
+        }
         KeyCode::Down | KeyCode::Char('j') => {
             app.settings.focused = app.settings.focused.next();
         }
@@ -1555,30 +2023,36 @@ fn handle_settings_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
 
 fn handle_execute_key(app: &mut AppState, code: KeyCode, runtime: &tokio::runtime::Handle) {
     match code {
-        KeyCode::Char('q') => {
-            // Don't allow quit while a task is mid-flight; the executor isn't cancellable.
-            if matches!(app.execution, ExecutionState::Running { .. }) {
-                app.flash("execution in progress — wait for it to finish");
-            } else {
-                app.quit = true;
-            }
-        }
-        KeyCode::Esc => {
-            if matches!(app.execution, ExecutionState::Running { .. }) {
-                app.flash("execution in progress — wait for it to finish");
+        KeyCode::Char('q') | KeyCode::Esc => {
+            // Don't allow quit while any async task is mid-flight; neither the
+            // executor nor the refresh task is cancellable. Ctrl+C is the
+            // escape hatch (handled globally).
+            if app.is_busy() {
+                app.flash("in progress — wait for it to finish");
             } else {
                 app.quit = true;
             }
         }
         KeyCode::Char('x') => {
-            if matches!(app.execution, ExecutionState::Running { .. }) {
-                app.flash("already running");
-                return;
+            match &app.execution {
+                ExecutionState::Running { .. } => {
+                    app.flash("already running");
+                    return;
+                }
+                ExecutionState::Refreshing { .. } => {
+                    app.flash("verifying node — wait");
+                    return;
+                }
+                ExecutionState::Idle => {}
             }
             start_execution(app, runtime);
         }
         KeyCode::Char('s') => {
-            if matches!(&app.execution, ExecutionState::Done { result: Ok(_), .. }) {
+            // Save manifest is available whenever we're idle — a plan is worth
+            // saving even before it's ever been executed. The old "only after
+            // success" gate conflated "run a bootstrap" with "record your
+            // intended bootstrap plan"; those are separate needs.
+            if matches!(app.execution, ExecutionState::Idle) {
                 app.modal = Some(Modal::SaveManifest {
                     path: TextInput::from_str("./bootstrap.toml"),
                     error: None,
@@ -1603,12 +2077,38 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
         }
     };
 
-    let plan = BootstrapPlan { declares: app.classes.clone(), deploys: app.contracts.clone() };
+    // Filter to outstanding work only: Done items are skipped entirely (the
+    // executor's idempotency check would re-verify them on-chain, but that's
+    // one RPC round-trip per Done item — skipping them in the plan itself is
+    // both faster and makes the Execute tab view match what actually happens).
+    // Pending, Failed, and Unknown all re-run; the executor's precheck still
+    // guards against double-submits if the user's cache is stale.
+    let mut declares: Vec<DeclareStep> = Vec::new();
+    let mut class_indices: Vec<usize> = Vec::new();
+    for (i, item) in app.classes.iter().enumerate() {
+        if item.exec.is_outstanding() {
+            declares.push(item.step.clone());
+            class_indices.push(i);
+        }
+    }
+    let mut deploys: Vec<DeployStep> = Vec::new();
+    let mut contract_indices: Vec<usize> = Vec::new();
+    for (i, item) in app.contracts.iter().enumerate() {
+        if item.exec.is_outstanding() {
+            deploys.push(item.step.clone());
+            contract_indices.push(i);
+        }
+    }
+
+    if declares.is_empty() && deploys.is_empty() {
+        app.flash("nothing pending — all items are done");
+        return;
+    }
 
     // Build the per-row state up front from the plan, so the user sees every step
     // queued before any of them run.
-    let mut rows: Vec<ExecRow> = Vec::with_capacity(plan.declares.len() + plan.deploys.len());
-    for d in &plan.declares {
+    let mut rows: Vec<ExecRow> = Vec::with_capacity(declares.len() + deploys.len());
+    for d in &declares {
         rows.push(ExecRow {
             kind: ExecKind::Declare,
             primary: d.name.clone(),
@@ -1616,7 +2116,7 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
             status: RowStatus::Pending,
         });
     }
-    for d in &plan.deploys {
+    for d in &deploys {
         rows.push(ExecRow {
             kind: ExecKind::Deploy,
             primary: d.label.clone().unwrap_or_else(|| "-".to_string()),
@@ -1625,6 +2125,7 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
         });
     }
 
+    let plan = BootstrapPlan { declares, deploys };
     let (tx, rx) = unbounded_channel();
     let plan_arc = Arc::new(plan);
     let cfg_arc = Arc::new(cfg);
@@ -1633,14 +2134,114 @@ fn start_execution(app: &mut AppState, runtime: &tokio::runtime::Handle) {
     let handle: JoinHandle<Result<BootstrapReport>> = runtime
         .spawn(async move { execute_with_progress(&plan_for_task, &cfg_for_task, Some(tx)).await });
 
-    app.execution = ExecutionState::Running { rx, _handle: handle, rows, tick: 0 };
+    app.execution = ExecutionState::Running {
+        rx,
+        _handle: handle,
+        run: ActiveExecution { rows, class_indices, contract_indices },
+        tick: 0,
+    };
+}
+
+/// Spawn a Settings-change refresh task. For every item in a refreshable
+/// state (Done or Unknown), probe the new RPC concurrently to see what's
+/// actually there. Items transition to Done/Pending based on the probe, or
+/// Unknown on RPC failure. Pending and Failed items are left alone — those
+/// go through the regular `x` re-run flow, not the refresh path.
+///
+/// `Unknown` is included alongside `Done` so that recovering from a failed
+/// refresh (e.g. user typed an invalid RPC URL, all items went Unknown)
+/// actually re-probes when the user fixes the URL. Without this, a single
+/// bad refresh would strand items as Unknown forever.
+fn needs_refresh(state: &ItemExecState) -> bool {
+    matches!(state, ItemExecState::Done { .. } | ItemExecState::Unknown { .. })
+}
+
+fn start_refresh(app: &mut AppState, runtime: &tokio::runtime::Handle) {
+    // Nothing to verify? No-op.
+    if !app.classes.iter().any(|c| needs_refresh(&c.exec))
+        && !app.contracts.iter().any(|c| needs_refresh(&c.exec))
+    {
+        return;
+    }
+
+    // Can't probe without valid settings. Flash and bail; the user still sees
+    // the stale Done/Unknown badges, but we can't do anything useful until
+    // they fix the URL or account.
+    let cfg = match app.settings.build() {
+        Ok(c) => c,
+        Err(_) => {
+            return;
+        }
+    };
+
+    // Gather the items to probe alongside their app-level indices. We mark
+    // them Unknown up front so the Classes/Contracts tabs immediately show the
+    // stale state while the async probe is in flight.
+    let mut declare_probes: Vec<(usize, katana_primitives::class::ClassHash)> = Vec::new();
+    for (i, item) in app.classes.iter_mut().enumerate() {
+        if needs_refresh(&item.exec) {
+            item.exec = ItemExecState::Unknown { reason: "verifying…".to_string() };
+            declare_probes.push((i, item.step.class_hash));
+        }
+    }
+    let mut deploy_probes: Vec<(usize, ContractAddress)> = Vec::new();
+    for (i, item) in app.contracts.iter_mut().enumerate() {
+        if needs_refresh(&item.exec) {
+            item.exec = ItemExecState::Unknown { reason: "verifying…".to_string() };
+            let addr = compute_deploy_address(&item.step, cfg.account_address);
+            deploy_probes.push((i, addr));
+        }
+    }
+
+    let (tx, rx) = unbounded_channel();
+    let rpc_url = cfg.rpc_url.clone();
+    let handle: JoinHandle<()> = runtime.spawn(async move {
+        // Fire all probes concurrently. FuturesUnordered gives us best-effort
+        // parallelism without imposing a concurrency cap; see TODOS.md for
+        // when to revisit (large manifests hitting RPC rate limits).
+        use futures::stream::{FuturesUnordered, StreamExt};
+
+        let mut tasks = FuturesUnordered::new();
+        for (app_idx, class_hash) in declare_probes {
+            let url = rpc_url.clone();
+            let tx = tx.clone();
+            tasks.push(tokio::spawn(async move {
+                let result =
+                    check_already_declared(&url, class_hash).await.map_err(|e| format!("{e:#}"));
+                let _ = tx.send(RefreshEvent::ClassResolved { app_idx, result });
+            }));
+        }
+        for (app_idx, address) in deploy_probes {
+            let url = rpc_url.clone();
+            let tx = tx.clone();
+            tasks.push(tokio::spawn(async move {
+                let result =
+                    check_already_deployed(&url, address).await.map_err(|e| format!("{e:#}"));
+                let _ = tx.send(RefreshEvent::ContractResolved { app_idx, result });
+            }));
+        }
+
+        while (tasks.next().await).is_some() {
+            // Per-probe result already forwarded by the spawn body; we just
+            // drain for join completion here.
+        }
+
+        let _ = tx.send(RefreshEvent::Done);
+    });
+
+    app.execution = ExecutionState::Refreshing { rx, _handle: handle, tick: 0 };
 }
 
 // -----------------------------------------------------------------------------
 // Modal input handling
 // -----------------------------------------------------------------------------
 
-fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
+fn handle_modal_key(
+    app: &mut AppState,
+    code: KeyCode,
+    mods: KeyModifiers,
+    _runtime: &tokio::runtime::Handle,
+) {
     // Take ownership so we can mutate the modal and then put it back, avoiding nested
     // borrows of `app`.
     let Some(modal) = app.modal.take() else { return };
@@ -1670,7 +2271,8 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                         // Manual dup check so we can keep the modal open and show
                         // the message inline. We deliberately don't reuse
                         // `push_embedded_class`'s flash-based path here.
-                        let already = app.classes.iter().any(|c| c.class_hash == entry.class_hash);
+                        let already =
+                            app.classes.iter().any(|c| c.step.class_hash == entry.class_hash);
                         if already {
                             app.modal = Some(Modal::AddClassPicker {
                                 picker_state,
@@ -1795,11 +2397,16 @@ fn handle_modal_key(app: &mut AppState, code: KeyCode, mods: KeyModifiers) {
                         Ok(step) => match editing_index {
                             Some(i) => {
                                 if let Some(slot) = app.contracts.get_mut(i) {
-                                    *slot = step;
+                                    // Edit resets this single item's exec state to
+                                    // Pending — we can't trust an old Done/Failed
+                                    // against the new inputs. `last_run` is left
+                                    // untouched; it's history, not truth.
+                                    slot.step = step;
+                                    slot.exec = ItemExecState::Pending;
                                 }
                             }
                             None => {
-                                app.contracts.push(step);
+                                app.contracts.push(ContractItem::from_step(step));
                                 app.contracts_state.select(Some(app.contracts.len() - 1));
                             }
                         },
@@ -1842,17 +2449,17 @@ fn push_embedded_class(app: &mut AppState, entry: &'static EmbeddedClass) {
     // Dedupe by class hash, not name: two embedded entries that happen to share the
     // same alias would still be unique on disk, and conversely the same class loaded
     // under a different alias is still a duplicate as far as the chain is concerned.
-    if app.classes.iter().any(|c| c.class_hash == entry.class_hash) {
+    if app.classes.iter().any(|c| c.step.class_hash == entry.class_hash) {
         app.flash("Class is already selected");
         return;
     }
-    app.classes.push(DeclareStep {
+    app.classes.push(ClassItem::from_step(DeclareStep {
         name: entry.name.to_string(),
         class: Arc::new(entry.class()),
         class_hash: entry.class_hash,
         casm_hash: entry.casm_hash,
         source: ClassSource::Embedded(entry.name),
-    });
+    }));
     app.classes_state.select(Some(app.classes.len() - 1));
 }
 
@@ -1892,24 +2499,29 @@ fn build_manifest_from_app(app: &AppState) -> Manifest {
     let classes = app
         .classes
         .iter()
-        .map(|d| match &d.source {
-            ClassSource::Embedded(name) => {
-                ClassEntry { name: d.name.clone(), embedded: Some((*name).to_string()), path: None }
-            }
+        .map(|c| match &c.step.source {
+            ClassSource::Embedded(name) => ClassEntry {
+                name: c.step.name.clone(),
+                embedded: Some((*name).to_string()),
+                path: None,
+            },
             ClassSource::File(path) => {
-                ClassEntry { name: d.name.clone(), embedded: None, path: Some(path.clone()) }
+                ClassEntry { name: c.step.name.clone(), embedded: None, path: Some(path.clone()) }
             }
         })
         .collect();
     let contracts = app
         .contracts
         .iter()
-        .map(|d| ContractEntry {
-            class: d.class_name.clone(),
-            label: d.label.clone(),
-            salt: if d.salt == Felt::ZERO { None } else { Some(d.salt) },
-            unique: d.unique,
-            calldata: d.calldata.clone(),
+        .map(|c| {
+            let d = &c.step;
+            ContractEntry {
+                class: d.class_name.clone(),
+                label: d.label.clone(),
+                salt: if d.salt == Felt::ZERO { None } else { Some(d.salt) },
+                unique: d.unique,
+                calldata: d.calldata.clone(),
+            }
         })
         .collect();
     Manifest { schema: 1, classes, contracts }
@@ -1967,10 +2579,19 @@ fn draw_hint_bar(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
         Tab::Settings if app.settings.editing => "[Esc/Enter] stop editing",
         Tab::Settings => "[j/k] move  [e/Enter] edit  [Tab] next tab  [q] quit",
         Tab::Execute => match &app.execution {
-            ExecutionState::Idle => "[x] run  [Tab] next tab  [q] quit",
+            ExecutionState::Idle => {
+                // Different hint depending on whether there's outstanding work
+                // to do. `s` is always available in Idle.
+                let any_outstanding = app.classes.iter().any(|c| c.exec.is_outstanding())
+                    || app.contracts.iter().any(|c| c.exec.is_outstanding());
+                if any_outstanding {
+                    "[x] run  [s] save manifest  [Tab] next tab  [q] quit"
+                } else {
+                    "[s] save manifest  [Tab] next tab  [q] quit"
+                }
+            }
             ExecutionState::Running { .. } => "running…",
-            ExecutionState::Done { result: Ok(_), .. } => "[s] save manifest  [q] quit",
-            ExecutionState::Done { .. } => "[q] quit",
+            ExecutionState::Refreshing { .. } => "verifying node…",
         },
     };
     let text =
@@ -1992,7 +2613,7 @@ fn draw_classes_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) 
     let name_width = app
         .classes
         .iter()
-        .map(|c| c.name.chars().count())
+        .map(|c| c.step.name.chars().count())
         .max()
         .unwrap_or(CLASS_NAME_WIDTH_MIN)
         .clamp(CLASS_NAME_WIDTH_MIN, CLASS_NAME_WIDTH_MAX);
@@ -2003,19 +2624,28 @@ fn draw_classes_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) 
         .classes
         .iter()
         .map(|c| {
-            let source = match &c.source {
+            let source = match &c.step.source {
                 ClassSource::Embedded(_) => "embedded",
                 ClassSource::File(_) => "file",
             };
-            let name = truncate_with_ellipsis(&c.name, name_width);
-            ListItem::new(format!(
-                "{:<name_w$}  {:<src_w$}  {:#x}",
-                name,
-                source,
-                c.class_hash,
-                name_w = name_width,
-                src_w = SOURCE_WIDTH,
-            ))
+            let name = truncate_with_ellipsis(&c.step.name, name_width);
+            let (icon, icon_style) = exec_badge(&c.exec);
+            let mut spans = vec![
+                Span::styled(icon.to_string(), icon_style),
+                Span::raw(format!(
+                    "{:<name_w$}  {:<src_w$}  {:#x}",
+                    name,
+                    source,
+                    c.step.class_hash,
+                    name_w = name_width,
+                    src_w = SOURCE_WIDTH,
+                )),
+            ];
+            if let Some(detail) = c.exec.detail() {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(detail.to_string(), icon_style));
+            }
+            ListItem::new(Line::from(spans))
         })
         .collect();
     let list = List::new(items)
@@ -2023,6 +2653,19 @@ fn draw_classes_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect) 
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol("> ");
     f.render_stateful_widget(list, area, &mut app.classes_state);
+}
+
+/// Icon + style for an [`ItemExecState`] as rendered in the Classes/Contracts
+/// tabs. Kept as a single helper so the styling stays consistent across both
+/// tabs and tests can assert against one source of truth.
+fn exec_badge(state: &ItemExecState) -> (&'static str, Style) {
+    match state {
+        ItemExecState::Pending => ("  ", Style::default()),
+        ItemExecState::Running => ("… ", Style::default().fg(Color::Yellow)),
+        ItemExecState::Done { .. } => ("✓ ", Style::default().fg(Color::Green)),
+        ItemExecState::Failed { .. } => ("✗ ", Style::default().fg(Color::Red)),
+        ItemExecState::Unknown { .. } => ("? ", Style::default().fg(Color::DarkGray)),
+    }
 }
 
 /// Truncate `s` to at most `max` displayed chars, replacing the last char with `…`
@@ -2049,13 +2692,23 @@ fn draw_contracts_tab(f: &mut ratatui::Frame<'_>, app: &mut AppState, area: Rect
         .contracts
         .iter()
         .map(|c| {
-            ListItem::new(format!(
-                "{:<15} {:<20} salt={:#x}  calldata=[{}]",
-                c.label.as_deref().unwrap_or("-"),
-                c.class_name,
-                c.salt,
-                c.calldata.iter().map(|f| format!("{f:#x}")).collect::<Vec<_>>().join(", ")
-            ))
+            let d = &c.step;
+            let (icon, icon_style) = exec_badge(&c.exec);
+            let mut spans = vec![
+                Span::styled(icon.to_string(), icon_style),
+                Span::raw(format!(
+                    "{:<15} {:<20} salt={:#x}  calldata=[{}]",
+                    d.label.as_deref().unwrap_or("-"),
+                    d.class_name,
+                    d.salt,
+                    d.calldata.iter().map(|f| format!("{f:#x}")).collect::<Vec<_>>().join(", ")
+                )),
+            ];
+            if let Some(detail) = c.exec.detail() {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(detail.to_string(), icon_style));
+            }
+            ListItem::new(Line::from(spans))
         })
         .collect();
     let list = List::new(items)
@@ -2115,17 +2768,37 @@ fn draw_settings_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
 }
 
 fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
-    let header = format!("Plan: {} declares, {} deploys", app.classes.len(), app.contracts.len());
+    // Plan header reflects the FULL current plan (including Done items) so the
+    // user can see at a glance how big the session is. Outstanding count is
+    // shown separately to surface what the next `x` would actually run.
+    let outstanding_declares = app.classes.iter().filter(|c| c.exec.is_outstanding()).count();
+    let outstanding_deploys = app.contracts.iter().filter(|c| c.exec.is_outstanding()).count();
+    let header = format!(
+        "Plan: {} declares, {} deploys   Outstanding: {} declares, {} deploys",
+        app.classes.len(),
+        app.contracts.len(),
+        outstanding_declares,
+        outstanding_deploys,
+    );
 
+    // Prefer live rows (during Running) over last_run (historical). In Idle
+    // with no last_run (fresh session), render an empty list — the Execute
+    // tab is mostly about feedback after running.
     let (rows, tick): (&[ExecRow], u64) = match &app.execution {
-        ExecutionState::Idle => (&[], 0),
-        ExecutionState::Running { rows, tick, .. } => (rows.as_slice(), *tick),
-        ExecutionState::Done { rows, .. } => (rows.as_slice(), 0),
+        ExecutionState::Running { run, tick, .. } => (run.rows.as_slice(), *tick),
+        ExecutionState::Idle | ExecutionState::Refreshing { .. } => match &app.last_run {
+            Some(lr) => (lr.rows.as_slice(), 0),
+            None => (&[], 0),
+        },
     };
 
     let mut lines: Vec<Line<'_>> = vec![Line::from(header), Line::from("")];
     if rows.is_empty() {
-        lines.push(Line::from("(press `x` to start)"));
+        if outstanding_declares + outstanding_deploys > 0 {
+            lines.push(Line::from("(press `x` to start)"));
+        } else {
+            lines.push(Line::from("(nothing to do — add a class or contract first)"));
+        }
     } else {
         // Compute column widths once across all rows so the trailing detail
         // (hash/address/error) lines up regardless of how long any individual
@@ -2173,19 +2846,27 @@ fn draw_execute_tab(f: &mut ratatui::Frame<'_>, app: &AppState, area: Rect) {
         }
     }
 
-    if let ExecutionState::Done { result: Err(err), .. } = &app.execution {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            format!("Failed: {err}"),
-            Style::default().fg(Color::Red),
-        )));
-    }
-    if let ExecutionState::Done { result: Ok(_), .. } = &app.execution {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Done. Press `s` to save the manifest or `q` to quit.",
-            Style::default().fg(Color::Green),
-        )));
+    // Summary footer: pulled from last_run when we're idle, or live from the
+    // running view when we're mid-flight. Shown only after a run has
+    // happened — a fresh session has no footer.
+    if matches!(app.execution, ExecutionState::Idle) {
+        if let Some(lr) = &app.last_run {
+            lines.push(Line::from(""));
+            match &lr.result {
+                Err(err) => lines.push(Line::from(Span::styled(
+                    format!("Failed: {err}"),
+                    Style::default().fg(Color::Red),
+                ))),
+                Ok(_) => {
+                    let hint = if outstanding_declares + outstanding_deploys > 0 {
+                        "Done. Add more items or press `x` to run outstanding work. `s` to save."
+                    } else {
+                        "Done. Add more items, press `s` to save, or `q` to quit."
+                    };
+                    lines.push(Line::from(Span::styled(hint, Style::default().fg(Color::Green))));
+                }
+            }
+        }
     }
 
     let p = Paragraph::new(lines)
@@ -2823,6 +3504,391 @@ mod tests {
             form.focus_next();
             assert_eq!(form.focused, want);
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // AppState transitions: per-item exec state, last_run snapshot, mutation
+    // locks. These exercise the continue-session refactor at the AppState
+    // layer — no tokio runtime, no real RPC. For end-to-end coverage see the
+    // integration tests in tests/bootstrap.rs.
+    // ------------------------------------------------------------------------
+
+    use std::sync::Arc;
+
+    use katana_primitives::class::ClassHash;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    /// Minimal signer defaults that pass `SettingsForm::build()` without any
+    /// edits. Used by every state-transition test so we don't have to keep
+    /// retyping them.
+    fn valid_defaults() -> SignerDefaults {
+        SignerDefaults {
+            rpc_url: Some("http://localhost:5050".to_string()),
+            account: Some(ContractAddress::from(Felt::from(1u8))),
+            private_key: Some(Felt::from(2u8)),
+        }
+    }
+
+    fn dummy_class_hash(seed: u64) -> ClassHash {
+        Felt::from(seed)
+    }
+
+    fn dummy_class_item(name: &str, seed: u64) -> ClassItem {
+        // We never execute these, so the `class` payload doesn't have to be a
+        // real Sierra class — any ContractClass instance that implements Debug
+        // would do. The embedded dev_account is convenient because we already
+        // have it handy in the test suite.
+        let class = embedded::REGISTRY[0].class();
+        ClassItem::from_step(DeclareStep {
+            name: name.to_string(),
+            class: Arc::new(class),
+            class_hash: dummy_class_hash(seed),
+            casm_hash: Felt::ZERO,
+            source: ClassSource::Embedded(embedded::REGISTRY[0].name),
+        })
+    }
+
+    fn dummy_contract_item(label: &str, class_name: &str, seed: u64) -> ContractItem {
+        ContractItem::from_step(DeployStep {
+            label: Some(label.to_string()),
+            class_hash: dummy_class_hash(seed),
+            class_name: class_name.to_string(),
+            salt: Felt::from(seed),
+            unique: false,
+            calldata: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn new_appstate_starts_idle_with_no_last_run() {
+        let app = AppState::new(SignerDefaults::default());
+        assert!(matches!(app.execution, ExecutionState::Idle));
+        assert!(app.last_run.is_none());
+        assert!(!app.is_busy());
+    }
+
+    #[test]
+    fn item_exec_state_outstanding_excludes_only_done() {
+        assert!(ItemExecState::Pending.is_outstanding());
+        assert!(ItemExecState::Running.is_outstanding());
+        assert!(ItemExecState::Failed { detail: "x".into() }.is_outstanding());
+        assert!(ItemExecState::Unknown { reason: "x".into() }.is_outstanding());
+        assert!(!ItemExecState::Done { detail: "x".into() }.is_outstanding());
+    }
+
+    #[test]
+    fn settings_take_dirty_is_consumed_once() {
+        let mut form = SettingsForm::from_defaults(valid_defaults());
+        assert!(!form.take_dirty());
+        form.dirty = true;
+        assert!(form.take_dirty());
+        assert!(!form.take_dirty()); // second call reads cleared state
+    }
+
+    /// Simulate a Done BootstrapEvent and confirm drain_progress moves rows
+    /// into last_run and transitions to Idle.
+    #[test]
+    fn drain_exec_progress_terminal_done_transitions_to_idle() {
+        let mut app = AppState::new(valid_defaults());
+        app.classes.push(dummy_class_item("foo", 10));
+        let (tx, rx) = unbounded_channel::<BootstrapEvent>();
+        // Prime Running state with a noop JoinHandle from a throwaway runtime.
+        // `drain_progress` doesn't poll the handle — completion is detected
+        // via the terminal event on `rx` — so any ready task will do.
+        let noop_rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let noop_handle: JoinHandle<Result<BootstrapReport>> =
+            noop_rt.spawn(async { Ok(BootstrapReport::default()) });
+        app.execution = ExecutionState::Running {
+            rx,
+            _handle: noop_handle,
+            run: ActiveExecution {
+                rows: vec![ExecRow {
+                    kind: ExecKind::Declare,
+                    primary: "foo".into(),
+                    secondary: None,
+                    status: RowStatus::Pending,
+                }],
+                class_indices: vec![0],
+                contract_indices: vec![],
+            },
+            tick: 0,
+        };
+
+        tx.send(BootstrapEvent::DeclareCompleted {
+            idx: 0,
+            name: "foo".into(),
+            class_hash: Felt::from(99u64),
+            already_declared: false,
+        })
+        .unwrap();
+        tx.send(BootstrapEvent::Done { report: BootstrapReport::default() }).unwrap();
+        // Drop the sender so Disconnected would fire if terminal weren't seen.
+        drop(tx);
+
+        drain_progress(&mut app);
+
+        // Back to Idle, last_run populated, source class item reflects Done.
+        assert!(matches!(app.execution, ExecutionState::Idle));
+        let lr = app.last_run.as_ref().expect("last_run populated");
+        assert!(lr.result.is_ok());
+        assert_eq!(lr.rows.len(), 1);
+        assert!(matches!(app.classes[0].exec, ItemExecState::Done { .. }));
+    }
+
+    /// drain_progress must surface a hung/panicked executor as a Failed
+    /// last_run so the UI doesn't stay stuck in Running forever. This closes
+    /// a latent bug that pre-existed the refactor.
+    #[test]
+    fn drain_exec_progress_disconnected_without_terminal_surfaces_error() {
+        let mut app = AppState::new(valid_defaults());
+        app.classes.push(dummy_class_item("foo", 10));
+        let (tx, rx) = unbounded_channel::<BootstrapEvent>();
+        let noop_rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let noop_handle: JoinHandle<Result<BootstrapReport>> =
+            noop_rt.spawn(async { Ok(BootstrapReport::default()) });
+        app.execution = ExecutionState::Running {
+            rx,
+            _handle: noop_handle,
+            run: ActiveExecution {
+                rows: vec![ExecRow {
+                    kind: ExecKind::Declare,
+                    primary: "foo".into(),
+                    secondary: None,
+                    status: RowStatus::Pending,
+                }],
+                class_indices: vec![0],
+                contract_indices: vec![],
+            },
+            tick: 0,
+        };
+        drop(tx); // simulate executor panic: sender dropped without a terminal event
+
+        drain_progress(&mut app);
+
+        assert!(matches!(app.execution, ExecutionState::Idle));
+        let lr = app.last_run.as_ref().expect("last_run populated on disconnect");
+        let err = lr.result.as_ref().expect_err("disconnect should surface as Err");
+        assert!(err.contains("disconnected"));
+    }
+
+    /// `x` on the Execute tab with no outstanding work should flash and not
+    /// start a task. Covers the "everything is Done" case after a full run.
+    #[test]
+    fn handle_execute_x_with_no_outstanding_flashes_nothing_pending() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut app = AppState::new(valid_defaults());
+        let mut class = dummy_class_item("foo", 10);
+        class.exec = ItemExecState::Done { detail: "already".into() };
+        app.classes.push(class);
+
+        handle_execute_key(&mut app, KeyCode::Char('x'), runtime.handle());
+
+        assert!(matches!(app.execution, ExecutionState::Idle));
+        assert_eq!(
+            app.flash.as_deref(),
+            Some("nothing pending — all items are done"),
+            "should flash explanatory message"
+        );
+    }
+
+    /// `x` should build a plan from Pending + Failed + Unknown items, skipping
+    /// Done ones. Exercised here by inspecting which items end up in the
+    /// resulting Running ActiveExecution's index maps.
+    #[test]
+    fn start_execution_skips_done_items_but_reruns_failed_and_unknown() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut app = AppState::new(valid_defaults());
+
+        // Three classes: pending (new), done (skip), failed (rerun).
+        app.classes.push(dummy_class_item("pending", 1));
+        let mut done = dummy_class_item("done", 2);
+        done.exec = ItemExecState::Done { detail: "already".into() };
+        app.classes.push(done);
+        let mut failed = dummy_class_item("failed", 3);
+        failed.exec = ItemExecState::Failed { detail: "boom".into() };
+        app.classes.push(failed);
+        // One contract, unknown (should rerun).
+        let mut unknown = dummy_contract_item("c", "pending", 4);
+        unknown.exec = ItemExecState::Unknown { reason: "verifying…".into() };
+        app.contracts.push(unknown);
+
+        start_execution(&mut app, runtime.handle());
+
+        let ExecutionState::Running { run, .. } = &app.execution else {
+            panic!("expected Running after start_execution, got {:?}", app.execution);
+        };
+        // Skipped Done index 1. Mapped rows are classes[0], classes[2], contracts[0].
+        assert_eq!(run.class_indices, vec![0, 2]);
+        assert_eq!(run.contract_indices, vec![0]);
+        assert_eq!(run.rows.len(), 3);
+    }
+
+    /// Mutation handlers on Classes/Contracts tabs must flash and refuse the
+    /// action while an async task is in flight. Guards the index-map invariant
+    /// in ActiveExecution.
+    #[test]
+    fn add_class_while_running_is_blocked() {
+        let mut app = AppState::new(valid_defaults());
+        // Fake a Running state cheaply — we don't spawn anything.
+        let (_tx, rx) = unbounded_channel::<BootstrapEvent>();
+        let noop_rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let noop_handle: JoinHandle<Result<BootstrapReport>> =
+            noop_rt.spawn(async { Ok(BootstrapReport::default()) });
+        app.execution = ExecutionState::Running {
+            rx,
+            _handle: noop_handle,
+            run: ActiveExecution { rows: vec![], class_indices: vec![], contract_indices: vec![] },
+            tick: 0,
+        };
+
+        handle_classes_key(&mut app, KeyCode::Char('a'));
+
+        assert!(app.modal.is_none(), "add-class modal must not open during a run");
+        assert!(app.flash.is_some(), "user should see a flash explaining the block");
+    }
+
+    /// Same as above for delete on the Contracts tab.
+    #[test]
+    fn delete_contract_while_running_is_blocked() {
+        let mut app = AppState::new(valid_defaults());
+        app.contracts.push(dummy_contract_item("c", "cls", 1));
+        app.contracts_state.select(Some(0));
+
+        let (_tx, rx) = unbounded_channel::<BootstrapEvent>();
+        let noop_rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let noop_handle: JoinHandle<Result<BootstrapReport>> =
+            noop_rt.spawn(async { Ok(BootstrapReport::default()) });
+        app.execution = ExecutionState::Running {
+            rx,
+            _handle: noop_handle,
+            run: ActiveExecution { rows: vec![], class_indices: vec![], contract_indices: vec![] },
+            tick: 0,
+        };
+
+        handle_contracts_key(&mut app, KeyCode::Char('d'));
+
+        assert_eq!(app.contracts.len(), 1, "delete must be rejected during a run");
+        assert!(app.flash.is_some());
+    }
+
+    /// Save-manifest should be reachable from any Idle state — including
+    /// a fresh session with no last_run. This is a behaviour widening relative
+    /// to the pre-refactor "only after a successful run" gate.
+    #[test]
+    fn save_manifest_available_from_idle_without_last_run() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut app = AppState::new(valid_defaults());
+        assert!(app.last_run.is_none());
+
+        handle_execute_key(&mut app, KeyCode::Char('s'), runtime.handle());
+
+        assert!(
+            matches!(app.modal, Some(Modal::SaveManifest { .. })),
+            "save manifest modal should open even without a prior run",
+        );
+    }
+
+    /// Quit must be blocked while busy and work from Idle. The Ctrl+C escape
+    /// hatch is handled at the top-level handle_key call site so it isn't in
+    /// scope here.
+    #[test]
+    fn quit_from_execute_tab_is_blocked_while_running() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut app = AppState::new(valid_defaults());
+        let (_tx, rx) = unbounded_channel::<BootstrapEvent>();
+        let noop_rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let noop_handle: JoinHandle<Result<BootstrapReport>> =
+            noop_rt.spawn(async { Ok(BootstrapReport::default()) });
+        app.execution = ExecutionState::Running {
+            rx,
+            _handle: noop_handle,
+            run: ActiveExecution { rows: vec![], class_indices: vec![], contract_indices: vec![] },
+            tick: 0,
+        };
+
+        handle_execute_key(&mut app, KeyCode::Char('q'), runtime.handle());
+        assert!(!app.quit, "q must be blocked while Running");
+        assert!(app.flash.is_some());
+    }
+
+    #[test]
+    fn quit_from_execute_tab_works_from_idle() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut app = AppState::new(valid_defaults());
+        handle_execute_key(&mut app, KeyCode::Char('q'), runtime.handle());
+        assert!(app.quit);
+    }
+
+    /// Editing a contract in place must reset just that item's exec state and
+    /// leave last_run untouched. This is the "user edits a Done item" path.
+    #[test]
+    fn edit_existing_contract_via_modal_resets_exec_to_pending_preserves_last_run() {
+        let mut app = AppState::new(valid_defaults());
+
+        // Prime a Done contract and a last_run so we can verify both halves.
+        let mut c = dummy_contract_item("orig", "cls", 1);
+        c.exec = ItemExecState::Done { detail: "address: 0xabc".into() };
+        app.contracts.push(c);
+        app.last_run = Some(LastRunReport {
+            rows: vec![ExecRow {
+                kind: ExecKind::Deploy,
+                primary: "orig".into(),
+                secondary: Some("cls".into()),
+                status: RowStatus::Done("address: 0xabc".into()),
+            }],
+            result: Ok(BootstrapReport::default()),
+        });
+
+        // Simulate the ContractForm modal committing a new step into index 0.
+        // We bypass the ContractForm::build() path (needs ClassOption) and
+        // write directly, mirroring what the Enter handler does after build()
+        // succeeds.
+        let new_step = DeployStep {
+            label: Some("edited".into()),
+            class_hash: Felt::from(42u64),
+            class_name: "cls".into(),
+            salt: Felt::from(7u64),
+            unique: true,
+            calldata: Vec::new(),
+        };
+        if let Some(slot) = app.contracts.get_mut(0) {
+            slot.step = new_step;
+            slot.exec = ItemExecState::Pending;
+        }
+
+        assert!(matches!(app.contracts[0].exec, ItemExecState::Pending));
+        assert_eq!(app.contracts[0].step.label.as_deref(), Some("edited"));
+        assert!(app.last_run.is_some(), "last_run must survive the edit");
+    }
+
+    /// Regression: after a failed refresh (e.g. user typed a bad RPC URL),
+    /// items end up in Unknown, not Done. A second Settings change that fixes
+    /// the URL must still re-probe them — otherwise the items are stranded
+    /// as Unknown until the user manually presses `x`. The `needs_refresh`
+    /// predicate is the single source of truth for "is this item eligible
+    /// for re-probing."
+    #[test]
+    fn needs_refresh_includes_done_and_unknown_but_not_pending_or_failed() {
+        assert!(needs_refresh(&ItemExecState::Done { detail: "x".into() }));
+        assert!(needs_refresh(&ItemExecState::Unknown { reason: "x".into() }));
+        assert!(!needs_refresh(&ItemExecState::Pending));
+        assert!(!needs_refresh(&ItemExecState::Running));
+        assert!(!needs_refresh(&ItemExecState::Failed { detail: "x".into() }));
+    }
+
+    #[test]
+    fn deleting_a_done_item_does_not_clear_last_run() {
+        let mut app = AppState::new(valid_defaults());
+        let mut c = dummy_class_item("foo", 1);
+        c.exec = ItemExecState::Done { detail: "hash".into() };
+        app.classes.push(c);
+        app.classes_state.select(Some(0));
+        app.last_run = Some(LastRunReport { rows: vec![], result: Ok(BootstrapReport::default()) });
+
+        handle_classes_key(&mut app, KeyCode::Char('d'));
+
+        assert!(app.classes.is_empty());
+        assert!(app.last_run.is_some(), "last_run is history, deletion must not clear it");
     }
 }
 
