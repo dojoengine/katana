@@ -428,6 +428,77 @@ Sidecar versions are pinned in `sidecar-versions.toml` at the repository root an
 
 > Source: `crates/cli/src/sidecar/mod.rs`
 
+## Distributed tracing
+
+Katana and both sidecars (`paymaster-service`, `vrf-server`) emit OpenTelemetry spans via OTLP, so a single request that fans out from Katana through the sidecars produces one end-to-end trace in the collector.
+
+### Wire protocol
+
+| Service | Transport | Default endpoint |
+|---------|-----------|------------------|
+| `katana` | OTLP **gRPC** | `http://localhost:4317` |
+| `vrf-server` | OTLP **gRPC** | `http://localhost:4317` |
+| `paymaster-service` | OTLP **HTTP** | `http://localhost:4318/v1/traces` |
+
+Context is propagated using the W3C **TraceContext** format (`traceparent` header). Any OTLP-compatible collector that accepts both gRPC and HTTP on the standard ports (Jaeger v2, `otel-collector`, Tempo, etc.) will stitch the three services under one `trace_id`.
+
+### Enabling it
+
+**Katana:**
+```bash
+katana --tracer.otlp --tracer.otlp-endpoint http://localhost:4317 ...
+```
+
+See [`--tracer.gcloud`](../README.md) for the Google Cloud Trace alternative, which uses the `X-Cloud-Trace-Context` propagator instead of W3C.
+
+**vrf-server** (when running standalone or via `--vrf.bin`):
+```bash
+vrf-server --tracer.otlp --tracer.otlp-endpoint http://localhost:4317 ...
+```
+
+**paymaster-service** (configured via the profile JSON that katana writes in sidecar mode):
+```json
+{
+  "prometheus": {
+    "endpoint": "http://localhost:4318",
+    "token": null
+  }
+}
+```
+
+> The profile field is named `prometheus` for historical reasons but actually configures OTLP trace and metric export. Setting it to `null` disables telemetry.
+
+### What gets traced
+
+| Service | Root span | Child spans |
+|---------|-----------|-------------|
+| `katana` | `http_request` (tower-http) | `rpc_call`, `db_get`, `db_put`, `db_txn_ro_create`, stage/pipeline spans |
+| `paymaster-service` | `http_request` (tower-http) | `paymaster_health`, `paymaster_buildTransaction`, `paymaster_executeTransaction`, `paymaster_executeRawTransaction`, ... (from `#[instrument]` on each RPC method) |
+| `vrf-server` | `http_request` (tower-http) | handler-level spans when `#[instrument]` is applied (not wired by default) |
+
+Inbound `traceparent` headers are extracted by a `tower_http::TraceLayer` with a custom `MakeSpan` that calls the globally installed text-map propagator. Outbound HTTP calls between services (Katana -> paymaster, CartridgeApi -> vrf-server) do not yet inject `traceparent` automatically — callers that want full chain visibility must set the header themselves, or the service will start a fresh root span.
+
+### End-to-end example
+
+```bash
+# Start an OTLP collector (Jaeger v2 shown here — UI on :16686):
+jaeger --config file:/path/to/jaeger-config.yaml
+
+# Start katana with OTLP tracing:
+katana --chain-id SN_SEPOLIA \
+       --paymaster --cartridge.paymaster --vrf \
+       --tracer.otlp --tracer.otlp-endpoint http://localhost:4317
+
+# Send a request with a synthesized W3C trace context:
+curl http://localhost:5050 \
+  -H 'traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' \
+  -d '{"jsonrpc":"2.0","method":"cartridge_addExecuteOutsideTransaction","params":[...],"id":1}'
+
+# All three services emit spans under trace_id 0af7651916cd43dd8448eb211c80319c.
+```
+
+> Source: `crates/tracing/src/otlp.rs`, `crates/tracing/src/gcloud.rs`; [cartridge-gg/vrf#46](https://github.com/cartridge-gg/vrf/pull/46), [cartridge-gg/paymaster#15](https://github.com/cartridge-gg/paymaster/pull/15)
+
 ## Error codes
 
 | Code | Variant | Message |
