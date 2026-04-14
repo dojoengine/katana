@@ -1,18 +1,12 @@
-use std::str::FromStr;
-
-use cartridge::vrf::{RequestContext, VrfClient};
+use cartridge::vrf::RequestContext;
 use cartridge::{get_default_vrf_account, VrfServer, VrfServerConfig};
 use katana_primitives::execution::Call;
-use katana_primitives::hash::{Poseidon, StarkHash};
 use katana_primitives::{address, felt, ContractAddress, Felt};
 use katana_rpc_types::{
     MessageHashRev1, OutsideExecution, OutsideExecutionV2, SignedOutsideExecution,
 };
-use num::{BigInt, Num};
-use stark_vrf::{BaseField, StarkCurve, StarkVRF};
 use starknet::macros::selector;
-use starknet::signers::{LocalWallet, Signer, SigningKey};
-use starknet_crypto::Signature;
+use starknet::signers::SigningKey;
 use url::Url;
 
 const TEST_CHAIN_ID: Felt = felt!("0x57505f4b4154414e41"); // WP_KATANA
@@ -74,9 +68,6 @@ async fn vrf_signed_outside_execution() {
         )
         .await
         .unwrap();
-
-    let seed =
-        Poseidon::hash_array(&[felt!("0x222"), vrf_creds.account_address.into(), TEST_CHAIN_ID]);
 
     let signing_key = SigningKey::from_secret_scalar(vrf_creds.private_key);
     let public_key = signing_key.verifying_key().scalar();
