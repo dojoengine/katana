@@ -307,13 +307,8 @@ async fn run_deploy(
 ) -> Result<DeployedContract> {
     // Compute the deterministic deploy address up front. Used both for the precheck
     // below (skip if a contract already lives at that address) and for the
-    // BootstrapEvent::DeployCompleted payload. UDC with `unique = false` uses
-    // ContractAddress::ZERO as the deployer in the derivation.
-    let deployer_for_address: ContractAddress =
-        if step.unique { account.address().into() } else { ContractAddress::ZERO };
-    let address: ContractAddress =
-        get_contract_address(step.salt, step.class_hash, &step.calldata, deployer_for_address)
-            .into();
+    // BootstrapEvent::DeployCompleted payload.
+    let address = compute_deploy_address(step, account.address().into());
 
     // Pre-check: if a contract is already at the deterministic address, skip the
     // deploy (mirrors the declare-side precheck — bootstrap is canonically
@@ -377,6 +372,41 @@ async fn is_deployed(
         Err(ProviderError::StarknetError(StarknetError::ContractNotFound)) => Ok(false),
         Err(e) => Err(anyhow!("failed to check contract deployment: {e}")),
     }
+}
+
+// -----------------------------------------------------------------------------
+// Public idempotency helpers — shared with the TUI refresh path
+// -----------------------------------------------------------------------------
+
+/// Compute the deterministic deploy address for a [`DeployStep`] against a given
+/// signer account. UDC with `unique = false` uses [`ContractAddress::ZERO`] as the
+/// deployer in the derivation; `unique = true` uses the signer's address. The TUI
+/// refresh path needs this to probe whether a contract is already on a different
+/// node without committing to the full submission flow.
+pub fn compute_deploy_address(
+    step: &DeployStep,
+    account_address: ContractAddress,
+) -> ContractAddress {
+    let deployer_for_address: ContractAddress =
+        if step.unique { account_address } else { ContractAddress::ZERO };
+    get_contract_address(step.salt, step.class_hash, &step.calldata, deployer_for_address).into()
+}
+
+/// Public idempotency probe: is this class hash already on-chain at the given RPC?
+/// Wraps the same precheck used by [`run_declare`]. The TUI calls this from the
+/// Settings-change refresh task to re-evaluate previously-executed items against a
+/// possibly-different node without re-submitting anything.
+pub async fn check_already_declared(rpc_url: &Url, class_hash: ClassHash) -> Result<bool> {
+    let provider = JsonRpcClient::new(HttpTransport::new(rpc_url.clone()));
+    is_declared(&provider, class_hash).await
+}
+
+/// Public idempotency probe: is a contract already at `address` on-chain at the
+/// given RPC? Mirrors [`check_already_declared`] for deploys. Callers derive
+/// `address` via [`compute_deploy_address`] when probing a [`DeployStep`].
+pub async fn check_already_deployed(rpc_url: &Url, address: ContractAddress) -> Result<bool> {
+    let provider = JsonRpcClient::new(HttpTransport::new(rpc_url.clone()));
+    is_deployed(&provider, address).await
 }
 
 /// Block on a single tx via [`TxWaiter`] until it's included and successful. Maps the

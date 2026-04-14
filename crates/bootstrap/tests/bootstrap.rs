@@ -18,7 +18,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use jsonrpsee::server::{RpcModule, Server, ServerHandle};
 use jsonrpsee::types::error::ErrorObjectOwned;
 use jsonrpsee::types::Params;
-use katana_bootstrap::executor::{self, execute_with_progress, BootstrapEvent, ExecutorConfig};
+use katana_bootstrap::executor::{
+    self, check_already_declared, check_already_deployed, compute_deploy_address,
+    execute_with_progress, BootstrapEvent, ExecutorConfig,
+};
 use katana_bootstrap::plan::{BootstrapPlan, ClassSource, DeclareStep, DeployStep};
 use katana_contracts::contracts::Account as DevAccountClass;
 use katana_primitives::class::ContractClass;
@@ -742,4 +745,197 @@ fn extract_nonce(params: &Value, tx_field: &str) -> Felt {
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| panic!("missing nonce in {tx_field}: {tx}"));
     Felt::from_hex(nonce_str).expect("nonce should be hex felt")
+}
+
+// ---------------------------------------------------------------------------
+// Continue-session tests — exercise the public executor helpers that the TUI
+// refresh task leans on. The TUI's own state machine is unit-tested in
+// crates/bootstrap/src/tui.rs; these tests cover the executor-side contract
+// that the refresh path is built on.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn check_already_declared_returns_true_when_class_on_node() {
+    let mock = MockServer::start().await;
+    let class_hash = katana_contracts::contracts::Account::HASH;
+    mock.pre_declare(class_hash);
+
+    let declared =
+        check_already_declared(&mock.url, class_hash).await.expect("probe should succeed");
+    assert!(declared, "class hash seeded via pre_declare must report as declared");
+}
+
+#[tokio::test]
+async fn check_already_declared_returns_false_when_class_missing() {
+    let mock = MockServer::start().await;
+    let class_hash = katana_contracts::contracts::Account::HASH;
+    // Not pre_declared — node should report ClassHashNotFound.
+
+    let declared =
+        check_already_declared(&mock.url, class_hash).await.expect("probe should succeed");
+    assert!(!declared, "undeclared class must report as not declared");
+}
+
+#[tokio::test]
+async fn check_already_deployed_returns_true_when_contract_on_node() {
+    let mock = MockServer::start().await;
+    let class_hash = katana_contracts::contracts::Account::HASH;
+    let salt = Felt::from(1u64);
+    let calldata = vec![Felt::from(0xaau64)];
+    // Compute the same address the executor would, then pre-seed the mock.
+    let address = katana_primitives::utils::get_contract_address(
+        salt,
+        class_hash,
+        &calldata,
+        Felt::ZERO.into(),
+    );
+    mock.pre_deploy(address);
+
+    let deployed =
+        check_already_deployed(&mock.url, address.into()).await.expect("probe should succeed");
+    assert!(deployed, "pre-deployed address must report as deployed");
+}
+
+#[tokio::test]
+async fn check_already_deployed_returns_false_when_contract_missing() {
+    let mock = MockServer::start().await;
+    let bogus_address = Felt::from(0xdeadu64);
+
+    let deployed = check_already_deployed(&mock.url, bogus_address.into())
+        .await
+        .expect("probe should succeed");
+    assert!(!deployed, "unknown address must report as not deployed");
+}
+
+#[tokio::test]
+async fn compute_deploy_address_matches_non_unique_deployment() {
+    // The TUI refresh task uses compute_deploy_address to derive the on-chain
+    // address of a deploy before probing the node. The result must match what
+    // the executor produces at deploy time — otherwise the refresh would check
+    // the wrong address and report spurious Unknown / Pending states.
+    let class_hash = katana_contracts::contracts::Account::HASH;
+    let salt = Felt::from(0x42u64);
+    let calldata = vec![Felt::from(0xaau64)];
+    let step = DeployStep {
+        label: None,
+        class_hash,
+        class_name: "a".into(),
+        salt,
+        unique: false,
+        calldata: calldata.clone(),
+    };
+
+    let from_helper = compute_deploy_address(&step, Felt::from(0x1234u64).into());
+    let expected = katana_primitives::utils::get_contract_address(
+        salt,
+        class_hash,
+        &calldata,
+        Felt::ZERO.into(), // unique=false → deployer is zero regardless of caller
+    );
+    assert_eq!(Felt::from(from_helper), expected, "non-unique deploy must ignore account");
+}
+
+#[tokio::test]
+async fn compute_deploy_address_matches_unique_deployment() {
+    // unique=true derives the address from the signer account, so the helper
+    // and the executor must agree on *that* account value.
+    let class_hash = katana_contracts::contracts::Account::HASH;
+    let salt = Felt::from(0x42u64);
+    let calldata = vec![Felt::from(0xaau64)];
+    let step = DeployStep {
+        label: None,
+        class_hash,
+        class_name: "a".into(),
+        salt,
+        unique: true,
+        calldata: calldata.clone(),
+    };
+
+    let account: katana_primitives::ContractAddress = Felt::from(0x1234u64).into();
+    let from_helper = compute_deploy_address(&step, account);
+    let expected =
+        katana_primitives::utils::get_contract_address(salt, class_hash, &calldata, account);
+    assert_eq!(Felt::from(from_helper), expected, "unique deploy must use signer account");
+}
+
+/// Continue-session end-to-end: run one plan (declare + deploy), then run a
+/// second plan where only a NEW deploy is outstanding — simulating what
+/// happens when the user adds an item after a successful run. The executor
+/// is stateless between runs, so we build the second plan explicitly,
+/// mirroring what [`tui::start_execution`] does when it filters to
+/// outstanding items.
+#[tokio::test]
+async fn continue_session_second_run_deploys_only_new_item() {
+    let mock = MockServer::start().await;
+    let class_hash = katana_contracts::contracts::Account::HASH;
+    mock.expect_declare(class_hash);
+
+    // First run: declare + deploy one contract.
+    let salt_a = Felt::from(0x1u64);
+    let calldata_a = vec![Felt::from(0xaau64)];
+    let addr_a = katana_primitives::utils::get_contract_address(
+        salt_a,
+        class_hash,
+        &calldata_a,
+        Felt::ZERO.into(),
+    );
+    mock.expect_deploy(addr_a, class_hash);
+
+    let plan1 = BootstrapPlan {
+        declares: vec![dev_account_step("a")],
+        deploys: vec![deploy_step("a", class_hash, salt_a, calldata_a)],
+    };
+    let cfg = dummy_signer_config(mock.url.clone());
+    executor::execute(&plan1, &cfg).await.expect("first run should succeed");
+
+    // Simulate the TUI's continue-session behaviour: after the first run,
+    // the class and the first deploy are marked Done in AppState. When the
+    // user adds a second contract and presses `x`, `start_execution` builds
+    // a plan containing only the outstanding item.
+    let salt_b = Felt::from(0x2u64);
+    let calldata_b = vec![Felt::from(0xbbu64)];
+    let addr_b = katana_primitives::utils::get_contract_address(
+        salt_b,
+        class_hash,
+        &calldata_b,
+        Felt::ZERO.into(),
+    );
+    mock.expect_deploy(addr_b, class_hash);
+
+    let plan2 = BootstrapPlan {
+        // Note: no declares — the class is already Done in the TUI view.
+        declares: vec![],
+        deploys: vec![deploy_step("a", class_hash, salt_b, calldata_b)],
+    };
+    executor::execute(&plan2, &cfg).await.expect("second run should succeed");
+
+    // Total traffic: exactly one declare (from run 1), exactly two deploys.
+    assert_eq!(
+        mock.calls_to("starknet_addDeclareTransaction").len(),
+        1,
+        "declare must not repeat in run 2",
+    );
+    assert_eq!(
+        mock.calls_to("starknet_addInvokeTransaction").len(),
+        2,
+        "each deploy should submit exactly once across both runs",
+    );
+
+    // The mock always returns nonce 0 on get_nonce, so run 2's single deploy
+    // starts from 0 (not 2 like it would on a real chain). What we actually
+    // care about is that run 2 re-fetched the nonce (fresh executor instance)
+    // — which it did, as the nonce-fetch call count went from 1 to 2.
+    assert_eq!(
+        mock.calls_to("starknet_getNonce").len(),
+        2,
+        "each run must fetch its starting nonce independently",
+    );
+
+    let invokes = mock.calls_to("starknet_addInvokeTransaction");
+    let nonces: Vec<Felt> = invokes.iter().map(invoke_nonce).collect();
+    assert_eq!(
+        nonces,
+        vec![Felt::ONE, Felt::ZERO],
+        "run 1 deploy at nonce 1 (post-declare); run 2 starts fresh at nonce 0",
+    );
 }

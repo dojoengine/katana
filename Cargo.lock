@@ -6136,6 +6136,7 @@ dependencies = [
  "clap",
  "comfy-table",
  "crossterm 0.28.1",
+ "futures",
  "jsonrpsee 0.26.0",
  "katana-contracts",
  "katana-primitives",
