@@ -398,7 +398,7 @@ Both the paymaster and VRF services can run in **sidecar mode** (Katana manages 
 | **Process management** | Katana spawns the `paymaster-service` binary as a child process and monitors its health | None -- Katana only proxies RPC requests to the given URL |
 | **Credentials** | Derived automatically from genesis accounts (relayer = account 0, gas tank = account 1, estimate = account 2) | Not managed by Katana -- the external service manages its own accounts |
 | **API key** | Auto-generated default (`paymaster_katana`); configurable via `--paymaster.api-key` | Must be provided via `--paymaster.api-key` if the external service requires authentication |
-| **Chain ID** | Mapped from Katana's chain ID and written to the profile (see [Limitations](#limitations)) | Not applicable -- the external service has its own chain ID configuration |
+| **Chain ID** | Mapped from Katana's chain ID and written to the profile (see [Chain ID handling](#chain-id-handling)) | Not applicable -- the external service has its own chain ID configuration |
 | **Forwarder** | Deployed and whitelisted during bootstrap | Must already exist on the target network |
 
 #### VRF
@@ -514,60 +514,14 @@ curl http://localhost:5050 \
 
 > Source: `crates/rpc/rpc-api/src/error/cartridge.rs`
 
-## Limitations
+## Chain ID handling
 
-### Chain ID must be `SN_SEPOLIA` or `SN_MAIN`
+The paymaster supports arbitrary Starknet chain IDs, including Katana's default `KATANA` (`0x4b4154414e41`) and custom appchain chain IDs. The configured chain ID felt is preserved as-is for transaction signing and EIP-712 domain separation, so signatures verify correctly regardless of the chain ID used.
 
-The AVNU paymaster only supports two chain IDs: **Sepolia** (`SN_SEPOLIA`) and **Mainnet** (`SN_MAIN`). Using a custom chain ID (such as Katana's default `KATANA` / `0x4b4154414e41`) will cause all paymaster transactions to fail with signature verification errors.
+For chain-derived defaults (USDC token address, AVNU swap endpoint, AVNU token metadata API, AVNU exchange address, Coingecko mapping, default RPC URL), the paymaster falls back to **Sepolia** values for any chain ID other than `SN_MAIN`. This means:
 
-To use the paymaster integration, run Katana with an explicit chain ID:
-
-```bash
-katana --chain-id SN_SEPOLIA --paymaster --cartridge.paymaster
-```
-
-#### How chain ID flows through the system
-
-1. **Katana maps chain ID to a string** via `paymaster_chain_id()` (`crates/paymaster/src/lib.rs:801`). Mainnet maps to `"mainnet"`; everything else (including `KATANA`) maps to `"sepolia"`.
-
-2. **The string is written to the paymaster profile** as `starknet.chain_id` and passed to the paymaster sidecar binary.
-
-3. **The paymaster deserializes it into a `ChainID` enum** ([`paymaster-starknet/src/network.rs`](https://github.com/cartridge-gg/paymaster/blob/4748365/crates/paymaster-starknet/src/network.rs)) which only has two variants:
-   ```rust
-   pub enum ChainID {
-       Sepolia,
-       Mainnet,
-   }
-   ```
-   Any other value causes a deserialization error.
-
-4. **The enum is converted to a Felt constant** via `ChainID::as_felt()` — `Sepolia` maps to the `SN_SEPOLIA` Felt (`0x534e5f5345504f4c4941`), `Mainnet` maps to `SN_MAIN`.
-
-5. **The relayer account is initialized with this Felt** in [`initialize_account()`](https://github.com/cartridge-gg/paymaster/blob/4748365/crates/paymaster-starknet/src/lib.rs). The `starknet-rs` `SingleOwnerAccount` binds this chain ID at construction and uses it when computing transaction hashes for signing.
-
-6. **Katana independently computes the transaction hash** using its own chain ID (`crates/rpc/rpc-server/src/starknet/write.rs:39`). When the node receives a broadcasted invoke transaction, it wraps it with the node's chain ID and recomputes the hash.
-
-7. **The account's `__validate__` function** checks the relayer's signature against the hash that Katana computed. If the chain IDs differ, the hashes differ, and signature verification fails.
-
-#### Why the mismatch causes failure
-
-The Starknet transaction hash includes the chain ID as an input to the Pedersen hash:
-
-```
-tx_hash = H("invoke", version, sender, ..., chain_id, nonce)
-```
-
-If the paymaster signs with `SN_SEPOLIA` but Katana hashes with `KATANA`, the resulting hashes are different. The relayer account's `__validate__` function will reject the signature because it was computed over a different hash.
-
-#### The chain ID also affects the price oracle
-
-The `ChainID` enum selects the AVNU Impulse API endpoint for token pricing ([`paymaster-prices/src/avnu/mod.rs`](https://github.com/cartridge-gg/paymaster/blob/4748365/crates/paymaster-prices/src/avnu/mod.rs)):
-- `Sepolia` → `https://sepolia.impulse.avnu.fi/v2/tokens/prices`
-- `Mainnet` → `https://starknet.impulse.avnu.fi/v2/tokens/prices`
-
-This is only used if the profile does not explicitly specify a price endpoint. In Katana's sidecar mode, the profile does specify a default endpoint, so this is typically not an issue.
-
-> The test infrastructure works around this by explicitly setting `ChainId::SEPOLIA` (`crates/utils/src/node.rs:357`).
+- **Signing / transaction hashing**: uses the actual chain ID — no mismatch, no signature failures.
+- **Chain-specific service endpoints and token metadata**: resolve to Sepolia defaults unless the chain ID is `SN_MAIN`.
 
 ## Troubleshooting
 
