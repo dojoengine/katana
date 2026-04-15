@@ -223,7 +223,10 @@ async fn estimate_fee_account_deployed_works_normally() {
 
     // Cartridge API should still be queried on estimate fee
     let api_requests = mock_api_state.received_requests.lock();
-    assert!(api_requests.contains(&sender), "Cartridge API should be queried once");
+    assert!(
+        !api_requests.contains(&sender),
+        "Already deployed account shouln't call Cartridge API"
+    );
 }
 
 #[tokio::test]

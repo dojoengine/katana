@@ -157,7 +157,7 @@ async fn test_execute_transaction_proxy() {
 }
 
 #[tokio::test]
-async fn test_execute_raw_transaction_proxy() {
+async fn test_execute_direct_transaction_proxy() {
     let tracker = RequestTracker::default();
     let (_handle, addr) = start_mock_server(tracker.clone()).await;
 
@@ -167,7 +167,7 @@ async fn test_execute_raw_transaction_proxy() {
     // Create a test request from JSON to avoid type conflicts
     let request_json = r#"{
         "transaction": {
-            "type": "raw_invoke",
+            "type": "invoke",
             "invoke": {
                 "user_address": "0x2222",
                 "execute_from_outside_call": {

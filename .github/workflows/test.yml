@@ -457,7 +457,7 @@ jobs:
                   echo "=== Last 50 lines of Katana logs ==="
                   tail -n 50 katana.log
 
-    cartridge-e2e:
+    vrf-e2e:
         needs: [fmt, clippy, generate-test-artifacts]
         runs-on: ubuntu-latest-32-cores
         timeout-minutes: 30
@@ -486,8 +486,8 @@ jobs:
 
             - name: Install paymaster-service and vrf-server sidecars
               run: |
-                  cargo install --locked --git https://github.com/cartridge-gg/paymaster --rev 4346827 paymaster-service
-                  cargo install --locked --git https://github.com/cartridge-gg/vrf.git --rev 6d1c0f6 vrf-server
+                  cargo install --locked --git https://github.com/cartridge-gg/paymaster --rev d89b5d2 paymaster-service
+                  cargo install --locked --git https://github.com/cartridge-gg/vrf.git --rev 65d6ff0 vrf-server
 
             - name: Run cartridge e2e test
               run: cargo run -p vrf-e2e-test
