@@ -315,8 +315,7 @@ impl<'c> GenesisTransactionsBuilder<'c> {
     }
 
     fn build_core_contracts(&mut self) {
-        let udc_class_hash =
-            self.declare(contracts::OpenZeppelinUniversalDeployer::CLASS.clone());
+        let udc_class_hash = self.declare(contracts::OpenZeppelinUniversalDeployer::CLASS.clone());
         self.deploy(udc_class_hash, Vec::new(), Felt::ZERO);
 
         let master_address = *self.master_address.get().expect("must be initialized first");
