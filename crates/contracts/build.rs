@@ -50,11 +50,16 @@ fn main() {
 
     if !asdf_available {
         println!("cargo:warning=asdf or scarb not found, skipping contract compilation");
+        // Must join the controller thread before returning so it finishes writing
+        // controller.rs — otherwise the process exit kills the thread mid-write, which
+        // can truncate the generated file and break downstream crates.
+        controller_handle.join().expect("Controller bindings generation failed");
         return;
     }
 
     // Only build if we're not in a docs build
     if env::var("DOCS_RS").is_ok() {
+        controller_handle.join().expect("Controller bindings generation failed");
         return;
     }
 
