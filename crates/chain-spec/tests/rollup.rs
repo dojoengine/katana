@@ -11,12 +11,13 @@ use katana_executor::{BlockLimits, ExecutorFactory};
 use katana_genesis::allocation::{
     DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
 };
-use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS};
+use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
-use katana_primitives::contract::Nonce;
+use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::transaction::TxType;
+use katana_primitives::utils::get_contract_address;
 use katana_primitives::Felt;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::{DbProviderFactory, ProviderFactory};
@@ -101,7 +102,7 @@ fn genesis_states() {
     assert!(genesis_state.class(erc20_class_hash).unwrap().is_some());
 
     // check that the default udc class is declared
-    let udc_class_hash = contracts::UniversalDeployer::HASH;
+    let udc_class_hash = contracts::OpenZeppelinUniversalDeployer::HASH;
     assert!(genesis_state.class(udc_class_hash).unwrap().is_some());
 
     // -----------------------------------------------------------------------
@@ -111,8 +112,11 @@ fn genesis_states() {
     let res = genesis_state.class_hash_of_contract(DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS).unwrap();
     assert_eq!(res, Some(erc20_class_hash));
 
-    // check that the default udc is deployed
-    let res = genesis_state.class_hash_of_contract(DEFAULT_UDC_ADDRESS).unwrap();
+    // Rollup mode deploys the UDC via the master account with salt=0 and no ctor args; the
+    // resulting address is derived from the UDC class hash (not the fixed mainnet address).
+    let udc_address: ContractAddress =
+        get_contract_address(Felt::ZERO, udc_class_hash, &[], ContractAddress::ZERO).into();
+    let res = genesis_state.class_hash_of_contract(udc_address).unwrap();
     assert_eq!(res, Some(udc_class_hash));
 
     for (address, account) in chain_spec.genesis.accounts() {

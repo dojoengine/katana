@@ -7,6 +7,7 @@ use katana_executor::ExecutionFlags;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::{
     DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    DEFAULT_UDC_ADDRESS,
 };
 use katana_primitives::block::{
     Block, ExecutableBlock, FinalityStatus, GasPrices, PartialHeader, SealedBlockWithStatus,
@@ -211,7 +212,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
                     // the calldata is encoded based on the standard account call encoding
                     calldata: vec![
                         felt!("0x1"),
-                        felt!("0x41a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"),
+                        DEFAULT_UDC_ADDRESS.into(),
                         felt!("0x1987cbd17808b9a23693d4de7e246a443cfe37e6e7fbaeabd7d7e6532b07c3d"),
                         felt!("10"), // the # of felts after this point
                         // --- udc::deployContract arguments

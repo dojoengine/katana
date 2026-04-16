@@ -227,17 +227,20 @@ fn add_default_udc(states: &mut StateUpdatesWithClasses) {
     // declare UDC class
     states
         .classes
-        .entry(contracts::UniversalDeployer::HASH)
-        .or_insert_with(|| contracts::UniversalDeployer::CLASS.clone());
+        .entry(contracts::OpenZeppelinUniversalDeployer::HASH)
+        .or_insert_with(|| contracts::OpenZeppelinUniversalDeployer::CLASS.clone());
 
-    states.state_updates.deprecated_declared_classes.insert(contracts::UniversalDeployer::HASH);
+    states.state_updates.declared_classes.insert(
+        contracts::OpenZeppelinUniversalDeployer::HASH,
+        contracts::OpenZeppelinUniversalDeployer::CASM_HASH,
+    );
 
     // deploy UDC contract
     states
         .state_updates
         .deployed_contracts
         .entry(DEFAULT_UDC_ADDRESS)
-        .or_insert(contracts::UniversalDeployer::HASH);
+        .or_insert(contracts::OpenZeppelinUniversalDeployer::HASH);
 }
 
 #[cfg(test)]
@@ -273,8 +276,8 @@ mod tests {
         let classes = BTreeMap::from([
             (contracts::LegacyERC20::HASH, contracts::LegacyERC20::CLASS.clone().into()),
             (
-                contracts::UniversalDeployer::HASH,
-                contracts::UniversalDeployer::CLASS.clone().into(),
+                contracts::OpenZeppelinUniversalDeployer::HASH,
+                contracts::OpenZeppelinUniversalDeployer::CLASS.clone().into(),
             ),
             (contracts::Account::HASH, contracts::Account::CLASS.clone().into()),
         ]);
@@ -400,29 +403,28 @@ mod tests {
         assert_eq!(
             actual_state_updates
                 .state_updates
-                .deprecated_declared_classes
-                .get(&contracts::UniversalDeployer::HASH),
-            Some(&contracts::UniversalDeployer::HASH),
+                .declared_classes
+                .get(&contracts::OpenZeppelinUniversalDeployer::HASH),
+            Some(&contracts::OpenZeppelinUniversalDeployer::CASM_HASH),
             "The default universal deployer class should be declared"
         );
 
         assert_eq!(
             actual_state_updates
                 .state_updates
-                .declared_classes
-                .get(&contracts::UniversalDeployer::HASH),
+                .deprecated_declared_classes
+                .get(&contracts::OpenZeppelinUniversalDeployer::HASH),
             None,
-            "The udc is a legacy class - legacy class should only be in \
-             `deprecated_declared_classes`"
+            "The udc is a Sierra class - it should only be in `declared_classes`"
         );
         assert_eq!(
-            actual_state_updates.classes.get(&contracts::UniversalDeployer::HASH),
-            Some(&contracts::UniversalDeployer::CLASS.clone())
+            actual_state_updates.classes.get(&contracts::OpenZeppelinUniversalDeployer::HASH),
+            Some(&contracts::OpenZeppelinUniversalDeployer::CLASS.clone())
         );
 
         assert_eq!(
             actual_state_updates.state_updates.deployed_contracts.get(&DEFAULT_UDC_ADDRESS),
-            Some(&contracts::UniversalDeployer::HASH),
+            Some(&contracts::OpenZeppelinUniversalDeployer::HASH),
             "The universal deployer contract should be created"
         );
 
