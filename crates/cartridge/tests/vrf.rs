@@ -37,6 +37,7 @@ fn outside_execution_v2() -> OutsideExecution {
     })
 }
 
+#[ignore = "requires vrf-server binary"]
 #[tokio::test]
 async fn vrf_signed_outside_execution() {
     let vrf_creds = get_default_vrf_account().unwrap();
