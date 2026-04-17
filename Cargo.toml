@@ -53,6 +53,7 @@ members = [
 	"misc/AMDSEV/snp-tools",
 	"tests/db-compat",
 	"tests/reverse-proxy",
+	"tests/saya-tee",
 	"tests/vrf",
 	# "tests/snos",
 ]

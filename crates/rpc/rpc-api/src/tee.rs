@@ -5,6 +5,37 @@ use katana_primitives::Felt;
 use katana_rpc_types::trie::Nodes;
 use serde::{Deserialize, Serialize};
 
+/// Serializes an `Option<BlockNumber>` as a `Felt`-encoded hex string, mapping
+/// `None` to `Felt::MAX` (the genesis "no previous block" sentinel that
+/// matches Piltover's `AppchainState` initial value). Deserializes the inverse:
+/// `Felt::MAX` becomes `None`, anything else becomes `Some(felt as u64)`.
+///
+/// The non-optional `block_number` field uses `serde_utils::serialize_as_hex` +
+/// `serde_utils::deserialize_u64` directly. We can't reuse `serde_utils::{serialize_opt_as_hex,
+/// deserialize_opt_u64}` here because those map `None ↔ null`, not `None ↔ Felt::MAX`.
+mod prev_block_number_serde {
+    use katana_primitives::block::BlockNumber;
+    use katana_primitives::Felt;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(n: &Option<BlockNumber>, s: S) -> Result<S::Ok, S::Error> {
+        let felt = match n {
+            Some(n) => Felt::from(*n),
+            None => Felt::MAX,
+        };
+        felt.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<BlockNumber>, D::Error> {
+        let felt = Felt::deserialize(d)?;
+        if felt == Felt::MAX {
+            Ok(None)
+        } else {
+            u64::try_from(felt).map(Some).map_err(serde::de::Error::custom)
+        }
+    }
+}
+
 /// A L2→L1 message emitted by a contract execution.
 ///
 /// Fields match `MessageToL1` in primitives.
@@ -57,10 +88,22 @@ pub struct TeeQuoteResponse {
     /// The hash of the attested block.
     pub block_hash: BlockHash,
 
-    /// The number of the previous block.
+    /// The number of the previous block. Serialized as a `Felt`-encoded hex
+    /// string (with `Felt::MAX` representing the genesis "no previous block"
+    /// case) so the JSON wire format matches what
+    /// `katana_tee_client::TeeQuoteResponse` (used by `saya-tee`) expects.
+    /// See [`prev_block_number_serde`].
+    #[serde(with = "prev_block_number_serde")]
     pub prev_block_number: Option<BlockNumber>,
 
-    /// The number of the attested block.
+    /// The number of the attested block. Serialized as a `0x`-prefixed hex
+    /// string so the JSON wire format matches `Felt`'s default serde
+    /// representation, which is what `katana_tee_client::TeeQuoteResponse`
+    /// (typed as `Felt` upstream) expects.
+    #[serde(
+        serialize_with = "serde_utils::serialize_as_hex",
+        deserialize_with = "serde_utils::deserialize_u64"
+    )]
     pub block_number: BlockNumber,
 
     /// The block number Katana forked from (if running in fork mode).

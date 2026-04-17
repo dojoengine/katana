@@ -23,14 +23,14 @@
 mod error;
 mod provider;
 
-#[cfg(test)]
-mod mock;
+#[cfg(any(test, feature = "tee-mock"))]
+pub mod mock;
 
 #[cfg(feature = "snp")]
 mod snp;
 
 pub use error::TeeError;
-#[cfg(test)]
+#[cfg(any(test, feature = "tee-mock"))]
 pub use mock::MockProvider;
 pub use provider::TeeProvider;
 #[cfg(feature = "snp")]
@@ -38,7 +38,9 @@ pub use snp::SevSnpProvider;
 
 /// TEE provider type enumeration.
 ///
-/// Currently only SEV-SNP is supported for production use.
+/// `SevSnp` is the only variant intended for production use. `Mock` is gated
+/// behind the `tee-mock` feature and exists exclusively to let integration test
+/// crates serve `tee_generateQuote` on machines without AMD SEV-SNP hardware.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
 )]
@@ -46,12 +48,18 @@ pub enum TeeProviderType {
     /// AMD SEV-SNP provider.
     #[value(name = "sev-snp", alias = "snp")]
     SevSnp,
+    /// Software-only mock provider (test infrastructure only).
+    #[cfg(any(test, feature = "tee-mock"))]
+    #[value(name = "mock")]
+    Mock,
 }
 
 impl std::fmt::Display for TeeProviderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SevSnp => write!(f, "sev-snp"),
+            #[cfg(any(test, feature = "tee-mock"))]
+            Self::Mock => write!(f, "mock"),
         }
     }
 }
@@ -62,6 +70,8 @@ impl std::str::FromStr for TeeProviderType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "sev-snp" | "snp" => Ok(Self::SevSnp),
+            #[cfg(any(test, feature = "tee-mock"))]
+            "mock" => Ok(Self::Mock),
             other => Err(format!("Unknown TEE provider: '{other}'. Available providers: sev-snp")),
         }
     }

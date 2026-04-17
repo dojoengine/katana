@@ -12,6 +12,7 @@ katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider-api.workspace = true
 katana-rpc-types.workspace = true
+serde-utils.workspace = true
 
 anyhow.workspace = true
 jsonrpsee = { workspace = true, features = [ "macros", "server" ] }
