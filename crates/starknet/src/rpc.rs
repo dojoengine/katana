@@ -6,7 +6,7 @@ use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 pub use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_api::starknet::{StarknetApiClient, StarknetTraceApiClient, StarknetWriteApiClient};
+use katana_rpc_api::starknet::StarknetApiClient;
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, GetBlockWithReceiptsResponse,
     GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,

@@ -43,7 +43,7 @@ use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::katana::KatanaApiServer;
 #[cfg(feature = "paymaster")]
 use katana_rpc_api::paymaster::PaymasterApiServer;
-use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
+use katana_rpc_api::starknet::StarknetApiServer;
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(feature = "tee")]
@@ -304,8 +304,6 @@ where
             }
 
             rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
-            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
-            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

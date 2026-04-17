@@ -59,14 +59,12 @@ use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
+mod api;
 mod blockifier;
 pub mod cache;
 mod config;
 mod list;
 mod pending;
-mod read;
-mod trace;
-mod write;
 
 pub use cache::RpcCache;
 pub use config::StarknetApiConfig;
@@ -76,10 +74,8 @@ pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
 /// Handler for the Starknet JSON-RPC server.
 ///
-/// This struct implements all the JSON-RPC traits required to serve the Starknet API (ie,
-/// [read](katana_rpc_api::starknet::StarknetApi),
-/// [write](katana_rpc_api::starknet::StarknetWriteApi), and
-/// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
+/// This struct implements [`katana_rpc_api::starknet::StarknetApi`], which combines the read,
+/// write, and trace method groups defined by the upstream Starknet JSON-RPC specification.
 #[derive(Debug)]
 pub struct StarknetApi<Pool, PP, PF>
 where

@@ -1,32 +1,158 @@
+use std::time::Duration;
+
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_pool::api::TransactionPool;
-use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
     GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
-use katana_rpc_types::broadcasted::BroadcastedTx;
+use katana_rpc_types::broadcasted::{
+    AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
+    AddInvokeTransactionResponse, BroadcastedDeclareTx, BroadcastedDeployAccountTx,
+    BroadcastedInvokeTx,
+};
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::StateUpdate;
+use katana_rpc_types::trace::{
+    SimulatedTransactionsResponse, TraceBlockTransactionsResponse, TxTrace,
+};
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    BroadcastedTxWithChainId, CallResponse, CasmClass, Class, EstimateFeeSimulationFlag,
-    FeeEstimate, FunctionCall, TxStatus,
+    BroadcastedTx, BroadcastedTxWithChainId, CallResponse, CasmClass, Class,
+    EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag, TxStatus,
 };
 
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
+
+const TX_RECEIPT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+////////////////////////////////////////////////////////////////////////////////
+// Inherent helpers (shared by StarknetApiServer write methods and KatanaApiServer)
+////////////////////////////////////////////////////////////////////////////////
+
+impl<Pool, PoolTx, Pending, PF> StarknetApi<Pool, Pending, PF>
+where
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    Pending: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    pub async fn add_invoke_tx(
+        &self,
+        tx: BroadcastedInvokeTx,
+    ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
+        self.on_cpu_blocking_task(|this| async move {
+            if tx.is_query() {
+                return Err(StarknetApiError::UnsupportedTransactionVersion);
+            }
+
+            let chain_id = this.inner.chain_spec.id();
+            let tx = BroadcastedTxWithChainId { tx: BroadcastedTx::Invoke(tx), chain: chain_id };
+
+            let transaction_hash = this.inner.pool.add_transaction(tx.into()).await?;
+            Ok(AddInvokeTransactionResponse { transaction_hash })
+        })
+        .await?
+    }
+
+    pub async fn add_declare_tx(
+        &self,
+        tx: BroadcastedDeclareTx,
+    ) -> Result<AddDeclareTransactionResponse, StarknetApiError> {
+        self.on_cpu_blocking_task(|this| async move {
+            if tx.is_query() {
+                return Err(StarknetApiError::UnsupportedTransactionVersion);
+            }
+
+            let chain_id = this.inner.chain_spec.id();
+            let class_hash = tx.contract_class.hash();
+
+            let tx = BroadcastedTxWithChainId { tx: BroadcastedTx::Declare(tx), chain: chain_id };
+
+            let transaction_hash = this.inner.pool.add_transaction(tx.into()).await?;
+            Ok(AddDeclareTransactionResponse { transaction_hash, class_hash })
+        })
+        .await?
+    }
+
+    pub async fn add_deploy_account_tx(
+        &self,
+        tx: BroadcastedDeployAccountTx,
+    ) -> Result<AddDeployAccountTransactionResponse, StarknetApiError> {
+        self.on_cpu_blocking_task(|this| async move {
+            if tx.is_query() {
+                return Err(StarknetApiError::UnsupportedTransactionVersion);
+            }
+
+            let chain_id = this.inner.chain_spec.id();
+            let contract_address = tx.contract_address();
+            let tx =
+                BroadcastedTxWithChainId { tx: BroadcastedTx::DeployAccount(tx), chain: chain_id };
+
+            let transaction_hash = this.inner.pool.add_transaction(tx.into()).await?;
+            Ok(AddDeployAccountTransactionResponse { transaction_hash, contract_address })
+        })
+        .await?
+    }
+
+    pub async fn add_invoke_tx_sync(
+        &self,
+        tx: BroadcastedInvokeTx,
+    ) -> Result<TxReceiptWithBlockInfo, StarknetApiError> {
+        let response = self.add_invoke_tx(tx).await?;
+        self.wait_for_tx_receipt(response.transaction_hash).await
+    }
+
+    pub async fn add_declare_tx_sync(
+        &self,
+        tx: BroadcastedDeclareTx,
+    ) -> Result<TxReceiptWithBlockInfo, StarknetApiError> {
+        let response = self.add_declare_tx(tx).await?;
+        self.wait_for_tx_receipt(response.transaction_hash).await
+    }
+
+    pub async fn add_deploy_account_tx_sync(
+        &self,
+        tx: BroadcastedDeployAccountTx,
+    ) -> Result<TxReceiptWithBlockInfo, StarknetApiError> {
+        let response = self.add_deploy_account_tx(tx).await?;
+        self.wait_for_tx_receipt(response.transaction_hash).await
+    }
+
+    async fn wait_for_tx_receipt(
+        &self,
+        transaction_hash: TxHash,
+    ) -> Result<TxReceiptWithBlockInfo, StarknetApiError> {
+        loop {
+            match self.receipt(transaction_hash).await {
+                Ok(receipt) => return Ok(receipt),
+                Err(StarknetApiError::TxnHashNotFound) => {
+                    tokio::time::sleep(TX_RECEIPT_POLL_INTERVAL).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// StarknetApiServer (read + write + trace)
+////////////////////////////////////////////////////////////////////////////////
 
 #[async_trait]
 impl<Pool, PoolTx, Pending, PF> StarknetApiServer for StarknetApi<Pool, Pending, PF>
@@ -37,6 +163,8 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
+    // ----- Read methods -----
+
     async fn chain_id(&self) -> RpcResult<Felt> {
         Ok(self.inner.chain_spec.id().id())
     }
@@ -250,5 +378,87 @@ where
             .get_proofs(block_id, class_hashes, contract_addresses, contracts_storage_keys)
             .await?;
         Ok(proofs)
+    }
+
+    // ----- Write methods -----
+
+    async fn add_invoke_transaction(
+        &self,
+        invoke_transaction: BroadcastedInvokeTx,
+    ) -> RpcResult<AddInvokeTransactionResponse> {
+        Ok(self.add_invoke_tx(invoke_transaction).await?)
+    }
+
+    async fn add_declare_transaction(
+        &self,
+        declare_transaction: BroadcastedDeclareTx,
+    ) -> RpcResult<AddDeclareTransactionResponse> {
+        Ok(self.add_declare_tx(declare_transaction).await?)
+    }
+
+    async fn add_deploy_account_transaction(
+        &self,
+        deploy_account_transaction: BroadcastedDeployAccountTx,
+    ) -> RpcResult<AddDeployAccountTransactionResponse> {
+        Ok(self.add_deploy_account_tx(deploy_account_transaction).await?)
+    }
+
+    // ----- Trace methods -----
+
+    async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
+        Ok(self.trace(transaction_hash).await?)
+    }
+
+    async fn simulate_transactions(
+        &self,
+        block_id: BlockIdOrTag,
+        transactions: Vec<BroadcastedTx>,
+        simulation_flags: Vec<SimulationFlag>,
+    ) -> RpcResult<SimulatedTransactionsResponse> {
+        let transactions = self.simulate_txs(block_id, transactions, simulation_flags).await?;
+        Ok(SimulatedTransactionsResponse { transactions })
+    }
+
+    async fn trace_block_transactions(
+        &self,
+        block_id: ConfirmedBlockIdOrTag,
+    ) -> RpcResult<TraceBlockTransactionsResponse> {
+        let traces = self.block_traces(block_id).await?;
+        Ok(TraceBlockTransactionsResponse { traces })
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// KatanaApiServer (sync write helpers, depends on inherent add_*_tx_sync above)
+////////////////////////////////////////////////////////////////////////////////
+
+#[async_trait]
+impl<Pool, PoolTx, Pending, PF> KatanaApiServer for StarknetApi<Pool, Pending, PF>
+where
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    Pending: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    async fn add_invoke_transaction_sync(
+        &self,
+        invoke_transaction: BroadcastedInvokeTx,
+    ) -> RpcResult<TxReceiptWithBlockInfo> {
+        Ok(self.add_invoke_tx_sync(invoke_transaction).await?)
+    }
+
+    async fn add_declare_transaction_sync(
+        &self,
+        declare_transaction: BroadcastedDeclareTx,
+    ) -> RpcResult<TxReceiptWithBlockInfo> {
+        Ok(self.add_declare_tx_sync(declare_transaction).await?)
+    }
+
+    async fn add_deploy_account_transaction_sync(
+        &self,
+        deploy_account_transaction: BroadcastedDeployAccountTx,
+    ) -> RpcResult<TxReceiptWithBlockInfo> {
+        Ok(self.add_deploy_account_tx_sync(deploy_account_transaction).await?)
     }
 }
