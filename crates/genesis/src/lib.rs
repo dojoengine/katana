@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
+use katana_contracts::contracts::{
+    Account, LegacyERC20, OpenZeppelinUniversalDeployer, UniversalDeployer,
+};
 use katana_primitives::block::{BlockHash, BlockNumber, GasPrices};
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::ContractAddress;
@@ -71,15 +73,22 @@ impl Genesis {
 
 impl Default for Genesis {
     /// Creates a new [Genesis] with the default configurations and classes. The default
-    /// classes are a legacy ERC20 class for the fee token, a legacy UDC class for the
-    /// universal deployer, and an OpenZeppelin account contract class.
+    /// classes are a legacy ERC20 class for the fee token, both the current OpenZeppelin
+    /// Sierra UDC and the legacy Cairo 0 OpenZeppelin UDC (matching Starknet mainnet/sepolia),
+    /// and an OpenZeppelin account contract class.
     fn default() -> Self {
         let mut classes = BTreeMap::new();
 
         classes.extend(BTreeMap::from([
             // Fee token class
             (LegacyERC20::HASH, LegacyERC20::CLASS.clone().into()),
-            // universal depoyer contract class
+            // Current OpenZeppelin universal deployer contract class
+            (
+                OpenZeppelinUniversalDeployer::HASH,
+                OpenZeppelinUniversalDeployer::CLASS.clone().into(),
+            ),
+            // Legacy OpenZeppelin universal deployer contract class (kept for backward
+            // compatibility with tooling that targets the original UDC address)
             (UniversalDeployer::HASH, UniversalDeployer::CLASS.clone().into()),
             // predeployed account class
             (Account::HASH, Account::CLASS.clone().into()),

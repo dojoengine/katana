@@ -16,7 +16,7 @@ use katana_rpc_types::{Class, MsgFromL1};
 use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
-use starknet::contract::ContractFactory;
+use starknet::contract::{ContractFactory, UdcSelector};
 use starknet::core::types::{Hash256, ReceiptBlock, Transaction, TransactionReceipt};
 use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;
@@ -95,8 +95,7 @@ async fn test_messaging() {
         let address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);
 
         // Deploy the contract using UDC
-        #[allow(deprecated)]
-        let res = ContractFactory::new(class_hash, &katana_account)
+        let res = ContractFactory::new_with_udc(class_hash, &katana_account, UdcSelector::New)
             .deploy_v3(Vec::new(), Felt::ZERO, false)
             .send()
             .await
@@ -240,8 +239,7 @@ async fn estimate_message_fee() -> Result<()> {
     TxWaiter::new(res.transaction_hash, &rpc_client).await?;
 
     // Deploy the contract using UDC
-    #[allow(deprecated)]
-    let res = ContractFactory::new(class_hash, &account)
+    let res = ContractFactory::new_with_udc(class_hash, &account, UdcSelector::New)
         .deploy_v3(Vec::new(), Felt::ZERO, false)
         .send()
         .await?;

@@ -594,7 +594,7 @@ mod tests {
     use katana_primitives::{address, felt};
 
     use super::*;
-    use crate::constant::{DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS_HASH};
+    use crate::constant::DEFAULT_LEGACY_ERC20_CLASS_HASH;
 
     #[test]
     fn deserialize_from_json() {
@@ -776,7 +776,7 @@ mod tests {
                     public_key: felt!("0x1"),
                     balance: Some(U256::from_str("0xD3C21BCECCEDA1000000").unwrap()),
                     nonce: Some(felt!("0x1")),
-                    class_hash: DEFAULT_LEGACY_UDC_CLASS_HASH,
+                    class_hash: UniversalDeployer::HASH,
                     storage: Some(BTreeMap::from([
                         (felt!("0x1"), felt!("0x1")),
                         (felt!("0x2"), felt!("0x2")),
@@ -847,7 +847,7 @@ mod tests {
                 GenesisAllocation::Contract(GenesisContractAlloc {
                     balance: None,
                     nonce: None,
-                    class_hash: Some(DEFAULT_LEGACY_UDC_CLASS_HASH),
+                    class_hash: Some(UniversalDeployer::HASH),
                     storage: Some(BTreeMap::from([(felt!("0x1"), felt!("0x1"))])),
                 }),
             ),
