@@ -27,9 +27,13 @@ AMDSEV_DIR := misc/AMDSEV
 
 VRF_DIR := $(CONTRACTS_DIR)/vrf
 AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
+OPENZEPPELIN_DIR := $(CONTRACTS_DIR)/openzeppelin
+VRF_TEST_DIR := tests/vrf/contracts
 
 # The scarb version required by the AVNU contracts (no .tool-versions in that directory)
 AVNU_SCARB_VERSION := 2.11.4
+# The scarb version required by the OpenZeppelin presets package.
+OPENZEPPELIN_SCARB_VERSION := 2.11.4
 
 # The scarb version required by the main contracts.
 SCARB_VERSION := $(shell awk '$$1 == "scarb" { print $$2 }' $(CONTRACTS_DIR)/.tool-versions 2>/dev/null)
@@ -37,8 +41,15 @@ SCARB_VERSION := $(shell awk '$$1 == "scarb" { print $$2 }' $(CONTRACTS_DIR)/.to
 # The scarb version required by VRF contracts, if specified in its .tool-versions.
 VRF_SCARB_VERSION := $(shell if [ -f $(VRF_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_DIR)/.tool-versions; fi)
 
+# The scarb version required by the test VRF contracts.
+VRF_TEST_SCARB_VERSION := $(shell if [ -f $(VRF_TEST_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_TEST_DIR)/.tool-versions; fi)
+# `make contracts` only compiles the VRF test contracts, and that succeeds with the
+# same scarb used by the main VRF workspace. Keeping the build path on 2.12.2 avoids
+# installing an extra 2.13.1 toolchain in CI, which was exhausting disk space.
+VRF_TEST_BUILD_SCARB_VERSION := $(VRF_SCARB_VERSION)
+
 # All scarb versions needed for `make contracts`.
-SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(VRF_SCARB_VERSION))
+SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZEPPELIN_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_BUILD_SCARB_VERSION))
 
 .DEFAULT_GOAL := all
 .SILENT: clean
@@ -97,7 +108,27 @@ build-explorer:
 	@which bun >/dev/null 2>&1 || { echo "Error: bun is required but not installed. Please install bun first."; exit 1; }
 	@$(MAKE) $(EXPLORER_UI_DIST)
 
-contracts: install-scarb $(CONTRACTS_BUILD_DIR)
+contracts: install-scarb
+	@mkdir -p $(CONTRACTS_BUILD_DIR)
+	@echo "Building main contracts..."
+	@cd $(CONTRACTS_DIR) && asdf exec scarb build || { echo "Main contracts build failed!"; exit 1; }
+	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
+	@echo "Building VRF contracts..."
+	@cd $(VRF_DIR) && asdf exec scarb build || { echo "VRF contracts build failed!"; exit 1; }
+	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
+	@echo "Building AVNU contracts..."
+	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
+	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
+	@echo "Building OpenZeppelin account preset..."
+	@if [ ! -f $(OPENZEPPELIN_DIR)/packages/presets/Scarb.toml ]; then \
+		git submodule update --init --recursive --force $(OPENZEPPELIN_DIR) || { echo "OpenZeppelin submodule init failed!"; exit 1; }; \
+	fi
+	@cd $(OPENZEPPELIN_DIR) && ASDF_SCARB_VERSION=$(OPENZEPPELIN_SCARB_VERSION) asdf exec scarb build -p openzeppelin_presets || { echo "OpenZeppelin account preset build failed!"; exit 1; }
+	@cp $(OPENZEPPELIN_DIR)/target/dev/openzeppelin_presets_AccountUpgradeable.contract_class.json $(CONTRACTS_BUILD_DIR) || { echo "OpenZeppelin account preset artifact copy failed!"; exit 1; }
+	@echo "Building test VRF contracts..."
+	@cd $(VRF_TEST_DIR) && ASDF_SCARB_VERSION=$(VRF_TEST_BUILD_SCARB_VERSION) asdf exec scarb build || { echo "Test VRF contracts build failed!"; exit 1; }
+	@mkdir -p tests/vrf/build
+	@find $(VRF_TEST_DIR)/target/dev -maxdepth 1 -type f -exec cp {} tests/vrf/build \;
 
 tee-sev-snp:
 	@echo "Building AMD SEV-SNP TEE VM components..."
@@ -112,18 +143,6 @@ tee-sev-snp:
 		$(AMDSEV_DIR)/build.sh; \
 	fi
 
-# Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
-$(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
-	@mkdir -p $@
-	@echo "Building main contracts..."
-	@cd $(CONTRACTS_DIR) && asdf exec scarb build || { echo "Main contracts build failed!"; exit 1; }
-	@find $(CONTRACTS_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
-	@echo "Building VRF contracts..."
-	@cd $(VRF_DIR) && asdf exec scarb build || { echo "VRF contracts build failed!"; exit 1; }
-	@find $(VRF_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
-	@echo "Building AVNU contracts..."
-	@cd $(AVNU_DIR) && ASDF_SCARB_VERSION=$(AVNU_SCARB_VERSION) asdf exec scarb build || { echo "AVNU contracts build failed!"; exit 1; }
-	@find $(AVNU_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $@ \;
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."

@@ -19,6 +19,6 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-katana-provider = { workspace = true, features = [ "test-utils" ] }
-async-trait.workspace = true
 anyhow.workspace = true
+async-trait.workspace = true
+katana-provider = { workspace = true, features = [ "test-utils" ] }

@@ -12,7 +12,7 @@ pub type StateUpdateEnvelope = Envelope<StateUpdates>;
 
 impl From<StateUpdateEnvelope> for StateUpdates {
     fn from(value: StateUpdateEnvelope) -> Self {
-        value.inner
+        value.payload
     }
 }
 

@@ -7,13 +7,15 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-katana-primitives = { workspace = true, features = [ "serde" ] }
 katana-genesis.workspace = true
 katana-pool-api.workspace = true
+katana-primitives = { workspace = true, features = [ "serde" ] }
 katana-trie.workspace = true
 serde-utils.workspace = true
 
+arbitrary = { workspace = true, optional = true }
 cainome.workspace = true
+derive_more.workspace = true
 cainome-cairo-serde.workspace = true
 cairo-lang-starknet-classes.workspace = true
 cairo-lang-utils.workspace = true
@@ -21,11 +23,15 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 starknet.workspace = true
+starknet-crypto.workspace = true
 starknet_api.workspace = true
 thiserror.workspace = true
 
 flate2.workspace = true
 serde_json_pythonic = "0.1.2"
+
+[features]
+arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
 assert_matches.workspace = true

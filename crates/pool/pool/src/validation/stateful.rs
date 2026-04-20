@@ -44,9 +44,11 @@ struct Inner {
     state: Arc<Box<dyn StateProvider>>,
     pool_nonces: HashMap<ContractAddress, Nonce>,
     chain_spec: Arc<ChainSpec>,
+    class_cache: ClassCache,
 }
 
 impl TxValidator {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: Box<dyn StateProvider>,
         execution_flags: ExecutionFlags,
@@ -54,6 +56,7 @@ impl TxValidator {
         block_env: BlockEnv,
         permit: Arc<Mutex<()>>,
         chain_spec: Arc<ChainSpec>,
+        class_cache: ClassCache,
     ) -> Self {
         let inner = Arc::new(Mutex::new(Inner {
             cfg_env,
@@ -62,6 +65,7 @@ impl TxValidator {
             execution_flags,
             state: Arc::new(state),
             pool_nonces: HashMap::new(),
+            class_cache,
         }));
         Self { permit, inner }
     }
@@ -92,8 +96,7 @@ impl Inner {
     // for transaction validation.
     fn prepare(&self) -> StatefulValidator<StateProviderDb> {
         let state = Box::new(self.state.clone());
-        let class_cache = ClassCache::global().clone();
-        let state_provider = StateProviderDb::new_with_class_cache(state, class_cache);
+        let state_provider = StateProviderDb::new(state, self.class_cache.clone());
 
         let cached_state = CachedState::new(state_provider);
         let context =
@@ -213,7 +216,7 @@ fn validate(
 
 fn map_invalid_tx_err(
     err: StatefulValidatorError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         StatefulValidatorError::StateError(err) => Err(Box::new(err)),
         StatefulValidatorError::TransactionExecutorError(err) => map_executor_err(err),
@@ -224,7 +227,7 @@ fn map_invalid_tx_err(
 
 fn map_fee_err(
     err: TransactionFeeError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         TransactionFeeError::GasBoundsExceedBalance {
             resource,
@@ -281,7 +284,7 @@ fn map_fee_err(
 
 fn map_executor_err(
     err: TransactionExecutorError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         TransactionExecutorError::TransactionExecutionError(e) => match e {
             TransactionExecutionError::TransactionFeeError(e) => map_fee_err(*e),
@@ -298,7 +301,7 @@ fn map_executor_err(
 
 fn map_execution_err(
     err: TransactionExecutionError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         e @ TransactionExecutionError::ValidateTransactionError {
             storage_address,
@@ -326,7 +329,7 @@ fn map_execution_err(
 
 fn map_pre_validation_err(
     err: TransactionPreValidationError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send + Sync + 'static>> {
     match err {
         TransactionPreValidationError::TransactionFeeError(err) => map_fee_err(*err),
         TransactionPreValidationError::StateError(err) => Err(Box::new(err)),

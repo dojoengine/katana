@@ -7,18 +7,18 @@ version.workspace = true
 
 [dependencies]
 # Internal dependencies
+katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-pool.workspace = true
-katana-rpc-types.workspace = true
-katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
+katana-rpc-server.workspace = true
+katana-rpc-types.workspace = true
 
 # gRPC dependencies
+http = "0.2"
+prost.workspace = true
 tonic.workspace = true
 tonic-reflection = "0.11"
-prost.workspace = true
-http = "0.2"
 
 # Async runtime
 tokio.workspace = true
@@ -42,9 +42,9 @@ num-bigint.workspace = true
 tower-service.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 hex = "0.4"
-katana-utils = { workspace = true, features = ["node"] }
+katana-utils = { workspace = true, features = [ "node" ] }
+tokio = { workspace = true, features = [ "macros", "rt-multi-thread" ] }
 
 [build-dependencies]
 tonic-build.workspace = true

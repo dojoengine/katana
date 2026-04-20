@@ -1,6 +1,6 @@
 //! Starknet service handler implementation.
 
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_provider::{ProviderFactory, ProviderRO};
@@ -489,6 +489,7 @@ where
     PoolTx: From<BroadcastedTxWithChainId>,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     async fn add_invoke_transaction(
         &self,

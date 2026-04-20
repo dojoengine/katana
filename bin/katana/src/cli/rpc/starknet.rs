@@ -5,7 +5,7 @@ use clap::{Args, Subcommand};
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::StorageKey;
-use katana_primitives::execution::{EntryPointSelector, FunctionCall};
+use katana_primitives::execution::{Call, EntryPointSelector};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::event::{EventFilter, EventFilterWithPage, ResultPageRequest};
@@ -398,8 +398,7 @@ impl StarknetCommands {
                 let entry_point_selector = args.selector;
                 let calldata = args.calldata;
 
-                let function_call =
-                    FunctionCall { contract_address, entry_point_selector, calldata };
+                let function_call = Call { contract_address, entry_point_selector, calldata };
 
                 let block_id = args.block.0;
                 let result = client.call(function_call, block_id).await?;

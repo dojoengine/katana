@@ -11,7 +11,7 @@ use jsonrpsee::server::{ServerBuilder, ServerHandle};
 use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_server::paymaster::PaymasterProxy;
 use paymaster_rpc::{
-    BuildTransactionRequest, BuildTransactionResponse, ExecuteRawRequest, ExecuteRawResponse,
+    BuildTransactionRequest, BuildTransactionResponse, ExecuteDirectRequest, ExecuteDirectResponse,
     ExecuteRequest, ExecuteResponse, TokenPrice,
 };
 
@@ -157,7 +157,7 @@ async fn test_execute_transaction_proxy() {
 }
 
 #[tokio::test]
-async fn test_execute_raw_transaction_proxy() {
+async fn test_execute_direct_transaction_proxy() {
     let tracker = RequestTracker::default();
     let (_handle, addr) = start_mock_server(tracker.clone()).await;
 
@@ -167,16 +167,14 @@ async fn test_execute_raw_transaction_proxy() {
     // Create a test request from JSON to avoid type conflicts
     let request_json = r#"{
         "transaction": {
-            "type": "raw_invoke",
+            "type": "invoke",
             "invoke": {
                 "user_address": "0x2222",
                 "execute_from_outside_call": {
                     "to": "0x3333",
                     "selector": "0x4444",
                     "calldata": ["0x5555"]
-                },
-                "gas_token": "0x6666",
-                "max_gas_token_amount": "0x7777"
+                }
             }
         },
         "parameters": {
@@ -188,20 +186,20 @@ async fn test_execute_raw_transaction_proxy() {
         }
     }"#;
 
-    let request: ExecuteRawRequest = serde_json::from_str(request_json).unwrap();
+    let request: ExecuteDirectRequest = serde_json::from_str(request_json).unwrap();
 
     // Serialize the original request for comparison
     let original_serialized = serde_json::to_string(&request).unwrap();
 
     // Call execute_raw_transaction through the proxy
-    let result = proxy.execute_raw_transaction(request).await.unwrap();
+    let result = proxy.execute_direct_transaction(request).await.unwrap();
 
     // Verify the response matches the expected dummy response
     let expected = dummy_execute_raw_response();
     assert_eq!(serde_json::to_string(&result).unwrap(), serde_json::to_string(&expected).unwrap());
 
     // Verify the request was proxied with the exact same data
-    let requests = tracker.execute_raw_transaction_requests.lock().unwrap();
+    let requests = tracker.execute_direct_transaction_requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0], original_serialized);
 }
@@ -339,7 +337,7 @@ struct RequestTracker {
     is_available_calls: Arc<Mutex<u32>>,
     build_transaction_requests: Arc<Mutex<Vec<String>>>,
     execute_transaction_requests: Arc<Mutex<Vec<String>>>,
-    execute_raw_transaction_requests: Arc<Mutex<Vec<String>>>,
+    execute_direct_transaction_requests: Arc<Mutex<Vec<String>>>,
     get_supported_tokens_calls: Arc<Mutex<u32>>,
 }
 
@@ -385,12 +383,12 @@ impl PaymasterApiServer for MockPaymasterServer {
         Ok(dummy_execute_response())
     }
 
-    async fn execute_raw_transaction(
+    async fn execute_direct_transaction(
         &self,
-        req: ExecuteRawRequest,
-    ) -> RpcResult<ExecuteRawResponse> {
+        req: ExecuteDirectRequest,
+    ) -> RpcResult<ExecuteDirectResponse> {
         let serialized = serde_json::to_string(&req).unwrap();
-        let mut requests = self.tracker.execute_raw_transaction_requests.lock().unwrap();
+        let mut requests = self.tracker.execute_direct_transaction_requests.lock().unwrap();
         requests.push(serialized);
         Ok(dummy_execute_raw_response())
     }
@@ -486,7 +484,7 @@ fn dummy_execute_response() -> ExecuteResponse {
     serde_json::from_str(dummy_execute_response_json()).unwrap()
 }
 
-fn dummy_execute_raw_response() -> ExecuteRawResponse {
+fn dummy_execute_raw_response() -> ExecuteDirectResponse {
     serde_json::from_str(dummy_execute_raw_response_json()).unwrap()
 }
 

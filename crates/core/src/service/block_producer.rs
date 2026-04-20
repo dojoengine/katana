@@ -19,8 +19,8 @@ use std::time::Duration;
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use katana_executor::{ExecutionResult, ExecutionStats, Executor};
+use katana_pool::api::TransactionPool;
 use katana_pool::validation::stateful::TxValidator;
-use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHash, BlockHashOrNumber};
 use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
@@ -294,6 +294,7 @@ where
             block_env,
             permit.clone(),
             backend.chain_spec.clone(),
+            backend.executor_factory.class_cache().clone(),
         );
 
         let blocking_task_spawner = CpuBlockingTaskPool::builder()
@@ -641,6 +642,7 @@ where
             block_env,
             permit.clone(),
             backend.chain_spec.clone(),
+            backend.executor_factory.class_cache().clone(),
         );
 
         let blocking_task_spawner = CpuBlockingTaskPool::builder()

@@ -30,17 +30,17 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-url.workspace = true
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 arbitrary.workspace = true
 assert_matches.workspace = true
-katana-genesis.workspace = true
 criterion.workspace = true
 hex.workspace = true
+katana-genesis.workspace = true
 pprof.workspace = true
 rand.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
+url.workspace = true
 
 [[bench]]
 harness = false

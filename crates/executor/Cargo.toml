@@ -7,8 +7,8 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-katana-primitives.workspace = true
 katana-chain-spec.workspace = true
+katana-primitives.workspace = true
 katana-provider.workspace = true
 
 blockifier = { workspace = true, features = [ "testing" ] }
@@ -33,7 +33,6 @@ katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 
-starknet.workspace = true
 alloy-primitives.workspace = true
 anyhow.workspace = true
 assert_matches.workspace = true
@@ -42,6 +41,7 @@ rstest.workspace = true
 rstest_reuse.workspace = true
 serde_json.workspace = true
 similar-asserts.workspace = true
+starknet.workspace = true
 tokio.workspace = true
 
 criterion.workspace = true
@@ -50,7 +50,12 @@ pprof.workspace = true
 rayon.workspace = true
 
 [features]
-native = [ "blockifier/cairo_native", "dep:cairo-native", "dep:rayon", "dep:cairo-lang-starknet-classes" ]
+native = [
+	"blockifier/cairo_native",
+	"dep:cairo-lang-starknet-classes",
+	"dep:cairo-native",
+	"dep:rayon",
+]
 
 [[bench]]
 harness = false

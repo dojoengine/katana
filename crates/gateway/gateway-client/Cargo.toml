@@ -1,23 +1,23 @@
 [package]
-name = "katana-gateway-client"
 edition.workspace = true
 license.workspace = true
+name = "katana-gateway-client"
 repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-primitives.workspace = true
 katana-gateway-types.workspace = true
+katana-primitives.workspace = true
 
-clap.workspace = true
 anyhow.workspace = true
+clap.workspace = true
 reqwest.workspace = true
 serde.workspace = true
-tracing.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = [ "macros", "rt" ] }
+tracing.workspace = true
 url.workspace = true
-tokio = { workspace = true, features = ["macros", "rt"] }
 
 [dev-dependencies]
 rstest.workspace = true

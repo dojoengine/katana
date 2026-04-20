@@ -7,6 +7,10 @@ use std::path::Path;
 
 use abstraction::Database;
 use anyhow::{anyhow, Context};
+#[cfg(feature = "cli")]
+use clap as _;
+#[cfg(feature = "cli")]
+use rand as _;
 
 pub mod abstraction;
 pub mod codecs;

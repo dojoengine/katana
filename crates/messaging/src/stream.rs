@@ -6,7 +6,6 @@ use std::task::{Context, Poll};
 
 use futures::{Future, FutureExt, Stream, StreamExt};
 use katana_primitives::chain::ChainId;
-use katana_primitives::transaction::L1HandlerTx;
 use tracing::{error, trace};
 
 use crate::collector::{GatherResult, MessageCollector};

@@ -9,8 +9,8 @@ version.workspace = true
 katana-metrics.workspace = true
 katana-primitives.workspace = true
 katana-provider-api.workspace = true
-katana-starknet.workspace = true
 katana-rpc-types.workspace = true
+katana-starknet.workspace = true
 katana-tasks.workspace = true
 
 anyhow.workspace = true

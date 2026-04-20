@@ -12,7 +12,9 @@ use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::ChainSpec;
 use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_genesis::allocation::DevAllocationsGenerator;
-use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use katana_genesis::constant::{
+    DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+};
 use katana_messaging::MessagingConfig;
 use katana_sequencer_node::config::db::DbConfig;
 use katana_sequencer_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
@@ -163,6 +165,45 @@ impl SequencerNodeArgs {
         // Build the node configuration
         let config = self.config()?;
 
+        // Resolve sidecar binaries before resources are committed.
+        #[cfg(feature = "paymaster")]
+        let paymaster_bin = if self.paymaster.enabled && !self.paymaster.is_external() {
+            use anyhow::anyhow;
+
+            use crate::sidecar::{resolve_sidecar_binary, SidecarKind};
+
+            let sidecar = SidecarKind::Paymaster;
+            let bin_path = self.paymaster.bin.as_deref();
+
+            let resolved_path =
+                resolve_sidecar_binary(sidecar, bin_path).await?.ok_or_else(|| {
+                    anyhow!("Paymaster service binary {} not installed", sidecar.binary_filename())
+                })?;
+
+            Some(resolved_path)
+        } else {
+            None
+        };
+
+        #[cfg(feature = "vrf")]
+        let vrf_bin = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+            use anyhow::anyhow;
+
+            use crate::sidecar::{resolve_sidecar_binary, SidecarKind};
+
+            let sidecar = SidecarKind::Vrf;
+            let bin_path = self.cartridge.vrf.bin.as_deref();
+
+            let resolved_path =
+                resolve_sidecar_binary(SidecarKind::Vrf, bin_path).await?.ok_or_else(|| {
+                    anyhow!("VRF service binary {} not installed", sidecar.binary_filename())
+                })?;
+
+            Some(resolved_path)
+        } else {
+            None
+        };
+
         if config.forking.is_some() {
             // Pass config by value: build_forked needs exclusive Arc access to mutate chain_spec.
             // Cloning would create a second Arc reference and cause Arc::get_mut to panic.
@@ -175,11 +216,11 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch forked node")?;
 
             #[cfg(feature = "paymaster")]
-            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
+            let mut paymaster = if let Some(bin_path) = paymaster_bin {
                 use crate::sidecar::bootstrap_paymaster;
 
                 let paymaster = bootstrap_paymaster(
-                    &self.paymaster,
+                    bin_path,
                     handle.node().config().paymaster.as_ref().unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
@@ -194,11 +235,16 @@ impl SequencerNodeArgs {
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+            let mut vrf = if let Some(bin_path) = vrf_bin {
                 use crate::sidecar::bootstrap_vrf;
 
+                let paymaster_cfg = handle.node().config().paymaster.as_ref().unwrap();
+                let cartridge_api_cfg = paymaster_cfg.cartridge_api.as_ref().unwrap();
+                let vrf_url = cartridge_api_cfg.vrf.as_ref().unwrap().url.clone();
+
                 let vrf = bootstrap_vrf(
-                    &self.cartridge.vrf,
+                    bin_path,
+                    vrf_url,
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
@@ -240,30 +286,46 @@ impl SequencerNodeArgs {
             let handle = node.launch().await.context("failed to launch node")?;
 
             #[cfg(feature = "paymaster")]
-            let mut paymaster = if self.paymaster.enabled && !self.paymaster.is_external() {
-                use crate::sidecar::bootstrap_paymaster;
+            let mut paymaster = if let Some(bin_path) = paymaster_bin {
+                use crate::sidecar;
 
-                let paymaster = bootstrap_paymaster(
-                    &self.paymaster,
-                    config.paymaster.unwrap().url.clone(),
+                let paymaster_service = sidecar::bootstrap_paymaster(
+                    bin_path,
+                    config.paymaster.as_ref().unwrap().url.clone(),
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
-                .await?
-                .start()
                 .await?;
 
-                Some(paymaster)
+                // When VRF is enabled, whitelist the VRF account on the forwarder so that
+                // VRF transactions can be routed through it.
+                #[cfg(feature = "vrf")]
+                if let Some(vrf_account) = config
+                    .paymaster
+                    .as_ref()
+                    .and_then(|p| p.cartridge_api.as_ref())
+                    .and_then(|c| c.vrf.as_ref())
+                    .map(|v| v.vrf_account)
+                {
+                    paymaster_service.whitelist_address(vrf_account).await?;
+                }
+
+                Some(paymaster_service.start().await?)
             } else {
                 None
             };
 
             #[cfg(feature = "vrf")]
-            let mut vrf = if self.cartridge.vrf.enabled && !self.cartridge.vrf.is_external() {
+            let mut vrf = if let Some(bin_path) = vrf_bin {
                 use crate::sidecar::bootstrap_vrf;
 
+                let paymaster_cfg = handle.node().config().paymaster.as_ref().unwrap();
+                let cartridge_api_cfg = paymaster_cfg.cartridge_api.as_ref().unwrap();
+                let vrf_url = cartridge_api_cfg.vrf.as_ref().unwrap().url.clone();
+
                 let vrf = bootstrap_vrf(
-                    &self.cartridge.vrf,
+                    bin_path,
+                    vrf_url,
                     *handle.rpc().addr(),
                     &handle.node().config().chain,
                 )
@@ -446,6 +508,7 @@ impl SequencerNodeArgs {
             // Generate dev accounts.
             // If paymaster is enabled, the first account is used by default.
             let accounts = DevAllocationsGenerator::new(self.development.total_accounts)
+                .with_frozen_address_class_hash(DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH)
                 .with_seed(parse_seed(&self.development.seed))
                 .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
                 .generate();
@@ -670,13 +733,13 @@ impl SequencerNodeArgs {
 
             Ok(Some(VrfConfig { url, vrf_account }))
         } else {
-            use cartridge::get_vrf_account;
+            use cartridge::get_default_vrf_account;
 
             let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
             let addr = listener.local_addr()?;
             let url = Url::parse(&format!("http://{addr}"))?;
 
-            let vrf_account_info = get_vrf_account()?;
+            let vrf_account_info = get_default_vrf_account()?;
             let vrf_account_address = vrf_account_info.account_address;
 
             Ok(Some(VrfConfig { url, vrf_account: vrf_account_address }))
@@ -814,6 +877,27 @@ mod test {
         assert_eq!(config.db.dir, None);
         assert_eq!(config.chain.id(), ChainId::parse("KATANA").unwrap());
         assert_eq!(config.chain.genesis().sequencer_address, *DEFAULT_SEQUENCER_ADDRESS);
+    }
+
+    #[test]
+    fn default_predeployed_account_address_is_backward_compatible() {
+        let args = SequencerNodeArgs::parse_from(["katana"]);
+        let result = args.config().unwrap();
+
+        // Keep the first user-facing predeployed account stable. This address/key pair is relied
+        // on by downstream integration tests and tooling that use Katana's default prefunded
+        // account.
+        let (address, allocation) =
+            result.chain.genesis().accounts().next().expect("must have a default dev account");
+
+        assert_eq!(
+            *address,
+            address!("0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec")
+        );
+        assert_eq!(
+            allocation.private_key(),
+            Some(felt!("0xc5b2fcab997346f3ea1c00b002ecf6f382c5f9c9659a3894eb783c5320f912"))
+        );
     }
 
     #[test]
@@ -1044,7 +1128,7 @@ explorer = true
     #[test]
     #[cfg(feature = "server")]
     fn parse_cors_origins() {
-        use katana_rpc_server::cors::HeaderValue;
+        use katana_rpc_server::middleware::cors::HeaderValue;
 
         let result = SequencerNodeArgs::parse_from([
             "katana",

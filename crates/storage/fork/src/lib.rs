@@ -32,7 +32,8 @@ use katana_rpc_types::{
     GetStorageProofResponse, StateUpdate, TraceBlockTransactionsResponse, TxReceiptWithBlockInfo,
 };
 use katana_starknet::rpc::{
-    Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
+    StarknetApiError, StarknetRpcClient as StarknetClient,
+    StarknetRpcClientError as StarknetClientError,
 };
 use parking_lot::Mutex;
 use tracing::{error, trace};
@@ -392,6 +393,7 @@ impl Backend {
 /// needs to be distributed to all waiting senders, which requires cloning the response for each
 /// sender in the deduplication vector.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 enum BackendResponse {
     Receipt(BackendResult<TxReceiptWithBlockInfo>),
     Block(BackendResult<GetBlockWithReceiptsResponse>),
@@ -412,7 +414,7 @@ pub enum BackendError {
     #[error("failed to spawn backend thread: {0}")]
     BackendThreadInit(#[from] Arc<io::Error>),
     #[error("rpc provider error: {0}")]
-    StarknetProvider(#[from] Arc<katana_starknet::rpc::Error>),
+    StarknetProvider(#[from] Arc<katana_starknet::rpc::StarknetRpcClientError>),
     #[error("unexpected received result: {0}")]
     UnexpectedReceiveResult(Arc<anyhow::Error>),
 }

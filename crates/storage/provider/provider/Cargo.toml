@@ -10,8 +10,8 @@ version.workspace = true
 katana-chain-spec = { workspace = true, optional = true }
 katana-db = { workspace = true, features = [ "test-utils" ] }
 katana-fork.workspace = true
-katana-primitives.workspace = true
 katana-genesis.workspace = true
+katana-primitives.workspace = true
 katana-provider-api.workspace = true
 katana-starknet.workspace = true
 katana-trie.workspace = true
@@ -29,8 +29,8 @@ tracing.workspace = true
 
 # fork provider deps
 futures.workspace = true
-tokio.workspace = true
 katana-rpc-types.workspace = true
+tokio.workspace = true
 
 alloy-primitives = { workspace = true, optional = true }
 serde_json.workspace = true
@@ -43,13 +43,13 @@ katana-chain-spec.workspace = true
 katana-contracts.workspace = true
 katana-runner.workspace = true
 
-similar-asserts.workspace = true
 alloy-primitives.workspace = true
 lazy_static.workspace = true
 rand.workspace = true
 rstest.workspace = true
 rstest_reuse.workspace = true
 serde_json.workspace = true
+similar-asserts.workspace = true
 starknet.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

@@ -6,9 +6,10 @@ use katana_contracts::contracts;
 use katana_genesis::allocation::{DevAllocationsGenerator, GenesisAllocation};
 use katana_genesis::constant::{
     get_fee_token_balance_base_storage_address, DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
-    DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS, ERC20_DECIMAL_STORAGE_SLOT,
-    ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT, ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH,
+    DEFAULT_LEGACY_UDC_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS,
+    DEFAULT_UDC_ADDRESS, ERC20_DECIMAL_STORAGE_SLOT, ERC20_NAME_STORAGE_SLOT,
+    ERC20_SYMBOL_STORAGE_SLOT, ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
 };
 use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
@@ -19,7 +20,7 @@ use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::utils::split_u256;
-use katana_primitives::version::StarknetVersion;
+use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use lazy_static::lazy_static;
 
@@ -54,8 +55,7 @@ impl ChainSpec {
             l2_gas_prices: GasPrices::MIN,
             l1_data_gas_prices: self.genesis.gas_prices.clone(),
             sequencer_address: self.genesis.sequencer_address,
-            // keep at 0.13.1.1 for backward compatibility reason
-            starknet_version: StarknetVersion::new([0, 13, 1, 1]),
+            starknet_version: CURRENT_STARKNET_VERSION,
         };
 
         ExecutableBlock { header, body: Vec::new() }
@@ -118,6 +118,7 @@ lazy_static! {
         let mut chain_spec = DEV_UNALLOCATED.clone();
 
         let accounts = DevAllocationsGenerator::new(10)
+            .with_frozen_address_class_hash(DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH)
             .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
             .generate();
 
@@ -223,7 +224,26 @@ fn add_fee_token(
 }
 
 fn add_default_udc(states: &mut StateUpdatesWithClasses) {
-    // declare UDC class
+    // Default UDC: the current OpenZeppelin Sierra class on Starknet mainnet/sepolia.
+    states
+        .classes
+        .entry(contracts::OpenZeppelinUniversalDeployer::HASH)
+        .or_insert_with(|| contracts::OpenZeppelinUniversalDeployer::CLASS.clone());
+
+    states.state_updates.declared_classes.insert(
+        contracts::OpenZeppelinUniversalDeployer::HASH,
+        contracts::OpenZeppelinUniversalDeployer::CASM_HASH,
+    );
+
+    states
+        .state_updates
+        .deployed_contracts
+        .entry(DEFAULT_UDC_ADDRESS)
+        .or_insert(contracts::OpenZeppelinUniversalDeployer::HASH);
+
+    // Legacy UDC: the earlier Cairo 0 OpenZeppelin class. Predeployed at its canonical
+    // mainnet address so tooling and bootstrap flows that still target the legacy UDC
+    // continue to work against Katana dev.
     states
         .classes
         .entry(contracts::UniversalDeployer::HASH)
@@ -231,11 +251,10 @@ fn add_default_udc(states: &mut StateUpdatesWithClasses) {
 
     states.state_updates.deprecated_declared_classes.insert(contracts::UniversalDeployer::HASH);
 
-    // deploy UDC contract
     states
         .state_updates
         .deployed_contracts
-        .entry(DEFAULT_UDC_ADDRESS)
+        .entry(DEFAULT_LEGACY_UDC_ADDRESS)
         .or_insert(contracts::UniversalDeployer::HASH);
 }
 
@@ -255,11 +274,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_dev_accounts_keep_the_frozen_address_hash() {
+        let (address, allocation) = DEV.genesis.accounts().next().expect("must have dev accounts");
+        let GenesisAccountAlloc::DevAccount(account) = allocation else {
+            panic!("default dev chain must contain dev accounts");
+        };
+
+        assert_eq!(account.address_class_hash, Some(DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH));
+        assert_eq!(*address, account.address());
+    }
+
+    #[test]
     fn genesis_block_and_state_updates() {
         // setup initial states to test
 
         let classes = BTreeMap::from([
             (contracts::LegacyERC20::HASH, contracts::LegacyERC20::CLASS.clone().into()),
+            (
+                contracts::OpenZeppelinUniversalDeployer::HASH,
+                contracts::OpenZeppelinUniversalDeployer::CLASS.clone().into(),
+            ),
             (
                 contracts::UniversalDeployer::HASH,
                 contracts::UniversalDeployer::CLASS.clone().into(),
@@ -338,7 +372,7 @@ mod tests {
                 l1_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_data_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
-                starknet_version: StarknetVersion::new([0, 13, 1, 1]),
+                starknet_version: CURRENT_STARKNET_VERSION,
             },
             body: Vec::new(),
         };
@@ -348,7 +382,7 @@ mod tests {
 
         similar_asserts::assert_eq!(actual_block, expected_block);
 
-        assert!(actual_state_updates.classes.len() == 3);
+        assert!(actual_state_updates.classes.len() == 4);
 
         assert_eq!(
             actual_state_updates.state_updates.declared_classes.get(&contracts::LegacyERC20::HASH),
@@ -388,30 +422,49 @@ mod tests {
         assert_eq!(
             actual_state_updates
                 .state_updates
-                .deprecated_declared_classes
-                .get(&contracts::UniversalDeployer::HASH),
-            Some(&contracts::UniversalDeployer::HASH),
+                .declared_classes
+                .get(&contracts::OpenZeppelinUniversalDeployer::HASH),
+            Some(&contracts::OpenZeppelinUniversalDeployer::CASM_HASH),
             "The default universal deployer class should be declared"
         );
 
         assert_eq!(
             actual_state_updates
                 .state_updates
-                .declared_classes
-                .get(&contracts::UniversalDeployer::HASH),
+                .deprecated_declared_classes
+                .get(&contracts::OpenZeppelinUniversalDeployer::HASH),
             None,
-            "The udc is a legacy class - legacy class should only be in \
-             `deprecated_declared_classes`"
+            "The udc is a Sierra class - it should only be in `declared_classes`"
+        );
+        assert_eq!(
+            actual_state_updates.classes.get(&contracts::OpenZeppelinUniversalDeployer::HASH),
+            Some(&contracts::OpenZeppelinUniversalDeployer::CLASS.clone())
+        );
+
+        assert_eq!(
+            actual_state_updates.state_updates.deployed_contracts.get(&DEFAULT_UDC_ADDRESS),
+            Some(&contracts::OpenZeppelinUniversalDeployer::HASH),
+            "The universal deployer contract should be created"
+        );
+
+        // Legacy UDC should also be declared and deployed at its canonical address for
+        // backward compatibility.
+        assert_eq!(
+            actual_state_updates
+                .state_updates
+                .deprecated_declared_classes
+                .get(&contracts::UniversalDeployer::HASH),
+            Some(&contracts::UniversalDeployer::CASM_HASH),
+            "The legacy universal deployer class should be declared"
         );
         assert_eq!(
             actual_state_updates.classes.get(&contracts::UniversalDeployer::HASH),
             Some(&contracts::UniversalDeployer::CLASS.clone())
         );
-
         assert_eq!(
-            actual_state_updates.state_updates.deployed_contracts.get(&DEFAULT_UDC_ADDRESS),
+            actual_state_updates.state_updates.deployed_contracts.get(&DEFAULT_LEGACY_UDC_ADDRESS),
             Some(&contracts::UniversalDeployer::HASH),
-            "The universal deployer contract should be created"
+            "The legacy universal deployer contract should be created at its canonical address"
         );
 
         assert_eq!(
@@ -430,9 +483,9 @@ mod tests {
 
         assert_eq!(
             actual_state_updates.state_updates.deployed_contracts.len(),
-            6,
-            "6 contracts should be created: STRK fee token, ETH fee token, universal deployer, \
-             and 3 allocations"
+            7,
+            "7 contracts should be created: STRK fee token, ETH fee token, default UDC, legacy \
+             UDC, and 3 allocations"
         );
 
         let alloc_1_addr = allocations[0].0;

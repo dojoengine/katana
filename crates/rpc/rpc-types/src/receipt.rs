@@ -26,6 +26,7 @@ impl RpcTxReceiptWithHash {
 
 /// Fee payment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct FeePayment {
     /// Amount paid
     pub amount: Felt,
@@ -34,6 +35,7 @@ pub struct FeePayment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[serde(tag = "type")]
 pub enum RpcTxReceipt {
     #[serde(rename = "INVOKE")]
@@ -115,6 +117,7 @@ impl RpcTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct RpcInvokeTxReceipt {
     pub actual_fee: FeePayment,
     pub finality_status: FinalityStatus,
@@ -126,6 +129,7 @@ pub struct RpcInvokeTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct RpcL1HandlerTxReceipt {
     #[serde(deserialize_with = "deserialize_message_hash")]
     pub message_hash: B256,
@@ -139,6 +143,7 @@ pub struct RpcL1HandlerTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct RpcDeclareTxReceipt {
     pub actual_fee: FeePayment,
     pub finality_status: FinalityStatus,
@@ -150,6 +155,7 @@ pub struct RpcDeclareTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct RpcDeployTxReceipt {
     pub actual_fee: FeePayment,
     pub finality_status: FinalityStatus,
@@ -162,6 +168,7 @@ pub struct RpcDeployTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct RpcDeployAccountTxReceipt {
     pub actual_fee: FeePayment,
     pub finality_status: FinalityStatus,
@@ -273,6 +280,7 @@ impl RpcTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TxReceiptWithBlockInfo {
     /// The hash of the transaction associated with the receipt.
     pub transaction_hash: TxHash,
@@ -296,6 +304,7 @@ impl TxReceiptWithBlockInfo {
 
 /// The block information associated with a receipt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[serde(untagged)]
 pub enum ReceiptBlockInfo {
     /// The receipt is from a pre-confirmed block.
@@ -353,6 +362,7 @@ impl<'de> Deserialize<'de> for ReceiptBlockInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[serde(tag = "execution_status")]
 pub enum ExecutionResult {
     #[serde(rename = "SUCCEEDED")]
@@ -367,6 +377,7 @@ pub enum ExecutionResult {
 
 /// The resources consumed by the transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ExecutionResources {
     /// L1 gas consumed by this transaction, used for L2-->L1 messages and state updates if blobs
     /// are not used

@@ -31,7 +31,7 @@ use katana_trie::{
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use starknet_types_core::hash::{self, StarkHash};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::env::BlockContextGenerator;
 use crate::service::block_producer::{BlockProductionError, MinedBlockOutcome};
@@ -222,6 +222,11 @@ where
 
         match (local_hash, skip_dev_genesis) {
             (Some(local_hash), false) => {
+                info!(
+                    genesis_hash = format!("{:#x}", local_hash),
+                    "Genesis has already been initialized."
+                );
+
                 let genesis_block = chain_spec.block();
                 let mut genesis_state_updates = chain_spec.state_updates();
 
@@ -238,13 +243,12 @@ where
 
                 // check genesis should be the same
                 if local_hash != committed_block.hash {
-                    return Err(anyhow!(
-                        "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
-                        committed_block.hash
-                    ));
+                    warn!(
+                        local_genesis_hash = format!("{:#x}", local_hash),
+                        computed_genesis_hash = format!("{:#x}", committed_block.hash),
+                        "Genesis block hash mismatch - blockchain state may be corrupted."
+                    );
                 }
-
-                info!(genesis_hash = %local_hash, "Genesis has already been initialized");
             }
 
             // No local genesis and genesis bootstrap is enabled -> initialize

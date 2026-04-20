@@ -3,6 +3,7 @@ use std::future::Future;
 use anyhow::{Context, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+use katana_bootstrap::BootstrapArgs;
 use katana_cli::{NodeCli, SequencerNodeArgs};
 use tokio::runtime::Runtime;
 
@@ -11,6 +12,9 @@ pub mod db;
 mod init;
 mod stage;
 mod version;
+
+#[cfg(feature = "debug")]
+mod utils;
 
 #[cfg(feature = "client")]
 mod rpc;
@@ -37,6 +41,9 @@ impl Cli {
                 Commands::Stage(args) => args.execute(),
                 Commands::Completions(args) => args.execute(),
                 Commands::Init(args) => execute_async(args.execute())?,
+                Commands::Bootstrap(args) => execute_async(args.execute())?,
+                #[cfg(feature = "debug")]
+                Commands::Utils(args) => args.execute(),
                 #[cfg(feature = "client")]
                 Commands::Rpc(args) => execute_async(args.execute())?,
                 Commands::Node(args) => execute_async(args.execute())?,
@@ -53,6 +60,9 @@ pub enum Commands {
     #[command(about = "Initialize chain")]
     Init(Box<init::InitCommand>),
 
+    #[command(about = "Bootstrap a running katana node with classes and contracts")]
+    Bootstrap(Box<BootstrapArgs>),
+
     #[command(about = "Chain configuration utilities")]
     Config(config::ConfigArgs),
 
@@ -68,6 +78,10 @@ pub enum Commands {
     #[cfg(feature = "client")]
     #[command(about = "RPC client for interacting with Katana")]
     Rpc(rpc::RpcArgs),
+
+    #[cfg(feature = "debug")]
+    #[command(about = "Debugging utilities")]
+    Utils(utils::UtilsArgs),
 
     #[command(hide = true)]
     #[command(about = "Run and manage Katana nodes")]

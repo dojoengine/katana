@@ -12,7 +12,7 @@ pub type ReceiptEnvelope = Envelope<Receipt>;
 
 impl From<ReceiptEnvelope> for Receipt {
     fn from(value: ReceiptEnvelope) -> Self {
-        value.inner
+        value.payload
     }
 }
 

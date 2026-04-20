@@ -11,6 +11,6 @@ katana-runner-macro = { path = "macro" }
 
 anyhow.workspace = true
 assert_fs.workspace = true
+jsonrpsee = { workspace = true, features = [ "client" ] }
 starknet.workspace = true
 tokio.workspace = true
-jsonrpsee = { workspace = true, features = [ "client" ] }

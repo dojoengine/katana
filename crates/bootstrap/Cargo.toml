@@ -1,0 +1,35 @@
+[package]
+description = "Declare classes and deploy contracts on a running Katana node — programmatic API + TUI."
+edition.workspace = true
+name = "katana-bootstrap"
+version.workspace = true
+
+[dependencies]
+katana-contracts.workspace = true
+katana-primitives.workspace = true
+katana-rpc-types.workspace = true
+katana-starknet.workspace = true
+katana-utils.workspace = true
+
+anyhow.workspace = true
+cairo-lang-starknet-classes.workspace = true
+clap.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+starknet.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+url.workspace = true
+
+# TUI stack — pinned versions match what `bin/katana` already uses for `db inspect`
+# so cargo doesn't have to vendor a second copy.
+comfy-table = "7.1.1"
+crossterm = "0.28"
+ratatui = "0.29"
+shellexpand = "3.1.0"
+
+[dev-dependencies]
+jsonrpsee = { workspace = true, features = [ "server", "http-client" ] }
+tokio = { workspace = true, features = [ "macros" ] }

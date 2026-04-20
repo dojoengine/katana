@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
 use katana_core::utils::get_current_timestamp;
+use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_gas_price_oracle::GasPriceOracle;
-use katana_pool::TransactionPool;
+use katana_pool::api::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -59,18 +60,14 @@ use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
+mod api;
 mod blockifier;
 pub mod cache;
 mod config;
 mod list;
 mod pending;
-mod read;
-mod trace;
-mod write;
 
 pub use cache::RpcCache;
-#[cfg(feature = "cartridge")]
-pub use config::CartridgePaymasterConfig;
 pub use config::StarknetApiConfig;
 pub use pending::PendingBlockProvider;
 
@@ -78,10 +75,8 @@ pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
 /// Handler for the Starknet JSON-RPC server.
 ///
-/// This struct implements all the JSON-RPC traits required to serve the Starknet API (ie,
-/// [read](katana_rpc_api::starknet::StarknetApi),
-/// [write](katana_rpc_api::starknet::StarknetWriteApi), and
-/// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
+/// This struct implements [`katana_rpc_api::starknet::StarknetApi`], which combines the read,
+/// write, and trace method groups defined by the upstream Starknet JSON-RPC specification.
 #[derive(Debug)]
 pub struct StarknetApi<Pool, PP, PF>
 where
@@ -108,6 +103,7 @@ where
     pending_block_provider: PP,
     config: StarknetApiConfig,
     cache: RpcCache,
+    class_cache: ClassCache,
 }
 
 impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
@@ -126,6 +122,7 @@ where
         config: StarknetApiConfig,
         storage: PF,
         cache: RpcCache,
+        class_cache: ClassCache,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -142,6 +139,7 @@ where
             gas_oracle,
             storage,
             cache,
+            class_cache,
         };
 
         Self { inner: Arc::new(inner) }
@@ -252,15 +250,28 @@ where
         let env = self.block_env_at(&block_id)?;
         let versioned_constant_overrides = self.inner.config.versioned_constant_overrides.as_ref();
 
-        // do estimations
-        blockifier::estimate_fees(
+        let estimates = blockifier::estimate_fees(
             self.inner.chain_spec.as_ref(),
             state,
             env,
             versioned_constant_overrides,
             transactions,
             flags,
-        )
+            &self.inner.class_cache,
+        )?;
+
+        // If Katana is running in no fee mode, set overall_fee to 0 for all estimates.
+        if !self.config().simulation_flags.fee() {
+            let mut updated_estimates = Vec::with_capacity(estimates.len());
+            for mut est in estimates {
+                est.overall_fee = 0;
+                updated_estimates.push(est);
+            }
+
+            Ok(updated_estimates)
+        } else {
+            Ok(estimates)
+        }
     }
 
     pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
@@ -454,6 +465,7 @@ where
                 cfg_env,
                 request,
                 max_call_gas,
+                &this.inner.class_cache,
             )?;
 
             Ok(CallResponse { result })
@@ -1283,8 +1295,15 @@ where
             // use the blockifier utils function
             let chain_spec = this.inner.chain_spec.as_ref();
             let overrides = this.inner.config.versioned_constant_overrides.as_ref();
-            let results =
-                self::blockifier::simulate(chain_spec, state, env, overrides, executables, flags);
+            let results = self::blockifier::simulate(
+                chain_spec,
+                state,
+                env,
+                overrides,
+                executables,
+                flags,
+                &this.inner.class_cache,
+            );
 
             let mut simulated = Vec::with_capacity(results.len());
             for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {

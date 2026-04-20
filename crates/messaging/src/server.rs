@@ -1,5 +1,6 @@
 use futures::StreamExt;
-use katana_pool::{TransactionPool, TxPool};
+use katana_pool::api::TransactionPool;
+use katana_pool::TxPool;
 use katana_primitives::transaction::{ExecutableTxWithHash, L1HandlerTx, TxHash};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;

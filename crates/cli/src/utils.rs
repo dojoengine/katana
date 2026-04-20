@@ -7,7 +7,7 @@ use katana_chain_spec::ChainSpec;
 use katana_db::Db;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{
-    DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_UDC_ADDRESS,
+    DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_UDC_ADDRESS, DEFAULT_UDC_CLASS_HASH,
 };
 use katana_genesis::json::GenesisJson;
 use katana_genesis::Genesis;
@@ -16,7 +16,7 @@ use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
-use katana_rpc_server::cors::HeaderValue;
+use katana_rpc_server::middleware::cors::HeaderValue;
 use katana_tracing::LogFormat;
 use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;
@@ -178,7 +178,7 @@ PREDEPLOYED CONTRACTS
         r"
 | Contract        | Universal Deployer
 | Address         | {DEFAULT_UDC_ADDRESS}
-| Class Hash      | {DEFAULT_LEGACY_UDC_CLASS_HASH:#064x}"
+| Class Hash      | {DEFAULT_UDC_CLASS_HASH:#064x}"
     );
 
     if let Some(hash) = account_class_hash {

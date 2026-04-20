@@ -1,6 +1,9 @@
+use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use katana_primitives::class::ContractClass;
 use proc_macro::TokenStream;
 use quote::quote;
@@ -128,6 +131,17 @@ fn generate_contract_impl(input: &ContractInput) -> Result<proc_macro2::TokenStr
     let contract_path = input.artifact_path.to_string_lossy().to_string();
     let static_class_name = syn::parse_str::<Ident>(&format!("{contract_name}_CLASS")).unwrap();
 
+    // Compress the contract artifact bytes at macro expansion time so the embedded
+    // payload in the final binary is significantly smaller than the raw JSON.
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder
+        .write_all(contract_content.as_bytes())
+        .map_err(|e| format!("failed to compress contract class: {e}"))?;
+    let compressed_bytes = encoder
+        .finish()
+        .map_err(|e| format!("failed to finalize contract class compression: {e}"))?;
+    let compressed_literal = proc_macro2::Literal::byte_string(&compressed_bytes);
+
     // Generate the contract implementation
     let expanded = quote! {
         pub struct #contract_name;
@@ -151,8 +165,11 @@ fn generate_contract_impl(input: &ContractInput) -> Result<proc_macro2::TokenStr
             fn deref(&self) -> &::katana_primitives::class::ContractClass {
                 #[inline(always)]
                 fn __static_ref_initialize() -> ::katana_primitives::class::ContractClass {
-                    use ::std::str::FromStr;
-                    (::katana_primitives::class::ContractClass::from_str(include_str!(#contract_path)).unwrap())
+                    // Register the artifact as a build dependency so cargo rebuilds
+                    // the consuming crate whenever the source JSON changes.
+                    const _: &[u8] = include_bytes!(#contract_path);
+                    const COMPRESSED: &[u8] = #compressed_literal;
+                    ::katana_contracts::load_compressed_class(COMPRESSED)
                 }
                 #[inline(always)]
                 fn __stability() -> &'static ::katana_primitives::class::ContractClass {

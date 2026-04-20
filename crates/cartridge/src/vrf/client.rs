@@ -1,5 +1,5 @@
 use katana_primitives::Felt;
-use katana_rpc_types::outside_execution::{OutsideExecutionV2, OutsideExecutionV3};
+use katana_rpc_types::SignedOutsideExecution;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -11,23 +11,6 @@ pub struct StarkVrfProof {
     pub s: Felt,
     pub sqrt_ratio: Felt,
     pub rnd: Felt,
-}
-
-/// OutsideExecution enum with tagged serialization for VRF server compatibility.
-///
-/// Different from `katana_rpc_types::OutsideExecution` which uses untagged serialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum VrfOutsideExecution {
-    V2(OutsideExecutionV2),
-    V3(OutsideExecutionV3),
-}
-
-/// A signed outside execution request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedOutsideExecution {
-    pub address: Felt,
-    pub outside_execution: VrfOutsideExecution,
-    pub signature: Vec<Felt>,
 }
 
 /// Response from GET /info endpoint.
@@ -126,13 +109,13 @@ impl VrfClient {
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn outside_execution(
         &self,
-        request: SignedOutsideExecution,
-        context: RequestContext,
+        request: &SignedOutsideExecution,
+        context: &RequestContext,
     ) -> Result<SignedOutsideExecution, VrfClientError> {
         #[derive(Debug, Serialize)]
-        struct OutsideExecutionRequest {
-            request: SignedOutsideExecution,
-            context: RequestContext,
+        struct OutsideExecutionRequest<'a> {
+            request: &'a SignedOutsideExecution,
+            context: &'a RequestContext,
         }
 
         let url = self.url.join("/outside_execution")?;

@@ -244,6 +244,10 @@ where
     fn take_transactions_snapshot(&self) -> Vec<Arc<T>> {
         self.inner.transactions.read().iter().map(|tx| Arc::clone(&tx.tx)).collect()
     }
+
+    fn clear(&self) {
+        self.inner.transactions.write().clear();
+    }
 }
 
 impl<T, V, O> Clone for Pool<T, V, O>

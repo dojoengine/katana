@@ -43,7 +43,7 @@ pub type BlockIdOrTag = katana_primitives::block::BlockIdOrTag;
 pub type ConfirmedBlockIdOrTag = katana_primitives::block::ConfirmedBlockIdOrTag;
 
 /// Request type for `starknet_call` RPC method.
-pub type FunctionCall = katana_primitives::execution::FunctionCall;
+pub type FunctionCall = katana_primitives::execution::Call;
 
 /// Finality status of a block or transaction.
 pub type FinalityStatus = katana_primitives::block::FinalityStatus;
@@ -56,6 +56,7 @@ pub struct CallResponse {
 
 /// Fee estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FeeEstimate {
     /// The Ethereum gas consumption of the transaction, charged for L1->L2 messages and, depending
     /// on the block's da_mode, state diffs

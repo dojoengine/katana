@@ -61,7 +61,7 @@ pub mod json_rpc {
 
     use katana_primitives::block::BlockIdOrTag;
     use katana_rpc_types::Class;
-    use katana_starknet::rpc::Client as JsonRpcClient;
+    use katana_starknet::rpc::StarknetRpcClient;
     use tracing::error;
 
     use super::super::{ClassDownloadKey, ClassDownloader};
@@ -74,13 +74,13 @@ pub mod json_rpc {
     }
 
     impl JsonRpcClassDownloader {
-        pub fn new(client: JsonRpcClient, batch_size: usize) -> Self {
+        pub fn new(client: StarknetRpcClient, batch_size: usize) -> Self {
             Self { inner: BatchDownloader::new(JsonRpcDownloader { client }, batch_size) }
         }
     }
 
     impl ClassDownloader for JsonRpcClassDownloader {
-        type Error = katana_starknet::rpc::Error;
+        type Error = katana_starknet::rpc::StarknetRpcClientError;
 
         async fn download_classes(
             &self,
@@ -92,13 +92,13 @@ pub mod json_rpc {
 
     #[derive(Debug)]
     struct JsonRpcDownloader {
-        client: JsonRpcClient,
+        client: StarknetRpcClient,
     }
 
     impl Downloader for JsonRpcDownloader {
         type Key = ClassDownloadKey;
         type Value = Class;
-        type Error = katana_starknet::rpc::Error;
+        type Error = katana_starknet::rpc::StarknetRpcClientError;
 
         #[allow(clippy::manual_async_fn)]
         fn download(

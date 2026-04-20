@@ -12,6 +12,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Emit the instructions
     Emitter::default().add_instructions(&build)?.add_instructions(&gitcl)?.emit_and_set()?;
 
+    // Auto-enable the `debug` feature in debug (non-release) builds.
+    let profile = env::var("PROFILE").unwrap_or_default();
+    if profile == "debug" {
+        println!("cargo:rustc-cfg=feature=\"debug\"");
+    }
+
     let sha = env::var("VERGEN_GIT_SHA")?;
     let is_dirty = env::var("VERGEN_GIT_DIRTY")? == "true";
 

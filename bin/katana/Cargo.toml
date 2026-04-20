@@ -7,19 +7,21 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-bootstrap.workspace = true
 katana-chain-spec.workspace = true
 katana-cli.workspace = true
-katana-provider.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-genesis.workspace = true
 katana-primitives.workspace = true
-katana-starknet.workspace = true
+katana-provider.workspace = true
 katana-rpc-types.workspace = true
+katana-starknet.workspace = true
 katana-utils.workspace = true
 
 crossterm = "0.28"
 ratatui = "0.29"
 
+cairo-lang-starknet-classes.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 byte-unit = "5.1.4"
@@ -30,12 +32,13 @@ comfy-table = "7.1.1"
 const_format = "0.2.33"
 indicatif = "0.17.8"
 inquire = "0.7.5"
-jsonrpsee = { workspace = true, features = ["http-client"] }
+jsonrpsee = { workspace = true, features = [ "http-client" ] }
 piltover.workspace = true
 rand.workspace = true
 shellexpand = "3.1.0"
 spinoff.workspace = true
 starknet.workspace = true
+serde.workspace = true
 strum_macros.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -43,7 +46,6 @@ tracing.workspace = true
 url.workspace = true
 
 colored_json = { version = "5.0", optional = true }
-serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [build-dependencies]
@@ -52,25 +54,26 @@ vergen-gitcl = { version = "1.0.0", features = [ "build", "cargo", "rustc", "si"
 
 [dev-dependencies]
 arbitrary.workspace = true
-similar-asserts.workspace = true
 assert_matches.workspace = true
 proptest = "1.0"
 rstest.workspace = true
+similar-asserts.workspace = true
 tempfile.workspace = true
 
 [features]
 default = [
 	"cartridge",
 	"client",
+	"init-custom-settlement-chain",
 	"init-slot",
 	"jemalloc",
 	"katana-cli/explorer",
-	"init-custom-settlement-chain",
 ]
 
 cartridge = [ "katana-cli/cartridge" ]
-client = [ "dep:colored_json", "dep:serde", "dep:serde_json" ]
+client = [ "dep:colored_json", "dep:serde_json" ]
 init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]
+debug = [  ]
 native = [ "katana-cli/native" ]

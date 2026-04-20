@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs, io};
 
+use cainome::rs::abigen;
 use katana_contracts::avnu::AvnuForwarder;
 use katana_primitives::chain::{ChainId, NamedChainId};
 use katana_primitives::class::ComputeClassHashError;
@@ -18,8 +19,7 @@ use katana_rpc_types::RpcSierraContractClass;
 use serde::Serialize;
 use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
-use starknet::core::types::{BlockId, BlockTag, Call, FlattenedSierraClass, StarknetError};
-use starknet::macros::selector;
+use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
@@ -34,6 +34,35 @@ use crate::api::PaymasterApiClient;
 const FORWARDER_SALT: u64 = 0x12345;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(20);
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.impulse.avnu.fi/v3/";
+
+abigen!(AVNUForwarder,
+[
+    {
+        "type": "function",
+        "name": "is_whitelisted",
+        "inputs": [
+            {
+                "name": "address",
+                "type": "core::starknet::contract_address::ContractAddress"
+            }
+        ],
+        "outputs": [{ "type": "core::bool" }],
+        "state_mutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "set_whitelisted_address",
+        "inputs": [
+            {
+                "name": "address",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            { "name": "value", "type": "core::bool" }
+        ],
+        "outputs": [{ "type": "core::bool" }],
+        "state_mutability": "external"
+    }
+]);
 
 // ============================================================================
 // Error Types
@@ -346,7 +375,7 @@ impl PaymasterService {
     }
 
     pub async fn bootstrap(&mut self) -> Result<ContractAddress> {
-        info!("Bootstrapping paymaster service.");
+        info!("Bootstrapping paymaster service...");
 
         let url =
             Url::parse(&format!("http://{}", self.config.rpc_socket_addr)).expect("valid url");
@@ -406,7 +435,7 @@ impl PaymasterService {
 
         // When using UDC with unique=0 (non-unique deployment), the deployer_address
         // used in address computation is 0, not the actual deployer or UDC address.
-        let avnu_forwarder_address = get_contract_address(
+        let forwarder_address = get_contract_address(
             Felt::from(FORWARDER_SALT),
             avnu_forwarder_class_hash,
             &[self.config.relayer_address.into(), self.config.gas_tank_address.into()],
@@ -415,10 +444,10 @@ impl PaymasterService {
         .into();
 
         // Deploy forwarder if not already deployed
-        if is_deployed(&provider, avnu_forwarder_address).await? {
-            trace!(%avnu_forwarder_address, "AVNU Forwarder contract already deployed.");
+        if is_deployed(&provider, forwarder_address).await? {
+            trace!(%forwarder_address, "AVNU Forwarder contract already deployed.");
         } else {
-            trace!(%avnu_forwarder_address, "AVNU Forwarder contract not deployed - deploying.");
+            trace!(%forwarder_address, "AVNU Forwarder contract not deployed - deploying.");
 
             #[allow(deprecated)]
             let factory = ContractFactory::new(avnu_forwarder_class_hash, &account);
@@ -432,28 +461,91 @@ impl PaymasterService {
                 .map_err(|e| Error::ForwarderDeploy(e.to_string()))?;
 
             // wait for the transaction to be acccepted
-            wait_for_contract(&provider, avnu_forwarder_address, BOOTSTRAP_TIMEOUT).await?;
+            wait_for_contract(&provider, forwarder_address, BOOTSTRAP_TIMEOUT).await?;
         }
 
-        // Whitelist the relayer
-        let whitelist_call = Call {
-            to: avnu_forwarder_address.into(),
-            selector: selector!("set_whitelisted_address"),
-            calldata: vec![self.config.relayer_address.into(), Felt::ONE],
-        };
+        // Check if the relayer and estimate account are whitelisted on the forwarder
+        let forwarder_contract = AVNUForwarder::new(forwarder_address.into(), &account);
 
-        let result = account
-            .execute_v3(vec![whitelist_call])
+        // Whitelist the relayer and estimate account on the forwarder.
+        //
+        // The relayer must be whitelisted to submit transactions through the forwarder.
+        //
+        // The estimate account must be whitelisted because the paymaster uses it for
+        // fee estimation via simulate_transaction, which also goes through the forwarder.
+        for (r#type, address) in [
+            ("relayer", self.config.relayer_address),
+            ("estimate account", self.config.estimate_account_address),
+        ] {
+            let cainome_address = cainome::cairo_serde::ContractAddress(address.into());
+
+            let is_whitelisted = forwarder_contract
+                .is_whitelisted(&cainome_address)
+                .call()
+                .await
+                .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
+
+            if !is_whitelisted {
+                trace!(type = r#type, %address, "Whitelisting contract.");
+
+                let result = forwarder_contract
+                    .set_whitelisted_address(&cainome_address, &true)
+                    .send()
+                    .await
+                    .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
+
+                wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
+            }
+
+            trace!(type = r#type, %address, "Contract is whitelisted.");
+        }
+
+        self.forwarder_address = Some(forwarder_address);
+
+        info!(
+            forwarder = %forwarder_address,
+            relayer = %self.config.relayer_address,
+            estimate_account = %self.config.estimate_account_address,
+            "Paymaster bootstrapped successfully."
+        );
+
+        Ok(forwarder_address)
+    }
+
+    /// Whitelist an address on the forwarder contract.
+    ///
+    /// Must be called after [`bootstrap()`](Self::bootstrap) so that the forwarder address
+    /// and chain ID are set. This is used to whitelist additional accounts (e.g. the VRF
+    /// account) that need to interact with the forwarder.
+    pub async fn whitelist_address(&self, address: ContractAddress) -> Result<()> {
+        let forwarder = self.forwarder_address.ok_or(Error::ForwarderNotSet)?;
+        let chain_id = self.chain_id.ok_or(Error::ChainIdNotSet)?;
+
+        let url =
+            Url::parse(&format!("http://{}", self.config.rpc_socket_addr)).expect("valid url");
+        let provider = JsonRpcClient::new(HttpTransport::new(url));
+
+        let secret_key = SigningKey::from_secret_scalar(self.config.relayer_private_key);
+        let account = SingleOwnerAccount::new(
+            provider.clone(),
+            LocalWallet::from(secret_key),
+            self.config.relayer_address.into(),
+            chain_id.id(),
+            ExecutionEncoding::New,
+        );
+
+        let forwarder_contract = AVNUForwarder::new(forwarder.into(), &account);
+
+        let result = forwarder_contract
+            .set_whitelisted_address(&cainome::cairo_serde::ContractAddress(address.into()), &true)
             .send()
             .await
             .map_err(|e| Error::WhitelistRelayer(e.to_string()))?;
 
         wait_for_tx(&provider, result.transaction_hash, BOOTSTRAP_TIMEOUT).await?;
-        self.forwarder_address = Some(avnu_forwarder_address);
 
-        info!(%avnu_forwarder_address, "Paymaster bootstrapped successfully.");
-
-        Ok(avnu_forwarder_address)
+        info!(%address, %forwarder, "Address whitelisted on forwarder.");
+        Ok(())
     }
 
     /// Start the paymaster sidecar process.
@@ -801,7 +893,8 @@ fn write_paymaster_profile(profile: &PaymasterProfile) -> Result<PathBuf> {
 fn paymaster_chain_id(chain_id: ChainId) -> String {
     match chain_id {
         ChainId::Named(NamedChainId::Mainnet) => "mainnet".to_string(),
-        _ => "sepolia".to_string(),
+        ChainId::Named(_) => "sepolia".to_string(),
+        ChainId::Id(felt) => felt.to_hex_string(),
     }
 }
 

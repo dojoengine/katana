@@ -7,7 +7,7 @@ use jsonrpsee::types::error::INTERNAL_ERROR_CODE;
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_rpc_api::paymaster::{PaymasterApiClient, PaymasterApiServer};
 use paymaster_rpc::{
-    BuildTransactionRequest, BuildTransactionResponse, ExecuteRawRequest, ExecuteRawResponse,
+    BuildTransactionRequest, BuildTransactionResponse, ExecuteDirectRequest, ExecuteDirectResponse,
     ExecuteRequest, ExecuteResponse, TokenPrice,
 };
 use url::Url;
@@ -64,11 +64,11 @@ impl PaymasterApiServer for PaymasterProxy {
         PaymasterApiClient::execute_transaction(&self.upstream_client, req).await.map_err(map_error)
     }
 
-    async fn execute_raw_transaction(
+    async fn execute_direct_transaction(
         &self,
-        req: ExecuteRawRequest,
-    ) -> RpcResult<ExecuteRawResponse> {
-        PaymasterApiClient::execute_raw_transaction(&self.upstream_client, req)
+        req: ExecuteDirectRequest,
+    ) -> RpcResult<ExecuteDirectResponse> {
+        PaymasterApiClient::execute_direct_transaction(&self.upstream_client, req)
             .await
             .map_err(map_error)
     }

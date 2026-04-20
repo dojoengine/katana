@@ -1,0 +1,27 @@
+[package]
+build = "build.rs"
+edition.workspace = true
+license.workspace = true
+name = "vrf-e2e-test"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+cartridge.workspace = true
+katana-cli = { workspace = true, features = ["vrf"] }
+katana-contracts.workspace = true
+katana-genesis.workspace = true
+katana-primitives.workspace = true
+katana-rpc-api = { workspace = true, features = ["client", "cartridge"] }
+katana-rpc-types.workspace = true
+katana-sequencer-node = { workspace = true, features = ["cartridge"] }
+katana-utils = { workspace = true, features = ["node"] }
+
+cainome.workspace = true
+lazy_static.workspace = true
+serde_json.workspace = true
+starknet.workspace = true
+starknet-crypto.workspace = true
+tokio.workspace = true
+url.workspace = true
+axum.workspace = true
