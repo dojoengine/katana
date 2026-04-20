@@ -1,31 +1,61 @@
-//! End-to-end test that runs Saya's `saya-tee` binary against an in-process
-//! Katana, exercising the persistent-TEE settlement path with all proving
-//! mocked out.
+//! End-to-end test for Saya's persistent-TEE settlement path, with all cryptographic
+//! components swapped for permissive stubs.
+//!
+//! ## What's real
+//!
+//! - L2 dev Katana and L3 rollup Katana, both in-process.
+//! - Piltover core contract on L2 (real Cairo, real state-transition math).
+//! - `saya-ops` subprocess: declares and deploys Piltover + the TEE registry on L2.
+//! - `saya-tee` subprocess: polls L3, builds settlement transactions, submits `update_state` to L2.
+//! - The state-diff → Poseidon commitment → `report_data` → `validate_input` round-trip.
+//!
+//! ## What's mocked
+//!
+//! | Component | Real | Mock |
+//! |-----------|------|------|
+//! | `tee_generateQuote` on L3 | AMD SEV-SNP hardware-signed quote | `katana_tee::MockProvider`: stub quote. `report_data` is a real Poseidon commitment over the state diff; only the hardware signature is absent. |
+//! | SP1 proving in saya-tee | Real SP1 proof over the state diff | `--mock-prove` synthesizes a stub `OnchainProof`. SP1 prover network is never contacted. |
+//! | AMD KDS + cert-chain verification | saya-tee walks AMD root → VCEK | Skipped by `--mock-prove`. |
+//! | On-chain fact registry | Runs SP1 verifier in Cairo | `mock_amd_tee_registry` (piltover#15): returns the SP1 journal verbatim. |
+//!
+//! ## What this proves
+//!
+//! - End-to-end **plumbing** between L3, saya-tee, Piltover, and L2 is wired up correctly.
+//! - saya-tee and Piltover agree on the **state-diff serialization format**: saya-tee embeds a
+//!   Poseidon commitment over the extracted diff as `report_data`; Piltover's `validate_input`
+//!   recomputes the same commitment from the settlement calldata and requires a byte-identical
+//!   match. A serialization drift anywhere in the chain (saya-tee's diff extractor, Piltover's
+//!   decoder, the commitment schema) fails this check.
+//! - Settlement advances **block-by-block**: after each driven L3 block, Piltover's `block_number`
+//!   matches L3's tip and `state_root` / `block_hash` transition to non-zero values.
+//!
+//! ## What this does NOT prove
+//!
+//! - Real TEE attestation (AMD hardware signing, quote freshness, VCEK chain validity).
+//! - SP1 proof soundness or on-chain SP1 verification.
+//! - Binding of attestations to a specific enclave/instance.
 //!
 //! ## Pipeline
 //!
-//! 1. Spawn an L2 dev Katana via [`katana_utils::TestNode`].
-//! 2. Shell out to `saya-ops` to declare and deploy:
-//!    - `mock_amd_tee_registry` (the on-chain mock added in cartridge-gg/piltover#15), and
-//!    - the Piltover core contract pointed at the mock registry.
-//! 3. Spawn an L3 rollup Katana via `TestNode` with `SettlementLayer::Starknet { … }` pointing at
-//!    L2's Piltover, and `TeeConfig { provider_type: Mock, .. }` so its `tee_generateQuote` RPC
-//!    serves a stub attestation.
-//! 4. Spawn `saya-tee tee start --mock-prove` as a child process pointed at both Katanas. The flag
-//!    (added in dojoengine/saya#60) makes saya-tee skip AMD KDS, cert chain validation, and SP1
-//!    proving entirely.
-//! 5. Assert Piltover's initial state: `state_root` and `block_hash` are zero and
-//!    `block_number == Felt::MAX` (nothing settled yet).
-//! 6. Drive the L3 one block at a time (via no-op transfers); after each block, poll Piltover's
-//!    `get_state()` until `block_number` matches L3's tip, asserting non-zero `state_root` and
-//!    `block_hash`. This catches regressions that only surface mid-sequence.
+//! 1. Spawn L2 dev Katana (in-process).
+//! 2. Shell out to `saya-ops` to declare + deploy `mock_amd_tee_registry` and the Piltover core
+//!    contract (pointed at the mock registry as its fact registry).
+//! 3. Spawn L3 rollup Katana with `SettlementLayer::Starknet { … }` → L2's Piltover, and
+//!    `TeeConfig { provider_type: Mock, .. }` so its `tee_generateQuote` RPC is served by the
+//!    software mock.
+//! 4. Spawn `saya-tee tee start --mock-prove` pointed at both Katanas.
+//! 5. Assert Piltover's initial state: `state_root == 0`, `block_hash == 0`,
+//!    `block_number == Felt::MAX`.
+//! 6. For each of N iterations, drive one L3 block (no-op transfer; provable-mode rollups never
+//!    produce empty blocks), then wait for Piltover to settle to that block and assert the
+//!    post-state.
 //!
 //! ## Required binaries
 //!
-//! - `saya-ops`: discovered via `SAYA_OPS_BIN` env var or `$PATH`. Built from dojoengine/saya
-//!   `feat/mock-prove`.
-//! - `saya-tee`: discovered via `SAYA_TEE_BIN` env var or `$PATH`. Built from dojoengine/saya
-//!   `feat/mock-prove`.
+//! Both are built from [dojoengine/saya](https://github.com/dojoengine/saya) `feat/mock-prove`.
+//!
+//! - `saya-ops`: discovered via `SAYA_OPS_BIN` or `$PATH`.
+//! - `saya-tee`: discovered via `SAYA_TEE_BIN` or `$PATH`.
 
 use std::time::Duration;
 
@@ -76,13 +106,16 @@ async fn main() -> Result<()> {
 
     // 6. Drive L3 one block at a time and assert Piltover settles each block before driving the
     //    next. Catches regressions a bulk-then-settle flow would miss: nonce drift across
-    //    iterations, saya-tee batching the wrong ranges, stateful proof-pipeline bugs that
-    //    only surface on the second or third update.
+    //    iterations, saya-tee batching the wrong ranges, stateful proof-pipeline bugs that only
+    //    surface on the second or third update.
     const N_BLOCKS: usize = 3;
     for i in 1..=N_BLOCKS {
         println!("--- iteration {i}/{N_BLOCKS} ---");
+
         nodes::drive_l3_block(&l3).await?;
+
         println!("Drove L3 block, waiting for Piltover to settle");
+
         assertions::wait_for_settlement(
             &l2,
             &l3,

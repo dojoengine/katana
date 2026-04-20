@@ -1,22 +1,11 @@
-//! Polling assertions for the saya-tee e2e test.
+//! Piltover state assertions. See `main.rs` for the overall test scope and the real/mock split.
 //!
-//! The single assertion that proves the entire pipeline worked is:
-//!
-//! > Piltover's `get_state()` returns a `block_number` that is no longer the
-//! > genesis sentinel `Felt::MAX`.
-//!
-//! This means saya-tee successfully:
-//!
-//! 1. Polled L3 for new blocks via `starknet_blockNumber` / `starknet_getStateUpdate`.
-//! 2. Fetched a TEE attestation from L3 via `tee_generateQuote` (served by
-//!    `katana_tee::MockProvider`).
-//! 3. Synthesized a fake `OnchainProof` via the `--mock-prove` fast path.
-//! 4. Submitted `update_state` to Piltover with that proof.
-//! 5. Piltover dispatched `verify_sp1_proof` to the mock TEE registry which returned the journal
-//!    verbatim.
-//! 6. Piltover's `validate_input` recomputed the Poseidon commitment and matched it against the
-//!    report_data the mock prover had embedded.
-//! 7. Piltover advanced its on-chain state.
+//! Each call to [`wait_for_settlement`] exercises the full settlement round-trip: saya-tee polls
+//! L3 (`starknet_blockNumber`, `starknet_getStateUpdate`), fetches the mock TEE quote from L3's
+//! `tee_generateQuote`, synthesizes a stub `OnchainProof`, submits `update_state` to Piltover on
+//! L2, which runs its real `validate_input` (Poseidon commitment recompute, byte-matched against
+//! the mock quote's `report_data`) before advancing state. Only the cryptographic steps
+//! (AMD signing, SP1 proving, on-chain SP1 verify) are bypassed.
 
 use std::time::{Duration, Instant};
 
