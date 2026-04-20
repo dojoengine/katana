@@ -80,13 +80,8 @@ async fn main() -> Result<()> {
 
     // 7. Wait for Piltover's block_number to match L3's tip; assert state_root and block_hash are
     //    both non-zero post-settlement.
-    assertions::wait_for_settlement(
-        &l2,
-        &l3,
-        bootstrap.piltover_address,
-        Duration::from_secs(180),
-    )
-    .await?;
+    assertions::wait_for_settlement(&l2, &l3, bootstrap.piltover_address, Duration::from_secs(180))
+        .await?;
 
     println!("=== saya-tee e2e test PASSED ===");
     Ok(())

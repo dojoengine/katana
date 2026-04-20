@@ -110,11 +110,9 @@ pub async fn wait_for_settlement(
     piltover_address: Felt,
     timeout: Duration,
 ) -> Result<()> {
-    let l3_tip = l3
-        .provider()
-        .block_number()
-        .await
-        .context("failed to fetch L3 latest block number")?;
+    let l3_tip =
+        l3.provider().block_number().await.context("failed to fetch L3 latest block number")?;
+
     let expected_block_number = Felt::from(l3_tip);
     println!("Waiting for Piltover to settle up to L3 block {l3_tip}");
 
@@ -158,6 +156,7 @@ pub async fn wait_for_settlement(
                     return Ok(());
                 }
             }
+
             Err(e) => {
                 eprintln!("[debug] Piltover get_state call failed, retrying: {e}");
             }
