@@ -522,6 +522,10 @@ jobs:
             - name: Clone Saya repository
               run: git clone --depth 1 https://github.com/dojoengine/saya /tmp/saya
 
+            - uses: software-mansion/setup-scarb@v1
+              with:
+                  scarb-version: "2.13.1"
+
             - name: Install saya-ops
               run: cargo install --locked --path /tmp/saya/bin/ops --bin saya-ops
 
