@@ -90,7 +90,11 @@ impl MessageCollector for StarknetCollector {
     ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
         Box::pin(async move {
             let mut transactions: Vec<L1HandlerTx> = vec![];
+            // The position of the last processed event within `to_block`. Starknet
+            // events don't carry a native transaction index, so we count events
+            // scoped to the block. If no messages fall in `to_block`, this stays 0.
             let mut tx_index: u64 = 0;
+            let mut events_seen_in_to_block: u64 = 0;
 
             let events = Self::fetch_events(
                 &self.provider,
@@ -101,12 +105,20 @@ impl MessageCollector for StarknetCollector {
             .await
             .map_err(|_| Error::GatherError)?;
 
-            for (idx, e) in events.iter().enumerate() {
+            for e in events.iter() {
                 debug!(target: LOG_TARGET, event = ?e, "Converting event into L1HandlerTx.");
+
+                let in_to_block = e.block_number == Some(to_block);
 
                 if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
                     transactions.push(tx);
-                    tx_index = idx as u64;
+                    if in_to_block {
+                        tx_index = events_seen_in_to_block;
+                    }
+                }
+
+                if in_to_block {
+                    events_seen_in_to_block += 1;
                 }
             }
 

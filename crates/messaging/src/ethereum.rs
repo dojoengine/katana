@@ -107,6 +107,9 @@ impl MessageCollector for EthereumCollector {
     ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
         Box::pin(async move {
             let mut transactions = vec![];
+            // The tx index of the last processed log within `to_block`. If no messages
+            // fall in `to_block`, this stays 0, which is meaningful because `from_block`
+            // advances past `to_block` regardless.
             let mut tx_index: u64 = 0;
 
             let logs =
@@ -116,8 +119,10 @@ impl MessageCollector for EthereumCollector {
             for log in &logs {
                 debug!(target: LOG_TARGET, log = ?log, "Converting log into L1HandlerTx.");
 
-                if let Some(idx) = log.transaction_index {
-                    tx_index = idx;
+                if log.block_number == Some(to_block) {
+                    if let Some(idx) = log.transaction_index {
+                        tx_index = idx;
+                    }
                 }
 
                 if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {

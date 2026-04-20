@@ -22,6 +22,7 @@ use katana_provider_api::block::{
     BlockWriter, HeaderProvider,
 };
 use katana_provider_api::env::BlockEnvProvider;
+use katana_provider_api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
@@ -680,6 +681,20 @@ impl<Tx1: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1> {
 
     fn set_prune_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
         self.local_db.set_prune_checkpoint(id, block_number)
+    }
+}
+
+impl<Tx1: DbTxMut> MessagingCheckpointProvider for ForkedProvider<Tx1> {
+    fn messaging_checkpoint(&self, id: &str) -> ProviderResult<Option<MessagingCheckpoint>> {
+        self.local_db.messaging_checkpoint(id)
+    }
+
+    fn set_messaging_checkpoint(
+        &self,
+        id: &str,
+        checkpoint: &MessagingCheckpoint,
+    ) -> ProviderResult<()> {
+        self.local_db.set_messaging_checkpoint(id, checkpoint)
     }
 }
 

@@ -38,8 +38,10 @@ use katana_pool::TxPool;
 use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
+use katana_provider::api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
 use katana_provider::{
-    DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
+    DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
+    ProviderRW,
 };
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
@@ -663,7 +665,7 @@ impl<P> Node<P>
 where
     P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
+    <P as ProviderFactory>::ProviderMut: ProviderRW + MessagingCheckpointProvider + MutableProvider,
 {
     /// Start the node.
     ///
@@ -750,6 +752,7 @@ where
             &self.config,
             &self.backend,
             &self.pool,
+            self.provider.clone(),
         )?;
 
         Ok(LaunchedNode {
@@ -808,36 +811,67 @@ where
         config: &Config,
         backend: &Arc<Backend<P>>,
         pool: &TxPool,
+        provider_factory: P,
     ) -> Result<MessagingHandle> {
-        let messenger: Box<dyn katana_messaging::Messenger> =
-            if let Some(ref msg_config) = config.messaging {
-                let chain_id = backend.chain_spec.id();
-                let from_block = msg_config.from_block;
-                let trigger = IntervalTrigger::new(msg_config.interval);
+        const CHECKPOINT_ID: &str = "messaging";
 
-                match &msg_config.settlement {
-                    SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
-                        let collector =
-                            katana_messaging::ethereum::EthereumCollector::new(
-                                rpc_url,
-                                contract_address,
-                            )?;
-                        Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
-                    }
-                    SettlementChainConfig::Starknet { rpc_url, contract_address } => {
-                        let collector =
-                            katana_messaging::starknet::StarknetCollector::new(
-                                rpc_url,
-                                contract_address,
-                            )?;
-                        Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
+        let messenger: Box<dyn katana_messaging::Messenger> = if let Some(ref msg_config) =
+            config.messaging
+        {
+            let chain_id = backend.chain_spec.id();
+
+            // Prefer the persisted checkpoint over the config. On restart we resume from the
+            // block after the last successfully processed one.
+            let checkpointed_from_block = {
+                let tx = provider_factory.provider_mut();
+                let cp = tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
+                MutableProvider::commit(tx).context("commit checkpoint read tx")?;
+                cp.map(|c| c.block + 1)
+            };
+            let from_block = checkpointed_from_block.unwrap_or(msg_config.from_block);
+
+            let trigger = IntervalTrigger::new(msg_config.interval);
+
+            match &msg_config.settlement {
+                SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
+                    let collector =
+                        katana_messaging::ethereum::EthereumCollector::new(rpc_url, contract_address)?;
+                    Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
+                }
+                SettlementChainConfig::Starknet { rpc_url, contract_address } => {
+                    let collector =
+                        katana_messaging::starknet::StarknetCollector::new(rpc_url, contract_address)?;
+                    Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
+                }
+            }
+        } else {
+            Box::new(NoopMessenger)
+        };
+
+        // Persist every successful gather so a restart resumes from where we left off.
+        let on_gather_provider = provider_factory.clone();
+        let on_gather: katana_messaging::server::OnGatherCallback =
+            Box::new(move |cp: katana_messaging::server::Checkpoint| {
+                let tx = on_gather_provider.provider_mut();
+                let result = tx.set_messaging_checkpoint(
+                    CHECKPOINT_ID,
+                    &MessagingCheckpoint { block: cp.block, tx_index: cp.tx_index },
+                );
+                match result.and_then(|_| MutableProvider::commit(tx).map_err(Into::into)) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            target: "messaging",
+                            error = %e,
+                            block = cp.block,
+                            tx_index = cp.tx_index,
+                            "Failed to persist messaging checkpoint.",
+                        );
                     }
                 }
-            } else {
-                Box::new(NoopMessenger)
-            };
+            });
 
-        let server = MessagingServer::new(messenger).pool(pool.clone());
+        let server = MessagingServer::new(messenger).pool(pool.clone()).on_gather(on_gather);
         Ok(server.start())
     }
 }
