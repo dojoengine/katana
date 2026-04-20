@@ -933,8 +933,10 @@ where
             handle.stop()?;
         }
 
-        // Stop messaging server
+        // Stop messaging server. Signal and then await so the final checkpoint
+        // write completes before we tear down the provider.
         self.messaging.stop();
+        self.messaging.stopped().await;
 
         self.node.task_manager.shutdown().await;
         Ok(())
