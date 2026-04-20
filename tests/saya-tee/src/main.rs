@@ -37,7 +37,7 @@
 //!
 //! ## Required binaries
 //!
-//! Both are built from [dojoengine/saya](https://github.com/dojoengine/saya) `feat/mock-prove`.
+//! Both are built from [dojoengine/saya](https://github.com/dojoengine/saya) at rev `5a3b8c9`.
 //!
 //! - `saya-ops`: discovered via `SAYA_OPS_BIN` or `$PATH`.
 //! - `saya-tee`: discovered via `SAYA_TEE_BIN` or `$PATH`.

@@ -1,7 +1,7 @@
 //! L2 contract deployment via `saya-ops`.
 //!
 //! Shells out to the `saya-ops` binary (built from
-//! `dojoengine/saya@feat/mock-prove`) to declare and deploy:
+//! `dojoengine/saya@5a3b8c9`) to declare and deploy:
 //!
 //! 1. The `mock_amd_tee_registry` contract — a permissive `IAMDTeeRegistry` mock from
 //!    `cartridge-gg/piltover` (added in piltover#15), vendored into saya at
@@ -204,7 +204,7 @@ fn resolve_saya_ops_bin() -> Result<PathBuf> {
     }
     Err(anyhow!(
         "`saya-ops` binary not found. Set SAYA_OPS_BIN env var or add it to $PATH. Build from \
-         dojoengine/saya@feat/mock-prove with `cargo install --path bin/ops`."
+         dojoengine/saya@5a3b8c9 with `cargo install --path bin/ops`."
     ))
 }
 

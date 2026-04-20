@@ -520,7 +520,9 @@ jobs:
                   name: fixtures
 
             - name: Clone Saya repository
-              run: git clone --depth 1 https://github.com/dojoengine/saya /tmp/saya
+              run: |
+                  git clone https://github.com/dojoengine/saya /tmp/saya
+                  git -C /tmp/saya checkout 5a3b8c9
 
             - uses: software-mansion/setup-scarb@v1
               with:

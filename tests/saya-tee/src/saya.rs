@@ -7,7 +7,7 @@
 //! Build instructions:
 //!
 //! ```sh
-//! cd dojoengine/saya  # branch: feat/mock-prove
+//! cd dojoengine/saya  # rev: 5a3b8c9
 //! cd bin/persistent-tee && cargo install --path .
 //! ```
 //!
@@ -113,7 +113,7 @@ fn resolve_saya_tee_bin() -> Result<PathBuf> {
     }
     Err(anyhow!(
         "`saya-tee` binary not found. Set SAYA_TEE_BIN env var or add it to $PATH. Build from \
-         dojoengine/saya@feat/mock-prove with `cd bin/persistent-tee && cargo install --path .`"
+         dojoengine/saya@5a3b8c9 with `cd bin/persistent-tee && cargo install --path .`"
     ))
 }
 
