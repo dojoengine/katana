@@ -405,8 +405,6 @@ jobs:
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
-        env:
-            ASDF_SOZO_VERSION: "1.7.0"
         steps:
             - uses: actions/checkout@v3
               with:
@@ -433,23 +431,34 @@ jobs:
               run: chmod +x ./katana
 
             - name: Start Katana
-              run: ./katana > katana.log 2>&1 &
+              run: ./katana --dev --dev.no-fee > katana.log 2>&1 &
 
-            - name: Checkout Dojo repository
-              uses: actions/checkout@v3
-              with:
-                  repository: dojoengine/dojo
-                  ref: v1.7.0-alpha.2
-                  path: dojo
+            # Clone outside $GITHUB_WORKSPACE so Dojo's Cargo.toml doesn't collide with
+            # Katana's workspace during proc-macro resolution.
+            - name: Clone Dojo repository
+              run: |
+                  mkdir -p /tmp/dojo
+                  cd /tmp/dojo
+                  git init -q
+                  git remote add origin https://github.com/dojoengine/dojo.git
+                  git fetch --depth=1 origin a6c6047d5e038b83041e06ecfb704ab390981140
+                  git checkout FETCH_HEAD
 
             - uses: software-mansion/setup-scarb@v1
               with:
-                  scarb-version: "dev-2025-09-05"
+                  scarb-version: "2.13.1"
+
+            # Build sozo from the pinned Dojo source so the migrate step runs with the
+            # sozo matching the Dojo revision under test, not a stale asdf-installed release.
+            - name: Build sozo from Dojo source
+              run: |
+                  cd /tmp/dojo
+                  cargo build --release --bin sozo
 
             - name: Build and migrate `spawn-and-move` project
               run: |
-                  cd dojo/examples/spawn-and-move
-                  sozo build && sozo migrate
+                  cd /tmp/dojo/examples/spawn-and-move
+                  scarb build && /tmp/dojo/target/release/sozo migrate
 
             - name: Output Katana logs on failure
               if: failure()
