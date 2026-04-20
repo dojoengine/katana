@@ -519,18 +519,13 @@ jobs:
               with:
                   name: fixtures
 
-            # Both `saya-ops` and `saya-tee` come from `dojoengine/saya` on
-            # the `feat/mock-prove` branch. Each is in its own sub-workspace
-            # under `bin/`, so we clone the repo and `cargo install --path`
-            # rather than `cargo install --git --bin` (which only sees the
-            # root workspace).
-            - name: Clone saya feat/mock-prove
-              run: git clone --depth 1 --branch feat/mock-prove https://github.com/dojoengine/saya /tmp/saya
+            - name: Clone Saya repository
+              run: git clone --depth 1 https://github.com/dojoengine/saya /tmp/saya
 
-            - name: Install saya-ops from feat/mock-prove
+            - name: Install saya-ops
               run: cargo install --locked --path /tmp/saya/bin/ops --bin saya-ops
 
-            - name: Install saya-tee from feat/mock-prove
+            - name: Install saya-tee
               run: cargo install --locked --path /tmp/saya/bin/persistent-tee --bin saya-tee
 
             - name: Run saya-tee e2e test
