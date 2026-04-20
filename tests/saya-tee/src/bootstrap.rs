@@ -22,7 +22,7 @@ use anyhow::{anyhow, Context, Result};
 use starknet_types_core::felt::Felt;
 use tracing::{debug, info};
 
-use crate::nodes::L2Subprocess;
+use crate::nodes::L2InProcess;
 
 const CHAIN_ID_SHORT_STRING: &str = "katana_e2e";
 const FACT_REGISTRY_SALT: &str = "0x53fac7";
@@ -30,7 +30,7 @@ const PILTOVER_SALT: &str = "0x9117f0";
 const TEE_REGISTRY_SALT: &str = "0x7ee";
 
 /// Runs the full L2 bootstrap sequence.
-pub async fn bootstrap_l2(l2: &L2Subprocess) -> Result<BootstrapResult> {
+pub async fn bootstrap_l2(l2: &L2InProcess) -> Result<BootstrapResult> {
     let l2_url = l2.url();
 
     // Pull the prefunded account from the dev genesis.

@@ -27,14 +27,14 @@ use starknet::providers::Provider;
 use starknet_types_core::felt::Felt;
 use tracing::{debug, info};
 
-use crate::nodes::L2Subprocess;
+use crate::nodes::L2InProcess;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Polls Piltover's `get_state()` until `block_number != Felt::MAX`, or
 /// returns an error after `timeout`.
 pub async fn wait_for_settlement(
-    l2: &L2Subprocess,
+    l2: &L2InProcess,
     piltover_address: Felt,
     timeout: Duration,
 ) -> Result<()> {
