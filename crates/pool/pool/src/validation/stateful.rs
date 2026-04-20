@@ -44,9 +44,11 @@ struct Inner {
     state: Arc<Box<dyn StateProvider>>,
     pool_nonces: HashMap<ContractAddress, Nonce>,
     chain_spec: Arc<ChainSpec>,
+    class_cache: ClassCache,
 }
 
 impl TxValidator {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: Box<dyn StateProvider>,
         execution_flags: ExecutionFlags,
@@ -54,6 +56,7 @@ impl TxValidator {
         block_env: BlockEnv,
         permit: Arc<Mutex<()>>,
         chain_spec: Arc<ChainSpec>,
+        class_cache: ClassCache,
     ) -> Self {
         let inner = Arc::new(Mutex::new(Inner {
             cfg_env,
@@ -62,6 +65,7 @@ impl TxValidator {
             execution_flags,
             state: Arc::new(state),
             pool_nonces: HashMap::new(),
+            class_cache,
         }));
         Self { permit, inner }
     }
@@ -92,8 +96,7 @@ impl Inner {
     // for transaction validation.
     fn prepare(&self) -> StatefulValidator<StateProviderDb> {
         let state = Box::new(self.state.clone());
-        let class_cache = ClassCache::global().clone();
-        let state_provider = StateProviderDb::new_with_class_cache(state, class_cache);
+        let state_provider = StateProviderDb::new(state, self.class_cache.clone());
 
         let cached_state = CachedState::new(state_provider);
         let context =

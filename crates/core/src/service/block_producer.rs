@@ -294,6 +294,7 @@ where
             block_env,
             permit.clone(),
             backend.chain_spec.clone(),
+            backend.executor_factory.class_cache().clone(),
         );
 
         let blocking_task_spawner = CpuBlockingTaskPool::builder()
@@ -641,6 +642,7 @@ where
             block_env,
             permit.clone(),
             backend.chain_spec.clone(),
+            backend.executor_factory.class_cache().clone(),
         );
 
         let blocking_task_spawner = CpuBlockingTaskPool::builder()
