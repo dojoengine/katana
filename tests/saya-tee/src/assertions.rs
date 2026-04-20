@@ -20,16 +20,40 @@
 
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
-use starknet::core::types::{BlockId, BlockTag, FunctionCall};
-use starknet::macros::selector;
-use starknet::providers::Provider;
+use anyhow::{anyhow, Result};
+use cainome::rs::abigen;
 use starknet_types_core::felt::Felt;
-use tracing::{debug, info};
 
 use crate::nodes::L2InProcess;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+abigen!(CoreContract,
+[
+    {
+        "type": "impl",
+        "name": "StateImpl",
+        "interface_name": "piltover::state::interface::IState"
+    },
+    {
+        "type": "interface",
+        "name": "piltover::state::interface::IState",
+        "items": [
+            {
+                "type": "function",
+                "name": "get_state",
+                "inputs": [],
+                "outputs": [
+                    {
+                        "type": "(core::felt252, core::felt252, core::felt252)"
+                    }
+                ],
+                "state_mutability": "view"
+            }
+        ]
+    }
+]
+);
 
 /// Polls Piltover's `get_state()` until `block_number != Felt::MAX`, or
 /// returns an error after `timeout`.
@@ -48,37 +72,24 @@ pub async fn wait_for_settlement(
             ));
         }
 
-        match provider
-            .call(
-                FunctionCall {
-                    contract_address: piltover_address,
-                    entry_point_selector: selector!("get_state"),
-                    calldata: vec![],
-                },
-                BlockId::Tag(BlockTag::Latest),
-            )
-            .await
-        {
-            Ok(state) => {
-                // AppchainState layout: [state_root, block_number, block_hash]
-                let block_number = state
-                    .get(1)
-                    .copied()
-                    .context("Piltover get_state returned fewer than 2 felts")?;
-
+        let core_contract = CoreContractReader::new(piltover_address, &provider);
+        match core_contract.get_state().call().await {
+            // AppchainState layout: [state_root, block_number, block_hash]
+            Ok((state_root, block_number, block_hash)) => {
                 if block_number == Felt::MAX {
-                    debug!("Piltover still at genesis sentinel (block_number = Felt::MAX)");
+                    eprintln!("[debug] Piltover still at genesis sentinel (block_number = Felt::MAX)");
                 } else {
-                    info!(
-                        block_number = %hex(&block_number),
-                        state_root = %hex(state.first().unwrap_or(&Felt::ZERO)),
-                        "Piltover state advanced"
+                    println!(
+                        "Piltover state advanced: block_number={} state_root={} block_hash={}",
+                        hex(&block_number),
+                        hex(&state_root),
+                        hex(&block_hash)
                     );
                     return Ok(());
                 }
             }
             Err(e) => {
-                debug!(error = %e, "Piltover get_state call failed, retrying");
+                eprintln!("[debug] Piltover get_state call failed, retrying: {e}");
             }
         }
 

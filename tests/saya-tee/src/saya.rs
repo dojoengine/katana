@@ -20,7 +20,6 @@ use std::process::{Child, Command, Stdio};
 use anyhow::{anyhow, Context, Result};
 use starknet_types_core::felt::Felt;
 use tempfile::TempDir;
-use tracing::{debug, info, warn};
 use url::Url;
 
 #[derive(Debug, Clone)]
@@ -44,15 +43,15 @@ impl Drop for SayaTeeGuard {
     fn drop(&mut self) {
         match self.child.try_wait() {
             Ok(Some(status)) => {
-                debug!(?status, "saya-tee already exited before drop");
+                eprintln!("[debug] saya-tee already exited before drop: {status:?}");
             }
             Ok(None) => {
                 if let Err(e) = self.child.kill() {
-                    warn!(error = %e, "failed to kill saya-tee child");
+                    eprintln!("failed to kill saya-tee child: {e}");
                 }
                 let _ = self.child.wait();
             }
-            Err(e) => warn!(error = %e, "failed to query saya-tee child status"),
+            Err(e) => eprintln!("failed to query saya-tee child status: {e}"),
         }
     }
 }
@@ -89,7 +88,7 @@ pub fn spawn_saya_tee(cfg: &SayaTeeConfig) -> Result<SayaTeeGuard> {
     .stdout(Stdio::inherit())
     .stderr(Stdio::inherit());
 
-    info!(?bin, "spawning saya-tee");
+    println!("spawning saya-tee from {bin:?}");
     let child = cmd.spawn().with_context(|| format!("failed to spawn saya-tee at {bin:?}"))?;
 
     Ok(SayaTeeGuard { child, _db_dir: db_dir })

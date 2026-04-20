@@ -19,6 +19,7 @@ katana-sequencer-node = { workspace = true, features = ["tee", "tee-mock"] }
 katana-tee = { workspace = true, features = ["tee-mock"] }
 katana-utils = { workspace = true, features = ["node"] }
 
+cainome.workspace = true
 anyhow.workspace = true
 hex.workspace = true
 serde_json.workspace = true
@@ -26,6 +27,5 @@ starknet.workspace = true
 starknet-types-core.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
-tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true

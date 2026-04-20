@@ -10230,6 +10230,7 @@ name = "saya-tee-e2e-test"
 version = "1.7.0"
 dependencies = [
  "anyhow",
+ "cainome",
  "hex",
  "katana-chain-spec",
  "katana-genesis",
@@ -10243,7 +10244,6 @@ dependencies = [
  "starknet-types-core 0.2.3",
  "tempfile",
  "tokio",
- "tracing",
  "tracing-subscriber",
  "url",
 ]

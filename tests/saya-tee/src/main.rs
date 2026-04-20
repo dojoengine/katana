@@ -28,7 +28,6 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use tracing::{info, warn};
 
 mod assertions;
 mod bootstrap;
@@ -39,19 +38,23 @@ mod saya;
 async fn main() -> Result<()> {
     init_logging();
 
-    info!("=== saya-tee e2e test starting ===");
+    println!("=== saya-tee e2e test starting ===");
 
     // 1. Spawn L2 dev Katana in-process.
     let l2 = nodes::spawn_l2().await;
-    info!(l2_url = %l2.url(), "L2 Katana ready");
+    println!("L2 Katana ready at {}", l2.url());
 
     // 2. Bootstrap mock TEE registry + Piltover on L2 via saya-ops.
     let bootstrap = bootstrap::bootstrap_l2(&l2).await?;
-    info!(piltover = %hex_felt(&bootstrap.piltover_address), tee_registry = %hex_felt(&bootstrap.tee_registry_address), "L2 contracts deployed");
+    println!(
+        "L2 contracts deployed: piltover={} tee_registry={}",
+        hex_felt(&bootstrap.piltover_address),
+        hex_felt(&bootstrap.tee_registry_address)
+    );
 
     // 3. Spawn L3 rollup Katana with TEE config + settlement pointed at L2.
     let l3 = nodes::spawn_l3(&l2, bootstrap.piltover_address).await;
-    info!(l3_url = %l3.url(), "L3 Katana ready");
+    println!("L3 Katana ready at {}", l3.url());
 
     // 4. Spawn saya-tee --mock-prove as a sidecar (RAII guard kills on drop).
     let _saya = saya::spawn_saya_tee(&saya::SayaTeeConfig {
@@ -62,28 +65,31 @@ async fn main() -> Result<()> {
         settlement_account_address: bootstrap.account_address,
         settlement_account_private_key: bootstrap.account_private_key,
     })?;
-    info!("saya-tee sidecar spawned");
+    println!("saya-tee sidecar spawned");
 
     // 5. Drive L3 to advance block height — provable-mode rollups never produce empty blocks, so we
     //    submit explicit no-op transfers.
     nodes::drive_l3_blocks(&l3, 3).await?;
-    info!("L3 advanced to block height >= 3");
+    println!("L3 advanced to block height >= 3");
 
     // 6. Wait for Piltover state to advance past the genesis sentinel.
     assertions::wait_for_settlement(&l2, bootstrap.piltover_address, Duration::from_secs(180))
         .await?;
 
-    info!("=== saya-tee e2e test PASSED ===");
+    println!("=== saya-tee e2e test PASSED ===");
     Ok(())
 }
 
+/// Configures a tracing subscriber so logs emitted by Katana and saya-tee (which
+/// both use `tracing` internally) surface to the terminal. The test itself uses
+/// plain `println!` / `eprintln!`.
 fn init_logging() {
     use tracing_subscriber::EnvFilter;
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new("info,saya_tee_e2e_test=debug,katana_node=warn,katana_core=warn")
     });
     if let Err(e) = tracing_subscriber::fmt().with_env_filter(filter).try_init() {
-        warn!("failed to init tracing subscriber: {e}");
+        eprintln!("failed to init tracing subscriber: {e}");
     }
 }
 

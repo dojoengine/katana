@@ -20,7 +20,6 @@ use std::process::{Command, Stdio};
 
 use anyhow::{anyhow, Context, Result};
 use starknet_types_core::felt::Felt;
-use tracing::{debug, info};
 
 use crate::nodes::L2InProcess;
 
@@ -43,18 +42,18 @@ pub async fn bootstrap_l2(l2: &L2InProcess) -> Result<BootstrapResult> {
         chain_id: "SN_SEPOLIA".to_string(),
     };
 
-    info!("Declaring + deploying mock TEE registry on L2");
+    println!("Declaring + deploying mock TEE registry on L2");
     let tee_registry_address = saya.declare_and_deploy_tee_registry_mock()?;
-    info!(tee_registry_address = %hex(&tee_registry_address));
+    println!("  tee_registry_address={}", hex(&tee_registry_address));
 
-    info!("Declaring Piltover core contract on L2");
+    println!("Declaring Piltover core contract on L2");
     saya.declare_core_contract()?;
 
-    info!("Deploying Piltover core contract on L2");
+    println!("Deploying Piltover core contract on L2");
     let piltover_address = saya.deploy_core_contract()?;
-    info!(piltover_address = %hex(&piltover_address));
+    println!("  piltover_address={}", hex(&piltover_address));
 
-    info!("Configuring Piltover with mock TEE registry as fact_registry_address");
+    println!("Configuring Piltover with mock TEE registry as fact_registry_address");
     saya.setup_program(piltover_address, tee_registry_address)?;
 
     Ok(BootstrapResult {
@@ -149,7 +148,7 @@ struct CapturedOutput {
 }
 
 fn run(mut cmd: Command, label: &str) -> Result<CapturedOutput> {
-    debug!(?cmd, "running saya-ops");
+    eprintln!("[debug] running saya-ops: {cmd:?}");
     let output = cmd.output().with_context(|| format!("failed to spawn `saya-ops` for {label}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
