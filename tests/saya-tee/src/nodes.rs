@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use cainome::rs::abigen_legacy;
 use katana_chain_spec::rollup::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
 use katana_chain_spec::{rollup, ChainSpec, FeeContracts, SettlementLayer};
 use katana_genesis::allocation::DevAllocationsGenerator;
@@ -152,39 +153,34 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
     // Note: rollup chain specs (provable mode) never produce empty blocks
     // even with `block_time` set, per the upstream Saya README. The L3 only
     // advances when transactions are submitted; we drive that explicitly
-    // via [`drive_l3_blocks`] below.
+    // via [`drive_l3_block`] below.
 
     L3InProcess { inner: TestNode::new_with_config(config).await }
 }
 
-/// Drives the L3 forward by submitting `n` no-op self-transfers via the
-/// prefunded test account. Each transfer triggers a new block (provable-mode
-/// rollups never produce empty blocks, so transactions are the only way to
-/// advance height).
-pub async fn drive_l3_blocks(l3: &L3InProcess, n: u64) -> Result<()> {
+/// Drives the L3 forward by one block via a single no-op self-transfer from the
+/// prefunded test account. Provable-mode rollups never produce empty blocks, so
+/// transactions are the only way to advance height.
+pub async fn drive_l3_block(l3: &L3InProcess) -> Result<()> {
     use starknet::accounts::Account;
     use starknet::core::types::Call;
     use starknet::macros::selector;
+
+    abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
     let account = l3.account();
     let address = account.address();
     let strk: Felt = DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS.into();
 
-    for i in 0..n {
-        let call = Call {
-            to: strk,
-            selector: selector!("transfer"),
-            calldata: vec![address, Felt::from(1u64), Felt::ZERO],
-        };
+    let call = Call {
+        to: strk,
+        selector: selector!("transfer"),
+        calldata: vec![address, Felt::from(1u64), Felt::ZERO],
+    };
 
-        let result = account
-            .execute_v3(vec![call])
-            .send()
-            .await
-            .with_context(|| format!("driver tx {i} failed to send"))?;
+    let result = account.execute_v3(vec![call]).send().await.context("driver tx failed to send")?;
 
-        wait_for_tx(&l3.provider(), result.transaction_hash).await?;
-    }
+    wait_for_tx(&l3.provider(), result.transaction_hash).await?;
 
     Ok(())
 }
