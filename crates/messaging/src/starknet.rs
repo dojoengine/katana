@@ -15,7 +15,7 @@ use starknet::providers::{AnyProvider, JsonRpcClient, Provider};
 use tracing::{debug, error, trace};
 use url::Url;
 
-use crate::collector::{GatherResult, MessageCollector};
+use crate::collector::{GatherResult, MessageCollector, PositionedMessage};
 use crate::{Error, LOG_TARGET};
 
 /// TODO: This may come from the configuration.
@@ -85,16 +85,12 @@ impl MessageCollector for StarknetCollector {
     fn gather(
         &self,
         from_block: u64,
+        from_tx_index: u64,
         to_block: u64,
         chain_id: ChainId,
     ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
         Box::pin(async move {
-            let mut transactions: Vec<L1HandlerTx> = vec![];
-            // The position of the last processed event within `to_block`. Starknet
-            // events don't carry a native transaction index, so we count events
-            // scoped to the block. If no messages fall in `to_block`, this stays 0.
-            let mut tx_index: u64 = 0;
-            let mut events_seen_in_to_block: u64 = 0;
+            let mut messages: Vec<PositionedMessage> = vec![];
 
             let events = Self::fetch_events(
                 &self.provider,
@@ -105,24 +101,29 @@ impl MessageCollector for StarknetCollector {
             .await
             .map_err(|_| Error::GatherError)?;
 
+            // Starknet events don't carry a native tx index, so we assign one by
+            // counting `MessageSent` events scoped to each block.
+            let mut tx_index_in_block: std::collections::HashMap<u64, u64> =
+                std::collections::HashMap::new();
+
             for e in events.iter() {
-                debug!(target: LOG_TARGET, event = ?e, "Converting event into L1HandlerTx.");
+                let Some(block) = e.block_number else { continue };
+                let tx_index = *tx_index_in_block.entry(block).or_insert(0);
+                tx_index_in_block.insert(block, tx_index + 1);
 
-                let in_to_block = e.block_number == Some(to_block);
-
-                if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
-                    transactions.push(tx);
-                    if in_to_block {
-                        tx_index = events_seen_in_to_block;
-                    }
+                // Skip messages already processed on a previous run.
+                if block == from_block && tx_index < from_tx_index {
+                    continue;
                 }
 
-                if in_to_block {
-                    events_seen_in_to_block += 1;
+                debug!(target: LOG_TARGET, block, tx_index, "Converting event into L1HandlerTx.");
+
+                if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
+                    messages.push(PositionedMessage { block, tx_index, tx });
                 }
             }
 
-            Ok(GatherResult { to_block, tx_index, transactions })
+            Ok(GatherResult { to_block, messages })
         })
     }
 }

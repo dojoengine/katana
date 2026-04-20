@@ -4,7 +4,7 @@ use katana_pool::TxPool;
 use katana_primitives::transaction::{ExecutableTxWithHash, L1HandlerTx, TxHash};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{Messenger, MessagingOutcome, LOG_TARGET};
 
@@ -15,16 +15,19 @@ impl std::fmt::Debug for MessagingServer {
 }
 
 /// Checkpoint data passed to the on_gather callback.
+///
+/// Identifies the last fully processed message so a restart can resume from the next
+/// position. The callback is invoked once per successfully pool-inserted message.
 #[derive(Debug, Clone)]
 pub struct Checkpoint {
-    /// The settlement chain block number last processed.
+    /// The settlement chain block the message was emitted in.
     pub block: u64,
-    /// The transaction index within `block` up to which messages were processed.
+    /// The transaction index of the message within `block`.
     pub tx_index: u64,
 }
 
-/// Callback invoked by the server after each successful message gather.
-/// Used for checkpointing and any other post-gather side effects.
+/// Callback invoked by the server after each successful pool insert to persist
+/// progress. Caller is responsible for any durability guarantees (e.g., a DB commit).
 pub type OnGatherCallback = Box<dyn Fn(Checkpoint) + Send + Sync>;
 
 /// The messaging server drains a [`Messenger`] stream, adds gathered transactions
@@ -47,8 +50,8 @@ impl MessagingServer {
         self
     }
 
-    /// Set a callback to be invoked after each successful gather with the latest
-    /// settlement block number. Typically used to persist the checkpoint.
+    /// Set a callback invoked after each successful pool insert with the checkpoint
+    /// of the just-processed message.
     pub fn on_gather(mut self, callback: OnGatherCallback) -> Self {
         self.on_gather = Some(callback);
         self
@@ -57,9 +60,10 @@ impl MessagingServer {
     /// Start the messaging server. Returns a handle for lifecycle control.
     ///
     /// The server runs a background task that:
-    /// 1. Drains the messenger stream
-    /// 2. Adds gathered transactions to the pool
-    /// 3. Invokes the on_gather callback (for checkpointing)
+    /// 1. Drains the messenger stream for positioned messages
+    /// 2. Adds each message to the pool individually
+    /// 3. On each successful insert, invokes `on_gather` with the message's checkpoint
+    ///    — enabling fine-grained resume after a crash
     pub fn start(self) -> MessagingHandle {
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
@@ -74,32 +78,58 @@ impl MessagingServer {
                 tokio::select! {
                     outcome = messenger.next() => {
                         match outcome {
-                            Some(MessagingOutcome { settlement_block, tx_index, transactions }) => {
-                                let msg_count = transactions.len();
+                            Some(MessagingOutcome { settlement_block, messages }) => {
+                                let total = messages.len();
+                                let mut inserted: usize = 0;
 
-                                for tx in transactions {
-                                    let hash = tx.calculate_hash();
-                                    trace_l1_handler_tx_exec(hash, &tx);
-                                    let _ = pool
+                                for msg in messages {
+                                    let hash = msg.tx.calculate_hash();
+                                    trace_l1_handler_tx_exec(hash, &msg.tx);
+
+                                    let insert_result = pool
                                         .add_transaction(ExecutableTxWithHash {
                                             hash,
-                                            transaction: tx.into(),
+                                            transaction: msg.tx.into(),
                                         })
                                         .await;
+
+                                    match insert_result {
+                                        Ok(_) => {
+                                            inserted += 1;
+                                            // Checkpoint AFTER a successful insert only.
+                                            // On pool failure we do not advance, so the next
+                                            // gather re-attempts this message.
+                                            if let Some(ref cb) = on_gather {
+                                                cb(Checkpoint { block: msg.block, tx_index: msg.tx_index });
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!(
+                                                target: LOG_TARGET,
+                                                error = %e,
+                                                block = msg.block,
+                                                tx_index = msg.tx_index,
+                                                tx_hash = %format!("{hash:#x}"),
+                                                "Failed to add L1Handler transaction to pool; will retry on next gather.",
+                                            );
+                                            // Stop processing this batch. The stream's cursor
+                                            // was already advanced past the current gather range;
+                                            // the retry for this message will rely on the pool's
+                                            // hash-level deduplication of successful inserts and
+                                            // re-gather on the next tick.
+                                            break;
+                                        }
+                                    }
                                 }
 
-                                if msg_count > 0 {
+                                if inserted > 0 {
                                     info!(
                                         target: LOG_TARGET,
-                                        %msg_count,
+                                        inserted,
+                                        total,
                                         %settlement_block,
-                                        "Collected messages from settlement chain."
+                                        "Collected messages from settlement chain.",
                                     );
-                                }
-
-                                // Persist checkpoint
-                                if let Some(ref cb) = on_gather {
-                                    cb(Checkpoint { block: settlement_block, tx_index });
                                 }
                             }
                             None => {

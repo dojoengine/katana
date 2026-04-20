@@ -20,7 +20,7 @@ use katana_primitives::utils::transaction::{
 use katana_primitives::{ContractAddress, Felt};
 use tracing::{debug, trace};
 
-use crate::collector::{GatherResult, MessageCollector};
+use crate::collector::{GatherResult, MessageCollector, PositionedMessage};
 use crate::{Error, LOG_TARGET};
 
 sol! {
@@ -102,35 +102,34 @@ impl MessageCollector for EthereumCollector {
     fn gather(
         &self,
         from_block: u64,
+        from_tx_index: u64,
         to_block: u64,
         chain_id: ChainId,
     ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
         Box::pin(async move {
-            let mut transactions = vec![];
-            // The tx index of the last processed log within `to_block`. If no messages
-            // fall in `to_block`, this stays 0, which is meaningful because `from_block`
-            // advances past `to_block` regardless.
-            let mut tx_index: u64 = 0;
+            let mut messages = vec![];
 
             let logs =
                 Self::fetch_logs(&self.provider, self.messaging_contract_address, from_block, to_block)
                     .await?;
 
             for log in &logs {
-                debug!(target: LOG_TARGET, log = ?log, "Converting log into L1HandlerTx.");
+                let Some(block) = log.block_number else { continue };
+                let Some(tx_index) = log.transaction_index else { continue };
 
-                if log.block_number == Some(to_block) {
-                    if let Some(idx) = log.transaction_index {
-                        tx_index = idx;
-                    }
+                // Skip messages already processed on a previous run.
+                if block == from_block && tx_index < from_tx_index {
+                    continue;
                 }
 
+                debug!(target: LOG_TARGET, block, tx_index, "Converting log into L1HandlerTx.");
+
                 if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {
-                    transactions.push(tx);
+                    messages.push(PositionedMessage { block, tx_index, tx });
                 }
             }
 
-            Ok(GatherResult { to_block, tx_index, transactions })
+            Ok(GatherResult { to_block, messages })
         })
     }
 }

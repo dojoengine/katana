@@ -32,13 +32,19 @@ enum Phase {
 /// On each trigger tick:
 /// 1. Checks the latest settlement block via the collector.
 /// 2. If new blocks exist, gathers messages from the block range.
-/// 3. Yields a [`MessagingOutcome`] with the gathered transactions.
+/// 3. Yields a [`MessagingOutcome`] with the positioned messages.
+///
+/// The stream holds a resume cursor `(from_block, from_tx_index)`. After a successful
+/// gather, `from_block` advances past `to_block` and `from_tx_index` resets to 0. The
+/// cursor is passed to the collector on every gather so messages at or before the
+/// cursor in `from_block` are filtered out (supports same-block resume after a crash).
 #[allow(missing_debug_implementations)]
 pub struct MessageStream<C, T> {
     collector: Arc<C>,
     trigger: T,
     chain_id: ChainId,
     from_block: u64,
+    from_tx_index: u64,
     phase: Phase,
 }
 
@@ -47,12 +53,27 @@ where
     C: MessageCollector,
     T: MessageTrigger,
 {
+    /// Create a new stream starting at `(from_block, 0)`.
     pub fn new(collector: C, trigger: T, chain_id: ChainId, from_block: u64) -> Self {
+        Self::with_cursor(collector, trigger, chain_id, from_block, 0)
+    }
+
+    /// Create a new stream starting at a specific `(from_block, from_tx_index)` cursor.
+    ///
+    /// Used on restart when resuming from a persisted checkpoint that points mid-block.
+    pub fn with_cursor(
+        collector: C,
+        trigger: T,
+        chain_id: ChainId,
+        from_block: u64,
+        from_tx_index: u64,
+    ) -> Self {
         Self {
             collector: Arc::new(collector),
             trigger,
             chain_id,
             from_block,
+            from_tx_index,
             phase: Phase::Idle,
         }
     }
@@ -111,6 +132,7 @@ where
                         trace!(
                             target: LOG_TARGET,
                             from_block = this.from_block,
+                            from_tx_index = this.from_tx_index,
                             to_block,
                             latest_block,
                             "New blocks detected, gathering messages."
@@ -118,9 +140,10 @@ where
 
                         let collector = this.collector.clone();
                         let from_block = this.from_block;
+                        let from_tx_index = this.from_tx_index;
                         let chain_id = this.chain_id;
                         this.phase = Phase::Gathering(Box::pin(async move {
-                            collector.gather(from_block, to_block, chain_id).await
+                            collector.gather(from_block, from_tx_index, to_block, chain_id).await
                         }));
                     }
                     Poll::Ready(Err(e)) => {
@@ -133,12 +156,17 @@ where
 
                 Phase::Gathering(fut) => match fut.poll_unpin(cx) {
                     Poll::Ready(Ok(result)) => {
+                        // Advance cursor past the fully-inspected range. The server
+                        // checkpoints per-message, so this bulk advance is safe: any
+                        // crash between the cursor advance here and the next gather
+                        // will re-gather this range and the server will skip already-
+                        // processed messages via pool hash dedupe.
                         this.from_block = result.to_block + 1;
+                        this.from_tx_index = 0;
                         this.phase = Phase::Idle;
                         return Poll::Ready(Some(MessagingOutcome {
                             settlement_block: result.to_block,
-                            tx_index: result.tx_index,
-                            transactions: result.transactions,
+                            messages: result.messages,
                         }));
                     }
                     Poll::Ready(Err(e)) => {

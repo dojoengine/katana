@@ -763,6 +763,70 @@ where
         })
     }
 
+    fn build_and_start_messaging(
+        config: &Config,
+        backend: &Arc<Backend<P>>,
+        pool: &TxPool,
+        provider_factory: P,
+    ) -> Result<MessagingHandle> {
+        const CHECKPOINT_ID: &str = "messaging";
+
+        // Prefer the persisted checkpoint over the config. On restart we resume from the
+        // message after the last successfully processed one: same block, tx_index + 1.
+        // If no checkpoint exists, start fresh at (config.from_block, 0).
+        let (from_block, from_tx_index) = if let Some(ref msg_config) = config.messaging {
+            let tx = provider_factory.provider_mut();
+            let cp = tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
+            MutableProvider::commit(tx).context("commit checkpoint read tx")?;
+            match cp {
+                Some(c) => (c.block, c.tx_index + 1),
+                None => (msg_config.from_block, 0),
+            }
+        } else {
+            (0, 0)
+        };
+
+        let messenger = katana_messaging::build_messenger(
+            config.messaging.as_ref(),
+            backend.chain_spec.id(),
+            from_block,
+            from_tx_index,
+        )?;
+
+        // Persist every successful gather so a restart resumes from where we left off.
+        let on_gather_provider = provider_factory.clone();
+        let on_gather: katana_messaging::server::OnGatherCallback =
+            Box::new(move |cp: katana_messaging::server::Checkpoint| {
+                let tx = on_gather_provider.provider_mut();
+                let result = tx.set_messaging_checkpoint(
+                    CHECKPOINT_ID,
+                    &MessagingCheckpoint { block: cp.block, tx_index: cp.tx_index },
+                );
+                match result.and_then(|_| MutableProvider::commit(tx).map_err(Into::into)) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            target: "messaging",
+                            error = %e,
+                            block = cp.block,
+                            tx_index = cp.tx_index,
+                            "Failed to persist messaging checkpoint.",
+                        );
+                    }
+                }
+            });
+
+        let server = MessagingServer::new(messenger).pool(pool.clone()).on_gather(on_gather);
+        Ok(server.start())
+    }
+}
+
+impl<P> Node<P>
+where
+    P: ProviderFactory + Clone,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
     /// Returns a reference to the node's database environment (if any).
     pub fn provider(&self) -> &P {
         &self.provider
@@ -803,61 +867,10 @@ where
     pub fn block_producer(&self) -> &BlockProducer<P> {
         &self.block_producer
     }
-
-    fn build_and_start_messaging(
-        config: &Config,
-        backend: &Arc<Backend<P>>,
-        pool: &TxPool,
-        provider_factory: P,
-    ) -> Result<MessagingHandle> {
-        const CHECKPOINT_ID: &str = "messaging";
-
-        // Prefer the persisted checkpoint over the config. On restart we resume from the
-        // block after the last successfully processed one.
-        let from_block = if let Some(ref msg_config) = config.messaging {
-            let tx = provider_factory.provider_mut();
-            let cp = tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
-            MutableProvider::commit(tx).context("commit checkpoint read tx")?;
-            cp.map(|c| c.block + 1).unwrap_or(msg_config.from_block)
-        } else {
-            0
-        };
-
-        let messenger = katana_messaging::build_messenger(
-            config.messaging.as_ref(),
-            backend.chain_spec.id(),
-            from_block,
-        )?;
-
-        // Persist every successful gather so a restart resumes from where we left off.
-        let on_gather_provider = provider_factory.clone();
-        let on_gather: katana_messaging::server::OnGatherCallback =
-            Box::new(move |cp: katana_messaging::server::Checkpoint| {
-                let tx = on_gather_provider.provider_mut();
-                let result = tx.set_messaging_checkpoint(
-                    CHECKPOINT_ID,
-                    &MessagingCheckpoint { block: cp.block, tx_index: cp.tx_index },
-                );
-                match result.and_then(|_| MutableProvider::commit(tx).map_err(Into::into)) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::error!(
-                            target: "messaging",
-                            error = %e,
-                            block = cp.block,
-                            tx_index = cp.tx_index,
-                            "Failed to persist messaging checkpoint.",
-                        );
-                    }
-                }
-            });
-
-        let server = MessagingServer::new(messenger).pool(pool.clone()).on_gather(on_gather);
-        Ok(server.start())
-    }
 }
 
 /// A handle to the launched node.
+#[derive(Debug)]
 pub struct LaunchedNode<P>
 where
     P: ProviderFactory + Clone,

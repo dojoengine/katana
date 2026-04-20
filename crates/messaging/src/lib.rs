@@ -27,9 +27,9 @@ use ::starknet::providers::ProviderError as StarknetProviderError;
 use alloy_transport::TransportError;
 use futures::Stream;
 use katana_primitives::chain::ChainId;
-use katana_primitives::transaction::L1HandlerTx;
 use serde::{Deserialize, Serialize};
 
+use crate::collector::PositionedMessage;
 use crate::ethereum::EthereumCollector;
 use crate::starknet::StarknetCollector;
 use crate::stream::MessageStream;
@@ -66,12 +66,13 @@ impl From<TransportError> for Error {
 /// The outcome yielded by a messenger stream on each successful gather.
 #[derive(Debug)]
 pub struct MessagingOutcome {
-    /// The latest settlement block gathered up to.
+    /// The last settlement block inspected. After the server finishes processing this outcome,
+    /// the stream's internal cursor advances past `settlement_block`.
     pub settlement_block: u64,
-    /// The transaction index within `settlement_block` up to which messages were gathered.
-    pub tx_index: u64,
-    /// The L1Handler transactions gathered from the settlement chain.
-    pub transactions: Vec<L1HandlerTx>,
+    /// Positioned messages gathered from the settlement chain, in ascending order.
+    /// Each carries its `(block, tx_index)` so the server can write a fine-grained
+    /// checkpoint after each successful pool insert.
+    pub messages: Vec<PositionedMessage>,
 }
 
 /// A messenger is a stream that yields batches of L1Handler transactions
@@ -171,12 +172,14 @@ impl MessagingConfig {
 /// the appropriate collector for the settlement chain, wraps it in a stream driven by an
 /// [`IntervalTrigger`], and returns it boxed for type erasure.
 ///
-/// `from_block` is the starting block on the settlement chain to gather from. Callers should
-/// source this from a persisted checkpoint if one exists, falling back to `config.from_block`.
+/// `from_block` / `from_tx_index` form the resume cursor. On a fresh start they come from
+/// `config.from_block` and `0`; on restart from a persisted checkpoint they come from the
+/// last processed message's position (with `from_tx_index` incremented to start after it).
 pub fn build_messenger(
     config: Option<&MessagingConfig>,
     chain_id: ChainId,
     from_block: u64,
+    from_tx_index: u64,
 ) -> anyhow::Result<Box<dyn Messenger>> {
     let Some(config) = config else {
         return Ok(Box::new(NoopMessenger));
@@ -187,11 +190,23 @@ pub fn build_messenger(
     let stream: Box<dyn Messenger> = match &config.settlement {
         SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
             let collector = EthereumCollector::new(rpc_url, contract_address)?;
-            Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
+            Box::new(MessageStream::with_cursor(
+                collector,
+                trigger,
+                chain_id,
+                from_block,
+                from_tx_index,
+            ))
         }
         SettlementChainConfig::Starknet { rpc_url, contract_address } => {
             let collector = StarknetCollector::new(rpc_url, contract_address)?;
-            Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
+            Box::new(MessageStream::with_cursor(
+                collector,
+                trigger,
+                chain_id,
+                from_block,
+                from_tx_index,
+            ))
         }
     };
 
