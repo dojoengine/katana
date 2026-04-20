@@ -83,6 +83,11 @@ pub fn spawn_saya_tee(cfg: &SayaTeeConfig) -> Result<SayaTeeGuard> {
         "0xdeadbeef",
         "--db-dir",
         db_dir.path().to_str().context("db dir path is not valid utf8")?,
+        // Flush every block immediately instead of accumulating up to the default
+        // batch-size=10 (which, with our 3-block test, would always fall through
+        // to the 120-second idle-timeout flush and dominate wall-clock time).
+        "--batch-size",
+        "1",
     ])
     .env("RUST_LOG", "info,persistent_tee=debug,saya_core=info")
     .stdout(Stdio::inherit())
