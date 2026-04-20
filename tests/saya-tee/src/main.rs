@@ -68,26 +68,25 @@ async fn main() -> Result<()> {
     })?;
     println!("saya-tee sidecar spawned");
 
-    // 5. Sanity-check Piltover's initial state: no L3 blocks should have settled yet
-    //    (block_number == Felt::MAX). Proves bootstrap produced a clean-slate settlement
-    //    contract and that the saya-tee sidecar hasn't pushed anything prematurely.
-    let (initial_state_root, initial_block_number, initial_block_hash) =
-        assertions::assert_initial_state(&l2, bootstrap.piltover_address).await?;
-    println!(
-        "Piltover initial state: block_number={} state_root={} block_hash={}",
-        hex_felt(&initial_block_number),
-        hex_felt(&initial_state_root),
-        hex_felt(&initial_block_hash)
-    );
+    // 5. Sanity-check Piltover's initial state: state_root and block_hash must be zero and
+    //    block_number must be the Felt::MAX sentinel. Proves bootstrap produced a clean-slate
+    //    settlement contract and that the saya-tee sidecar hasn't pushed anything prematurely.
+    assertions::assert_initial_state(&l2, bootstrap.piltover_address).await?;
 
     // 6. Drive L3 to advance block height — provable-mode rollups never produce empty blocks, so we
     //    submit explicit no-op transfers.
     nodes::drive_l3_blocks(&l3, 3).await?;
     println!("L3 advanced to block height >= 3");
 
-    // 7. Wait for Piltover state to advance past the genesis sentinel.
-    assertions::wait_for_settlement(&l2, bootstrap.piltover_address, Duration::from_secs(180))
-        .await?;
+    // 7. Wait for Piltover's block_number to match L3's tip; assert state_root and block_hash are
+    //    both non-zero post-settlement.
+    assertions::wait_for_settlement(
+        &l2,
+        &l3,
+        bootstrap.piltover_address,
+        Duration::from_secs(180),
+    )
+    .await?;
 
     println!("=== saya-tee e2e test PASSED ===");
     Ok(())
