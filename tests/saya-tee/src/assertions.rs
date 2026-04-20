@@ -20,7 +20,7 @@
 
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use cainome::rs::abigen;
 use starknet_types_core::felt::Felt;
 
@@ -54,6 +54,36 @@ abigen!(CoreContract,
     }
 ]
 );
+
+/// Asserts Piltover is in its freshly-deployed genesis state: `block_number` is the
+/// `Felt::MAX` sentinel, meaning no L3 blocks have been settled yet. Returns the full
+/// state tuple so the caller can log the genesis `state_root` and `block_hash` for
+/// comparison against post-settlement values.
+pub async fn assert_initial_state(
+    l2: &L2InProcess,
+    piltover_address: Felt,
+) -> Result<(Felt, Felt, Felt)> {
+    let provider = l2.provider();
+    let core_contract = CoreContractReader::new(piltover_address, &provider);
+
+    let (state_root, block_number, block_hash) = core_contract
+        .get_state()
+        .call()
+        .await
+        .context("failed to call Piltover get_state at initial state check")?;
+
+    if block_number != Felt::MAX {
+        return Err(anyhow!(
+            "expected Piltover at genesis (block_number == Felt::MAX) but got \
+             block_number={} state_root={} block_hash={}",
+            hex(&block_number),
+            hex(&state_root),
+            hex(&block_hash)
+        ));
+    }
+
+    Ok((state_root, block_number, block_hash))
+}
 
 /// Polls Piltover's `get_state()` until `block_number != Felt::MAX`, or
 /// returns an error after `timeout`.

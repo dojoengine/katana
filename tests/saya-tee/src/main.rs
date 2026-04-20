@@ -14,8 +14,9 @@
 //! 4. Spawn `saya-tee tee start --mock-prove` as a child process pointed at both Katanas. The flag
 //!    (added in dojoengine/saya#60) makes saya-tee skip AMD KDS, cert chain validation, and SP1
 //!    proving entirely.
-//! 5. Drive a few L3 blocks by submitting no-op transfers.
-//! 6. Poll Piltover's `get_state()` until `block_number != Felt::MAX`, proving that saya-tee
+//! 5. Assert Piltover's initial state: `block_number == Felt::MAX` (nothing settled yet).
+//! 6. Drive a few L3 blocks by submitting no-op transfers.
+//! 7. Poll Piltover's `get_state()` until `block_number != Felt::MAX`, proving that saya-tee
 //!    successfully settled L3 state to L2.
 //!
 //! ## Required binaries
@@ -67,12 +68,24 @@ async fn main() -> Result<()> {
     })?;
     println!("saya-tee sidecar spawned");
 
-    // 5. Drive L3 to advance block height — provable-mode rollups never produce empty blocks, so we
+    // 5. Sanity-check Piltover's initial state: no L3 blocks should have settled yet
+    //    (block_number == Felt::MAX). Proves bootstrap produced a clean-slate settlement
+    //    contract and that the saya-tee sidecar hasn't pushed anything prematurely.
+    let (initial_state_root, initial_block_number, initial_block_hash) =
+        assertions::assert_initial_state(&l2, bootstrap.piltover_address).await?;
+    println!(
+        "Piltover initial state: block_number={} state_root={} block_hash={}",
+        hex_felt(&initial_block_number),
+        hex_felt(&initial_state_root),
+        hex_felt(&initial_block_hash)
+    );
+
+    // 6. Drive L3 to advance block height — provable-mode rollups never produce empty blocks, so we
     //    submit explicit no-op transfers.
     nodes::drive_l3_blocks(&l3, 3).await?;
     println!("L3 advanced to block height >= 3");
 
-    // 6. Wait for Piltover state to advance past the genesis sentinel.
+    // 7. Wait for Piltover state to advance past the genesis sentinel.
     assertions::wait_for_settlement(&l2, bootstrap.piltover_address, Duration::from_secs(180))
         .await?;
 
