@@ -62,4 +62,6 @@ tee-snp = [ "katana-tee/snp", "tee" ]
 vrf = [ "cartridge", "katana-rpc-server/vrf" ]
 
 [dev-dependencies]
+katana-contracts.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = [ "macros", "rt-multi-thread" ] }
