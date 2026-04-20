@@ -163,28 +163,25 @@ where
             .with_account_validation(config.dev.account_validation)
             .with_fee(config.dev.fee);
 
+        let class_cache = {
+            #[allow(unused_mut)]
+            let mut builder = ClassCache::builder();
+
+            #[cfg(feature = "native")]
+            {
+                info!(enabled = config.execution.compile_native, "Cairo native");
+                builder = builder.compile_native(config.execution.compile_native);
+            }
+
+            builder.build()?
+        };
+
         let executor_factory = {
-            let global_class_cache = match ClassCache::try_global() {
-                Ok(cache) => cache,
-                Err(_) => {
-                    #[allow(unused_mut)]
-                    let mut class_cache = ClassCache::builder();
-
-                    #[cfg(feature = "native")]
-                    {
-                        info!(enabled = config.execution.compile_native, "Cairo native");
-                        class_cache = class_cache.compile_native(config.execution.compile_native);
-                    }
-
-                    class_cache.build_global()?
-                }
-            };
-
             let factory = BlockifierFactory::new(
                 overrides,
                 execution_flags.clone(),
                 config.sequencing.block_limits(),
-                global_class_cache,
+                class_cache.clone(),
                 config.chain.clone(),
             );
 
@@ -295,6 +292,7 @@ where
             starknet_api_cfg,
             provider.clone(),
             RpcCache::new(),
+            class_cache.clone(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

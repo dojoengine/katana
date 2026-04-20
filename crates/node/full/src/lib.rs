@@ -18,6 +18,7 @@ use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::ChainSpec;
 use katana_db::{migration, Db};
+use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::ExecutionFlags;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
@@ -391,6 +392,7 @@ impl Node {
             starknet_api_cfg,
             storage_provider.clone(),
             RpcCache::new(),
+            ClassCache::new()?,
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
