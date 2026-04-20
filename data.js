@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776558737159,
+  "lastUpdate": 1776717252884,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -19787,6 +19787,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 275,
             "range": "± 12",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f51f44ad2258ca59d5228ff1254b0955d5f748a4",
+          "message": "refactor: per-Node ClassCache (remove process global) (#541)\n\n## Summary\n\nReplaces the process-global \\`OnceLock<ClassCache>\\` with an explicit,\nper-\\`Node\\` cache instance. Two \\`Node\\` instances built in the same\nprocess now own isolated caches, matching the expected mental model. No\nbehaviour change for single-Node deployments.\n\n**Refactor**\n- \\`refactor(executor)\\`: delete \\`COMPILED_CLASS_CACHE\\`,\n\\`build_global\\`, \\`global\\`, \\`try_global\\`, and the two related\n\\`Error\\` variants. Add \\`ExecutorFactory::class_cache()\\` trait method;\nimplement on \\`BlockifierFactory\\` + \\`NoopExecutorFactory\\`.\n\\`StateProviderDb::new\\` now requires a \\`ClassCache\\` (the no-cache\nconstructor built an orphan cache per call — latent trap).\n- \\`refactor(pool)\\`: \\`TxValidator::new\\` takes a \\`ClassCache\\`;\n\\`Inner\\` holds it; \\`prepare()\\` reads \\`self.class_cache\\`.\n- \\`refactor(rpc)\\`: \\`blockifier::{simulate, estimate_fees, call}\\`\ntake \\`&ClassCache\\` explicitly. \\`StarknetApi::new\\` takes a\n\\`ClassCache\\` and threads it into the three call sites.\n- \\`refactor(node)\\`: sequencer \\`Node::build\\` constructs its own\n\\`ClassCache\\` via \\`ClassCacheBuilder\\` and threads it into\n\\`BlockifierFactory\\`, \\`StarknetApi\\`, and (via \\`BlockProducer\\`)\n\\`TxValidator\\`. Full node does the same for \\`StarknetApi\\` only (no\nlocal executor).\n\n**Testing**\n- \\`test(node)\\`: new regression test\n\\`two_nodes_own_independent_class_caches\\` — inserts distinct classes\ninto each Node's cache and asserts cross-visibility is zero.\n\n\n## Pre-Landing Review\n\nNo issues. Diff is pure dependency-injection propagation — no SQL, no\nLLM, no new logic. Cleared by \\`/plan-eng-review\\` (2026-04-16).\nAdversarial review flagged one test-strength concern (intra-Node\nsharing); examined and determined to be tautological under Arc semantics\n— the current inter-Node isolation test is the meaningful guard.\n\n## Scope Drift\n\nClean. No drive-by changes.\n\n## Follow-ups (not in this PR)\n\n- \\`rayon::ThreadPool\\` in \\`ClassCache::Inner\\` has no \\`Drop\\`\ncleanup. Only material when \\`native\\` feature is enabled AND Nodes are\nbuilt/dropped repeatedly in one process (tests, reloads). The old\nprocess-global had the same pool lifetime = process lifetime; this\nchange doesn't regress single-Node behaviour.\n- Full node config does not expose \\`compile_native\\`. Orthogonal\nfeature, not needed for this refactor.\n=",
+          "timestamp": "2026-04-20T15:03:27-05:00",
+          "tree_id": "78b5e3bd4d37a7d1370ff525c26a08e41085472b",
+          "url": "https://github.com/dojoengine/katana/commit/f51f44ad2258ca59d5228ff1254b0955d5f748a4"
+        },
+        "date": 1776717251172,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2392463,
+            "range": "± 36650",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2754157,
+            "range": "± 79676",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 28,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 23,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 28,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 23,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 672,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 731,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 73,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 36,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 124,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 118,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 126,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 204,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 168,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 218,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 133,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 277,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 128,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 85,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 72,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 47,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 72,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 47,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 71,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 47,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 71,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 47,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 71,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 47,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 43,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 24,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 43,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 24,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 10,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 15888,
+            "range": "± 71",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 2573,
+            "range": "± 102",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 350,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 653,
+            "range": "± 28",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 123,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 118,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1483,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2137,
+            "range": "± 370",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 634,
+            "range": "± 81",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 853,
+            "range": "± 148",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 24649,
+            "range": "± 584",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 4891,
+            "range": "± 209",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 144,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 248,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 273,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 189,
+            "range": "± 16",
             "unit": "ns/iter"
           }
         ]
