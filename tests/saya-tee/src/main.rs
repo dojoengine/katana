@@ -35,21 +35,6 @@
 //! - SP1 proof soundness or on-chain SP1 verification.
 //! - Binding of attestations to a specific enclave/instance.
 //!
-//! ## Pipeline
-//!
-//! 1. Spawn L2 dev Katana (in-process).
-//! 2. Shell out to `saya-ops` to declare + deploy `mock_amd_tee_registry` and the Piltover core
-//!    contract (pointed at the mock registry as its fact registry).
-//! 3. Spawn L3 rollup Katana with `SettlementLayer::Starknet { … }` → L2's Piltover, and
-//!    `TeeConfig { provider_type: Mock, .. }` so its `tee_generateQuote` RPC is served by the
-//!    software mock.
-//! 4. Spawn `saya-tee tee start --mock-prove` pointed at both Katanas.
-//! 5. Assert Piltover's initial state: `state_root == 0`, `block_hash == 0`,
-//!    `block_number == Felt::MAX`.
-//! 6. For each of N iterations, drive one L3 block (no-op transfer; provable-mode rollups never
-//!    produce empty blocks), then wait for Piltover to settle to that block and assert the
-//!    post-state.
-//!
 //! ## Required binaries
 //!
 //! Both are built from [dojoengine/saya](https://github.com/dojoengine/saya) `feat/mock-prove`.

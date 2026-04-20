@@ -163,22 +163,17 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
 /// transactions are the only way to advance height.
 pub async fn drive_l3_block(l3: &L3InProcess) -> Result<()> {
     use starknet::accounts::Account;
-    use starknet::core::types::Call;
-    use starknet::macros::selector;
 
     abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
     let account = l3.account();
-    let address = account.address();
-    let strk: Felt = DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS.into();
+    let strk_contract = Erc20Contract::new(DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS.into(), &account);
 
-    let call = Call {
-        to: strk,
-        selector: selector!("transfer"),
-        calldata: vec![address, Felt::from(1u64), Felt::ZERO],
-    };
-
-    let result = account.execute_v3(vec![call]).send().await.context("driver tx failed to send")?;
+    let result = strk_contract
+        .transfer(&account.address().into(), &Uint256 { low: Felt::ONE, high: Felt::ZERO })
+        .send()
+        .await
+        .context("driver tx failed to send")?;
 
     wait_for_tx(&l3.provider(), result.transaction_hash).await?;
 
