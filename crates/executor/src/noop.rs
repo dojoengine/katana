@@ -7,15 +7,26 @@ use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::state::{StateProofProvider, StateProvider, StateRootProvider};
 use katana_provider::api::ProviderResult;
 
+use crate::blockifier::cache::ClassCache;
 use crate::error::ExecutorError;
 use crate::{
     ExecutionFlags, ExecutionOutput, ExecutionResult, Executor, ExecutorFactory, ExecutorResult,
 };
 
 /// A no-op executor factory. Creates an executor that does nothing.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct NoopExecutorFactory {
     execution_flags: ExecutionFlags,
+    class_cache: ClassCache,
+}
+
+impl Default for NoopExecutorFactory {
+    fn default() -> Self {
+        Self {
+            execution_flags: ExecutionFlags::default(),
+            class_cache: ClassCache::new().expect("failed to build class cache"),
+        }
+    }
 }
 
 impl NoopExecutorFactory {
@@ -36,6 +47,10 @@ impl ExecutorFactory for NoopExecutorFactory {
 
     fn execution_flags(&self) -> &ExecutionFlags {
         &self.execution_flags
+    }
+
+    fn class_cache(&self) -> &ClassCache {
+        &self.class_cache
     }
 }
 

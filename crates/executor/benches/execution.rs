@@ -4,6 +4,7 @@ use blockifier::state::cached_state::CachedState;
 use criterion::measurement::WallTime;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkGroup, Criterion};
 use katana_chain_spec::ChainSpec;
+use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::state::StateProviderDb;
 use katana_executor::ExecutionFlags;
 use katana_primitives::env::BlockEnv;
@@ -43,6 +44,7 @@ fn blockifier(
 
     // convert to blockifier block context
     let block_context = block_context_from_envs(chain_spec, block_envs, None);
+    let class_cache = ClassCache::new().expect("failed to build class cache");
 
     group.bench_function("Blockifier.Cold", |b| {
         // we need to set up the cached state for each iteration as it's not cloneable
@@ -50,7 +52,8 @@ fn blockifier(
             || {
                 // setup state
                 let state = provider.latest().expect("failed to get latest state");
-                let state = CachedState::new(StateProviderDb::new(state));
+                let state =
+                    CachedState::new(StateProviderDb::new(Box::new(state), class_cache.clone()));
 
                 (state, &block_context, execution_flags, tx.clone())
             },

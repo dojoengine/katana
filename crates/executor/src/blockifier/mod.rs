@@ -84,6 +84,10 @@ impl ExecutorFactory for BlockifierFactory {
     fn execution_flags(&self) -> &ExecutionFlags {
         &self.flags
     }
+
+    fn class_cache(&self) -> &ClassCache {
+        &self.class_cache
+    }
 }
 
 #[derive(Debug)]

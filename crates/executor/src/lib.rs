@@ -16,6 +16,8 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
 use katana_provider::api::state::StateProvider;
 
+use crate::blockifier::cache::ClassCache;
+
 pub type ExecutorResult<T> = Result<T, error::ExecutorError>;
 
 /// See <https://docs.starknet.io/chain-info/#current_limits>.
@@ -170,6 +172,13 @@ pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
 
     /// Returns the execution flags set by the factory.
     fn execution_flags(&self) -> &ExecutionFlags;
+
+    /// Returns the compiled-class cache used by executors produced by this factory.
+    ///
+    /// The cache is owned by the factory so that every [`Executor`] it produces shares
+    /// the same compiled-class state. Consumers outside the factory (e.g. the tx
+    /// validator, RPC read path) can clone this handle to participate in the same cache.
+    fn class_cache(&self) -> &ClassCache;
 }
 
 /// An executor that can execute a block of transactions.

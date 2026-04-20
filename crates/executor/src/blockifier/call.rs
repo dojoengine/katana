@@ -160,6 +160,7 @@ mod tests {
     use starknet::macros::selector;
 
     use super::{execute_call_inner, get_call_sierra_gas_consumed};
+    use crate::blockifier::cache::ClassCache;
     use crate::blockifier::state::StateProviderDb;
 
     #[test]
@@ -185,7 +186,7 @@ mod tests {
         provider.set_class_hash_of_contract(address, class_hash).unwrap();
 
         let state = provider.latest().unwrap();
-        let state = StateProviderDb::new(state);
+        let state = StateProviderDb::new(Box::new(state), ClassCache::new().unwrap());
 
         // ---------------------------------------------------------------
 
@@ -271,7 +272,7 @@ mod tests {
         provider.set_class_hash_of_contract(address, class_hash).unwrap();
 
         let state = provider.latest().unwrap();
-        let state = StateProviderDb::new(state);
+        let state = StateProviderDb::new(Box::new(state), ClassCache::new().unwrap());
 
         // ---------------------------------------------------------------
 
