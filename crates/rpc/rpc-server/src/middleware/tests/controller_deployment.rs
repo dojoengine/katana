@@ -361,6 +361,7 @@ mod setup {
     use jsonrpsee::types::Request;
     use jsonrpsee::MethodResponse;
     use katana_chain_spec::ChainSpec;
+    use katana_executor::blockifier::cache::ClassCache;
     use katana_executor::ExecutionFlags;
     use katana_gas_price_oracle::GasPriceOracle;
     use katana_pool::ordering::FiFo;
@@ -465,6 +466,7 @@ mod setup {
             config,
             storage,
             RpcCache::new(),
+            ClassCache::new().unwrap(),
         );
 
         let cartridge_api = ::cartridge::CartridgeApiClient::new(mock_url);

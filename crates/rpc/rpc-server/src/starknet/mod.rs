@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
 use katana_core::utils::get_current_timestamp;
+use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::api::TransactionPool;
@@ -106,6 +107,7 @@ where
     pending_block_provider: PP,
     config: StarknetApiConfig,
     cache: RpcCache,
+    class_cache: ClassCache,
 }
 
 impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
@@ -124,6 +126,7 @@ where
         config: StarknetApiConfig,
         storage: PF,
         cache: RpcCache,
+        class_cache: ClassCache,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -140,6 +143,7 @@ where
             gas_oracle,
             storage,
             cache,
+            class_cache,
         };
 
         Self { inner: Arc::new(inner) }
@@ -257,6 +261,7 @@ where
             versioned_constant_overrides,
             transactions,
             flags,
+            &self.inner.class_cache,
         )?;
 
         // If Katana is running in no fee mode, set overall_fee to 0 for all estimates.
@@ -464,6 +469,7 @@ where
                 cfg_env,
                 request,
                 max_call_gas,
+                &this.inner.class_cache,
             )?;
 
             Ok(CallResponse { result })
@@ -1293,8 +1299,15 @@ where
             // use the blockifier utils function
             let chain_spec = this.inner.chain_spec.as_ref();
             let overrides = this.inner.config.versioned_constant_overrides.as_ref();
-            let results =
-                self::blockifier::simulate(chain_spec, state, env, overrides, executables, flags);
+            let results = self::blockifier::simulate(
+                chain_spec,
+                state,
+                env,
+                overrides,
+                executables,
+                flags,
+                &this.inner.class_cache,
+            );
 
             let mut simulated = Vec::with_capacity(results.len());
             for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {

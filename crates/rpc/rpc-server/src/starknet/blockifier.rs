@@ -24,9 +24,10 @@ pub fn simulate(
     overrides: Option<&VersionedConstantsOverrides>,
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
+    class_cache: &ClassCache,
 ) -> Vec<ResultAndStates> {
     let block_context = Arc::new(block_context_from_envs(chain_spec, &block_env, overrides));
-    let state = CachedState::new(state, ClassCache::global().clone());
+    let state = CachedState::new(state, class_cache.clone());
     let mut results = Vec::with_capacity(transactions.len());
 
     state.with_mut_cached_state(|state| {
@@ -63,10 +64,11 @@ pub fn estimate_fees(
     overrides: Option<&VersionedConstantsOverrides>,
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
+    class_cache: &ClassCache,
 ) -> StarknetApiResult<Vec<FeeEstimate>> {
     let flags = flags.with_fee(false);
     let block_context = block_context_from_envs(chain_spec, &block_env, overrides);
-    let state = CachedState::new(state, ClassCache::global().clone());
+    let state = CachedState::new(state, class_cache.clone());
 
     state.with_mut_cached_state(|state| {
         let mut estimates = Vec::with_capacity(transactions.len());
@@ -129,18 +131,10 @@ pub fn call<P: StateProvider + 'static>(
     overrides: Option<&VersionedConstantsOverrides>,
     call: FunctionCall,
     max_call_gas: u64,
+    class_cache: &ClassCache,
 ) -> Result<Vec<Felt>, StarknetApiError> {
     let block_context = Arc::new(block_context_from_envs(chain_spec, &block_env, overrides));
-
-    // `ClassCache::try_global` could only fail if the global cache has not been initialized.
-    // This won't happen in a normal execution flow as we guarantee that the global cache is
-    // initialized when the node starts. But, if it's running as a standalone function (e.g., in a
-    // test) we have to initialize it manually.
-    let class_cache = ClassCache::try_global()
-        .or_else(|_| ClassCache::new())
-        .map_err(StarknetApiError::unexpected)?;
-
-    let state = CachedState::new(state, class_cache);
+    let state = CachedState::new(state, class_cache.clone());
 
     state
         .with_mut_cached_state(|state| execute_call(call, state, block_context, max_call_gas))
@@ -180,6 +174,7 @@ fn to_api_error(error: ExecutionError) -> StarknetApiError {
 mod tests {
 
     use katana_chain_spec::ChainSpec;
+    use katana_executor::blockifier::cache::ClassCache;
     use katana_primitives::address;
     use katana_primitives::env::BlockEnv;
     use katana_provider::api::state::StateFactoryProvider;
@@ -198,6 +193,7 @@ mod tests {
 
         let max_call_gas = 1_000_000_000;
         let block_env = BlockEnv::default();
+        let class_cache = ClassCache::new().unwrap();
 
         let call = FunctionCall {
             calldata: Vec::new(),
@@ -205,7 +201,15 @@ mod tests {
             entry_point_selector: selector!("foo"),
         };
 
-        let result = super::call(&ChainSpec::dev(), state, block_env, None, call, max_call_gas);
+        let result = super::call(
+            &ChainSpec::dev(),
+            state,
+            block_env,
+            None,
+            call,
+            max_call_gas,
+            &class_cache,
+        );
         assert!(matches!(result, Err(StarknetApiError::ContractNotFound)));
     }
 
@@ -218,6 +222,7 @@ mod tests {
 
         let max_call_gas = 1_000_000_000;
         let block_env = BlockEnv::default();
+        let class_cache = ClassCache::new().unwrap();
 
         let call = FunctionCall {
             calldata: Vec::new(),
@@ -225,7 +230,15 @@ mod tests {
             entry_point_selector: selector!("foobar"),
         };
 
-        let result = super::call(&ChainSpec::dev(), state, block_env, None, call, max_call_gas);
+        let result = super::call(
+            &ChainSpec::dev(),
+            state,
+            block_env,
+            None,
+            call,
+            max_call_gas,
+            &class_cache,
+        );
         assert!(matches!(result, Err(StarknetApiError::EntrypointNotFound)));
     }
 }
