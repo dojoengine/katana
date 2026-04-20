@@ -26,8 +26,14 @@ use std::task::{Context, Poll};
 use ::starknet::providers::ProviderError as StarknetProviderError;
 use alloy_transport::TransportError;
 use futures::Stream;
+use katana_primitives::chain::ChainId;
 use katana_primitives::transaction::L1HandlerTx;
 use serde::{Deserialize, Serialize};
+
+use crate::ethereum::EthereumCollector;
+use crate::starknet::StarknetCollector;
+use crate::stream::MessageStream;
+use crate::trigger::IntervalTrigger;
 
 pub(crate) const LOG_TARGET: &str = "messaging";
 
@@ -156,4 +162,38 @@ impl MessagingConfig {
             }
         }
     }
+}
+
+/// Build a ready-to-drain messenger from a messaging config.
+///
+/// Encapsulates settlement chain selection, collector construction, and trigger composition.
+/// If `config` is `None`, returns a [`NoopMessenger`] (messaging disabled). Otherwise builds
+/// the appropriate collector for the settlement chain, wraps it in a stream driven by an
+/// [`IntervalTrigger`], and returns it boxed for type erasure.
+///
+/// `from_block` is the starting block on the settlement chain to gather from. Callers should
+/// source this from a persisted checkpoint if one exists, falling back to `config.from_block`.
+pub fn build_messenger(
+    config: Option<&MessagingConfig>,
+    chain_id: ChainId,
+    from_block: u64,
+) -> anyhow::Result<Box<dyn Messenger>> {
+    let Some(config) = config else {
+        return Ok(Box::new(NoopMessenger));
+    };
+
+    let trigger = IntervalTrigger::new(config.interval);
+
+    let stream: Box<dyn Messenger> = match &config.settlement {
+        SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
+            let collector = EthereumCollector::new(rpc_url, contract_address)?;
+            Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
+        }
+        SettlementChainConfig::Starknet { rpc_url, contract_address } => {
+            let collector = StarknetCollector::new(rpc_url, contract_address)?;
+            Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
+        }
+    };
+
+    Ok(stream)
 }

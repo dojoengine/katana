@@ -27,9 +27,6 @@ use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 #[cfg(feature = "grpc")]
 use katana_grpc::{GrpcServer, GrpcServerHandle};
 use katana_messaging::server::{MessagingHandle, MessagingServer};
-use katana_messaging::stream::MessageStream;
-use katana_messaging::trigger::IntervalTrigger;
-use katana_messaging::{NoopMessenger, SettlementChainConfig};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -815,38 +812,22 @@ where
     ) -> Result<MessagingHandle> {
         const CHECKPOINT_ID: &str = "messaging";
 
-        let messenger: Box<dyn katana_messaging::Messenger> = if let Some(ref msg_config) =
-            config.messaging
-        {
-            let chain_id = backend.chain_spec.id();
-
-            // Prefer the persisted checkpoint over the config. On restart we resume from the
-            // block after the last successfully processed one.
-            let checkpointed_from_block = {
-                let tx = provider_factory.provider_mut();
-                let cp = tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
-                MutableProvider::commit(tx).context("commit checkpoint read tx")?;
-                cp.map(|c| c.block + 1)
-            };
-            let from_block = checkpointed_from_block.unwrap_or(msg_config.from_block);
-
-            let trigger = IntervalTrigger::new(msg_config.interval);
-
-            match &msg_config.settlement {
-                SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
-                    let collector =
-                        katana_messaging::ethereum::EthereumCollector::new(rpc_url, contract_address)?;
-                    Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
-                }
-                SettlementChainConfig::Starknet { rpc_url, contract_address } => {
-                    let collector =
-                        katana_messaging::starknet::StarknetCollector::new(rpc_url, contract_address)?;
-                    Box::new(MessageStream::new(collector, trigger, chain_id, from_block))
-                }
-            }
+        // Prefer the persisted checkpoint over the config. On restart we resume from the
+        // block after the last successfully processed one.
+        let from_block = if let Some(ref msg_config) = config.messaging {
+            let tx = provider_factory.provider_mut();
+            let cp = tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
+            MutableProvider::commit(tx).context("commit checkpoint read tx")?;
+            cp.map(|c| c.block + 1).unwrap_or(msg_config.from_block)
         } else {
-            Box::new(NoopMessenger)
+            0
         };
+
+        let messenger = katana_messaging::build_messenger(
+            config.messaging.as_ref(),
+            backend.chain_spec.id(),
+            from_block,
+        )?;
 
         // Persist every successful gather so a restart resumes from where we left off.
         let on_gather_provider = provider_factory.clone();
