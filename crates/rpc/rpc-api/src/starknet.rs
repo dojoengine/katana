@@ -34,10 +34,18 @@ use katana_rpc_types::{
 /// The currently supported version of the Starknet JSON-RPC specification.
 pub const RPC_SPEC_VERSION: &str = "0.10.0";
 
-/// Read API.
+/// Starknet JSON-RPC API.
+///
+/// Combines the read, write, and trace method groups defined by the upstream
+/// Starknet JSON-RPC specification under a single trait. All methods share the
+/// `starknet` namespace.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
 #[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
 pub trait StarknetApi {
+    ////////////////////////////////////////////////////////////////////////////
+    // Read API methods
+    ////////////////////////////////////////////////////////////////////////////
+
     /// Returns the version of the Starknet JSON-RPC specification being used.
     #[method(name = "specVersion")]
     async fn spec_version(&self) -> RpcResult<String> {
@@ -191,12 +199,11 @@ pub trait StarknetApi {
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
     ) -> RpcResult<GetStorageProofResponse>;
-}
 
-/// Write API.
-#[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
-#[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
-pub trait StarknetWriteApi {
+    ////////////////////////////////////////////////////////////////////////////
+    // Write API methods
+    ////////////////////////////////////////////////////////////////////////////
+
     /// Submit a new transaction to be added to the chain.
     #[method(name = "addInvokeTransaction")]
     async fn add_invoke_transaction(
@@ -217,12 +224,11 @@ pub trait StarknetWriteApi {
         &self,
         deploy_account_transaction: BroadcastedDeployAccountTx,
     ) -> RpcResult<AddDeployAccountTransactionResponse>;
-}
 
-/// Trace API.
-#[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
-#[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
-pub trait StarknetTraceApi {
+    ////////////////////////////////////////////////////////////////////////////
+    // Trace API methods
+    ////////////////////////////////////////////////////////////////////////////
+
     /// Returns the execution trace of the transaction designated by the input hash.
     #[method(name = "traceTransaction")]
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace>;

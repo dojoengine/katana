@@ -11,12 +11,13 @@ use katana_executor::{BlockLimits, ExecutorFactory};
 use katana_genesis::allocation::{
     DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
 };
-use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS};
+use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
-use katana_primitives::contract::Nonce;
+use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::transaction::TxType;
+use katana_primitives::utils::get_contract_address;
 use katana_primitives::Felt;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::{DbProviderFactory, ProviderFactory};
@@ -100,9 +101,11 @@ fn genesis_states() {
     let erc20_class_hash = contracts::LegacyERC20::HASH;
     assert!(genesis_state.class(erc20_class_hash).unwrap().is_some());
 
-    // check that the default udc class is declared
-    let udc_class_hash = contracts::UniversalDeployer::HASH;
+    // check that both UDC classes are declared
+    let udc_class_hash = contracts::OpenZeppelinUniversalDeployer::HASH;
     assert!(genesis_state.class(udc_class_hash).unwrap().is_some());
+    let legacy_udc_class_hash = contracts::UniversalDeployer::HASH;
+    assert!(genesis_state.class(legacy_udc_class_hash).unwrap().is_some());
 
     // -----------------------------------------------------------------------
     // Contracts
@@ -111,9 +114,17 @@ fn genesis_states() {
     let res = genesis_state.class_hash_of_contract(DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS).unwrap();
     assert_eq!(res, Some(erc20_class_hash));
 
-    // check that the default udc is deployed
-    let res = genesis_state.class_hash_of_contract(DEFAULT_UDC_ADDRESS).unwrap();
+    // Rollup mode deploys each UDC via the master account with salt=0 and no ctor args; the
+    // resulting address is derived from the UDC class hash (not the fixed mainnet address).
+    let udc_address: ContractAddress =
+        get_contract_address(Felt::ZERO, udc_class_hash, &[], ContractAddress::ZERO).into();
+    let res = genesis_state.class_hash_of_contract(udc_address).unwrap();
     assert_eq!(res, Some(udc_class_hash));
+
+    let legacy_udc_address: ContractAddress =
+        get_contract_address(Felt::ZERO, legacy_udc_class_hash, &[], ContractAddress::ZERO).into();
+    let res = genesis_state.class_hash_of_contract(legacy_udc_address).unwrap();
+    assert_eq!(res, Some(legacy_udc_class_hash));
 
     for (address, account) in chain_spec.genesis.accounts() {
         let nonce = genesis_state.nonce(*address).unwrap();
@@ -134,6 +145,8 @@ fn transaction_order() {
         TxType::DeployAccount, // Master account
         TxType::Declare,       // UDC declare
         TxType::Invoke,        // UDC deploy
+        TxType::Declare,       // Legacy UDC declare
+        TxType::Invoke,        // Legacy UDC deploy
         TxType::Declare,       // ERC20 declare
         TxType::Invoke,        // ERC20 deploy
         TxType::Declare,       // Account class declare (V2)
@@ -175,9 +188,9 @@ fn predeployed_acccounts(#[case] with_balance: bool) {
         let mut transactions = GenesisTransactionsBuilder::new(&chain_spec).build();
 
         // We only want to check that for each predeployed accounts, there should be a deploy
-        // account and transfer balance (invoke) transactions. So we skip the first 7
-        // transactions (master account, UDC, ERC20, etc).
-        let account_transactions = &transactions.split_off(7);
+        // account and transfer balance (invoke) transactions. So we skip the first 9
+        // transactions (master account, UDC, legacy UDC, ERC20, etc).
+        let account_transactions = &transactions.split_off(9);
 
         if with_balance {
             assert_eq!(account_transactions.len(), n_accounts * 2);
@@ -207,9 +220,9 @@ fn dev_predeployed_acccounts(#[case] with_balance: bool) {
         let mut transactions = GenesisTransactionsBuilder::new(&chain_spec).build();
 
         // We only want to check that for each predeployed accounts, there should be a deploy
-        // account and transfer balance (invoke) transactions. So we skip the first 7
-        // transactions (master account, UDC, ERC20, etc).
-        let account_transactions = &transactions.split_off(7);
+        // account and transfer balance (invoke) transactions. So we skip the first 9
+        // transactions (master account, UDC, legacy UDC, ERC20, etc).
+        let account_transactions = &transactions.split_off(9);
 
         if with_balance {
             assert_eq!(account_transactions.len(), n_accounts as usize * 2);

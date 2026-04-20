@@ -27,6 +27,7 @@ use paymaster_rpc::{
     ExecuteDirectRequest, ExecuteDirectResponse, ExecuteDirectTransactionParameters,
     ExecuteRequest, ExecuteResponse, TokenPrice,
 };
+use rstest::rstest;
 use serde::Deserialize;
 use starknet::accounts::{Account, AccountError, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::StarknetError;
@@ -42,9 +43,39 @@ abigen_legacy!(EthTokenContract, "crates/contracts/build/legacy/erc20.json", der
 const VALID_CONTROLLER_ADDRESS: ContractAddress =
     address!("0x48e13ef7ab79637afd38a4b022862a7e6f3fd934f194c435d7e7b17bac06715");
 
+#[derive(Clone, Copy, Debug)]
+enum CartridgeMethod {
+    AddExecuteOutsideTransaction,
+    AddExecuteFromOutside,
+}
+
+async fn call_cartridge(
+    client: &jsonrpsee::http_client::HttpClient,
+    method: CartridgeMethod,
+    address: ContractAddress,
+    outside_execution: OutsideExecution,
+    signature: Vec<Felt>,
+    fee_source: Option<katana_rpc_types::cartridge::FeeSource>,
+) -> Result<katana_rpc_types::broadcasted::AddInvokeTransactionResponse, jsonrpsee::core::ClientError>
+{
+    match method {
+        CartridgeMethod::AddExecuteOutsideTransaction => {
+            client
+                .add_execute_outside_transaction(address, outside_execution, signature, fee_source)
+                .await
+        }
+        CartridgeMethod::AddExecuteFromOutside => {
+            client.add_execute_from_outside(address, outside_execution, signature, fee_source).await
+        }
+    }
+}
+
 /// The Controller middleware should add a deploy transaction for an undeployed Controller account.
+#[rstest]
+#[case::outside_transaction(CartridgeMethod::AddExecuteOutsideTransaction)]
+#[case::from_outside(CartridgeMethod::AddExecuteFromOutside)]
 #[tokio::test]
-async fn controller_account_undeployed_should_deploy() {
+async fn controller_account_undeployed_should_deploy(#[case] method: CartridgeMethod) {
     let sender = VALID_CONTROLLER_ADDRESS;
     let outside_execution = get_outside_execution();
     let signature = vec![Felt::ZERO, Felt::ZERO];
@@ -69,8 +100,7 @@ async fn controller_account_undeployed_should_deploy() {
         .unwrap()
         .controller_deployer_address;
 
-    rpc_client
-        .add_execute_outside_transaction(sender, outside_execution.clone(), signature.clone(), None)
+    call_cartridge(&rpc_client, method, sender, outside_execution.clone(), signature.clone(), None)
         .await
         .unwrap();
 
@@ -93,8 +123,11 @@ async fn controller_account_undeployed_should_deploy() {
 ///
 /// The execute outside transaction request would be simply fall through to the Cartridge API and
 /// forwarded to the paymaster.
+#[rstest]
+#[case::outside_transaction(CartridgeMethod::AddExecuteOutsideTransaction)]
+#[case::from_outside(CartridgeMethod::AddExecuteFromOutside)]
 #[tokio::test]
-async fn account_deployed_should_not_deploy() {
+async fn account_deployed_should_not_deploy(#[case] method: CartridgeMethod) {
     let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
     let (paymaster_url, mock_paymaster_state) = start_mock_paymaster().await;
 
@@ -107,10 +140,7 @@ async fn account_deployed_should_not_deploy() {
     let sender = ContractAddress::from(sender.address());
     let outside_execution = get_outside_execution();
 
-    rpc_client
-        .add_execute_outside_transaction(sender, outside_execution, Vec::new(), None)
-        .await
-        .unwrap();
+    call_cartridge(&rpc_client, method, sender, outside_execution, Vec::new(), None).await.unwrap();
 
     let api_requests = mock_api_state.received_requests.lock();
     assert!(!api_requests.contains(&sender), "no api query bcs the account is deployed");
@@ -128,8 +158,11 @@ async fn account_deployed_should_not_deploy() {
 ///
 /// The execute outside transaction request would be simply fall through to the Cartridge API and
 /// forwarded to the paymaster.
+#[rstest]
+#[case::outside_transaction(CartridgeMethod::AddExecuteOutsideTransaction)]
+#[case::from_outside(CartridgeMethod::AddExecuteFromOutside)]
 #[tokio::test]
-async fn non_controller_account_undeployed_should_not_deploy() {
+async fn non_controller_account_undeployed_should_not_deploy(#[case] method: CartridgeMethod) {
     let (cartridge_api_url, mock_api_state) = start_mock_cartridge_api().await;
     let (paymaster_url, mock_paymaster_state) = start_mock_paymaster().await;
 
@@ -141,8 +174,7 @@ async fn non_controller_account_undeployed_should_not_deploy() {
     let sender = address!("0xdeadbeef");
     let outside_execution = get_outside_execution();
 
-    rpc_client
-        .add_execute_outside_transaction(sender, outside_execution.clone(), Vec::new(), None)
+    call_cartridge(&rpc_client, method, sender, outside_execution.clone(), Vec::new(), None)
         .await
         .unwrap();
 

@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use cainome::rs::abigen_legacy;
 use cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
 use cairo_lang_starknet_classes::contract_class::ContractClass;
+use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_primitives::class::CompiledClass;
 use katana_primitives::Felt;
 use starknet::core::types::contract::SierraClass;
@@ -61,9 +62,7 @@ pub fn build_deploy_cairo1_contract_call(class_hash: Felt, salt: Felt) -> Call {
 
     Call {
         calldata,
-        // devnet UDC address
-        to: Felt::from_hex("0x41a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf")
-            .unwrap(),
+        to: DEFAULT_UDC_ADDRESS.into(),
         selector: get_selector_from_name("deployContract").unwrap(),
     }
 }
