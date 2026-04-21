@@ -23,30 +23,53 @@ hardware attestation guarantees.
 ## Requirements
 
 - Docker with compose v2 (`docker compose`, not `docker-compose`)
-- An L2 settlement layer you can write to:
-  - **Starknet Sepolia** is the easiest. Fund a Starknet account with a bit
-    of STRK from the [faucet](https://starknet-faucet.vercel.app/).
-  - Starknet mainnet if you're feeling spicy.
-  - A local Starknet devnet (stock `katana` on port 5051, or `starknet-devnet`,
-    etc.). Reach it from the compose network via `http://host.docker.internal:<port>`.
+- An L2 settlement layer you can write to. Two easy paths:
+  - **Local `katana --dev`** — fastest, no external accounts, nothing to fund. See [Quickstart](#quickstart-local-katana-l2) below.
+  - **Starknet Sepolia** — more realistic. Fund a Starknet account with a bit of STRK from the [faucet](https://starknet-faucet.vercel.app/). Use `SETTLEMENT_RPC_URL=https://starknet-sepolia.public.blastapi.io/rpc/v0_9`.
 
-## Quickstart
+## Quickstart (local katana L2)
+
+This is the recommended first run. Zero external dependencies, zero
+network calls, fully reproducible.
 
 ```bash
-# 1. Copy the example env file and fill in your L2 account details.
+# --- Terminal 1: start local L2 katana ---
+# (Install via `cargo install --path bin/katana` if needed, or use a release binary.)
+katana --dev --http.addr 0.0.0.0 --http.port 5051
+# Watch the startup log. Copy one of the PREFUNDED ACCOUNTS entries —
+# you need the `Account address` and `Private key` fields.
+
+# --- Terminal 2: prep the compose bundle ---
 cp docker/tee-mock.env.example .env
-$EDITOR .env
+# Edit .env:
+#   SETTLEMENT_RPC_URL=http://host.docker.internal:5051
+#   SETTLEMENT_ACCOUNT_ADDRESS=<from Terminal 1>
+#   SETTLEMENT_ACCOUNT_PRIVATE_KEY=<from Terminal 1>
+#   SETTLEMENT_CHAIN_ID=SN_SEPOLIA
 
-# 2. Build + start. First build takes a few minutes (cargo + Rust stdlib);
-#    subsequent runs reuse the image.
-docker compose -f docker/tee-mock.compose.yml --env-file .env up --build
+# --- Build the katana-tee-mock image. First run takes a few minutes. ---
+docker compose -f docker/tee-mock.compose.yml --env-file .env build
 
-# 3. In another terminal, drive the L3 at localhost:5050. Watch saya-tee
-#    in the compose logs settle each block onto your L2.
+# --- Bring the stack up. Watch the logs for:
+#     deploy-contracts: "TEE registry mock address: 0x..." then "Core contract address: 0x..."
+#     init-chain:       "Chain spec written to /root/.config/katana/chains/katana_tee_mock"
+#     katana:           "RPC server started at 0.0.0.0:5050"
+#     saya-tee:         "Chain advanced" / "TEE proving completed" / "Settled block ..."
+docker compose -f docker/tee-mock.compose.yml --env-file .env up
+
+# --- Terminal 3: drive the L3, watch it settle on the L2 ---
+# Chain id should come back:
 curl -s http://localhost:5050 \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"starknet_chainId","params":[]}'
+# The L3 rollup only advances when transactions arrive (provable mode never
+# emits empty blocks). Submit any tx to make it tick.
 ```
+
+Expected end state: in Terminal 1, the L2 katana shows piltover + TEE registry
+deployed (two class declares + two contract deploys). In Terminal 2, saya-tee
+settles blocks onto piltover; in Terminal 1 you'll see piltover's
+`update_state` invocations land.
 
 ## What each service does
 

@@ -29,6 +29,8 @@ services:
       TEE_REGISTRY_SALT: ${TEE_REGISTRY_SALT:-0x7ee}
       PILTOVER_SALT: ${PILTOVER_SALT:-0x9117f0}
       RUST_LOG: ${SAYA_OPS_LOG:-info}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./scripts:/scripts:ro
       - bootstrap:/shared
@@ -42,10 +44,12 @@ services:
       dockerfile: docker/Dockerfile.tee-mock
     entrypoint: ["/bin/sh", "/scripts/init-chain.sh"]
     environment:
-      SETTLEMENT_CHAIN_ID: ${SETTLEMENT_CHAIN_ID:?}
+      SETTLEMENT_RPC_URL: ${SETTLEMENT_RPC_URL:?}
       SETTLEMENT_ACCOUNT_ADDRESS: ${SETTLEMENT_ACCOUNT_ADDRESS:?}
       SETTLEMENT_ACCOUNT_PRIVATE_KEY: ${SETTLEMENT_ACCOUNT_PRIVATE_KEY:?}
       CHAIN_ID: ${CHAIN_ID:-katana_tee_mock}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./scripts:/scripts:ro
       - bootstrap:/shared:ro
@@ -72,6 +76,8 @@ services:
       - "${BLOCK_TIME:-3000}"
       - "--tee.provider"
       - "mock"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - chain-config:/root/.config/katana:ro
     ports:
@@ -96,6 +102,8 @@ services:
       SETTLEMENT_RPC_URL: ${SETTLEMENT_RPC_URL:?}
       BATCH_SIZE: ${BATCH_SIZE:-1}
       RUST_LOG: ${SAYA_TEE_LOG:-info,persistent_tee=debug}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./scripts:/scripts:ro
       - bootstrap:/shared:ro
