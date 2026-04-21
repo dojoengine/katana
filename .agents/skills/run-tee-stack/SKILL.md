@@ -1,6 +1,6 @@
 ---
 name: run-tee-stack
-description: How to run the Katana + saya-tee settlement stack. Covers the local mock-prove Docker Compose bundle and provisioning AMD SEV-SNP capable cloud VMs (AWS, Azure, GCP) for real attestation.
+description: How to run the Katana + saya-tee settlement stack. Covers the local mock-prove Docker Compose bundle, provisioning AMD SEV-SNP capable cloud VMs (AWS, Azure, GCP), and deploying to any SSH-reachable host (bare metal from latitude.sh/Hetzner/OVH, on-prem boxes, or an existing VM the user already owns).
 ---
 
 # Run the Katana TEE stack
@@ -44,13 +44,14 @@ Both modes use the same overall topology:
 1. **Do you need real attestation guarantees?**
    - No → use **mock-prove** locally. Stop here. Jump to [Local mock-prove](#local-mock-prove-quickstart).
    - Yes → continue.
-2. **Do you have an SEV-SNP capable host already?**
-   - Yes → skip provisioning, jump to [Real SEV-SNP on an existing host](#real-sev-snp-on-an-existing-host).
-   - No → use one of the cloud provisioning scripts.
+2. **Do you have a host already (cloud VM, bare metal, on-prem box)?**
+   - Yes, and you just want to deploy on it → [byo-host/provision.sh](byo-host/provision.sh). Works for anything SSH-reachable: latitude.sh, Hetzner, OVH, Vultr bare metal, a leftover EC2, on-prem hardware, etc. Detects `/dev/sev-guest` so you can tell at a glance whether real SEV mode will work on that host.
+   - No, spin one up via hyperscaler cloud → continue to step 3.
 3. **Pick a cloud:**
-   - AWS → [aws/provision.sh](aws/provision.sh). Instance family: `m6a`, `c6a`. AMI: Ubuntu 24.04 (`ami-*` varies by region).
-   - Azure → [azure/provision.sh](azure/provision.sh). SKUs: `DCasv5`, `ECasv5`, `DCadsv5`, `ECadsv5` (Confidential VMs with SNP).
-   - GCP → [gcp/provision.sh](gcp/provision.sh). Family: `n2d-standard-*` with `--confidential-compute-type=SEV_SNP`.
+   - AWS → [aws/provision.sh](aws/provision.sh). Instance family: `m6a`, `m7a`, `c6a`, `c7a`. AMI: Ubuntu 24.04 (`ami-*` varies by region). Enables SEV-SNP via `CpuOptions.AmdSevSnp=enabled`.
+   - Azure → [azure/provision.sh](azure/provision.sh). SKUs: `DCasv5`, `ECasv5`, `DCadsv5`, `ECadsv5` (Confidential VMs). Image must be the `cvm` variant, not stock Ubuntu.
+   - GCP → [gcp/provision.sh](gcp/provision.sh). Family: `n2d-standard-*` + `--confidential-compute-type=SEV_SNP` + `--min-cpu-platform="AMD Milan"`.
+   - None of the above? → use `byo-host/provision.sh` against whatever shell you do have.
 
 ## Local mock-prove quickstart
 
@@ -85,45 +86,70 @@ Drive L3 transactions at `http://localhost:5050`. L3 is in provable mode — it 
 
 Full details: [docker/README.md](../../../docker/README.md).
 
-## Real SEV-SNP on an existing host
+## Deploying on a host you already have
 
-Preconditions on the host:
-- AMD SEV-SNP enabled in BIOS/hypervisor
-- `/dev/sev-guest` exists and is accessible to the container (`ls -l /dev/sev-guest` returns a char device)
-- Docker installed, compose v2 available
+**Use this if:** you've got an SSH-reachable box from latitude.sh, Hetzner, OVH, Vultr bare metal, a leftover cloud VM, or an on-prem machine.
 
-There is not yet a `docker/tee.compose.yml` for the real path. **See the follow-up section [v2: real SEV-SNP compose variant](#v2-real-sev-snp-compose-variant).** Until that ships, the adaptation from mock-prove to real is:
+**[byo-host/provision.sh](byo-host/provision.sh)** — fully cloud-agnostic. You give it an IP, a user, and an SSH private key; it detects whether `/dev/sev-guest` is present (tells you at a glance whether real SEV mode will work), installs docker, clones this repo, writes your `.env`, and runs compose. Works on any Ubuntu 22.04+/Debian 12+ host with a sudo-capable user.
 
-1. Build the katana image with `--features tee-snp` instead of `--features tee-mock`.
-2. Build saya-tee WITHOUT `--mock-prove` at runtime.
-3. Deploy the real SP1 fact registry contract on L2 (not the TEE registry mock).
-4. Mount `/dev/sev-guest` into the katana container with `devices: - /dev/sev-guest`.
-5. Provide a real prover network account private key to saya-tee.
+```bash
+HOST_IP=1.2.3.4 \
+SSH_USER=ubuntu \
+SSH_KEY_PATH=~/.ssh/id_rsa \
+SETTLEMENT_RPC_URL=https://... \
+SETTLEMENT_ACCOUNT_ADDRESS=0x... \
+SETTLEMENT_ACCOUNT_PRIVATE_KEY=0x... \
+SETTLEMENT_CHAIN_ID=sepolia \
+./byo-host/provision.sh
+```
 
-Each of these has an open upstream dependency. See the [v2 follow-up](#v2-real-sev-snp-compose-variant).
+Teardown: `HOST_IP=... SSH_KEY_PATH=... ./byo-host/cleanup.sh`. Optionally `REMOVE_CHECKOUT=1` to also wipe `~/katana` on the host.
 
-## Cloud provisioning scripts
+### What the script assumes about the host
 
-Each script spins up one SEV-SNP capable VM, installs Docker, clones the katana repo, and boots the compose stack. All three are idempotent — re-running updates in place rather than creating duplicates.
+| Need | Detail |
+|------|--------|
+| OS | Ubuntu 22.04 / 24.04 or Debian 12+. Other distros may work, not tested. |
+| Privileges | Sudo-capable user (passwordless sudo preferred). Root works too. |
+| Network | Port 5050 reachable from wherever you'll submit txs. Opening the firewall is your job — the script doesn't manage network ACLs. |
+| For real SEV-SNP | `/dev/sev-guest` present. The script reports what it finds so you know up front. |
 
-- **[aws/provision.sh](aws/provision.sh)** — EC2 `m6a.large` in the region of your choice. Uses an Ubuntu 24.04 LTS AMI lookup, creates a VPC + security group + key pair if missing, tags resources with `katana-tee-stack` for easy teardown via `aws/cleanup.sh`.
-- **[azure/provision.sh](azure/provision.sh)** — Confidential VM on `Standard_DC2as_v5`. Creates resource group, vnet, NSG with port 5050 open.
-- **[gcp/provision.sh](gcp/provision.sh)** — `n2d-standard-2` with `--confidential-compute-type=SEV_SNP`. Requires project with Confidential VMs API enabled.
+### Why this exists separately from the cloud-specific scripts
 
-Each script prompts for required inputs (region, instance size, SSH key path). Read the script before running — they mutate cloud infrastructure.
+Bare-metal providers (especially latitude.sh, Hetzner) often offer SEV-SNP-enabled AMD EPYC hardware at a fraction of hyperscaler Confidential VM pricing, but they don't have a "confidential compute" API abstraction — you get a box with a shell. That's the target shape of this script: no cloud API, just "I have root on a Linux box with the right CPU." Also works great for homelab / on-prem deployments.
 
-### What every provisioning script does
+## Cloud provisioning (hyperscalers)
+
+Use these when you want a fresh SEV-SNP capable VM with minimal effort and are willing to pay hyperscaler Confidential Computing prices. Each script spins up one VM, installs Docker, clones katana, and brings up the compose stack. All are idempotent — re-running reuses existing resources.
+
+- **[aws/provision.sh](aws/provision.sh)** — EC2 `m7a.large` in the region of your choice. Uses an Ubuntu 24.04 LTS AMI lookup, creates a security group if missing, tags resources with `katana-tee-stack` for easy teardown via `aws/cleanup.sh`. SEV-SNP enabled via `CpuOptions.AmdSevSnp=enabled`.
+- **[azure/provision.sh](azure/provision.sh)** — Confidential VM on `Standard_DC2as_v5`. Creates resource group, vnet, NSG with port 5050 open. Requires the `cvm` image variant — a regular Ubuntu on a DC-series VM will NOT give you an attestation device.
+- **[gcp/provision.sh](gcp/provision.sh)** — `n2d-standard-2` with `--confidential-compute-type=SEV_SNP` and `--min-cpu-platform="AMD Milan"`. Requires project with Compute Engine + Confidential Computing APIs enabled.
+
+Read the script before running — they mutate cloud infrastructure.
+
+### What every cloud provisioner does (same shape as byo-host, plus a VM)
 
 ```
 1. Verify cloud CLI is installed + authenticated
-2. Create network primitives (VPC/vnet, subnet, SG/NSG with port 22 + 5050)
+2. Create network primitives (security group / NSG / firewall rule with port 22 + 5050)
 3. Provision the SEV-SNP capable VM with Ubuntu 24.04 LTS
-4. SSH in, install docker + docker-compose
-5. git clone this repo at a pinned SHA
-6. Write .env with the user's L2 creds
-7. docker compose up --build
-8. Wait for health, print the public RPC endpoint
+4. SSH in (fall back to byo-host style: install docker, clone repo, write .env, run compose)
+5. Print the public IP + RPC endpoint
 ```
+
+The post-provision step (installing docker + running compose) is conceptually the same path as `byo-host/provision.sh`. If you're debugging the post-provision stage and want to iterate faster, use `byo-host` against the already-provisioned VM's public IP.
+
+## Real SEV-SNP on an existing host (mock-prove today, real v2 pending)
+
+The host-side preconditions are:
+- AMD SEV-SNP enabled in BIOS/hypervisor
+- `/dev/sev-guest` exists as a character device
+- Docker + compose v2 installed
+
+The cloud + byo-host scripts handle the install + compose-up side. The mode they run today is **mock-prove** (via `docker/tee-mock.compose.yml`), which works on any host regardless of SEV support.
+
+**Real SEV-SNP mode is a v2 follow-up.** See [v2: real SEV-SNP compose variant](#v2-real-sev-snp-compose-variant) for the three open upstream blockers. Once that ships, the same provisioning scripts will switch from `tee-mock.compose.yml` → `tee.compose.yml` and add `/dev/sev-guest` to the katana service's `devices:` list.
 
 ## Troubleshooting
 
