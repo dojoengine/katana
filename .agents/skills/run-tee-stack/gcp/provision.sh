@@ -112,6 +112,14 @@ for i in $(seq 1 30); do
     sleep 4
 done
 
+# Verify SEV-SNP is live. GCP ties SEV-SNP to N2D + --min-cpu-platform; if
+# either falls back to a generic image or an older CPU, the VM boots without
+# the attestation device. `--min-cpu-platform="AMD Milan"` helps but is not
+# itself proof SEV came up.
+# shellcheck disable=SC1091
+. "$(dirname "$0")/../lib/verify-sev.sh"
+PROVIDER=gcp verify_host_ready "ubuntu@${PUBLIC_IP}"
+
 ssh "${SSH_OPTS[@]}" "ubuntu@${PUBLIC_IP}" 'bash -s' <<EOF
 set -euo pipefail
 if ! command -v docker >/dev/null 2>&1; then

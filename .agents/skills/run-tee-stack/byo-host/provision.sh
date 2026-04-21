@@ -68,19 +68,17 @@ if ! run_remote "echo ok" >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Detect CPU + SEV-SNP capability. This informs which compose file to
-#    run later (mock vs real-SEV — real-SEV is a v2 follow-up).
+# 2. Detect CPU + SEV-SNP capability. Informative for byo-host — we don't
+#    fail by default (REQUIRE_SEV=0) because users often run this against a
+#    plain VM for mock-prove testing. Set REQUIRE_SEV=1 if you explicitly
+#    want the script to bail when /dev/sev-guest is absent.
 # ---------------------------------------------------------------------------
 echo "[byo-host/provision] Detecting CPU + SEV-SNP support..."
 HOST_INFO=$(run_remote 'bash -s' <<'EOF'
 set -eu
 echo "KERNEL=$(uname -r)"
 echo "CPU=$(grep -m1 "model name" /proc/cpuinfo | sed "s/model name[[:space:]]*:[[:space:]]*//")"
-if [ -e /dev/sev-guest ]; then
-    echo "SEV_GUEST=present"
-else
-    echo "SEV_GUEST=absent"
-fi
+[ -e /dev/sev-guest ] && echo "SEV_GUEST=present" || echo "SEV_GUEST=absent"
 if dmesg 2>/dev/null | grep -q "SEV-SNP"; then
     echo "SEV_SNP_KERNEL=supported"
 else
@@ -90,11 +88,9 @@ EOF
 )
 echo "$HOST_INFO" | sed 's/^/  /'
 
-if echo "$HOST_INFO" | grep -q "SEV_GUEST=present"; then
-    echo "[byo-host/provision] Host has /dev/sev-guest. Real SEV-SNP would work; we still run mock-prove today (see v2 note below)."
-else
-    echo "[byo-host/provision] No /dev/sev-guest on host. Mock-prove it is."
-fi
+# shellcheck disable=SC1091
+. "$(dirname "$0")/../lib/verify-sev.sh"
+PROVIDER=byo-host REQUIRE_SEV="${REQUIRE_SEV:-0}" verify_host_ready "${SSH_USER}@${HOST_IP}"
 
 # ---------------------------------------------------------------------------
 # 3. Install prerequisites (docker + git). Skip if already present.

@@ -134,11 +134,25 @@ Read the script before running — they mutate cloud infrastructure.
 1. Verify cloud CLI is installed + authenticated
 2. Create network primitives (security group / NSG / firewall rule with port 22 + 5050)
 3. Provision the SEV-SNP capable VM with Ubuntu 24.04 LTS
-4. SSH in (fall back to byo-host style: install docker, clone repo, write .env, run compose)
-5. Print the public IP + RPC endpoint
+4. SSH in and verify /dev/sev-guest actually came up (see "SEV-SNP verification" below)
+5. Install docker, clone repo, write .env, run compose
+6. Print the public IP + RPC endpoint
 ```
 
 The post-provision step (installing docker + running compose) is conceptually the same path as `byo-host/provision.sh`. If you're debugging the post-provision stage and want to iterate faster, use `byo-host` against the already-provisioned VM's public IP.
+
+### SEV-SNP verification (REQUIRE_SEV)
+
+Every provisioner sources [`lib/verify-sev.sh`](lib/verify-sev.sh) and runs it after SSH is reachable. The helper SSHs to the host and checks for `/dev/sev-guest`. The cloud provisioners default to `REQUIRE_SEV=1` (fail if absent) because you explicitly asked for SEV-SNP hardware; byo-host defaults to `REQUIRE_SEV=0` (warn, proceed) because byo-host users often target a plain VM for mock-prove testing.
+
+Override from the caller:
+
+```bash
+REQUIRE_SEV=0 ./aws/provision.sh       # proceed on a non-SEV AWS instance (e.g. for mock-prove on a cheap m5)
+REQUIRE_SEV=1 ./byo-host/provision.sh  # fail loudly if my bare-metal box isn't SEV-capable after all
+```
+
+This exists because cloud providers sometimes silently downgrade Confidential VM requests: wrong image variant on Azure, wrong CPU platform on GCP, AMI/instance-family mismatch on AWS. You pay Confidential prices but get regular hardware. The check catches that before the stack runs.
 
 ## Real SEV-SNP on an existing host (mock-prove today, real v2 pending)
 

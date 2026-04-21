@@ -116,6 +116,12 @@ for i in $(seq 1 30); do
     sleep 4
 done
 
+# Verify SEV-SNP came up. Azure Confidential VMs require the `cvm` image
+# variant AND a DC*-series size; a mismatch silently yields a regular VM.
+# shellcheck disable=SC1091
+. "$(dirname "$0")/../lib/verify-sev.sh"
+PROVIDER=azure verify_host_ready "azureuser@${PUBLIC_IP}"
+
 ssh "${SSH_OPTS[@]}" "azureuser@${PUBLIC_IP}" 'bash -s' <<EOF
 set -euo pipefail
 if ! command -v docker >/dev/null 2>&1; then

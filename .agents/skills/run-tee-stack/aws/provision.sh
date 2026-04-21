@@ -152,6 +152,13 @@ for i in $(seq 1 30); do
     sleep 4
 done
 
+# Verify SEV-SNP actually came up. AWS occasionally ignores CpuOptions.AmdSevSnp
+# when the AMI or instance family disagrees and gives you a regular VM at the
+# same price. This check closes that loop. Override with REQUIRE_SEV=0.
+# shellcheck disable=SC1091
+. "$(dirname "$0")/../lib/verify-sev.sh"
+PROVIDER=aws verify_host_ready "ubuntu@${PUBLIC_IP}"
+
 echo "[aws/provision] Installing docker + compose + katana repo..."
 ssh "${SSH_OPTS[@]}" "ubuntu@${PUBLIC_IP}" 'bash -s' <<EOF
 set -euo pipefail
