@@ -1,0 +1,42 @@
+# Builds a katana binary with `--features tee-mock` compiled in.
+#
+# The binary serves `tee_generateQuote` RPC backed by a software-only mock
+# provider (no AMD SEV-SNP hardware required). Intended for dev use alongside
+# `docker/tee-mock.compose.yml` — not for production.
+#
+# For the default (real SEV-SNP) binary, use `ghcr.io/dojoengine/katana` — the
+# published image already has `--tee.provider=sev-snp` available.
+
+FROM rust:1.89.0-slim-bookworm AS builder
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        ca-certificates \
+        g++ \
+        git \
+        libclang-dev \
+        libprotobuf-dev \
+        libssl-dev \
+        libzstd-dev \
+        make \
+        pkg-config \
+        protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY . .
+
+# Default features (cartridge, client, init-*, jemalloc) + tee-mock.
+# Defaults pull in cli/default which enables tee-snp, so the resulting binary
+# supports both --tee.provider=sev-snp and --tee.provider=mock.
+RUN cargo build -p katana --bin katana --release --features tee-mock
+
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        ca-certificates \
+        tini \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/katana /usr/local/bin/katana
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/katana"]
