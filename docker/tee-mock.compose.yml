@@ -18,7 +18,10 @@ name: katana-tee-mock
 services:
   # 1) One-shot: declare + deploy piltover + mock TEE registry on user's L2.
   deploy-contracts:
-    image: ghcr.io/dojoengine/saya:latest
+    image: katana-tee-mock-saya:pinned
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.saya
     entrypoint: ["/bin/sh", "/scripts/deploy-contracts.sh"]
     environment:
       SETTLEMENT_RPC_URL: ${SETTLEMENT_RPC_URL:?SETTLEMENT_RPC_URL is required}
@@ -94,7 +97,10 @@ services:
 
   # 4) Long-running: saya-tee polls L3, settles on L2 via piltover.
   saya-tee:
-    image: ghcr.io/dojoengine/saya:latest
+    image: katana-tee-mock-saya:pinned
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.saya
     entrypoint: ["/bin/sh", "/scripts/saya-tee.sh"]
     environment:
       SETTLEMENT_ACCOUNT_ADDRESS: ${SETTLEMENT_ACCOUNT_ADDRESS:?}
