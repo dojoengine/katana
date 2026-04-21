@@ -17,17 +17,14 @@ use tower::{Layer, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-#[cfg(feature = "cartridge")]
-pub mod cartridge;
-#[cfg(feature = "paymaster")]
-pub mod paymaster;
-
 #[cfg(feature = "tee")]
 pub mod tee;
 
+pub mod cartridge;
 pub mod dev;
 pub mod health;
 pub mod middleware;
+pub mod paymaster;
 pub mod permit;
 pub mod starknet;
 pub mod txpool;

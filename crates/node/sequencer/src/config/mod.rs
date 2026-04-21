@@ -7,10 +7,9 @@ pub use katana_node_config::{db, gateway, metrics, rpc};
 pub mod dev;
 pub mod execution;
 pub mod fork;
+pub mod paymaster;
 pub mod sequencing;
 
-#[cfg(feature = "paymaster")]
-pub mod paymaster;
 #[cfg(feature = "tee")]
 pub mod tee;
 
@@ -66,7 +65,6 @@ pub struct Config {
     pub dev: DevConfig,
 
     /// Cartridge paymaster options.
-    #[cfg(feature = "paymaster")]
     pub paymaster: Option<paymaster::PaymasterConfig>,
 
     /// TEE attestation options.

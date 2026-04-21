@@ -62,7 +62,6 @@ tempfile.workspace = true
 
 [features]
 default = [
-	"cartridge",
 	"client",
 	"init-custom-settlement-chain",
 	"init-slot",
@@ -70,7 +69,6 @@ default = [
 	"katana-cli/explorer",
 ]
 
-cartridge = [ "katana-cli/cartridge" ]
 client = [ "dep:colored_json", "dep:serde_json" ]
 init-custom-settlement-chain = [  ]
 init-slot = [  ]

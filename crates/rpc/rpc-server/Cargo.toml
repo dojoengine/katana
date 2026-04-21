@@ -12,7 +12,7 @@ katana-core.workspace = true
 katana-executor.workspace = true
 katana-explorer = { workspace = true, features = [ "jsonrpsee" ], optional = true }
 katana-gas-price-oracle.workspace = true
-katana-genesis = { workspace = true, optional = true }
+katana-genesis.workspace = true
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
@@ -30,19 +30,19 @@ jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
 quick_cache = "0.6.10"
 serde_json.workspace = true
-starknet = { workspace = true, optional = true }
-starknet-paymaster = { package = "starknet", git = "https://github.com/xJonathanLEI/starknet-rs", tag = "starknet/v0.17.0", optional = true }
+starknet.workspace = true
+starknet-paymaster = { package = "starknet", git = "https://github.com/xJonathanLEI/starknet-rs", tag = "starknet/v0.17.0" }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
 tower-http = { workspace = true, features = [ "cors", "trace" ] }
 tracing.workspace = true
 
-cainome = { workspace = true, optional = true }
-cartridge = { workspace = true, optional = true }
-paymaster-rpc = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
-url = { workspace = true, optional = true }
+cainome.workspace = true
+cartridge.workspace = true
+paymaster-rpc.workspace = true
+serde.workspace = true
+url.workspace = true
 
 hex = { workspace = true, optional = true }
 katana-tee = { workspace = true, optional = true }
@@ -58,7 +58,7 @@ katana-genesis.workspace = true
 katana-messaging.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types = { workspace = true, features = [ "arbitrary" ] }
-katana-sequencer-node = { workspace = true, features = [ "cartridge" ] }
+katana-sequencer-node.workspace = true
 katana-starknet.workspace = true
 katana-trie.workspace = true
 katana-utils = { workspace = true, features = [ "node" ] }
@@ -90,19 +90,7 @@ tracing-subscriber.workspace = true
 url.workspace = true
 
 [features]
-cartridge = [
-	"dep:cainome",
-	"dep:cartridge",
-	"dep:katana-genesis",
-	"dep:serde",
-	"dep:starknet",
-	"dep:starknet-paymaster",
-	"katana-rpc-api/cartridge",
-	"paymaster",
-	"vrf",
-]
 explorer = [ "dep:katana-explorer" ]
-paymaster = [ "dep:paymaster-rpc", "dep:url", "katana-rpc-api/paymaster" ]
 tee = [
 	"dep:hex",
 	"dep:katana-tee",
@@ -112,4 +100,3 @@ tee = [
 ]
 # Enables `MockProvider` for use by integration tests. Not for production binaries.
 tee-mock = [ "katana-tee/tee-mock", "tee" ]
-vrf = [ "paymaster" ]

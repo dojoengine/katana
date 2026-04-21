@@ -64,7 +64,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
-#[cfg(feature = "vrf")]
 pub use cartridge::vrf::server::{
     get_default_vrf_account, VrfAccountCredentials, VrfBootstrapResult, VrfServer, VrfServerConfig,
     VrfServiceProcess,

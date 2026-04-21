@@ -1,5 +1,3 @@
-#![cfg(feature = "cartridge")]
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -336,7 +334,6 @@ fn cartridge_test_config(
             cartridge_api_url,
             controller_deployer_address: *deployer_address,
             controller_deployer_private_key: deployer_private_key,
-            #[cfg(feature = "vrf")]
             vrf: None,
         }),
     });

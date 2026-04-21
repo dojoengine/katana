@@ -21,7 +21,6 @@ use katana_node_config::gateway::{
 };
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
-#[cfg(feature = "vrf")]
 use katana_primitives::ContractAddress;
 #[cfg(feature = "server")]
 use katana_rpc_server::middleware::cors::HeaderValue;
@@ -585,7 +584,6 @@ pub struct GasPriceOracleOptions {
     pub l1_strk_data_gas_price: Option<GasPrice>,
 }
 
-#[cfg(feature = "paymaster")]
 #[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Paymaster options")]
 pub struct PaymasterOptions {
@@ -631,7 +629,6 @@ pub struct PaymasterOptions {
     pub bin: Option<PathBuf>,
 }
 
-#[cfg(feature = "paymaster")]
 impl PaymasterOptions {
     /// Returns true if the paymaster should run in external mode (URL provided).
     pub fn is_external(&self) -> bool {
@@ -663,7 +660,6 @@ impl PaymasterOptions {
     }
 }
 
-#[cfg(feature = "cartridge")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Cartridge options")]
 pub struct CartridgeOptions {
@@ -672,7 +668,6 @@ pub struct CartridgeOptions {
     pub controllers: bool,
 
     /// Enable Cartridge paymaster
-    #[cfg(feature = "paymaster")]
     #[arg(requires = "paymaster_enabled")]
     #[arg(long = "cartridge.paymaster", id = "cartridge_paymaster")]
     #[serde(default)]
@@ -684,18 +679,15 @@ pub struct CartridgeOptions {
     /// address (at the moment). Must be configurable for local development
     /// with local cartridge API.
     #[arg(long = "cartridge.api")]
-    #[cfg(feature = "paymaster")]
     #[arg(default_value = "https://api.cartridge.gg")]
     #[arg(requires = "cartridge_paymaster")]
     #[serde(default = "default_api_url")]
     pub cartridge_api: Url,
 
-    #[cfg(all(feature = "paymaster", feature = "vrf"))]
     #[command(flatten)]
     pub vrf: VrfOptions,
 }
 
-#[cfg(feature = "cartridge")]
 impl CartridgeOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
@@ -714,20 +706,17 @@ impl CartridgeOptions {
     }
 }
 
-#[cfg(feature = "cartridge")]
 impl Default for CartridgeOptions {
     fn default() -> Self {
         CartridgeOptions {
             controllers: false,
             paymaster: false,
             cartridge_api: default_api_url(),
-            #[cfg(feature = "vrf")]
             vrf: VrfOptions::default(),
         }
     }
 }
 
-#[cfg(feature = "vrf")]
 #[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Cartridge VRF options")]
 pub struct VrfOptions {
@@ -765,7 +754,6 @@ pub struct VrfOptions {
     pub bin: Option<PathBuf>,
 }
 
-#[cfg(feature = "vrf")]
 impl VrfOptions {
     /// Returns true if the VRF should run in external mode (URL provided).
     pub fn is_external(&self) -> bool {
@@ -900,7 +888,6 @@ where
         .ok_or_else(|| D::Error::custom("value cannot be zero"))
 }
 
-#[cfg(feature = "cartridge")]
 fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
 }

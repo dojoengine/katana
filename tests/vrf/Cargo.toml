@@ -8,13 +8,13 @@ version.workspace = true
 
 [dependencies]
 cartridge.workspace = true
-katana-cli = { workspace = true, features = ["vrf"] }
+katana-cli.workspace = true
 katana-contracts.workspace = true
 katana-genesis.workspace = true
 katana-primitives.workspace = true
-katana-rpc-api = { workspace = true, features = ["client", "cartridge"] }
+katana-rpc-api = { workspace = true, features = ["client"] }
 katana-rpc-types.workspace = true
-katana-sequencer-node = { workspace = true, features = ["cartridge"] }
+katana-sequencer-node.workspace = true
 katana-utils = { workspace = true, features = ["node"] }
 
 cainome.workspace = true

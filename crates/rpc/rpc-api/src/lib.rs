@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+pub mod cartridge;
 pub mod dev;
 pub mod error;
 pub mod katana;
@@ -7,10 +8,6 @@ pub mod starknet;
 pub mod starknet_ext;
 pub mod txpool;
 
-#[cfg(feature = "cartridge")]
-pub mod cartridge;
-
-#[cfg(feature = "paymaster")]
 pub mod paymaster {
     pub use katana_paymaster::api::*;
 }

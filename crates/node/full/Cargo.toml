@@ -42,9 +42,4 @@ tracing.workspace = true
 url.workspace = true
 
 [features]
-cartridge = [
-	"katana-node-config/cartridge",
-	"katana-rpc-api/cartridge",
-	"katana-rpc-server/cartridge",
-]
 explorer = [ "katana-node-config/explorer", "katana-rpc-server/explorer" ]

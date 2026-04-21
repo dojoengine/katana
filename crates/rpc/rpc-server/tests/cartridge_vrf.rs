@@ -1,5 +1,3 @@
-#![cfg(feature = "cartridge")]
-
 //! Integration tests for the Cartridge VRF flow.
 //!
 //! Tests that when `cartridge_addExecuteOutsideTransaction` includes a `request_random`

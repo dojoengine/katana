@@ -6,7 +6,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-cartridge = { workspace = true, optional = true }
+cartridge.workspace = true
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-db.workspace = true
@@ -33,25 +33,15 @@ futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
 num-traits.workspace = true
-starknet = { workspace = true, optional = true }
+starknet.workspace = true
 tower.workspace = true
 tracing.workspace = true
 url.workspace = true
 
 [features]
-cartridge = [
-	"dep:cartridge",
-	"dep:starknet",
-	"katana-node-config/cartridge",
-	"katana-rpc-api/cartridge",
-	"katana-rpc-server/cartridge",
-	"paymaster",
-	"vrf",
-]
 explorer = [ "katana-node-config/explorer", "katana-rpc-server/explorer" ]
 grpc = [ "dep:katana-grpc" ]
 native = [ "katana-executor/native" ]
-paymaster = [ "katana-rpc-api/paymaster", "katana-rpc-server/paymaster" ]
 tee = [
 	"dep:katana-tee",
 	"katana-node-config/tee",
@@ -62,7 +52,6 @@ tee-snp = [ "katana-tee/snp", "tee" ]
 # Enables `TeeProviderType::Mock` (software-only attestation provider) for use
 # by integration test crates. Not intended for production binaries.
 tee-mock = [ "katana-tee/tee-mock", "tee" ]
-vrf = [ "cartridge", "katana-rpc-server/vrf" ]
 
 [dev-dependencies]
 katana-contracts.workspace = true

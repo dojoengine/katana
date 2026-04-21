@@ -11,7 +11,6 @@ use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
-#[cfg(feature = "cartridge")]
 use jsonrpsee::core::middleware::layer::Either;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
@@ -37,26 +36,21 @@ use katana_primitives::env::VersionedConstantsOverrides;
 use katana_provider::{
     DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
 };
-#[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::katana::KatanaApiServer;
-#[cfg(feature = "paymaster")]
 use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::StarknetApiServer;
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(feature = "tee")]
 use katana_rpc_api::tee::TeeApiServer;
-#[cfg(feature = "cartridge")]
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::dev::DevApi;
-#[cfg(feature = "cartridge")]
 use katana_rpc_server::middleware::cartridge::{ControllerDeploymentLayer, VrfLayer};
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::middleware::logger::RpcLoggerLayer;
 use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
-#[cfg(feature = "paymaster")]
 use katana_rpc_server::paymaster::PaymasterProxy;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
@@ -67,7 +61,6 @@ use katana_stage::Sequencing;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
-#[cfg(feature = "cartridge")]
 use starknet::signers::SigningKey;
 use tower::layer::util::{Identity, Stack};
 use tracing::info;
@@ -75,7 +68,6 @@ use tracing::info;
 use crate::exit::NodeStoppedFuture;
 
 /// The concrete type of the RPC middleware stack used by the node.
-#[cfg(feature = "cartridge")]
 type NodeRpcMiddleware<PF> = Stack<
     Either<VrfLayer, Identity>,
     Stack<
@@ -84,14 +76,7 @@ type NodeRpcMiddleware<PF> = Stack<
     >,
 >;
 
-#[cfg(not(feature = "cartridge"))]
-type NodeRpcMiddleware = Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>;
-
-#[cfg(feature = "cartridge")]
 pub type NodeRpcServer<PF> = RpcServer<NodeRpcMiddleware<PF>>;
-
-#[cfg(not(feature = "cartridge"))]
-pub type NodeRpcServer = RpcServer<NodeRpcMiddleware>;
 
 /// A node instance.
 ///
@@ -108,10 +93,7 @@ where
     provider: P,
     config: Arc<Config>,
     pool: TxPool,
-    #[cfg(feature = "cartridge")]
     rpc_server: NodeRpcServer<P>,
-    #[cfg(not(feature = "cartridge"))]
-    rpc_server: NodeRpcServer,
     #[cfg(feature = "grpc")]
     grpc_server: Option<GrpcServer>,
     task_manager: TaskManager,
@@ -264,7 +246,6 @@ where
                 "argent-version".parse().unwrap(),
             ]);
 
-        #[cfg(feature = "paymaster")]
         if let Some(cfg) = &config.paymaster {
             let proxy = PaymasterProxy::new(cfg.url.clone(), cfg.api_key.clone())?;
             rpc_modules.merge(proxy.into_rpc())?;
@@ -320,7 +301,6 @@ where
 
         // --- build cartridge api (plus middleware)
 
-        #[cfg(feature = "cartridge")]
         let (controller_deployment_layer, vrf_layer) = if let Some(cfg) = &config.paymaster {
             if let Some(cartridge_api_cfg) = &cfg.cartridge_api {
                 use anyhow::ensure;
@@ -358,7 +338,6 @@ where
                     ),
                 );
 
-                #[cfg(feature = "vrf")]
                 let vrf_layer = if let Some(vrf) = &cartridge_api_cfg.vrf {
                     use katana_rpc_server::cartridge::{VrfService, VrfServiceConfig};
                     use url::Url;
@@ -376,9 +355,6 @@ where
                 } else {
                     None
                 };
-
-                #[cfg(not(feature = "vrf"))]
-                let vrf_layer: Option<VrfLayer> = None;
 
                 (Some(controller_deployment_layer), vrf_layer)
             } else {
@@ -427,7 +403,6 @@ where
             .layer(RpcServerMetricsLayer::new(&rpc_modules))
             .layer(RpcLoggerLayer::new());
 
-        #[cfg(feature = "cartridge")]
         let rpc_middleware =
             rpc_middleware.option_layer(controller_deployment_layer).option_layer(vrf_layer);
 
@@ -769,14 +744,7 @@ where
     }
 
     /// Returns a reference to the node's JSON-RPC server.
-    #[cfg(feature = "cartridge")]
     pub fn rpc(&self) -> &NodeRpcServer<P> {
-        &self.rpc_server
-    }
-
-    /// Returns a reference to the node's JSON-RPC server.
-    #[cfg(not(feature = "cartridge"))]
-    pub fn rpc(&self) -> &NodeRpcServer {
         &self.rpc_server
     }
 
