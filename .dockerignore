@@ -17,6 +17,9 @@ katana-test-db/
 .env.*
 !.env.example
 
+# Git worktree internals (~1 GB per worktree, vergen only needs .git/ proper)
+.git/worktrees/
+
 # CI/CD files (except the Dockerfile being built)
 .github/
 !.github/Dockerfile*

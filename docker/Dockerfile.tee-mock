@@ -32,9 +32,12 @@ RUN cargo build -p katana --bin katana --release --features tee-mock
 
 FROM ubuntu:24.04
 
+# `wget` is used by the compose healthcheck (docker/tee-mock.compose.yml) to
+# ping the katana RPC. `ca-certificates` + `tini` are the usual runtime bits.
 RUN apt-get update && apt-get install --no-install-recommends -y \
         ca-certificates \
         tini \
+        wget \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/target/release/katana /usr/local/bin/katana
