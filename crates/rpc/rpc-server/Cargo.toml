@@ -110,4 +110,6 @@ tee = [
 	"dep:starknet-types-core",
 	"katana-rpc-api/tee",
 ]
+# Enables `MockProvider` for use by integration tests. Not for production binaries.
+tee-mock = [ "katana-tee/tee-mock", "tee" ]
 vrf = [ "paymaster" ]
