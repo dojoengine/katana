@@ -10,6 +10,13 @@ build/
 !crates/contracts/build/
 monitoring/
 
+# Agent workspaces, local DBs, env files (secrets)
+.claude/
+katana-test-db/
+.env
+.env.*
+!.env.example
+
 # CI/CD files (except the Dockerfile being built)
 .github/
 !.github/Dockerfile*

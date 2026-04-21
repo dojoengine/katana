@@ -59,7 +59,7 @@ cartridge = [
 	"katana-sequencer-node/cartridge",
 	"paymaster",
 ]
-default = [ "cartridge", "grpc", "paymaster", "server", "tee", "vrf" ]
+default = [ "cartridge", "grpc", "paymaster", "server", "tee-snp", "vrf" ]
 explorer = [
 	"katana-full-node/explorer",
 	"katana-sequencer-node/explorer",
@@ -77,8 +77,16 @@ server = [  ]
 tee = [
 	"dep:katana-tee",
 	"katana-sequencer-node/tee",
+]
+tee-snp = [
 	"katana-sequencer-node/tee-snp",
 	"katana-tee/snp",
+	"tee",
+]
+tee-mock = [
+	"katana-sequencer-node/tee-mock",
+	"katana-tee/tee-mock",
+	"tee",
 ]
 vrf = [
 	"cartridge",
