@@ -152,7 +152,7 @@ $(EXPLORER_UI_DIST): $(EXPLORER_UI_DIR)
 	@echo "Building Explorer..."
 	@cd crates/explorer/ui && \
 		bun install && \
-		bun run build || { echo "Explorer build failed!"; exit 1; }
+		IS_EMBEDDED=1 bun run build || { echo "Explorer build failed!"; exit 1; }
 	@echo "Explorer build complete."
 
 $(SNOS_OUTPUT): $(SNOS_DB_DIR)
