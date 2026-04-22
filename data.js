@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776881315140,
+  "lastUpdate": 1776886373422,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -21467,6 +21467,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 222,
             "range": "± 10",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b06f6a427e221dbc0235daf8dae1ce3b7077b955",
+          "message": "test(grpc): add integration tests for uncovered Starknet read methods (#547)\n\n## Summary\n\nAdds 11 integration tests to `crates/grpc/tests/starknet.rs` covering\n`katana-grpc` Starknet read-service methods that previously had no test\ncoverage, plus two cross-cutting gaps (events pagination,\n`BlockId::Hash` form).\n\nThis is **Workstream 1 of 4** in a planned test-coverage expansion; the\nwrite service (`StarknetWrite`), trace service (`StarknetTrace`), and\nerror-path / pending-block tests will land in follow-up PRs.\n\n**Parity tests** (gRPC vs JSON-RPC on a migrated spawn-and-move chain):\n\n- `get_block_with_receipts` — header + per-receipt `transaction_hash`\nparity\n- `get_transaction_status` — maps RPC `TransactionStatus` to handler's\n`(finality_status, execution_status)` strings\n- `get_transaction_by_block_id_and_index` — cross-ref against block's tx\nhash list + variant-kind (invoke/declare/deploy_account/...) match\n- `get_class` — asserts `ContractClass` variant and that handler's\nJSON-in-`abi` field contains class-shaped keys. The handler is lossy on\npurpose; test guards against silent `unwrap_or_default` regressions and\nflags for rewrite\n- `call` — `balanceOf(genesis)` against STRK fee token, result parity\n- `get_storage_proof` — `global_roots.block_hash` parity + non-zero\n`contracts_tree_root` + one contract leaf for requested address\n- `get_events` pagination — walks `continuation_token` with\n`chunk_size=2` and compares order + count against a single-page baseline\n- `get_block_with_txs` by hash — exercises `BlockId::Hash` proto oneof\narm with `parent_hash` + `new_root` header parity\n\n**`Unimplemented`-handler lock-ins** (assert `Code::Unimplemented`; flip\nto parity tests when implemented):\n\n- `estimate_fee`, `estimate_message_fee`, `get_compiled_casm`\n\n**New inline helper** alongside existing `grpc_block_id_*`:\n\n- `grpc_block_id_hash(Felt)` — constructs the `Hash` oneof arm\n\n## Test Coverage\n\nBefore: 17 integration tests covering 16 of 32 gRPC server methods.\nAfter: **28 integration tests covering 25 of 32** (11 of 15\npreviously-uncovered methods addressed).\n\nRemaining uncovered (shipped in follow-up workstreams):\n- W2 (write): `add_invoke_transaction`, `add_declare_transaction`,\n`add_deploy_account_transaction`\n- W3 (trace): `trace_transaction`, `trace_block_transactions` (+\n`simulate_transactions` Unimplemented)\n- W4 (cross-cutting): error paths (`NotFound` / `InvalidArgument`),\n`BlockTag::Pending` / `PreConfirmed`\n\n## Pre-Landing Review\n\nPre-landing review + adversarial review surfaced 4 weak assertions that\nwould let broken handlers pass silently. All four strengthened before\nthis PR:\n\n- `test_get_block_with_receipts` — added per-receipt `transaction_hash`\nparity + header `parent_hash`/`new_root` checks (was length-only)\n- `test_get_transaction_by_block_id_and_index` — added variant-kind\nmatch (was `is_some()` only)\n- `test_get_class` — JSON assertion now checks for class-shaped\ntop-level keys (was \"any non-empty JSON\")\n- `test_get_block_with_txs_by_hash` — added `parent_hash` + `new_root`\nparity (was block_hash + tx count only)\n\n## Not in scope (flagged for follow-up)\n\n- `get_class` handler is lossy (class serialized into `abi` field as\nJSON, `sierra_program` left empty). Test matches current shape with a\nTODO comment; handler rewrite is a separate concern.\n- `event.rs:29-39` proto→`EventFilterWithPage` conversion maps each flat\nkey to `vec![key]` (exact-match-at-position) rather than `[[k]]`\n(any-of); test uses empty keys so doesn't exercise this. Worth verifying\nbut out of scope for this PR.\n\n## Test plan\n\n- [x] `cargo nextest run -p katana-grpc --test starknet` — 28/28 pass on\nmerged-main state\n- [x] `cargo +nightly-2025-02-20 fmt --all -- --check` clean\n- [x] `cargo clippy -p katana-grpc --tests` clean\n- [x] Each new test verified to actually fail when the relevant\nassertion is broken (adversarial review fed back into test\nstrengthening)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-04-22T14:00:34-05:00",
+          "tree_id": "e3732749e8ce97ca2e5db686495c8a7d9cb2d0e2",
+          "url": "https://github.com/dojoengine/katana/commit/b06f6a427e221dbc0235daf8dae1ce3b7077b955"
+        },
+        "date": 1776886371883,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2594765,
+            "range": "± 8395",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2885577,
+            "range": "± 20653",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 35,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 27,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 35,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 27,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 687,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 900,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 82,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 40,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 168,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 157,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 168,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 260,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 214,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 278,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 183,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 350,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 144,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 111,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 99,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 63,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 96,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 63,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 96,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 63,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 98,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 62,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 97,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 63,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 52,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 27,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 52,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 27,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 14,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 14261,
+            "range": "± 82",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3633,
+            "range": "± 99",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 359,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 826,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 177,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 158,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1560,
+            "range": "± 69",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2367,
+            "range": "± 367",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 687,
+            "range": "± 197",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 961,
+            "range": "± 140",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 26480,
+            "range": "± 850",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6469,
+            "range": "± 201",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 163,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 238,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 313,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 293,
+            "range": "± 11",
             "unit": "ns/iter"
           }
         ]
