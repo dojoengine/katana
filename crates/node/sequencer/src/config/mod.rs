@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 // Re-export shared config types
-pub use katana_node_config::{db, gateway, metrics, rpc};
+pub use katana_node_config::{build_info, db, gateway, metrics, rpc};
 
 // Sequencer-specific config modules
 pub mod dev;
@@ -16,6 +16,7 @@ pub mod tee;
 #[cfg(feature = "grpc")]
 pub mod grpc;
 
+use build_info::BuildInfo;
 use db::DbConfig;
 use dev::DevConfig;
 use execution::ExecutionConfig;
@@ -63,6 +64,9 @@ pub struct Config {
 
     /// Development options.
     pub dev: DevConfig,
+
+    /// Build-time identity. See [`BuildInfo`] docs.
+    pub build_info: BuildInfo,
 
     /// Cartridge paymaster options.
     pub paymaster: Option<paymaster::PaymasterConfig>,

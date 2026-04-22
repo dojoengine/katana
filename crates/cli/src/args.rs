@@ -141,7 +141,7 @@ pub struct SequencerNodeArgs {
 }
 
 impl SequencerNodeArgs {
-    pub async fn execute(&self) -> Result<()> {
+    pub async fn execute(&self, build_info: crate::BuildInfo) -> Result<()> {
         let logging = katana_tracing::LoggingConfig {
             stdout_format: self.logging.stdout.stdout_format,
             stdout_color: self.logging.stdout.color,
@@ -153,12 +153,13 @@ impl SequencerNodeArgs {
 
         katana_tracing::init(logging, self.tracer_config()).await?;
 
-        self.start_node().await
+        self.start_node(build_info).await
     }
 
-    async fn start_node(&self) -> Result<()> {
+    async fn start_node(&self, build_info: crate::BuildInfo) -> Result<()> {
         // Build the node configuration
-        let config = self.config()?;
+        let mut config = self.config()?;
+        config.build_info = build_info;
 
         // Resolve sidecar binaries before resources are committed.
         let paymaster_bin = if self.paymaster.enabled && !self.paymaster.is_external() {
@@ -382,6 +383,7 @@ impl SequencerNodeArgs {
             execution,
             messaging,
             sequencing,
+            build_info: crate::BuildInfo::default(),
             paymaster,
             #[cfg(feature = "tee")]
             tee: self.tee_config(),
@@ -1123,11 +1125,12 @@ explorer = true
     #[cfg(feature = "server")]
     #[test]
     fn http_modules() {
-        // If the `--http.api` isn't specified, only starknet module will be exposed.
+        // If the `--http.api` isn't specified, `starknet` and `node` are exposed by default.
         let result = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
         let modules = &result.rpc.apis;
-        assert_eq!(modules.len(), 1);
+        assert_eq!(modules.len(), 2);
         assert!(modules.contains(&RpcModuleKind::Starknet));
+        assert!(modules.contains(&RpcModuleKind::Node));
 
         // If the `--http.api` is specified, only the ones in the list will be exposed.
         let result =
@@ -1152,6 +1155,25 @@ explorer = true
         let result = args.config().unwrap();
 
         assert!(result.rpc.apis.contains(&RpcModuleKind::Dev));
+    }
+
+    #[cfg(feature = "server")]
+    #[test]
+    fn test_node_api_explicit() {
+        let result = SequencerNodeArgs::parse_from(["katana", "--http.api", "node"])
+            .config()
+            .unwrap();
+        let modules = &result.rpc.apis;
+        assert_eq!(modules.len(), 1);
+        assert!(modules.contains(&RpcModuleKind::Node));
+
+        let result = SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet,node"])
+            .config()
+            .unwrap();
+        let modules = &result.rpc.apis;
+        assert_eq!(modules.len(), 2);
+        assert!(modules.contains(&RpcModuleKind::Starknet));
+        assert!(modules.contains(&RpcModuleKind::Node));
     }
 
     #[test]

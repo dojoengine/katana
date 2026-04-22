@@ -15,6 +15,7 @@ pub mod class;
 pub mod event;
 pub mod list;
 pub mod message;
+pub mod node;
 pub mod outside_execution;
 pub mod receipt;
 pub mod state_update;

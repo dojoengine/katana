@@ -56,6 +56,7 @@ katana-contracts.workspace = true
 katana-db.workspace = true
 katana-genesis.workspace = true
 katana-messaging.workspace = true
+katana-node-config.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types = { workspace = true, features = [ "arbitrary" ] }
 katana-sequencer-node.workspace = true

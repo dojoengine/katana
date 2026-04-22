@@ -19,7 +19,7 @@ mod utils;
 #[cfg(feature = "client")]
 mod rpc;
 
-use version::{generate_long, generate_short};
+use version::{build_info, generate_long, generate_short};
 
 #[derive(Debug, Parser)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -46,11 +46,11 @@ impl Cli {
                 Commands::Utils(args) => args.execute(),
                 #[cfg(feature = "client")]
                 Commands::Rpc(args) => execute_async(args.execute())?,
-                Commands::Node(args) => execute_async(args.execute())?,
+                Commands::Node(args) => execute_async(args.execute(build_info()))?,
             };
         }
 
-        execute_async(self.node.with_config_file()?.execute())?
+        execute_async(self.node.with_config_file()?.execute(build_info()))?
     }
 }
 

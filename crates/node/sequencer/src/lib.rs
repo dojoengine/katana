@@ -39,6 +39,7 @@ use katana_provider::{
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::katana::KatanaApiServer;
+use katana_rpc_api::node::NodeApiServer;
 use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::StarknetApiServer;
 #[cfg(feature = "explorer")]
@@ -51,11 +52,13 @@ use katana_rpc_server::middleware::cartridge::{ControllerDeploymentLayer, VrfLay
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::middleware::logger::RpcLoggerLayer;
 use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
+use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
+use katana_rpc_types::node::NodeInfo;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
@@ -297,6 +300,11 @@ where
         if config.rpc.apis.contains(&RpcModuleKind::TxPool) {
             let api = katana_rpc_server::txpool::TxPoolApi::new(pool.clone());
             rpc_modules.merge(katana_rpc_api::txpool::TxPoolApiServer::into_rpc(api))?;
+        }
+
+        if config.rpc.apis.contains(&RpcModuleKind::Node) {
+            let info = NodeInfo::from_parts(&config.build_info, backend.chain_spec.as_ref());
+            rpc_modules.merge(NodeApiServer::into_rpc(NodeApi::new(info)))?;
         }
 
         // --- build cartridge api (plus middleware)
