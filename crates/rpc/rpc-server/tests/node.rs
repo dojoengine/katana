@@ -16,7 +16,8 @@ async fn node_get_info_returns_chain_id_and_kind() {
     let info = client.get_info().await.unwrap();
 
     assert_eq!(info.chain_id, backend.chain_spec.id().id());
-    assert_eq!(info.chain_kind, ChainKind::Dev);
+    assert_eq!(info.chain_kind, ChainKind::Sequencer);
+    assert!(info.dev, "TestNode uses ChainSpec::Dev, so dev flag must be true");
 
     // TestNode does not go through `bin/katana`, so BuildInfo retains its
     // `"unknown"` sentinels. This is expected and documents that behavior.

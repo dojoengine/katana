@@ -26,9 +26,12 @@ pub struct NodeInfo {
     /// Chain identifier as a raw Felt (hex-encoded, same wire format as
     /// `starknet_chainId`).
     pub chain_id: Felt,
-    /// Discriminator for the `ChainSpec` variant the node was built with. Note that
-    /// both mainnet and sepolia map to `FullNode` — consult `chain_id` to distinguish.
+    /// Role of this node: sequencer (producing blocks) or full node (following a chain).
     pub chain_kind: ChainKind,
+    /// `true` if the node is running a development chain (`ChainSpec::Dev`). Orthogonal
+    /// to `chain_kind`: a sequencer can be dev or production (rollup); a full node is
+    /// never dev.
+    pub dev: bool,
 }
 
 impl NodeInfo {
@@ -42,26 +45,27 @@ impl NodeInfo {
             features: build_info.features.clone(),
             chain_id: chain_spec.id().id(),
             chain_kind: ChainKind::from(chain_spec),
+            dev: matches!(chain_spec, ChainSpec::Dev(_)),
         }
     }
 }
 
-/// JSON discriminator that mirrors the variants of [`ChainSpec`].
+/// Role of the node: sequencer (producing blocks) or full node (following a chain).
 ///
-/// Serialized as PascalCase (`"Dev"`, `"Rollup"`, `"FullNode"`) rather than
-/// camelCase, matching how enum tags are conventionally written.
+/// Serialized as PascalCase (`"Sequencer"`, `"FullNode"`) rather than camelCase,
+/// matching how enum tags are conventionally written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChainKind {
-    Dev,
-    Rollup,
+    Sequencer,
     FullNode,
 }
 
 impl From<&ChainSpec> for ChainKind {
     fn from(spec: &ChainSpec) -> Self {
         match spec {
-            ChainSpec::Dev(_) => Self::Dev,
-            ChainSpec::Rollup(_) => Self::Rollup,
+            // Dev and Rollup are both sequencer-mode chain specs; the dev/prod distinction
+            // is captured separately on `NodeInfo::dev`.
+            ChainSpec::Dev(_) | ChainSpec::Rollup(_) => Self::Sequencer,
             ChainSpec::FullNode(_) => Self::FullNode,
         }
     }
@@ -70,13 +74,14 @@ impl From<&ChainSpec> for ChainKind {
 #[cfg(test)]
 mod tests {
     use katana_chain_spec::ChainSpec;
+    use katana_node_config::build_info::BuildInfo;
     use serde_json::json;
 
     use super::{ChainKind, NodeInfo};
 
     #[test]
-    fn chain_kind_from_chain_spec_dev() {
-        assert_eq!(ChainKind::from(&ChainSpec::dev()), ChainKind::Dev);
+    fn chain_kind_from_chain_spec_dev_is_sequencer() {
+        assert_eq!(ChainKind::from(&ChainSpec::dev()), ChainKind::Sequencer);
     }
 
     #[test]
@@ -86,25 +91,31 @@ mod tests {
     }
 
     #[test]
+    fn node_info_dev_flag_is_derived_from_chain_spec() {
+        let bi = BuildInfo::default();
+        assert!(NodeInfo::from_parts(&bi, &ChainSpec::dev()).dev);
+        assert!(!NodeInfo::from_parts(&bi, &ChainSpec::mainnet()).dev);
+        assert!(!NodeInfo::from_parts(&bi, &ChainSpec::sepolia()).dev);
+    }
+
+    #[test]
     fn chain_kind_serializes_as_pascal_case() {
-        assert_eq!(serde_json::to_value(ChainKind::Dev).unwrap(), json!("Dev"));
-        assert_eq!(serde_json::to_value(ChainKind::Rollup).unwrap(), json!("Rollup"));
+        assert_eq!(serde_json::to_value(ChainKind::Sequencer).unwrap(), json!("Sequencer"));
         assert_eq!(serde_json::to_value(ChainKind::FullNode).unwrap(), json!("FullNode"));
     }
 
     #[test]
     fn chain_kind_deserializes_pascal_case() {
-        assert_eq!(serde_json::from_value::<ChainKind>(json!("Dev")).unwrap(), ChainKind::Dev);
         assert_eq!(
-            serde_json::from_value::<ChainKind>(json!("Rollup")).unwrap(),
-            ChainKind::Rollup
+            serde_json::from_value::<ChainKind>(json!("Sequencer")).unwrap(),
+            ChainKind::Sequencer
         );
         assert_eq!(
             serde_json::from_value::<ChainKind>(json!("FullNode")).unwrap(),
             ChainKind::FullNode,
         );
         // Pin the casing: lowercase must fail.
-        assert!(serde_json::from_value::<ChainKind>(json!("dev")).is_err());
+        assert!(serde_json::from_value::<ChainKind>(json!("sequencer")).is_err());
         assert!(serde_json::from_value::<ChainKind>(json!("fullNode")).is_err());
     }
 
@@ -116,7 +127,8 @@ mod tests {
             build_timestamp: "2026-04-21T00:00:00Z".into(),
             features: vec!["native".into(), "tee".into()],
             chain_id: ChainSpec::dev().id().id(),
-            chain_kind: ChainKind::Dev,
+            chain_kind: ChainKind::Sequencer,
+            dev: true,
         };
 
         let json = serde_json::to_value(&info).unwrap();
@@ -126,7 +138,8 @@ mod tests {
         assert_eq!(json["gitSha"], json!("abcdef0"));
         assert_eq!(json["buildTimestamp"], json!("2026-04-21T00:00:00Z"));
         assert_eq!(json["features"], json!(["native", "tee"]));
-        assert_eq!(json["chainKind"], json!("Dev"));
+        assert_eq!(json["chainKind"], json!("Sequencer"));
+        assert_eq!(json["dev"], json!(true));
         // chain_id is a raw hex Felt string (same shape as starknet_chainId).
         assert!(
             json["chainId"].is_string(),

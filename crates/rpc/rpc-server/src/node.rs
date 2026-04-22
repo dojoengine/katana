@@ -35,7 +35,8 @@ mod tests {
             build_timestamp: "2026-04-21T00:00:00Z".into(),
             features: vec!["native".into()],
             chain_id: ChainSpec::dev().id().id(),
-            chain_kind: ChainKind::Dev,
+            chain_kind: ChainKind::Sequencer,
+            dev: true,
         }
     }
 
