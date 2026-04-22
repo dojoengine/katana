@@ -11,6 +11,9 @@ on:
             - "bin/**/Cargo.toml"
             - "crates/**/*.rs"
             - "crates/**/Cargo.toml"
+            - "crates/explorer/**"
+            - ".gitmodules"
+            - "Makefile"
             - ".github/workflows/test.yml"
 
     pull_request:
@@ -21,6 +24,9 @@ on:
             - "bin/**/Cargo.toml"
             - "crates/**/*.rs"
             - "crates/**/Cargo.toml"
+            - "crates/explorer/**"
+            - ".gitmodules"
+            - "Makefile"
             - ".github/workflows/test.yml"
 
 # Cancel in progress workflow when a new one is triggered by running in a concurrency group
@@ -33,7 +39,33 @@ env:
     CARGO_TERM_COLOR: always
 
 jobs:
+    detect-changes:
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        outputs:
+            broader-rust: ${{ steps.filter.outputs.broader-rust }}
+        steps:
+            - uses: actions/checkout@v3
+            - uses: dorny/paths-filter@v3
+              id: filter
+              with:
+                  # "broader-rust" = Rust / workspace changes outside crates/explorer.
+                  # When false, the PR only touches the Explorer UI submodule or the
+                  # katana-explorer crate, so the workspace-wide test matrix, Dojo /
+                  # VRF / Saya / DB integration tests are skipped — only the
+                  # explorer-scoped jobs run.
+                  filters: |
+                      broader-rust:
+                        - 'Cargo.toml'
+                        - 'bin/**/*.rs'
+                        - 'bin/**/Cargo.toml'
+                        - 'crates/**/*.rs'
+                        - 'crates/**/Cargo.toml'
+                        - '!crates/explorer/**'
+                        - '.github/workflows/test.yml'
+
     fmt:
+        needs: [detect-changes]
         runs-on: ubuntu-latest
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
         container:
@@ -91,7 +123,7 @@ jobs:
                       tests/fixtures/db/snos
 
     build-katana-binary:
-        needs: [fmt, clippy, generate-test-artifacts]
+        needs: [detect-changes, fmt, clippy, generate-test-artifacts]
         runs-on: ${{ matrix.runner }}
         timeout-minutes: ${{ matrix.os == 'macos' && 120 || 30 }}
         strategy:
@@ -103,7 +135,11 @@ jobs:
                     - os: macos
                       runner: macos-latest
                       container: null
-        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        # Skip the macOS build on explorer-only changes — its only consumer is
+        # the macOS entry of the `test` matrix, which is also skipped.
+        if: |
+            (matrix.os != 'macos' || needs.detect-changes.outputs.broader-rust == 'true') &&
+            (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
         container: ${{ matrix.container }}
         env:
             MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
@@ -226,7 +262,7 @@ jobs:
               run: ./scripts/clippy.sh
 
     test:
-        needs: [fmt, clippy, generate-test-artifacts, build-katana-binary]
+        needs: [detect-changes, fmt, clippy, generate-test-artifacts, build-katana-binary]
         runs-on: ${{ matrix.runner }}
         timeout-minutes: ${{ matrix.os == 'macos' && 60 || 30 }}
         strategy:
@@ -238,7 +274,9 @@ jobs:
                     - os: macos
                       runner: macos-latest
                       container: null
-        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        if: |
+            needs.detect-changes.outputs.broader-rust == 'true' &&
+            (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
         container: ${{ matrix.container }}
         env:
             MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
@@ -329,6 +367,44 @@ jobs:
                   token: ${{ secrets.CODECOV_TOKEN }}
                   files: lcov.info
 
+    # Narrow test variant that runs when only the explorer crate or the UI
+    # submodule changes. Gives signal on katana-explorer unit tests without
+    # paying for the full workspace matrix + integration suite.
+    test-explorer:
+        needs: [detect-changes, fmt, clippy, generate-test-artifacts]
+        runs-on: ubuntu-latest-4-cores
+        if: |
+            needs.detect-changes.outputs.broader-rust == 'false' &&
+            (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
+        container:
+            image: ghcr.io/dojoengine/katana-dev:latest
+        env:
+            MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+            LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+            TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+            NEXTEST_PROFILE: ci
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+            - run: git config --global --add safe.directory "*"
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ci-${{ github.job }}
+                  shared-key: katana-ci-cache-ubuntu
+
+            - name: Download test artifacts
+              uses: actions/download-artifact@v5
+              with:
+                  name: fixtures
+
+            - name: Build Explorer UI
+              run: make build-explorer
+
+            - name: Run katana-explorer tests
+              run: cargo nextest run -p katana-explorer --all-features
+
     # TODO: re-enable once the snos crate is added back to the workspace
     # snos-integration-test:
     #   needs: [fmt, clippy]
@@ -400,9 +476,11 @@ jobs:
                   KATANA_BIN=./katana ./scripts/reverse-proxy-test.sh
 
     dojo-integration-test:
-        needs: [fmt, clippy, build-katana-binary]
+        needs: [detect-changes, fmt, clippy, build-katana-binary]
         runs-on: ubuntu-latest-32-cores
-        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        if: |
+            needs.detect-changes.outputs.broader-rust == 'true' &&
+            (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
         steps:
@@ -467,10 +545,12 @@ jobs:
                   tail -n 50 katana.log
 
     vrf-e2e:
-        needs: [fmt, clippy, generate-test-artifacts]
+        needs: [detect-changes, fmt, clippy, generate-test-artifacts]
         runs-on: ubuntu-latest-32-cores
         timeout-minutes: 30
-        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        if: |
+            needs.detect-changes.outputs.broader-rust == 'true' &&
+            (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
         env:
@@ -502,10 +582,12 @@ jobs:
               run: cargo run -p vrf-e2e-test
 
     saya-tee-e2e:
-        needs: [fmt, clippy, generate-test-artifacts]
+        needs: [detect-changes, fmt, clippy, generate-test-artifacts]
         runs-on: ubuntu-latest-32-cores
         timeout-minutes: 45
-        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+        if: |
+            needs.detect-changes.outputs.broader-rust == 'true' &&
+            (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
         env:
@@ -549,8 +631,11 @@ jobs:
               run: cargo run -p saya-tee-e2e-test
 
     db-compatibility-check:
-        needs: [fmt, clippy, build-katana-binary]
+        needs: [detect-changes, fmt, clippy, build-katana-binary]
         runs-on: ubuntu-latest-4-cores
+        if: |
+            needs.detect-changes.outputs.broader-rust == 'true' &&
+            (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
         container:
             image: ghcr.io/dojoengine/katana-dev:latest
         steps:

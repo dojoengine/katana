@@ -24,9 +24,31 @@ permissions:
   pull-requests: write
 
 jobs:
-  generate-artifacts:
+  detect-changes:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    outputs:
+      broader-rust: ${{ steps.filter.outputs.broader-rust }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # Benchmarks don't exercise the explorer UI, so skip when the only
+          # changes are in crates/explorer or the submodule pointer.
+          filters: |
+            broader-rust:
+              - 'bin/katana/**'
+              - 'crates/**'
+              - '!crates/explorer/**'
+              - '.github/workflows/bench.yml'
+
+  generate-artifacts:
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+    if: |
+      needs.detect-changes.outputs.broader-rust == 'true' &&
+      (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
@@ -56,9 +78,11 @@ jobs:
           path: crates/contracts/build
 
   bench-codec:
-    needs: [generate-artifacts]
+    needs: [detect-changes, generate-artifacts]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: |
+      needs.detect-changes.outputs.broader-rust == 'true' &&
+      (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
@@ -148,8 +172,11 @@ jobs:
   #         path: output.txt
 
   report:
-    needs: [bench-codec]
+    needs: [detect-changes, bench-codec]
     runs-on: ubuntu-latest
+    if: |
+      needs.detect-changes.outputs.broader-rust == 'true' &&
+      (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
     steps:
       - uses: actions/checkout@v3
 
