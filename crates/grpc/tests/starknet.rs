@@ -7,18 +7,20 @@ use katana_grpc::proto::{
     GetTransactionReceiptRequest, GetTransactionStatusRequest, SpecVersionRequest, SyncingRequest,
 };
 use katana_grpc::GrpcClient;
-use katana_primitives::Felt;
-use katana_utils::node::TestNode;
-use starknet::core::types::{
-    BlockId, BlockTag as StarknetBlockTag, EventFilter, ExecutionResult, FunctionCall,
-    TransactionStatus,
+use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_types::block::{
+    GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
+use katana_rpc_types::state_update::StateUpdate;
+use katana_rpc_types::transaction::{RpcTx, TxStatus};
+use katana_rpc_types::{EventFilter, ExecutionResult, FunctionCall, SyncingResponse};
+use katana_starknet::rpc::StarknetRpcClient;
+use katana_utils::node::TestNode;
 use starknet::core::utils::get_selector_from_name;
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{JsonRpcClient, Provider, Url};
 use tonic::{Code, Request};
 
-async fn setup() -> (TestNode, GrpcClient, JsonRpcClient<HttpTransport>) {
+async fn setup() -> (TestNode, GrpcClient, StarknetRpcClient) {
     let node = TestNode::new_with_spawn_and_move_db().await;
 
     let grpc_addr = *node.grpc_addr().expect("grpc not enabled");
@@ -26,9 +28,7 @@ async fn setup() -> (TestNode, GrpcClient, JsonRpcClient<HttpTransport>) {
         .await
         .expect("failed to connect to gRPC server");
 
-    let rpc_addr = *node.rpc_addr();
-    let url = Url::parse(&format!("http://{rpc_addr}")).expect("failed to parse url");
-    let rpc = JsonRpcClient::new(HttpTransport::new(url));
+    let rpc = node.starknet_rpc_client();
 
     (node, grpc, rpc)
 }
@@ -88,7 +88,7 @@ async fn test_chain_id() {
 async fn test_block_number() {
     let (_node, mut grpc, rpc) = setup().await;
 
-    let rpc_block_number = rpc.block_number().await.expect("rpc block_number failed");
+    let rpc_block_number = rpc.block_number().await.expect("rpc block_number failed").block_number;
 
     let grpc_block_number = grpc
         .block_number(Request::new(BlockNumberRequest {}))
@@ -122,7 +122,7 @@ async fn test_block_hash_and_number() {
 async fn test_get_block_with_txs() {
     let (_node, mut grpc, rpc) = setup().await;
 
-    let rpc_block = rpc.get_block_with_txs(BlockId::Number(0)).await.expect("rpc failed");
+    let rpc_block = rpc.get_block_with_txs(BlockIdOrTag::Number(0)).await.expect("rpc failed");
 
     let grpc_result = grpc
         .get_block_with_txs(Request::new(GetBlockRequest { block_id: grpc_block_id_number(0) }))
@@ -131,7 +131,7 @@ async fn test_get_block_with_txs() {
         .into_inner();
 
     let rpc_block = match rpc_block {
-        starknet::core::types::MaybePreConfirmedBlockWithTxs::Block(b) => b,
+        MaybePreConfirmedBlock::Confirmed(b) => b,
         _ => panic!("Expected confirmed block from rpc"),
     };
 
@@ -153,7 +153,8 @@ async fn test_get_block_with_txs() {
 async fn test_get_block_with_tx_hashes() {
     let (_node, mut grpc, rpc) = setup().await;
 
-    let rpc_block = rpc.get_block_with_tx_hashes(BlockId::Number(0)).await.expect("rpc failed");
+    let rpc_block =
+        rpc.get_block_with_tx_hashes(BlockIdOrTag::Number(0)).await.expect("rpc failed");
 
     let grpc_result = grpc
         .get_block_with_tx_hashes(Request::new(GetBlockRequest {
@@ -164,7 +165,7 @@ async fn test_get_block_with_tx_hashes() {
         .into_inner();
 
     let rpc_block = match rpc_block {
-        starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) => b,
+        GetBlockWithTxHashesResponse::Block(b) => b,
         _ => panic!("Expected confirmed block from rpc"),
     };
 
@@ -192,8 +193,7 @@ async fn test_get_block_with_tx_hashes() {
 async fn test_get_block_with_txs_latest() {
     let (_node, mut grpc, rpc) = setup().await;
 
-    let rpc_block =
-        rpc.get_block_with_txs(BlockId::Tag(StarknetBlockTag::Latest)).await.expect("rpc failed");
+    let rpc_block = rpc.get_block_with_txs(BlockIdOrTag::Latest).await.expect("rpc failed");
 
     let grpc_result = grpc
         .get_block_with_txs(Request::new(GetBlockRequest { block_id: grpc_block_id_latest() }))
@@ -202,7 +202,7 @@ async fn test_get_block_with_txs_latest() {
         .into_inner();
 
     let rpc_block = match rpc_block {
-        starknet::core::types::MaybePreConfirmedBlockWithTxs::Block(b) => b,
+        MaybePreConfirmedBlock::Confirmed(b) => b,
         _ => panic!("Expected confirmed block from rpc"),
     };
 
@@ -222,7 +222,7 @@ async fn test_get_class_at() {
     let address = genesis_address(&node);
 
     let rpc_class = rpc
-        .get_class_at(BlockId::Tag(StarknetBlockTag::Latest), address)
+        .get_class_at(BlockIdOrTag::Latest, ContractAddress::from(address))
         .await
         .expect("rpc get_class_at failed");
 
@@ -237,7 +237,7 @@ async fn test_get_class_at() {
 
     // Verify both return a Sierra class (not Legacy)
     assert!(
-        matches!(rpc_class, starknet::core::types::ContractClass::Sierra(_)),
+        matches!(rpc_class, katana_rpc_types::class::Class::Sierra(_)),
         "Expected Sierra class from rpc"
     );
     assert!(
@@ -255,7 +255,7 @@ async fn test_get_class_hash_at() {
     let address = genesis_address(&node);
 
     let rpc_class_hash = rpc
-        .get_class_hash_at(BlockId::Tag(StarknetBlockTag::Latest), address)
+        .get_class_hash_at(BlockIdOrTag::Latest, ContractAddress::from(address))
         .await
         .expect("rpc get_class_hash_at failed");
 
@@ -278,7 +278,7 @@ async fn test_get_storage_at() {
     let address = genesis_address(&node);
 
     let rpc_value = rpc
-        .get_storage_at(address, Felt::ZERO, BlockId::Tag(StarknetBlockTag::Latest))
+        .get_storage_at(ContractAddress::from(address), Felt::ZERO, BlockIdOrTag::Latest)
         .await
         .expect("rpc get_storage_at failed");
 
@@ -302,7 +302,7 @@ async fn test_get_nonce() {
     let address = genesis_address(&node);
 
     let rpc_nonce = rpc
-        .get_nonce(BlockId::Tag(StarknetBlockTag::Latest), address)
+        .get_nonce(BlockIdOrTag::Latest, ContractAddress::from(address))
         .await
         .expect("rpc get_nonce failed");
 
@@ -349,7 +349,7 @@ async fn test_syncing() {
         .into_inner();
 
     assert!(
-        matches!(rpc_syncing, starknet::core::types::SyncStatusType::NotSyncing),
+        matches!(rpc_syncing, SyncingResponse::NotSyncing),
         "Expected rpc to report not syncing"
     );
     assert!(
@@ -366,7 +366,7 @@ async fn test_get_block_transaction_count() {
     let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_count = rpc
-        .get_block_transaction_count(BlockId::Number(0))
+        .get_block_transaction_count(BlockIdOrTag::Number(0))
         .await
         .expect("rpc get_block_transaction_count failed");
 
@@ -387,7 +387,7 @@ async fn test_get_state_update() {
     let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_state =
-        rpc.get_state_update(BlockId::Number(0)).await.expect("rpc get_state_update failed");
+        rpc.get_state_update(BlockIdOrTag::Number(0)).await.expect("rpc get_state_update failed");
 
     let grpc_result = grpc
         .get_state_update(Request::new(GetBlockRequest { block_id: grpc_block_id_number(0) }))
@@ -396,7 +396,7 @@ async fn test_get_state_update() {
         .into_inner();
 
     let rpc_state = match rpc_state {
-        starknet::core::types::MaybePreConfirmedStateUpdate::Update(s) => s,
+        StateUpdate::Confirmed(s) => s,
         _ => panic!("Expected confirmed state update from rpc"),
     };
 
@@ -426,8 +426,8 @@ async fn test_get_events() {
     let rpc_events = rpc
         .get_events(
             EventFilter {
-                from_block: Some(BlockId::Number(0)),
-                to_block: Some(BlockId::Tag(StarknetBlockTag::Latest)),
+                from_block: Some(BlockIdOrTag::Number(0)),
+                to_block: Some(BlockIdOrTag::Latest),
                 address: None,
                 keys: None,
             },
@@ -460,7 +460,7 @@ async fn test_get_events() {
 
     assert_eq!(
         proto_to_felt(grpc_event.from_address.as_ref().expect("grpc missing from_address")),
-        rpc_event.from_address
+        Felt::from(rpc_event.from_address)
     );
     assert_eq!(
         proto_to_felt(grpc_event.transaction_hash.as_ref().expect("grpc missing tx_hash")),
@@ -476,10 +476,10 @@ async fn test_get_transaction_by_hash() {
 
     // Get a transaction hash from block 1
     let rpc_block =
-        rpc.get_block_with_tx_hashes(BlockId::Number(1)).await.expect("rpc get_block failed");
+        rpc.get_block_with_tx_hashes(BlockIdOrTag::Number(1)).await.expect("rpc get_block failed");
 
     let tx_hash = match rpc_block {
-        starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) => {
+        GetBlockWithTxHashesResponse::Block(b) => {
             *b.transactions.first().expect("no transactions in block 1")
         }
         _ => panic!("Expected confirmed block"),
@@ -499,7 +499,7 @@ async fn test_get_transaction_by_hash() {
         .into_inner();
 
     // Verify RPC returned the correct hash
-    assert_eq!(*rpc_tx.transaction_hash(), tx_hash);
+    assert_eq!(rpc_tx.transaction_hash, tx_hash);
 
     // Verify gRPC returned a valid transaction
     let grpc_tx = grpc_result.transaction.expect("grpc missing transaction");
@@ -512,10 +512,10 @@ async fn test_get_transaction_receipt() {
 
     // Get a transaction hash from block 1
     let rpc_block =
-        rpc.get_block_with_tx_hashes(BlockId::Number(1)).await.expect("rpc get_block failed");
+        rpc.get_block_with_tx_hashes(BlockIdOrTag::Number(1)).await.expect("rpc get_block failed");
 
     let tx_hash = match rpc_block {
-        starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) => {
+        GetBlockWithTxHashesResponse::Block(b) => {
             *b.transactions.first().expect("no transactions in block 1")
         }
         _ => panic!("Expected confirmed block"),
@@ -537,22 +537,30 @@ async fn test_get_transaction_receipt() {
     let grpc_receipt = grpc_result.receipt.expect("grpc missing receipt");
 
     // Compare transaction hash
-    assert_eq!(*rpc_receipt.receipt.transaction_hash(), tx_hash);
+    assert_eq!(rpc_receipt.transaction_hash, tx_hash);
     assert_eq!(
         proto_to_felt(&grpc_receipt.transaction_hash.expect("grpc missing tx_hash")),
         tx_hash
     );
 
-    // Compare block number
-    assert_eq!(grpc_receipt.block_number, rpc_receipt.block.block_number());
+    // Compare block number: the receipt's ReceiptBlockInfo is either Block{block_number, ..}
+    // or PreConfirmed{block_number}; pattern match to extract.
+    use katana_rpc_types::receipt::ReceiptBlockInfo;
+    let rpc_block_number = match rpc_receipt.block {
+        ReceiptBlockInfo::Block { block_number, .. } => block_number,
+        ReceiptBlockInfo::PreConfirmed { block_number } => block_number,
+    };
+    assert_eq!(grpc_receipt.block_number, rpc_block_number);
 }
 
 #[tokio::test]
 async fn test_get_block_with_receipts() {
     let (_node, mut grpc, rpc) = setup().await;
 
-    let rpc_block =
-        rpc.get_block_with_receipts(BlockId::Number(0)).await.expect("rpc get_block_with_receipts");
+    let rpc_block = rpc
+        .get_block_with_receipts(BlockIdOrTag::Number(0))
+        .await
+        .expect("rpc get_block_with_receipts");
 
     let grpc_result = grpc
         .get_block_with_receipts(Request::new(GetBlockRequest {
@@ -563,7 +571,7 @@ async fn test_get_block_with_receipts() {
         .into_inner();
 
     let rpc_block = match rpc_block {
-        starknet::core::types::MaybePreConfirmedBlockWithReceipts::Block(b) => b,
+        GetBlockWithReceiptsResponse::Block(b) => b,
         _ => panic!("Expected confirmed block from rpc"),
     };
 
@@ -595,7 +603,7 @@ async fn test_get_block_with_receipts() {
         let grpc_hash = proto_to_felt(
             grpc_receipt.transaction_hash.as_ref().expect("grpc receipt missing tx_hash"),
         );
-        assert_eq!(grpc_hash, *rpc_twr.receipt.transaction_hash());
+        assert_eq!(grpc_hash, rpc_twr.receipt.transaction_hash);
     }
 }
 
@@ -604,9 +612,9 @@ async fn test_get_transaction_status() {
     let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_block =
-        rpc.get_block_with_tx_hashes(BlockId::Number(1)).await.expect("rpc get_block failed");
+        rpc.get_block_with_tx_hashes(BlockIdOrTag::Number(1)).await.expect("rpc get_block failed");
     let tx_hash = match rpc_block {
-        starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) => {
+        GetBlockWithTxHashesResponse::Block(b) => {
             *b.transactions.first().expect("no tx in block 1")
         }
         _ => panic!("Expected confirmed block"),
@@ -624,11 +632,11 @@ async fn test_get_transaction_status() {
         .into_inner();
 
     let (expected_finality, expected_execution) = match rpc_status {
-        TransactionStatus::Received => ("RECEIVED", ""),
-        TransactionStatus::Candidate => ("CANDIDATE", ""),
-        TransactionStatus::PreConfirmed(ref e) => ("PRE_CONFIRMED", execution_result_str(e)),
-        TransactionStatus::AcceptedOnL2(ref e) => ("ACCEPTED_ON_L2", execution_result_str(e)),
-        TransactionStatus::AcceptedOnL1(ref e) => ("ACCEPTED_ON_L1", execution_result_str(e)),
+        TxStatus::Received => ("RECEIVED", ""),
+        TxStatus::Candidate => ("CANDIDATE", ""),
+        TxStatus::PreConfirmed(ref e) => ("PRE_CONFIRMED", execution_result_str(e)),
+        TxStatus::AcceptedOnL2(ref e) => ("ACCEPTED_ON_L2", execution_result_str(e)),
+        TxStatus::AcceptedOnL1(ref e) => ("ACCEPTED_ON_L1", execution_result_str(e)),
     };
 
     assert_eq!(grpc_resp.finality_status, expected_finality);
@@ -647,7 +655,7 @@ async fn test_get_transaction_by_block_id_and_index() {
     let (_node, mut grpc, rpc) = setup().await;
 
     let rpc_tx = rpc
-        .get_transaction_by_block_id_and_index(BlockId::Number(1), 0)
+        .get_transaction_by_block_id_and_index(BlockIdOrTag::Number(1), 0)
         .await
         .expect("rpc get_transaction_by_block_id_and_index failed");
 
@@ -664,19 +672,18 @@ async fn test_get_transaction_by_block_id_and_index() {
 
     // Cross-ref: the tx at (block 1, index 0) matches the first hash in the block's tx list.
     let block = match rpc
-        .get_block_with_tx_hashes(BlockId::Number(1))
+        .get_block_with_tx_hashes(BlockIdOrTag::Number(1))
         .await
         .expect("rpc get_block_with_tx_hashes failed")
     {
-        starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) => b,
+        GetBlockWithTxHashesResponse::Block(b) => b,
         _ => panic!("Expected confirmed block"),
     };
-    assert_eq!(*rpc_tx.transaction_hash(), *block.transactions.first().expect("no tx at index 0"));
+    assert_eq!(rpc_tx.transaction_hash, *block.transactions.first().expect("no tx at index 0"));
 
     // Variant-kind parity: handler could otherwise return an arbitrary non-None tx of
     // the wrong kind and this test would pass on `is_some()` alone.
     use katana_grpc::proto::transaction::Transaction as GrpcTxVariant;
-    use starknet::core::types::Transaction as RpcTx;
     let grpc_kind = match grpc_variant {
         GrpcTxVariant::InvokeV1(_) | GrpcTxVariant::InvokeV3(_) => "invoke",
         GrpcTxVariant::DeclareV1(_) | GrpcTxVariant::DeclareV2(_) | GrpcTxVariant::DeclareV3(_) => {
@@ -686,7 +693,7 @@ async fn test_get_transaction_by_block_id_and_index() {
         GrpcTxVariant::L1Handler(_) => "l1_handler",
         GrpcTxVariant::Deploy(_) => "deploy",
     };
-    let rpc_kind = match rpc_tx {
+    let rpc_kind = match rpc_tx.transaction {
         RpcTx::Invoke(_) => "invoke",
         RpcTx::Declare(_) => "declare",
         RpcTx::DeployAccount(_) => "deploy_account",
@@ -702,7 +709,7 @@ async fn test_get_class() {
     let address = genesis_address(&node);
 
     let class_hash = rpc
-        .get_class_hash_at(BlockId::Tag(StarknetBlockTag::Latest), address)
+        .get_class_hash_at(BlockIdOrTag::Latest, ContractAddress::from(address))
         .await
         .expect("rpc get_class_hash_at failed");
 
@@ -756,14 +763,15 @@ async fn test_call() {
     let rpc_result = rpc
         .call(
             FunctionCall {
-                contract_address: strk_token,
+                contract_address: ContractAddress::from(strk_token),
                 entry_point_selector: selector,
                 calldata: vec![genesis],
             },
-            BlockId::Tag(StarknetBlockTag::Latest),
+            BlockIdOrTag::Latest,
         )
         .await
-        .expect("rpc call failed");
+        .expect("rpc call failed")
+        .result;
 
     let grpc_resp = grpc
         .call(Request::new(CallRequest {
@@ -970,8 +978,10 @@ async fn test_get_block_with_txs_by_hash() {
     let hash = proto_to_felt(&bh.block_hash.expect("missing block_hash"));
     let number = bh.block_number;
 
-    let rpc_block =
-        rpc.get_block_with_txs(BlockId::Hash(hash)).await.expect("rpc get_block_with_txs failed");
+    let rpc_block = rpc
+        .get_block_with_txs(BlockIdOrTag::Hash(hash))
+        .await
+        .expect("rpc get_block_with_txs failed");
 
     let grpc_result = grpc
         .get_block_with_txs(Request::new(GetBlockRequest { block_id: grpc_block_id_hash(hash) }))
@@ -980,7 +990,7 @@ async fn test_get_block_with_txs_by_hash() {
         .into_inner();
 
     let rpc_block = match rpc_block {
-        starknet::core::types::MaybePreConfirmedBlockWithTxs::Block(b) => b,
+        MaybePreConfirmedBlock::Confirmed(b) => b,
         _ => panic!("Expected confirmed block from rpc"),
     };
     let grpc_block = match grpc_result.result {
