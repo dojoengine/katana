@@ -1,14 +1,16 @@
 # Builds saya-ops + saya-tee from dojoengine/saya at a pinned rev.
 #
 # The ghcr.io/dojoengine/saya:latest image is saya v0.3.1, which predates
-# both `declare-and-deploy-tee-registry-mock` (PR #60) and `--output json`
-# on `saya-ops` (PR #63). Our bundle depends on both, so we build from
-# source at the merge commit of #63.
+# several features our bundle depends on:
+#   - `declare-and-deploy-tee-registry-mock` (PR #60)
+#   - `--output json` on saya-ops (PR #63)
+#   - idempotent deploy via pinned dojo-utils (PR #65, fixes dojo#3404)
 #
+# We build from source at the merge commit of #65 which includes all three.
 # Drop this Dockerfile and switch the compose back to ghcr.io/dojoengine/saya
 # once saya publishes v0.3.2 (or cuts per-SHA images).
 
-ARG SAYA_REV=d63a549
+ARG SAYA_REV=f109098
 
 FROM rust:1.89.0-slim-bookworm AS builder
 
