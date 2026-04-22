@@ -23,7 +23,7 @@ katana-db.workspace = true
 cartridge.workspace = true
 katana-paymaster.workspace = true
 katana-slot-controller.workspace = true
-katana-tee = { workspace = true, optional = true }
+katana-tee.workspace = true
 
 alloy-primitives.workspace = true
 anyhow.workspace = true
@@ -53,7 +53,7 @@ katana-gas-price-oracle.workspace = true
 starknet.workspace = true
 
 [features]
-default = [ "grpc", "server", "tee" ]
+default = [ "grpc", "server", "tee-snp" ]
 explorer = [
 	"katana-full-node/explorer",
 	"katana-sequencer-node/explorer",
@@ -62,9 +62,4 @@ explorer = [
 grpc = [ "katana-sequencer-node/grpc" ]
 native = [ "katana-sequencer-node/native" ]
 server = [  ]
-tee = [
-	"dep:katana-tee",
-	"katana-sequencer-node/tee",
-	"katana-sequencer-node/tee-snp",
-	"katana-tee/snp",
-]
+tee-snp = [ "katana-sequencer-node/tee-snp", "katana-tee/snp" ]

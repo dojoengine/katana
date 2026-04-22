@@ -44,7 +44,6 @@ use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::StarknetApiServer;
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
-#[cfg(feature = "tee")]
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::dev::DevApi;
@@ -55,7 +54,6 @@ use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
 use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
-#[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::node::NodeInfo;
@@ -373,7 +371,6 @@ where
         };
 
         // --- build tee api (if configured)
-        #[cfg(feature = "tee")]
         if config.rpc.apis.contains(&RpcModuleKind::Tee) {
             if let Some(ref tee_config) = config.tee {
                 use katana_tee::{TeeProvider, TeeProviderType};
@@ -593,7 +590,6 @@ impl Node<ForkProviderFactory> {
         let genesis_block_num = block_num + 1;
 
         // Store fork block number in TEE config so report_data includes it
-        #[cfg(feature = "tee")]
         if let Some(ref mut tee_config) = config.tee {
             tee_config.fork_block_number = Some(block_num);
         }

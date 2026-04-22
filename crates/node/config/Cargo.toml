@@ -14,4 +14,3 @@ thiserror.workspace = true
 
 [features]
 explorer = [  ]
-tee = [  ]

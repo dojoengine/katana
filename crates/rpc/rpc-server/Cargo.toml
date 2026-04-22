@@ -44,11 +44,11 @@ paymaster-rpc.workspace = true
 serde.workspace = true
 url.workspace = true
 
-hex = { workspace = true, optional = true }
-katana-tee = { workspace = true, optional = true }
-katana-trie = { workspace = true, optional = true }
+hex.workspace = true
+katana-tee.workspace = true
+katana-trie.workspace = true
 regex.workspace = true
-starknet-types-core = { workspace = true, optional = true }
+starknet-types-core.workspace = true
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
@@ -92,12 +92,5 @@ url.workspace = true
 
 [features]
 explorer = [ "dep:katana-explorer" ]
-tee = [
-	"dep:hex",
-	"dep:katana-tee",
-	"dep:katana-trie",
-	"dep:starknet-types-core",
-	"katana-rpc-api/tee",
-]
 # Enables `MockProvider` for use by integration tests. Not for production binaries.
-tee-mock = [ "katana-tee/tee-mock", "tee" ]
+tee-mock = [ "katana-tee/tee-mock" ]

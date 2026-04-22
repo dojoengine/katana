@@ -25,4 +25,3 @@ rstest.workspace = true
 
 [features]
 client = [ "jsonrpsee/client" ]
-tee = [  ]

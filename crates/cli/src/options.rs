@@ -1092,7 +1092,6 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
     }
 }
 
-#[cfg(feature = "tee")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[command(next_help_heading = "TEE options")]
 pub struct TeeOptions {
@@ -1106,7 +1105,6 @@ pub struct TeeOptions {
     pub tee_provider: Option<katana_tee::TeeProviderType>,
 }
 
-#[cfg(feature = "tee")]
 impl TeeOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {

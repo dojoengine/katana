@@ -36,7 +36,6 @@ pub enum RpcModuleKind {
     TxPool,
     Node,
     Cartridge,
-    #[cfg(feature = "tee")]
     Tee,
 }
 
@@ -110,7 +109,6 @@ impl RpcModulesList {
             RpcModuleKind::TxPool,
             RpcModuleKind::Node,
             RpcModuleKind::Cartridge,
-            #[cfg(feature = "tee")]
             RpcModuleKind::Tee,
         ]))
     }

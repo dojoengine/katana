@@ -13,5 +13,4 @@ pub mod paymaster {
     pub use katana_paymaster::api::*;
 }
 
-#[cfg(feature = "tee")]
 pub mod tee;

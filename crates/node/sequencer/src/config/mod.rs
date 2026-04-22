@@ -9,8 +9,6 @@ pub mod execution;
 pub mod fork;
 pub mod paymaster;
 pub mod sequencing;
-
-#[cfg(feature = "tee")]
 pub mod tee;
 
 #[cfg(feature = "grpc")]
@@ -72,7 +70,6 @@ pub struct Config {
     pub paymaster: Option<paymaster::PaymasterConfig>,
 
     /// TEE attestation options.
-    #[cfg(feature = "tee")]
     pub tee: Option<tee::TeeConfig>,
 
     /// gRPC options.

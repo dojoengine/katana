@@ -26,7 +26,7 @@ katana-rpc-types.workspace = true
 katana-stage.workspace = true
 katana-starknet.workspace = true
 katana-tasks.workspace = true
-katana-tee = { workspace = true, optional = true }
+katana-tee.workspace = true
 
 anyhow.workspace = true
 futures.workspace = true
@@ -42,16 +42,10 @@ url.workspace = true
 explorer = [ "katana-node-config/explorer", "katana-rpc-server/explorer" ]
 grpc = [ "dep:katana-grpc" ]
 native = [ "katana-executor/native" ]
-tee = [
-	"dep:katana-tee",
-	"katana-node-config/tee",
-	"katana-rpc-api/tee",
-	"katana-rpc-server/tee",
-]
-tee-snp = [ "katana-tee/snp", "tee" ]
+tee-snp = [ "katana-tee/snp" ]
 # Enables `TeeProviderType::Mock` (software-only attestation provider) for use
 # by integration test crates. Not intended for production binaries.
-tee-mock = [ "katana-tee/tee-mock", "tee" ]
+tee-mock = [ "katana-tee/tee-mock" ]
 
 [dev-dependencies]
 katana-contracts.workspace = true

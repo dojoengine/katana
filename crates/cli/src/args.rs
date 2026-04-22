@@ -29,7 +29,6 @@ use katana_sequencer_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_sequencer_node::config::rpc::{RpcModuleKind, RpcModulesList};
 use katana_sequencer_node::config::sequencing::SequencingConfig;
-#[cfg(feature = "tee")]
 use katana_sequencer_node::config::tee::TeeConfig;
 use katana_sequencer_node::config::Config;
 use katana_sequencer_node::Node;
@@ -131,7 +130,6 @@ pub struct SequencerNodeArgs {
     #[command(flatten)]
     pub cartridge: CartridgeOptions,
 
-    #[cfg(feature = "tee")]
     #[command(flatten)]
     pub tee: TeeOptions,
 
@@ -384,7 +382,6 @@ impl SequencerNodeArgs {
             sequencing,
             build_info,
             paymaster,
-            #[cfg(feature = "tee")]
             tee: self.tee_config(),
         })
     }
@@ -436,7 +433,6 @@ impl SequencerNodeArgs {
             // The TEE rpc must be enabled if a TEE provider is specified.
             // We put it here so that even when the individual api are explicitly specified
             // (ie `--rpc.api`) we guarantee that the tee rpc is enabled.
-            #[cfg(feature = "tee")]
             if self.tee.tee_provider.is_some() {
                 modules.add(RpcModuleKind::Tee);
             }
@@ -723,7 +719,6 @@ impl SequencerNodeArgs {
         }
     }
 
-    #[cfg(feature = "tee")]
     fn tee_config(&self) -> Option<TeeConfig> {
         self.tee
             .tee_provider
