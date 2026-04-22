@@ -30,11 +30,13 @@ The scarb installer puts a wrapper at `$HOME/.local/bin/scarb` (symlinked to the
 
 **Fix:** `ENV PATH="/root/.local/bin:${PATH}"` in the Dockerfile after the install, before any RUN that calls `scarb`.
 
-### `saya-ops core-contract declare-and-deploy-tee-registry-mock` not found
+### `saya-ops core-contract declare-and-deploy-tee-registry-mock` not found, or `--output` flag unknown
 
-The published `ghcr.io/dojoengine/saya:latest` image is saya v0.3.1, which predates the tee-registry-mock subcommand (added in saya PR #60 at rev `5a3b8c9`).
+The published `ghcr.io/dojoengine/saya:latest` image is saya v0.3.1, which predates:
+- `declare-and-deploy-tee-registry-mock` subcommand (saya PR #60, rev `5a3b8c9`)
+- `--output json` flag (saya PR #63, merged at `d63a549`)
 
-**Fix:** the compose builds saya from source via `docker/Dockerfile.saya`, pinned to `SAYA_REV=5a3b8c9`. If you see this error, your local compose is outdated — re-pull the repo.
+**Fix:** the compose builds saya from source via `docker/Dockerfile.saya`, pinned to `SAYA_REV=d63a549`. If you see either error, your local repo is outdated — pull the latest.
 
 ### `cargo build -p saya-ops` → "package did not match any packages"
 

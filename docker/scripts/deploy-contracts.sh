@@ -9,6 +9,9 @@
 #   SETTLEMENT_RPC_URL, SETTLEMENT_ACCOUNT_ADDRESS,
 #   SETTLEMENT_ACCOUNT_PRIVATE_KEY, SETTLEMENT_CHAIN_ID, CHAIN_ID,
 #   TEE_REGISTRY_SALT, PILTOVER_SALT.
+#
+# Uses `saya-ops --output json` (saya PR #63) and jq to parse the structured
+# result, instead of scraping info! log lines.
 
 set -eu
 
@@ -18,50 +21,31 @@ if [ -f /shared/addresses.env ]; then
     exit 0
 fi
 
-# Scrape the first 0x... hex string from saya-ops output for a given label.
-# saya-ops uses env_logger, which writes to stderr; we combine stdout+stderr.
-extract_addr() {
-    label="$1"
-    echo "$2" | grep -m1 "$label" | grep -oE '0x[0-9a-fA-F]+' | head -1
-}
-
-extract_block() {
-    # saya-ops logs "At block  : Some(N)" on deploy.
-    echo "$1" | grep -m1 "At block" | grep -oE '[0-9]+' | head -1
-}
+export SAYA_OPS_OUTPUT=json
 
 echo "[deploy-contracts] 1/4 declare + deploy mock TEE registry (salt=${TEE_REGISTRY_SALT})..."
-tee_output=$(saya-ops core-contract declare-and-deploy-tee-registry-mock \
-    --salt "${TEE_REGISTRY_SALT}" 2>&1)
-echo "$tee_output"
-tee_registry_address=$(extract_addr "TEE registry mock address" "$tee_output")
-if [ -z "${tee_registry_address:-}" ]; then
-    echo "[deploy-contracts] ERROR: could not parse TEE registry address" >&2
-    exit 1
-fi
+tee_json=$(saya-ops core-contract declare-and-deploy-tee-registry-mock \
+    --salt "${TEE_REGISTRY_SALT}")
+tee_registry_address=$(echo "$tee_json" | jq -er .contract_address)
+echo "  tee_registry_address=$tee_registry_address"
 
 echo "[deploy-contracts] 2/4 declare piltover class..."
-saya-ops core-contract declare 2>&1
+saya-ops core-contract declare >/dev/null
 
 echo "[deploy-contracts] 3/4 deploy piltover (salt=${PILTOVER_SALT})..."
-piltover_output=$(saya-ops core-contract deploy --salt "${PILTOVER_SALT}" 2>&1)
-echo "$piltover_output"
-piltover_address=$(extract_addr "Core contract address" "$piltover_output")
-piltover_block=$(extract_block "$piltover_output")
-if [ -z "${piltover_address:-}" ]; then
-    echo "[deploy-contracts] ERROR: could not parse piltover address" >&2
-    exit 1
-fi
-if [ -z "${piltover_block:-}" ]; then
-    echo "[deploy-contracts] WARN: could not parse piltover deploy block, defaulting to 0"
-    piltover_block=0
-fi
+piltover_json=$(saya-ops core-contract deploy --salt "${PILTOVER_SALT}")
+piltover_address=$(echo "$piltover_json" | jq -er .contract_address)
+# deployed_block is null on the already-deployed path (TransactionResult::Noop).
+# Default to 0 in that case — katana's settlement-contract-deployed-block
+# accepts 0 and will backfill from chain tip.
+piltover_block=$(echo "$piltover_json" | jq -r '.deployed_block // 0')
+echo "  piltover_address=$piltover_address block=$piltover_block"
 
 echo "[deploy-contracts] 4/4 setup-program: wire tee_registry as fact_registry on piltover..."
 saya-ops core-contract setup-program \
     --core-contract-address "$piltover_address" \
     --fact-registry-address "$tee_registry_address" \
-    --chain-id "${CHAIN_ID}" 2>&1
+    --chain-id "${CHAIN_ID}" >/dev/null
 
 cat > /shared/addresses.env <<EOF
 PILTOVER_ADDRESS=$piltover_address

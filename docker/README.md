@@ -103,7 +103,4 @@ settles blocks onto piltover; in Terminal 1 you'll see piltover's
 - `ghcr.io/dojoengine/katana-tee-mock:<sha>` is not yet published by CI;
   first `docker compose up --build` builds the image locally. Tracked for
   a follow-up CI PR.
-- Log-scraping in `deploy-contracts.sh` relies on saya-ops's `info!` log
-  format. If saya-ops changes its log output, update the `extract_addr` /
-  `extract_block` helpers.
 - Real AMD SEV-SNP variant (`docker/tee.compose.yml`) is v2, not here.

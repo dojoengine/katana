@@ -1,14 +1,14 @@
 # Builds saya-ops + saya-tee from dojoengine/saya at a pinned rev.
 #
 # The ghcr.io/dojoengine/saya:latest image is saya v0.3.1, which predates
-# `saya-ops core-contract declare-and-deploy-tee-registry-mock` (added in saya
-# PR #60). Our bundle needs that subcommand, so we build from source at the
-# known-good rev from `tests/saya-tee/`.
+# both `declare-and-deploy-tee-registry-mock` (PR #60) and `--output json`
+# on `saya-ops` (PR #63). Our bundle depends on both, so we build from
+# source at the merge commit of #63.
 #
 # Drop this Dockerfile and switch the compose back to ghcr.io/dojoengine/saya
 # once saya publishes v0.3.2 (or cuts per-SHA images).
 
-ARG SAYA_REV=5a3b8c9
+ARG SAYA_REV=d63a549
 
 FROM rust:1.89.0-slim-bookworm AS builder
 
@@ -63,8 +63,12 @@ RUN cd bin/persistent-tee && CARGO_BUILD_JOBS=1 cargo build --release
 
 FROM ubuntu:24.04
 
+# `jq` is used by docker/scripts/deploy-contracts.sh to parse
+# `saya-ops --output json` stdout. `tini` + `ca-certificates` are the
+# standard runtime bits.
 RUN apt-get update && apt-get install --no-install-recommends -y \
         ca-certificates \
+        jq \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
