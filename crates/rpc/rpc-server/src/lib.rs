@@ -24,6 +24,7 @@ pub mod cartridge;
 pub mod dev;
 pub mod health;
 pub mod middleware;
+pub mod node;
 pub mod paymaster;
 pub mod permit;
 pub mod starknet;

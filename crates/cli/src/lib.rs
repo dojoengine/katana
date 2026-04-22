@@ -11,6 +11,7 @@ pub mod sidecar;
 pub mod utils;
 
 pub use args::SequencerNodeArgs;
+pub use katana_node_config::build_info::BuildInfo;
 pub use options::*;
 
 use crate::full::FullNodeArgs;
@@ -31,10 +32,10 @@ pub enum NodeSubcommand {
 }
 
 impl NodeCli {
-    pub async fn execute(self) -> Result<()> {
+    pub async fn execute(self, build_info: BuildInfo) -> Result<()> {
         match self.command {
-            NodeSubcommand::Full(args) => args.execute().await,
-            NodeSubcommand::Sequencer(args) => args.with_config_file()?.execute().await,
+            NodeSubcommand::Full(args) => args.execute(build_info).await,
+            NodeSubcommand::Sequencer(args) => args.with_config_file()?.execute(build_info).await,
         }
     }
 }

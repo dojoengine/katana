@@ -4,6 +4,7 @@ pub mod cartridge;
 pub mod dev;
 pub mod error;
 pub mod katana;
+pub mod node;
 pub mod starknet;
 pub mod starknet_ext;
 pub mod txpool;

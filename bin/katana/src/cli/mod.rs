@@ -19,7 +19,7 @@ mod utils;
 #[cfg(feature = "client")]
 mod rpc;
 
-use version::{generate_long, generate_short};
+use version::{build_info, generate_long, generate_short};
 
 #[derive(Debug, Parser)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -46,11 +46,11 @@ impl Cli {
                 Commands::Utils(args) => args.execute(),
                 #[cfg(feature = "client")]
                 Commands::Rpc(args) => execute_async(args.execute())?,
-                Commands::Node(args) => execute_async(args.execute())?,
+                Commands::Node(args) => execute_async(args.execute(build_info()))?,
             };
         }
 
-        execute_async(self.node.with_config_file()?.execute())?
+        execute_async(self.node.with_config_file()?.execute(build_info()))?
     }
 }
 
@@ -113,7 +113,7 @@ fn build_tokio_runtime() -> std::io::Result<Runtime> {
 
 #[cfg(test)]
 mod tests {
-    use katana_cli::NodeSubcommand;
+    use katana_cli::{BuildInfo, NodeSubcommand};
 
     use super::*;
 
@@ -125,9 +125,13 @@ mod tests {
         assert!(cli_no_subcommand.commands.is_none());
         assert!(matches!(cli_explicit_sequencer.commands, Some(Commands::Node(_))));
 
-        let config_default = cli_no_subcommand.node.config().unwrap();
-        let config_explicit =
-            cli_explicit_sequencer.node.with_config_file().unwrap().config().unwrap();
+        let config_default = cli_no_subcommand.node.config(BuildInfo::default()).unwrap();
+        let config_explicit = cli_explicit_sequencer
+            .node
+            .with_config_file()
+            .unwrap()
+            .config(BuildInfo::default())
+            .unwrap();
 
         assert_eq!(config_default.chain.id(), config_explicit.chain.id());
         assert_eq!(config_default.dev.fee, config_explicit.dev.fee);
@@ -156,8 +160,8 @@ mod tests {
 
         similar_asserts::assert_eq!(&cli_default.node, explicit_node_args.as_ref());
 
-        let config_default = cli_default.node.config().unwrap();
-        let config_explicit = explicit_node_args.config().unwrap();
+        let config_default = cli_default.node.config(BuildInfo::default()).unwrap();
+        let config_explicit = explicit_node_args.config(BuildInfo::default()).unwrap();
 
         assert!(!config_default.dev.fee);
         assert!(!config_explicit.dev.fee);

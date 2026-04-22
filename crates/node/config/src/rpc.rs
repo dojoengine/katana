@@ -34,6 +34,7 @@ pub enum RpcModuleKind {
     Dev,
     Katana,
     TxPool,
+    Node,
     Cartridge,
     #[cfg(feature = "tee")]
     Tee,
@@ -107,6 +108,7 @@ impl RpcModulesList {
             RpcModuleKind::Katana,
             RpcModuleKind::Dev,
             RpcModuleKind::TxPool,
+            RpcModuleKind::Node,
             RpcModuleKind::Cartridge,
             #[cfg(feature = "tee")]
             RpcModuleKind::Tee,
@@ -159,8 +161,10 @@ impl RpcModulesList {
 }
 
 impl Default for RpcModulesList {
+    // `Node` is included by default: `node_getInfo` exposes only version/chain identity
+    // (public information), so dashboards and health checks can rely on it without opt-in.
     fn default() -> Self {
-        Self(HashSet::from([RpcModuleKind::Starknet]))
+        Self(HashSet::from([RpcModuleKind::Starknet, RpcModuleKind::Node]))
     }
 }
 
@@ -178,6 +182,15 @@ mod tests {
     fn test_parse_single() {
         let list = RpcModulesList::parse("dev").unwrap();
         assert!(list.contains(&RpcModuleKind::Dev));
+    }
+
+    #[test]
+    fn test_parse_node_module() {
+        let list = RpcModulesList::parse("node").unwrap();
+        assert!(list.contains(&RpcModuleKind::Node));
+        // Also case-insensitive via strum.
+        let list = RpcModulesList::parse("NODE").unwrap();
+        assert!(list.contains(&RpcModuleKind::Node));
     }
 
     #[test]

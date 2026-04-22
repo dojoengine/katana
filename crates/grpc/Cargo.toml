@@ -43,6 +43,7 @@ tower-service.workspace = true
 
 [dev-dependencies]
 hex = "0.4"
+katana-starknet.workspace = true
 katana-utils = { workspace = true, features = [ "node" ] }
 tokio = { workspace = true, features = [ "macros", "rt-multi-thread" ] }
 

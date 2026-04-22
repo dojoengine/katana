@@ -64,7 +64,7 @@ pub struct FullNodeArgs {
 }
 
 impl FullNodeArgs {
-    pub async fn execute(&self) -> Result<()> {
+    pub async fn execute(&self, build_info: crate::BuildInfo) -> Result<()> {
         let logging = katana_tracing::LoggingConfig {
             stdout_format: self.logging.stdout.stdout_format,
             stdout_color: self.logging.stdout.color,
@@ -76,12 +76,12 @@ impl FullNodeArgs {
 
         katana_tracing::init(logging, self.tracer_config()).await?;
 
-        self.start_node().await
+        self.start_node(build_info).await
     }
 
-    async fn start_node(&self) -> Result<()> {
+    async fn start_node(&self, build_info: crate::BuildInfo) -> Result<()> {
         // Build the node
-        let config = self.config()?;
+        let config = self.config(build_info)?;
         let node = katana_full_node::Node::build(config).context("failed to build full node")?;
 
         if !self.silent {
@@ -106,7 +106,7 @@ impl FullNodeArgs {
         Ok(())
     }
 
-    fn config(&self) -> Result<katana_full_node::Config> {
+    fn config(&self, build_info: crate::BuildInfo) -> Result<katana_full_node::Config> {
         let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
@@ -131,6 +131,7 @@ impl FullNodeArgs {
                     classes_batch_size: self.stage.classes_batch_size,
                 },
             },
+            build_info,
         })
     }
 

@@ -141,7 +141,7 @@ pub struct SequencerNodeArgs {
 }
 
 impl SequencerNodeArgs {
-    pub async fn execute(&self) -> Result<()> {
+    pub async fn execute(&self, build_info: crate::BuildInfo) -> Result<()> {
         let logging = katana_tracing::LoggingConfig {
             stdout_format: self.logging.stdout.stdout_format,
             stdout_color: self.logging.stdout.color,
@@ -153,12 +153,12 @@ impl SequencerNodeArgs {
 
         katana_tracing::init(logging, self.tracer_config()).await?;
 
-        self.start_node().await
+        self.start_node(build_info).await
     }
 
-    async fn start_node(&self) -> Result<()> {
+    async fn start_node(&self, build_info: crate::BuildInfo) -> Result<()> {
         // Build the node configuration
-        let config = self.config()?;
+        let config = self.config(build_info)?;
 
         // Resolve sidecar binaries before resources are committed.
         let paymaster_bin = if self.paymaster.enabled && !self.paymaster.is_external() {
@@ -349,7 +349,7 @@ impl SequencerNodeArgs {
         Ok(())
     }
 
-    pub fn config(&self) -> Result<Config> {
+    pub fn config(&self, build_info: crate::BuildInfo) -> Result<Config> {
         let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
@@ -382,6 +382,7 @@ impl SequencerNodeArgs {
             execution,
             messaging,
             sequencing,
+            build_info,
             paymaster,
             #[cfg(feature = "tee")]
             tee: self.tee_config(),
@@ -840,7 +841,7 @@ mod test {
     #[test]
     fn test_starknet_config_default() {
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
         let config = &result;
 
         assert!(config.dev.fee);
@@ -856,7 +857,7 @@ mod test {
     #[test]
     fn default_predeployed_account_address_is_backward_compatible() {
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
 
         // Keep the first user-facing predeployed account stable. This address/key pair is relied
         // on by downstream integration tests and tooling that use Katana's default prefunded
@@ -890,7 +891,7 @@ mod test {
             "--data-dir",
             "/path/to/db",
         ]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
         let config = &result;
 
         assert!(!config.dev.fee);
@@ -906,17 +907,18 @@ mod test {
     fn test_db_dir_alias() {
         // --db-dir should work as an alias for --data-dir
         let args = SequencerNodeArgs::parse_from(["katana", "--db-dir", "/path/to/db"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
         assert_eq!(result.db.dir, Some(PathBuf::from("/path/to/db")));
     }
 
     #[test]
     fn custom_fixed_gas_prices() {
-        let result = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
+        let result =
+            SequencerNodeArgs::parse_from(["katana"]).config(crate::BuildInfo::default()).unwrap();
         assert!(result.dev.fixed_gas_prices.is_none());
 
         let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-gas-price", "10"])
-            .config()
+            .config(crate::BuildInfo::default())
             .unwrap();
         assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 10);
@@ -926,7 +928,7 @@ mod test {
         });
 
         let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-gas-price", "20"])
-            .config()
+            .config(crate::BuildInfo::default())
             .unwrap();
         assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
@@ -936,7 +938,7 @@ mod test {
         });
 
         let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"])
-            .config()
+            .config(crate::BuildInfo::default())
             .unwrap();
         assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
@@ -946,7 +948,7 @@ mod test {
         });
 
         let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-data-gas-price", "2"])
-            .config()
+            .config(crate::BuildInfo::default())
             .unwrap();
         assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
@@ -962,7 +964,7 @@ mod test {
             "--gpo.l1-strk-data-gas-price",
             "2",
         ])
-        .config()
+        .config(crate::BuildInfo::default())
         .unwrap();
 
         assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
@@ -985,7 +987,7 @@ mod test {
             "--gpo.l1-strk-data-gas-price",
             "2",
         ])
-        .config()
+        .config(crate::BuildInfo::default())
         .unwrap();
 
         assert_matches!(result.dev.fixed_gas_prices, Some(prices) => {
@@ -1011,7 +1013,7 @@ mod test {
             "--gpo.l1-strk-data-gas-price",
             "222",
         ])
-        .config()
+        .config(crate::BuildInfo::default())
         .unwrap();
         let config = &result;
 
@@ -1073,7 +1075,7 @@ explorer = true
         let result = SequencerNodeArgs::parse_from(args.clone())
             .with_config_file()
             .unwrap()
-            .config()
+            .config(crate::BuildInfo::default())
             .unwrap();
         let config = &result;
 
@@ -1109,7 +1111,7 @@ explorer = true
             "--http.cors_origins",
             "*,http://localhost:3000,https://example.com",
         ])
-        .config()
+        .config(crate::BuildInfo::default())
         .unwrap();
 
         let cors_origins = &result.rpc.cors_origins;
@@ -1123,22 +1125,25 @@ explorer = true
     #[cfg(feature = "server")]
     #[test]
     fn http_modules() {
-        // If the `--http.api` isn't specified, only starknet module will be exposed.
-        let result = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
+        // If the `--http.api` isn't specified, `starknet` and `node` are exposed by default.
+        let result =
+            SequencerNodeArgs::parse_from(["katana"]).config(crate::BuildInfo::default()).unwrap();
         let modules = &result.rpc.apis;
-        assert_eq!(modules.len(), 1);
+        assert_eq!(modules.len(), 2);
         assert!(modules.contains(&RpcModuleKind::Starknet));
+        assert!(modules.contains(&RpcModuleKind::Node));
 
         // If the `--http.api` is specified, only the ones in the list will be exposed.
-        let result =
-            SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet"]).config().unwrap();
+        let result = SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet"])
+            .config(crate::BuildInfo::default())
+            .unwrap();
         let modules = &result.rpc.apis;
         assert_eq!(modules.len(), 1);
         assert!(modules.contains(&RpcModuleKind::Starknet));
 
         // Specifiying the dev module without enabling dev mode is forbidden.
         let err = SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet,dev"])
-            .config()
+            .config(crate::BuildInfo::default())
             .unwrap_err();
         assert!(err
             .to_string()
@@ -1149,9 +1154,28 @@ explorer = true
     #[test]
     fn test_dev_api_enabled() {
         let args = SequencerNodeArgs::parse_from(["katana", "--dev"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
 
         assert!(result.rpc.apis.contains(&RpcModuleKind::Dev));
+    }
+
+    #[cfg(feature = "server")]
+    #[test]
+    fn test_node_api_explicit() {
+        let result = SequencerNodeArgs::parse_from(["katana", "--http.api", "node"])
+            .config(crate::BuildInfo::default())
+            .unwrap();
+        let modules = &result.rpc.apis;
+        assert_eq!(modules.len(), 1);
+        assert!(modules.contains(&RpcModuleKind::Node));
+
+        let result = SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet,node"])
+            .config(crate::BuildInfo::default())
+            .unwrap();
+        let modules = &result.rpc.apis;
+        assert_eq!(modules.len(), 2);
+        assert!(modules.contains(&RpcModuleKind::Starknet));
+        assert!(modules.contains(&RpcModuleKind::Node));
     }
 
     #[test]
@@ -1159,7 +1183,7 @@ explorer = true
         // Test with --paymaster flag (sidecar mode)
         let args =
             SequencerNodeArgs::parse_from(["katana", "--paymaster", "--cartridge.paymaster"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
 
         // Verify cartridge module is automatically enabled when paymaster is enabled
         assert!(result.rpc.apis.contains(&RpcModuleKind::Cartridge));
@@ -1172,7 +1196,7 @@ explorer = true
             "--paymaster",
             "--cartridge.paymaster",
         ]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
 
         // Verify cartridge module is still enabled even when not in explicit RPC list
         assert!(result.rpc.apis.contains(&RpcModuleKind::Cartridge));
@@ -1186,19 +1210,19 @@ explorer = true
             "http://localhost:8080",
             "--cartridge.paymaster",
         ]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
         assert!(result.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test without paymaster enabled
         let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
 
         // Verify cartridge module is not enabled by default
         assert!(!result.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test without paymaster enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
 
         // Verify cartridge module is not enabled by default
         assert!(!result.rpc.apis.contains(&RpcModuleKind::Cartridge));
@@ -1213,7 +1237,7 @@ explorer = true
 
         // Test with controllers enabled
         let args = SequencerNodeArgs::parse_from(["katana", "--cartridge.controllers"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
         let config = &result;
 
         // Verify that all the Controller classes are added to the genesis
@@ -1227,7 +1251,7 @@ explorer = true
 
         // Test without controllers enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let result = args.config().unwrap();
+        let result = args.config(crate::BuildInfo::default()).unwrap();
         let config = &result;
 
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV104::HASH));

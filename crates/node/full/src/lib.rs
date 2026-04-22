@@ -9,6 +9,7 @@ use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
+use config::build_info::BuildInfo;
 use config::db::DbConfig;
 use config::gateway::GatewayConfig;
 use config::metrics::MetricsConfig;
@@ -30,10 +31,13 @@ use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::TipOrdering;
 use katana_provider::DbProviderFactory;
 use katana_rpc_api::katana::KatanaApiServer;
+use katana_rpc_api::node::NodeApiServer;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_server::middleware::cors::Cors;
+use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
+use katana_rpc_types::node::NodeInfo;
 use katana_stage::blocks::{BatchBlockDownloader, JsonRpcBlockDownloader};
 use katana_stage::classes::{GatewayClassDownloader, JsonRpcClassDownloader};
 use katana_stage::{Blocks, Classes, IndexHistory, StateTrie};
@@ -163,6 +167,8 @@ pub struct Config {
     pub network: Network,
     pub gateway: Option<GatewayConfig>,
     pub sync: SyncConfig,
+    /// Build-time identity. See [`BuildInfo`] docs.
+    pub build_info: BuildInfo,
 }
 
 /// Configuration for the sync pipeline.
@@ -382,9 +388,10 @@ impl Node {
             Network::Mainnet => ChainSpec::mainnet(),
             Network::Sepolia => ChainSpec::sepolia(),
         };
+        let chain_spec = Arc::new(chain_spec);
 
         let starknet_api = StarknetApi::new(
-            Arc::new(chain_spec),
+            chain_spec.clone(),
             pool.clone(),
             task_spawner.clone(),
             preconf_factory,
@@ -410,6 +417,11 @@ impl Node {
             use katana_rpc_api::txpool::TxPoolApiServer;
             let api = katana_rpc_server::txpool::TxPoolApi::new(pool.clone());
             rpc_modules.merge(TxPoolApiServer::into_rpc(api))?;
+        }
+
+        if config.rpc.apis.contains(&RpcModuleKind::Node) {
+            let info = NodeInfo::from_parts(&config.build_info, chain_spec.as_ref());
+            rpc_modules.merge(NodeApiServer::into_rpc(NodeApi::new(info)))?;
         }
 
         #[allow(unused_mut)]
