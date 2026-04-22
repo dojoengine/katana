@@ -7,8 +7,8 @@
 	branch = kariy/0.13.4
 [submodule "crates/explorer/ui"]
 	path = crates/explorer/ui
-	url = https://github.com/kariy/explorer
-	branch = feat/shadcn-primitives
+	url = https://github.com/cartridge-gg/explorer
+	branch = main
 [submodule "crates/contracts/contracts/vrf"]
 	path = crates/contracts/contracts/vrf
 	url = https://github.com/cartridge-gg/vrf.git
