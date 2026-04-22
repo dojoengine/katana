@@ -6104,6 +6104,7 @@ dependencies = [
  "katana-cli",
  "katana-db",
  "katana-genesis",
+ "katana-node-config",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",
@@ -6126,8 +6127,6 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "vergen",
- "vergen-gitcl",
 ]
 
 [[package]]
@@ -6669,11 +6668,14 @@ dependencies = [
 name = "katana-node-config"
 version = "1.7.0"
 dependencies = [
+ "const_format",
  "http 1.3.1",
  "serde",
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "thiserror 1.0.69",
+ "vergen",
+ "vergen-gitcl",
 ]
 
 [[package]]
