@@ -81,8 +81,7 @@ impl FullNodeArgs {
 
     async fn start_node(&self, build_info: crate::BuildInfo) -> Result<()> {
         // Build the node
-        let mut config = self.config()?;
-        config.build_info = build_info;
+        let config = self.config(build_info)?;
         let node = katana_full_node::Node::build(config).context("failed to build full node")?;
 
         if !self.silent {
@@ -107,7 +106,7 @@ impl FullNodeArgs {
         Ok(())
     }
 
-    fn config(&self) -> Result<katana_full_node::Config> {
+    fn config(&self, build_info: crate::BuildInfo) -> Result<katana_full_node::Config> {
         let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
@@ -132,7 +131,7 @@ impl FullNodeArgs {
                     classes_batch_size: self.stage.classes_batch_size,
                 },
             },
-            build_info: crate::BuildInfo::default(),
+            build_info,
         })
     }
 
