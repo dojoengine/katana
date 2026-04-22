@@ -1,7 +1,26 @@
 use std::fmt::Write;
 
 use katana_cli::BuildInfo;
-use katana_node_config::build_info::{BUILD_TIMESTAMP, GIT_SHA, VERSION};
+
+/// The latest version from Cargo.toml.
+const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Suffix indicating if it is a dev build.
+///
+/// A build is considered a dev build if the working tree is dirty
+/// or if the current git revision is not on a tag.
+///
+/// This suffix is typically empty for clean/release builds, and "-dev" for dev builds.
+const DEV_BUILD_SUFFIX: &str = env!("DEV_BUILD_SUFFIX");
+
+/// Version string (pkg version + dev suffix), without the git SHA.
+const VERSION: &str = const_format::concatcp!(CARGO_PKG_VERSION, DEV_BUILD_SUFFIX);
+
+/// The SHA of the latest commit.
+const GIT_SHA: &str = env!("VERGEN_GIT_SHA");
+
+/// The build timestamp.
+const BUILD_TIMESTAMP: &str = env!("VERGEN_BUILD_TIMESTAMP");
 
 // > 1.0.0-alpha.19 (77d4800)
 // > if on dev (ie dirty):  1.0.0-alpha.19-dev (77d4800)
@@ -20,13 +39,16 @@ pub fn generate_long() -> String {
 
 /// Snapshot of this binary's build identity, for `node_getInfo`.
 ///
-/// Starts from [`BuildInfo::current`] (which pulls VERSION/GIT_SHA/BUILD_TIMESTAMP from
-/// `katana-node-config`'s build-time constants) and layers on features that only
-/// `bin/katana` can see via `cfg!(feature = ...)`.
+/// Unlike [`features`] (used for the human-facing `--version` output, which annotates
+/// disabled features with `-` and enabled with `+`), this only lists the *names* of
+/// compiled-in features.
 pub fn build_info() -> BuildInfo {
-    let mut bi = BuildInfo::current();
-    bi.features = enabled_features();
-    bi
+    BuildInfo {
+        version: VERSION.to_string(),
+        git_sha: GIT_SHA.to_string(),
+        build_timestamp: BUILD_TIMESTAMP.to_string(),
+        features: enabled_features(),
+    }
 }
 
 /// Returns a list of "features" supported (or not) by this build of katana.
