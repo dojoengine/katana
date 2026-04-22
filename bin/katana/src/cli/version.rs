@@ -89,8 +89,10 @@ mod tests {
         // `build_info()` must publish bare feature names ("native") — never the
         // annotated `+native` / `-native` that `features()` uses for CLI output.
         for f in build_info().features {
-            assert!(!f.starts_with('+') && !f.starts_with('-'),
-                "build_info() leaked a signed feature name: {f:?}");
+            assert!(
+                !f.starts_with('+') && !f.starts_with('-'),
+                "build_info() leaked a signed feature name: {f:?}"
+            );
         }
     }
 }

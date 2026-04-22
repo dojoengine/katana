@@ -35,9 +35,7 @@ impl NodeCli {
     pub async fn execute(self, build_info: BuildInfo) -> Result<()> {
         match self.command {
             NodeSubcommand::Full(args) => args.execute(build_info).await,
-            NodeSubcommand::Sequencer(args) => {
-                args.with_config_file()?.execute(build_info).await
-            }
+            NodeSubcommand::Sequencer(args) => args.with_config_file()?.execute(build_info).await,
         }
     }
 }

@@ -1160,9 +1160,8 @@ explorer = true
     #[cfg(feature = "server")]
     #[test]
     fn test_node_api_explicit() {
-        let result = SequencerNodeArgs::parse_from(["katana", "--http.api", "node"])
-            .config()
-            .unwrap();
+        let result =
+            SequencerNodeArgs::parse_from(["katana", "--http.api", "node"]).config().unwrap();
         let modules = &result.rpc.apis;
         assert_eq!(modules.len(), 1);
         assert!(modules.contains(&RpcModuleKind::Node));

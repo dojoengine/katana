@@ -95,7 +95,10 @@ mod tests {
     #[test]
     fn chain_kind_deserializes_pascal_case() {
         assert_eq!(serde_json::from_value::<ChainKind>(json!("Dev")).unwrap(), ChainKind::Dev);
-        assert_eq!(serde_json::from_value::<ChainKind>(json!("Rollup")).unwrap(), ChainKind::Rollup);
+        assert_eq!(
+            serde_json::from_value::<ChainKind>(json!("Rollup")).unwrap(),
+            ChainKind::Rollup
+        );
         assert_eq!(
             serde_json::from_value::<ChainKind>(json!("FullNode")).unwrap(),
             ChainKind::FullNode,
