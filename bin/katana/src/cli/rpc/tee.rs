@@ -44,8 +44,7 @@ impl TeeCommands {
     pub async fn execute(self, client: &Client) -> Result<()> {
         match self {
             TeeCommands::GenerateQuote(args) => {
-                let result =
-                    client.tee_generate_quote(args.prev_block_id, args.block_id).await?;
+                let result = client.tee_generate_quote(args.prev_block_id, args.block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
 
