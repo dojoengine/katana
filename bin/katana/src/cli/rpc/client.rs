@@ -3,7 +3,7 @@ use jsonrpsee::core::client::{ClientT, Error as ClientError};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
-use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
+use katana_primitives::block::{BlockIdOrTag, BlockNumber, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, StorageKey};
 use katana_primitives::transaction::TxHash;
@@ -225,5 +225,69 @@ impl Client {
             rpc_params!(block_id, class_hashes, contract_addresses, contracts_storage_keys),
         )
         .await
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// TxPool JSON-RPC API
+////////////////////////////////////////////////////////////////////////////////
+
+const TXPOOL_STATUS: &str = "txpool_status";
+const TXPOOL_CONTENT: &str = "txpool_content";
+const TXPOOL_CONTENT_FROM: &str = "txpool_contentFrom";
+const TXPOOL_INSPECT: &str = "txpool_inspect";
+
+impl Client {
+    pub async fn txpool_status(&self) -> Result<Value> {
+        self.send_request(TXPOOL_STATUS, rpc_params!()).await
+    }
+
+    pub async fn txpool_content(&self) -> Result<Value> {
+        self.send_request(TXPOOL_CONTENT, rpc_params!()).await
+    }
+
+    pub async fn txpool_content_from(&self, address: ContractAddress) -> Result<Value> {
+        self.send_request(TXPOOL_CONTENT_FROM, rpc_params!(address)).await
+    }
+
+    pub async fn txpool_inspect(&self) -> Result<Value> {
+        self.send_request(TXPOOL_INSPECT, rpc_params!()).await
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Node JSON-RPC API
+////////////////////////////////////////////////////////////////////////////////
+
+const NODE_GET_INFO: &str = "node_getInfo";
+
+impl Client {
+    pub async fn node_get_info(&self) -> Result<Value> {
+        self.send_request(NODE_GET_INFO, rpc_params!()).await
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// TEE JSON-RPC API
+////////////////////////////////////////////////////////////////////////////////
+
+const TEE_GENERATE_QUOTE: &str = "tee_generateQuote";
+const TEE_GET_EVENT_PROOF: &str = "tee_getEventProof";
+
+impl Client {
+    pub async fn tee_generate_quote(
+        &self,
+        prev_block_id: Option<BlockNumber>,
+        block_id: BlockNumber,
+    ) -> Result<Value> {
+        self.send_request(TEE_GENERATE_QUOTE, rpc_params!(prev_block_id, block_id)).await
+    }
+
+    pub async fn tee_get_event_proof(
+        &self,
+        block_number: BlockNumber,
+        event_index: u32,
+    ) -> Result<Value> {
+        self.send_request(TEE_GET_EVENT_PROOF, rpc_params!(block_number, event_index)).await
     }
 }
