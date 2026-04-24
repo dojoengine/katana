@@ -8,6 +8,8 @@
 #
 # Dependencies downloaded:
 #   - busybox-static: Provides shell and basic utilities
+#   - linux-modules:       Contains device-mapper modules (dm-mod.ko, dm-crypt.ko,
+#                          dm-integrity.ko) for LUKS-based sealed storage
 #   - linux-modules-extra: Contains SEV-SNP kernel modules (tsm.ko, sev-guest.ko)
 #   - cryptsetup (source): Built statically inside a pinned Alpine container
 #                          for LUKS2 sealed-storage unlock in the measured initrd
@@ -44,6 +46,8 @@ usage() {
     echo "  SOURCE_DATE_EPOCH                Unix timestamp for reproducible builds"
     echo "  BUSYBOX_PKG_VERSION              Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1)"
     echo "  BUSYBOX_PKG_SHA256               SHA256 checksum of the busybox .deb package"
+    echo "  KERNEL_MODULES_PKG_VERSION       Exact apt package version for linux-modules"
+    echo "  KERNEL_MODULES_PKG_SHA256        SHA256 checksum of the linux-modules .deb"
     echo "  KERNEL_MODULES_EXTRA_PKG_VERSION Exact apt package version for linux-modules-extra"
     echo "  KERNEL_MODULES_EXTRA_PKG_SHA256  SHA256 checksum of the linux-modules-extra .deb"
     echo "  CRYPTSETUP_VERSION               Exact cryptsetup source release (e.g., 2.7.5)"
@@ -59,6 +63,8 @@ usage() {
     echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
     echo "  export BUSYBOX_PKG_VERSION='1:1.36.1-6ubuntu3.1'"
     echo "  export BUSYBOX_PKG_SHA256='abc123...'"
+    echo "  export KERNEL_MODULES_PKG_VERSION='6.8.0-90.99'"
+    echo "  export KERNEL_MODULES_PKG_SHA256='aaa111...'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_VERSION='6.8.0-90.99'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_SHA256='def456...'"
     echo "  export CRYPTSETUP_VERSION='2.7.5'"
@@ -120,6 +126,7 @@ echo "  SOURCE_DATE_EPOCH:     ${SOURCE_DATE_EPOCH:-<not set>}"
 echo ""
 echo "Package versions:"
 echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
+echo "  linux-modules:         ${KERNEL_MODULES_PKG_VERSION:-<not set>}"
 echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
 echo "  cryptsetup (source):   ${CRYPTSETUP_VERSION:-<not set>}"
 echo "  cryptsetup builder:    ${CRYPTSETUP_BUILDER_IMAGE:-<not set>}"
@@ -178,10 +185,14 @@ mkdir -p "$PACKAGES_DIR"
 pushd "$PACKAGES_DIR" >/dev/null
 
 : "${BUSYBOX_PKG_VERSION:?BUSYBOX_PKG_VERSION not set - required for reproducible builds}"
+: "${KERNEL_MODULES_PKG_VERSION:?KERNEL_MODULES_PKG_VERSION not set - required for reproducible builds}"
 : "${KERNEL_MODULES_EXTRA_PKG_VERSION:?KERNEL_MODULES_EXTRA_PKG_VERSION not set - required for reproducible builds}"
 
 log_info "Downloading busybox-static=${BUSYBOX_PKG_VERSION}"
 apt-get download "busybox-static=${BUSYBOX_PKG_VERSION}"
+
+log_info "Downloading linux-modules-${KERNEL_VERSION}-generic=${KERNEL_MODULES_PKG_VERSION}"
+apt-get download "linux-modules-${KERNEL_VERSION}-generic=${KERNEL_MODULES_PKG_VERSION}"
 
 log_info "Downloading linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
@@ -191,6 +202,7 @@ echo "Downloaded packages:"
 ls -lh *.deb
 
 : "${BUSYBOX_PKG_SHA256:?BUSYBOX_PKG_SHA256 not set - required for reproducible builds}"
+: "${KERNEL_MODULES_PKG_SHA256:?KERNEL_MODULES_PKG_SHA256 not set - required for reproducible builds}"
 : "${KERNEL_MODULES_EXTRA_PKG_SHA256:?KERNEL_MODULES_EXTRA_PKG_SHA256 not set - required for reproducible builds}"
 
 log_info "Verifying busybox-static checksum"
@@ -199,6 +211,16 @@ if [[ "$ACTUAL_SHA256" != "$BUSYBOX_PKG_SHA256" ]]; then
     die "busybox-static checksum mismatch (expected $BUSYBOX_PKG_SHA256, got $ACTUAL_SHA256)"
 fi
 log_ok "busybox-static checksum verified"
+
+# linux-modules-*.deb and linux-modules-extra-*.deb share the `linux-modules-*`
+# filename prefix, so the glob has to be tight enough to pick exactly one file.
+log_info "Verifying linux-modules checksum"
+MODULES_DEB="$(ls linux-modules-"${KERNEL_VERSION}"-generic_*.deb)"
+ACTUAL_SHA256="$(sha256sum "$MODULES_DEB" | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$KERNEL_MODULES_PKG_SHA256" ]]; then
+    die "linux-modules checksum mismatch (expected $KERNEL_MODULES_PKG_SHA256, got $ACTUAL_SHA256)"
+fi
+log_ok "linux-modules checksum verified"
 
 log_info "Verifying linux-modules-extra checksum"
 ACTUAL_SHA256="$(sha256sum linux-modules-extra-*.deb | awk '{print $1}')"
@@ -219,6 +241,9 @@ mkdir -p "$EXTRACTED_DIR"
 
 log_info "Extracting busybox-static"
 dpkg-deb -x "$PACKAGES_DIR"/busybox-static_*.deb "$EXTRACTED_DIR"
+
+log_info "Extracting linux-modules"
+dpkg-deb -x "$PACKAGES_DIR"/linux-modules-"${KERNEL_VERSION}"-generic_*.deb "$EXTRACTED_DIR"
 
 log_info "Extracting linux-modules-extra"
 dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
@@ -420,6 +445,31 @@ if [[ -d "$MODULES_DIR" ]]; then
 else
     log_warn "Modules directory not found: $MODULES_DIR"
     log_warn "SEV-SNP attestation may not be available"
+fi
+
+# ------------------------------------------------------------------------------
+# Install Device-Mapper Kernel Modules
+# ------------------------------------------------------------------------------
+# Required by cryptsetup for LUKS2 open/format. Load order at runtime is
+# dm-mod first, then dm-crypt and dm-integrity (both depend on dm-mod).
+log_info "Installing device-mapper kernel modules"
+DM_MODULES_DIR="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic/kernel/drivers/md"
+
+if [[ -d "$DM_MODULES_DIR" ]]; then
+    for mod in dm-mod dm-crypt dm-integrity; do
+        if [[ -f "$DM_MODULES_DIR/${mod}.ko.zst" ]]; then
+            zstd -dq "$DM_MODULES_DIR/${mod}.ko.zst" -o "lib/modules/${mod}.ko"
+            log_ok "${mod}.ko installed (decompressed)"
+        elif [[ -f "$DM_MODULES_DIR/${mod}.ko" ]]; then
+            cp "$DM_MODULES_DIR/${mod}.ko" "lib/modules/${mod}.ko"
+            log_ok "${mod}.ko installed"
+        else
+            log_warn "${mod}.ko not found at $DM_MODULES_DIR/${mod}.ko(.zst)"
+        fi
+    done
+else
+    log_warn "Device-mapper modules directory not found: $DM_MODULES_DIR"
+    log_warn "Sealed storage will not be available"
 fi
 
 # ------------------------------------------------------------------------------
