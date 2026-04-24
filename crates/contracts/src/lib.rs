@@ -75,6 +75,26 @@ pub mod avnu {
     contract!(AvnuForwarder, "{CARGO_MANIFEST_DIR}/build/avnu_Forwarder.contract_class.json");
 }
 
+pub mod piltover {
+    use katana_contracts_macro::contract;
+
+    // Piltover appchain settlement contract. Used as the core contract for rollup
+    // settlement on Starknet. Handles both `LayoutBridgeOutput*` (ZK/Atlantic) and
+    // `TeeInput` (TEE/SP1 Groth16) variants — only the `set_facts_registry(...)`
+    // target differs between the two modes.
+    //
+    // Rebuilt from the `cartridge-gg/piltover` submodule at
+    // `crates/contracts/contracts/piltover` (branch `feat/tee-persistent`).
+    contract!(Appchain, "{CARGO_MANIFEST_DIR}/build/piltover_appchain.contract_class.json");
+
+    // Mock `IAMDTeeRegistry` — accepts any SP1 proof without verification. Intended
+    // for local/e2e testing of the TEE settlement path; do not deploy to production.
+    contract!(
+        MockAmdTeeRegistry,
+        "{CARGO_MANIFEST_DIR}/build/piltover_mock_amd_tee_registry.contract_class.json"
+    );
+}
+
 #[rustfmt::skip]
 pub mod controller;
 
@@ -103,6 +123,11 @@ mod tests {
         assert_eq!(
             controller::ControllerLatest::CLASS.class_hash().unwrap(),
             controller::ControllerLatest::HASH
+        );
+        assert_eq!(piltover::Appchain::CLASS.class_hash().unwrap(), piltover::Appchain::HASH);
+        assert_eq!(
+            piltover::MockAmdTeeRegistry::CLASS.class_hash().unwrap(),
+            piltover::MockAmdTeeRegistry::HASH
         );
     }
 

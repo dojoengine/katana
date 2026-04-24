@@ -100,7 +100,7 @@ jobs:
                       tests/fixtures/db/1_6_0
                       tests/fixtures/db/snos
                   key: |
-                      test-fixtures-${{ hashFiles('Makefile', 'crates/contracts/build.rs', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/openzeppelin/**', 'crates/contracts/contracts/Scarb.toml', 'tests/vrf/contracts/**', 'tests/fixtures/db/*.tar.gz') }}
+                      test-fixtures-${{ hashFiles('Makefile', 'crates/contracts/build.rs', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/openzeppelin/**', 'crates/contracts/contracts/piltover/**', 'crates/contracts/contracts/Scarb.toml', 'tests/vrf/contracts/**', 'tests/fixtures/db/*.tar.gz') }}
 
             - name: Generate test fixtures
               if: steps.cache.outputs.cache-hit != 'true'

@@ -174,7 +174,22 @@ with a known chain is a no-op for now.")
     ///
     /// Required if a custom settlement chain is specified.
     #[arg(long = "settlement-facts-registry")]
+    #[arg(conflicts_with = "tee")]
     settlement_facts_registry_contract: Option<ContractAddress>,
+
+    /// Set up the Piltover core contract for TEE-proved settlement (Saya
+    /// persistent-TEE mode) instead of STARK proofs. Piltover's fact-registry
+    /// field is pointed at `--tee-registry-address` instead of the default
+    /// Herodotus Atlantic registry.
+    #[arg(long = "tee")]
+    #[arg(requires_all = ["id", "tee_registry_address"])]
+    tee: bool,
+
+    /// Address of the IAMDTeeRegistry contract on the settlement chain.
+    /// Required when --tee is set.
+    #[arg(long = "tee-registry-address")]
+    #[arg(requires = "tee")]
+    tee_registry_address: Option<ContractAddress>,
 
     /// Specify the path of the directory where the configuration files will be stored at.
     #[arg(long)]
@@ -294,16 +309,30 @@ impl RollupArgs {
                 }
                 #[cfg(feature = "init-custom-settlement-chain")]
                 SettlementChain::Custom(url) => {
-                    let Some(fact_registry) = self.settlement_facts_registry_contract else {
-                        return Some(Err(anyhow::anyhow!(
-                            "Specifying the facts registry contract (using \
-                             `--settlement-facts-registry`) is required when settling on a custom \
-                             chain"
-                        )));
-                    };
-                    SettlementChainProvider::new(url.clone(), *fact_registry)
+                    // In TEE mode, --tee-registry-address is the fact registry. In ZK mode,
+                    // a custom chain must provide --settlement-facts-registry explicitly.
+                    if self.tee {
+                        let tee_registry = self.tee_registry_address.expect("clap requires_all");
+                        SettlementChainProvider::new(url.clone(), *tee_registry)
+                    } else {
+                        let Some(fact_registry) = self.settlement_facts_registry_contract else {
+                            return Some(Err(anyhow::anyhow!(
+                                "Specifying the facts registry contract (using \
+                                 `--settlement-facts-registry`) is required when settling on a \
+                                 custom chain"
+                            )));
+                        };
+                        SettlementChainProvider::new(url.clone(), *fact_registry)
+                    }
                 }
             };
+
+            let effective_fact_registry = resolve_effective_fact_registry(
+                self.tee,
+                self.tee_registry_address,
+                self.settlement_facts_registry_contract,
+                settlement_provider.fact_registry(),
+            );
 
             let l1_chain_id = match settlement_provider.chain_id().await.with_context(|| {
                 format!("failed to get chain id for settlement layer `{settlement_chain}`")
@@ -315,9 +344,14 @@ impl RollupArgs {
             let chain_id = Felt::from(id);
 
             let deployment_outcome = if let Some(contract) = self.settlement_contract {
-                match deployment::check_program_info(chain_id, contract, &settlement_provider)
-                    .await
-                    .with_context(|| "settlement contract validation failed.".to_string())
+                match deployment::check_program_info(
+                    chain_id,
+                    contract,
+                    &settlement_provider,
+                    effective_fact_registry,
+                )
+                .await
+                .with_context(|| "settlement contract validation failed.".to_string())
                 {
                     Ok(..) => (),
                     Err(err) => return Some(Err(err)),
@@ -340,9 +374,13 @@ impl RollupArgs {
                     ExecutionEncoding::New,
                 );
 
-                match deployment::deploy_settlement_contract(account, chain_id)
-                    .await
-                    .with_context(|| "failed to deploy settlement contract".to_string())
+                match deployment::deploy_settlement_contract(
+                    account,
+                    chain_id,
+                    effective_fact_registry,
+                )
+                .await
+                .with_context(|| "failed to deploy settlement contract".to_string())
                 {
                     Ok(id) => id,
                     Err(err) => return Some(Err(err)),
@@ -434,6 +472,30 @@ struct PersistentOutcome {
 
     #[cfg(feature = "init-slot")]
     pub slot_paymasters: Option<Vec<slot::PaymasterAccountArgs>>,
+}
+
+/// Selects the fact-registry address that Piltover's `set_facts_registry(...)` will be wired to,
+/// and that `check_program_info` will validate against.
+///
+/// Precedence:
+/// 1. TEE mode (`--tee`): `--tee-registry-address`.
+/// 2. ZK mode with `--settlement-facts-registry` override: that address.
+/// 3. ZK mode default: the provider's built-in Herodotus Atlantic address.
+///
+/// Clap enforces `--tee` + `--settlement-facts-registry` as a mutual-exclusion conflict, so the
+/// `(true, _, Some(..))` combination cannot occur in practice. The match still defines it — TEE
+/// wins — so the helper is total for unit tests.
+fn resolve_effective_fact_registry(
+    tee: bool,
+    tee_registry: Option<ContractAddress>,
+    facts_override: Option<ContractAddress>,
+    provider_default: Felt,
+) -> Felt {
+    match (tee, tee_registry, facts_override) {
+        (true, Some(addr), _) => *addr,
+        (false, _, Some(addr)) => *addr,
+        _ => provider_default,
+    }
 }
 
 fn generate_genesis() -> Genesis {
@@ -688,5 +750,162 @@ mod tests {
                  required when settling on a custom chain"
             );
         });
+    }
+
+    #[test]
+    fn cli_accept_tee_flag_with_registry() {
+        #[derive(Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: InitCommand,
+        }
+
+        let tee_registry = "0x1234567890123456789012345678901234567890";
+        let result = Cli::parse_from([
+            "init",
+            "rollup",
+            "--id",
+            "tee-chain",
+            "--settlement-chain",
+            "sepolia",
+            "--settlement-account-address",
+            "0x1234567890123456789012345678901234567890",
+            "--settlement-account-private-key",
+            "0x1234567890123456789012345678901234567890",
+            "--tee",
+            "--tee-registry-address",
+            tee_registry,
+        ]);
+
+        assert_matches!(result.args.mode, InitMode::Rollup(config) => {
+            assert!(config.tee);
+            assert_eq!(
+                config.tee_registry_address,
+                Some(ContractAddress::from_str(tee_registry).unwrap())
+            );
+        });
+    }
+
+    #[test]
+    fn cli_tee_requires_tee_registry_address() {
+        #[derive(Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: InitCommand,
+        }
+
+        match Cli::try_parse_from([
+            "init",
+            "rollup",
+            "--id",
+            "tee-chain",
+            "--settlement-chain",
+            "sepolia",
+            "--settlement-account-address",
+            "0x1234567890123456789012345678901234567890",
+            "--settlement-account-private-key",
+            "0x1234567890123456789012345678901234567890",
+            "--tee",
+        ]) {
+            Ok(..) => panic!("Expected --tee to require --tee-registry-address"),
+            Err(err) => {
+                let ctx = err.get(ContextKind::InvalidArg).unwrap();
+                if let ContextValue::Strings(values) = ctx {
+                    assert!(values.iter().any(|v| v.contains("--tee-registry-address")));
+                } else {
+                    panic!("Expected InvalidArg context with Strings value");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cli_tee_registry_address_requires_tee() {
+        #[derive(Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: InitCommand,
+        }
+
+        // --tee-registry-address without --tee should fail.
+        match Cli::try_parse_from([
+            "init",
+            "rollup",
+            "--id",
+            "tee-chain",
+            "--settlement-chain",
+            "sepolia",
+            "--settlement-account-address",
+            "0x1234567890123456789012345678901234567890",
+            "--settlement-account-private-key",
+            "0x1234567890123456789012345678901234567890",
+            "--tee-registry-address",
+            "0x1234567890123456789012345678901234567890",
+        ]) {
+            Ok(..) => panic!("Expected --tee-registry-address to require --tee"),
+            Err(err) => assert!(err.to_string().contains("--tee")),
+        }
+    }
+
+    #[test]
+    fn cli_tee_conflicts_with_settlement_facts_registry() {
+        #[derive(Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: InitCommand,
+        }
+
+        match Cli::try_parse_from([
+            "init",
+            "rollup",
+            "--id",
+            "tee-chain",
+            "--settlement-chain",
+            "sepolia",
+            "--settlement-account-address",
+            "0x1234567890123456789012345678901234567890",
+            "--settlement-account-private-key",
+            "0x1234567890123456789012345678901234567890",
+            "--tee",
+            "--tee-registry-address",
+            "0x1111111111111111111111111111111111111111",
+            "--settlement-facts-registry",
+            "0x2222222222222222222222222222222222222222",
+        ]) {
+            Ok(..) => panic!("Expected --tee and --settlement-facts-registry to conflict"),
+            Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
+        }
+    }
+
+    mod fact_registry_resolution {
+        use katana_primitives::felt;
+        use rstest::rstest;
+
+        use super::*;
+
+        const TEE: Felt = felt!("0xAAA");
+        const OVR: Felt = felt!("0xBBB");
+        const DEF: Felt = felt!("0xCCC");
+
+        #[rstest]
+        #[case::tee_mode(true, Some(TEE), None, TEE)]
+        #[case::plain_default(false, None, None, DEF)]
+        #[case::custom_override(false, None, Some(OVR), OVR)]
+        // Clap blocks this combination in practice, but the helper is total:
+        #[case::tee_wins_over_override(true, Some(TEE), Some(OVR), TEE)]
+        fn resolve_effective_fact_registry_cases(
+            #[case] tee: bool,
+            #[case] tee_addr: Option<Felt>,
+            #[case] override_addr: Option<Felt>,
+            #[case] expected: Felt,
+        ) {
+            let got = resolve_effective_fact_registry(
+                tee,
+                tee_addr.map(ContractAddress::from),
+                override_addr.map(ContractAddress::from),
+                DEF,
+            );
+            assert_eq!(got, expected);
+        }
     }
 }

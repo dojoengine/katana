@@ -56,6 +56,35 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         .with_help_message("This is the chain where the rollup will settle on.")
         .prompt()?;
 
+    // Ask about the proof mode before provider construction so the custom-chain
+    // flow can use the TEE registry address as the provider's fact registry
+    // (skipping the separate "Facts Registry" prompt).
+    #[derive(Debug, Clone, strum_macros::Display)]
+    enum ProofMode {
+        #[strum(serialize = "STARK (Atlantic)")]
+        Stark,
+        #[strum(serialize = "TEE (AMD SEV-SNP + SP1 Groth16)")]
+        Tee,
+    }
+
+    let proof_mode = Select::new("Proof mode", vec![ProofMode::Stark, ProofMode::Tee])
+        .with_help_message(
+            "STARK settles via Herodotus Atlantic; TEE points Piltover's fact-registry at an \
+             IAMDTeeRegistry contract.",
+        )
+        .prompt()?;
+
+    let tee_registry_address: Option<ContractAddress> = match proof_mode {
+        ProofMode::Stark => None,
+        ProofMode::Tee => Some(
+            CustomType::<ContractAddress>::new("TEE registry address")
+                .with_help_message(
+                    "Address of the IAMDTeeRegistry contract on the settlement chain.",
+                )
+                .prompt()?,
+        ),
+    };
+
     let settlement_provider = match network_type {
         SettlementChainOpt::Mainnet => SettlementChainProvider::sn_mainnet(),
         SettlementChainOpt::Sepolia => SettlementChainProvider::sn_sepolia(),
@@ -71,26 +100,31 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
                 .with_error_message("Please enter a valid URL")
                 .prompt()?;
 
-            let contract_exist_parser = &|input: &str| {
-                let client = JsonRpcClient::new(HttpTransport::new(url.clone()));
-                let block_id = BlockId::Tag(BlockTag::PreConfirmed);
-                let address = Felt::from_str(input).map_err(|_| ())?;
-                let result = tokio::task::block_in_place(|| {
-                    Handle::current().block_on(client.get_class_hash_at(block_id, address))
-                });
+            if let Some(tee_registry) = tee_registry_address {
+                // TEE mode: the TEE registry is the fact registry; skip the extra prompt.
+                SettlementChainProvider::new(url, *tee_registry)
+            } else {
+                let contract_exist_parser = &|input: &str| {
+                    let client = JsonRpcClient::new(HttpTransport::new(url.clone()));
+                    let block_id = BlockId::Tag(BlockTag::PreConfirmed);
+                    let address = Felt::from_str(input).map_err(|_| ())?;
+                    let result = tokio::task::block_in_place(|| {
+                        Handle::current().block_on(client.get_class_hash_at(block_id, address))
+                    });
 
-                match result {
-                    Ok(..) => Ok(ContractAddress::from(address)),
-                    Err(..) => Err(()),
-                }
-            };
+                    match result {
+                        Ok(..) => Ok(ContractAddress::from(address)),
+                        Err(..) => Err(()),
+                    }
+                };
 
-            let facts_registry = CustomType::<ContractAddress>::new("Facts Registry")
-                .with_error_message("The facts registry contract must already be deployed!")
-                .with_parser(contract_exist_parser)
-                .prompt()?;
+                let facts_registry = CustomType::<ContractAddress>::new("Facts Registry")
+                    .with_error_message("The facts registry contract must already be deployed!")
+                    .with_parser(contract_exist_parser)
+                    .prompt()?;
 
-            SettlementChainProvider::new(url, facts_registry.into())
+                SettlementChainProvider::new(url, facts_registry.into())
+            }
         }
     };
 
@@ -126,34 +160,44 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         ExecutionEncoding::New,
     );
 
+    // TEE mode: point Piltover's fact-registry at the IAMDTeeRegistry.
+    // ZK mode: use the provider's default (Herodotus Atlantic for mainnet/sepolia,
+    // or the address the user entered for a custom chain).
+    let fact_registry =
+        tee_registry_address.map(|a| *a).unwrap_or_else(|| settlement_provider.fact_registry());
+
     // The core settlement contract on L1c.
     // Prompt the user whether to deploy the settlement contract or not.
-    let deployment_outcome = if Confirm::new("Deploy settlement contract?")
-        .with_default(true)
-        .prompt()?
-    {
-        deployment::deploy_settlement_contract(account, chain_id.into()).await?
-    }
-    // If denied, prompt the user for an already deployed contract.
-    else {
-        let address = CustomType::<ContractAddress>::new("Settlement contract")
-            .with_parser(contract_exist_parser)
-            .prompt()?;
+    let deployment_outcome =
+        if Confirm::new("Deploy settlement contract?").with_default(true).prompt()? {
+            deployment::deploy_settlement_contract(account, chain_id.into(), fact_registry).await?
+        }
+        // If denied, prompt the user for an already deployed contract.
+        else {
+            let address = CustomType::<ContractAddress>::new("Settlement contract")
+                .with_parser(contract_exist_parser)
+                .prompt()?;
 
-        // Check that the settlement contract has been initialized with the correct program
-        // info.
-        deployment::check_program_info(chain_id.into(), address, &settlement_provider)
+            // Check that the settlement contract has been initialized with the correct program
+            // info.
+            deployment::check_program_info(
+                chain_id.into(),
+                address,
+                &settlement_provider,
+                fact_registry,
+            )
             .await
             .context(
                 "Invalid settlement contract. The contract might have been configured incorrectly.",
             )?;
 
-        let block_number = CustomType::<BlockNumber>::new("Settlement contract deployment block")
-            .with_help_message("The block at which the settlement contract was deployed")
-            .prompt()?;
+            let block_number =
+                CustomType::<BlockNumber>::new("Settlement contract deployment block")
+                    .with_help_message("The block at which the settlement contract was deployed")
+                    .prompt()?;
 
-        DeploymentOutcome { contract_address: address, block_number }
-    };
+            DeploymentOutcome { contract_address: address, block_number }
+        };
 
     let slot_paymasters = prompt_slot_paymasters()?;
 

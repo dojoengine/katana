@@ -1,13 +1,9 @@
-use std::str::FromStr;
-
 use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
+use katana_contracts::piltover::Appchain;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::cairo::ShortString;
-use katana_primitives::class::{
-    CompiledClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
-    ContractClassFromStrError,
-};
+use katana_primitives::class::ContractClass;
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_rpc_types::class::Class;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
@@ -72,9 +68,14 @@ pub struct DeploymentOutcome {
 
 /// Deploys the settlement contract in the settlement layer and initializes it with the right
 /// necessary states.
+///
+/// `fact_registry` is the address written into Piltover via `set_facts_registry(...)`. In ZK mode
+/// this is the Herodotus Atlantic integrity contract; in TEE mode it is the `IAMDTeeRegistry`
+/// contract that verifies SP1 Groth16 proofs.
 pub async fn deploy_settlement_contract(
     mut account: SettlementInitializerAccount,
     chain_id: Felt,
+    fact_registry: Felt,
 ) -> Result<DeploymentOutcome, ContractInitError> {
     // This is important! Otherwise all the estimate fees after a transaction will be executed
     // against invalid state.
@@ -90,12 +91,12 @@ pub async fn deploy_settlement_contract(
         // CONTRACT DEPLOYMENT
         // -----------------------------------------------------------------------
 
-        let class = include_str!(
-            "../../../../../crates/contracts/build/legacy/appchain_core_contract.json"
-        );
-
-        let class = ContractClass::from_str(class)?;
-        let class_hash = class.class_hash()?;
+        // The Piltover appchain class is rebuilt at workspace-build time from the
+        // `cartridge-gg/piltover` submodule (branch `feat/tee-persistent`). It handles
+        // both `LayoutBridgeOutput*` (ZK/Atlantic) and `TeeInput` (TEE/SP1 Groth16)
+        // variants of `PiltoverInput` — only `set_facts_registry(...)` differs between
+        // modes.
+        let class_hash = Appchain::HASH;
 
         // Check if the class has already been declared,
         match account.provider().get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await {
@@ -105,10 +106,11 @@ pub async fn deploy_settlement_contract(
 
             Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
                 sp.update_text("Declaring contract...");
-                let (rpc_class, casm_hash) = prepare_contract_declaration_params(class)?;
+                let class = (*Appchain::CLASS).clone();
+                let rpc_class = prepare_contract_declaration_params(class)?;
 
                 let res = account
-                    .declare_v3(rpc_class.into(), casm_hash)
+                    .declare_v3(rpc_class.into(), Appchain::CASM_HASH)
                     .send()
                     .await
                     .inspect(|res| {
@@ -213,9 +215,8 @@ pub async fn deploy_settlement_contract(
 
         sp.update_text("Setting fact registry...");
 
-        let facts_registry = account.provider().fact_registry();
         let res = appchain
-            .set_facts_registry(&facts_registry.into())
+            .set_facts_registry(&fact_registry.into())
             .send()
             .await
             .inspect(|res| {
@@ -230,7 +231,13 @@ pub async fn deploy_settlement_contract(
         // FINAL CHECKS
         // -----------------------------------------------------------------------
 
-        check_program_info(chain_id, deployed_appchain_contract.into(), account.provider()).await?;
+        check_program_info(
+            chain_id,
+            deployed_appchain_contract.into(),
+            account.provider(),
+            fact_registry,
+        )
+        .await?;
 
         Ok(DeploymentOutcome {
             block_number: deployment_block,
@@ -254,12 +261,16 @@ pub async fn deploy_settlement_contract(
 ///
 /// The values checked are:-
 /// * Program info (config hash, and StarknetOS program hash)
-/// * Fact registry contract address
+/// * Fact registry contract address (compared against `expected_fact_registry`)
 /// * Layout bridge program hash
+///
+/// `expected_fact_registry` is the Herodotus Atlantic address in ZK mode and the
+/// `IAMDTeeRegistry` address in TEE mode.
 pub async fn check_program_info(
     chain_id: Felt,
     appchain_address: ContractAddress,
     provider: &SettlementChainProvider,
+    expected_fact_registry: Felt,
 ) -> Result<(), ContractInitError> {
     let appchain = AppchainContractReader::new(appchain_address.into(), provider);
 
@@ -308,11 +319,10 @@ pub async fn check_program_info(
         });
     }
 
-    let expected_facts_registry = provider.fact_registry();
-    if facts_registry != expected_facts_registry.into() {
+    if facts_registry != expected_fact_registry.into() {
         return Err(ContractInitError::InvalidFactRegistry {
             actual: facts_registry.into(),
-            expected: expected_facts_registry,
+            expected: expected_fact_registry,
         });
     }
 
@@ -360,15 +370,6 @@ pub enum ContractInitError {
     #[error(transparent)]
     TxWaitingError(#[from] TxWaitingError),
 
-    #[error("failed parsing contract class: {0}")]
-    ContractParsing(#[from] ContractClassFromStrError),
-
-    #[error(transparent)]
-    ContractClassCompilation(#[from] ContractClassCompilationError),
-
-    #[error(transparent)]
-    ComputeClassHash(#[from] ComputeClassHashError),
-
     #[error(transparent)]
     Provider(#[from] ProviderError),
 
@@ -385,16 +386,10 @@ impl From<cairo_serde::Error> for ContractInitError {
     }
 }
 
-fn prepare_contract_declaration_params(
-    class: ContractClass,
-) -> Result<(FlattenedSierraClass, CompiledClassHash)> {
-    let casm_hash = class.clone().compile()?.class_hash()?;
-
+fn prepare_contract_declaration_params(class: ContractClass) -> Result<FlattenedSierraClass> {
     let rpc_class = Class::try_from(class).expect("should be valid");
     let Class::Sierra(class) = rpc_class else { unreachable!("unexpected legacy class") };
-    let flattened: FlattenedSierraClass = class.try_into()?;
-
-    Ok((flattened, casm_hash))
+    Ok(class.try_into()?)
 }
 
 // NOTE: The reason why we're using the same address for both fee tokens is because we don't yet
