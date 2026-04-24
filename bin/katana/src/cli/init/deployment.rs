@@ -386,9 +386,7 @@ impl From<cairo_serde::Error> for ContractInitError {
     }
 }
 
-fn prepare_contract_declaration_params(
-    class: ContractClass,
-) -> Result<FlattenedSierraClass> {
+fn prepare_contract_declaration_params(class: ContractClass) -> Result<FlattenedSierraClass> {
     let rpc_class = Class::try_from(class).expect("should be valid");
     let Class::Sierra(class) = rpc_class else { unreachable!("unexpected legacy class") };
     Ok(class.try_into()?)

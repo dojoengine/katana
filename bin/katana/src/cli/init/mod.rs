@@ -312,16 +312,14 @@ impl RollupArgs {
                     // In TEE mode, --tee-registry-address is the fact registry. In ZK mode,
                     // a custom chain must provide --settlement-facts-registry explicitly.
                     if self.tee {
-                        let tee_registry =
-                            self.tee_registry_address.expect("clap requires_all");
+                        let tee_registry = self.tee_registry_address.expect("clap requires_all");
                         SettlementChainProvider::new(url.clone(), *tee_registry)
                     } else {
-                        let Some(fact_registry) = self.settlement_facts_registry_contract
-                        else {
+                        let Some(fact_registry) = self.settlement_facts_registry_contract else {
                             return Some(Err(anyhow::anyhow!(
                                 "Specifying the facts registry contract (using \
-                                 `--settlement-facts-registry`) is required when settling on \
-                                 a custom chain"
+                                 `--settlement-facts-registry`) is required when settling on a \
+                                 custom chain"
                             )));
                         };
                         SettlementChainProvider::new(url.clone(), *fact_registry)
