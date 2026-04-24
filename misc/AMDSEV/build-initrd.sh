@@ -300,21 +300,21 @@ log_info "Extracting source"
 tar -xf "$CRYPTSETUP_TARBALL"
 
 log_info "Building statically inside $CRYPTSETUP_BUILDER_IMAGE"
-# The build script runs inside the container. Errors inside propagate via
-# set -eu and the non-zero exit code below. SOURCE_DATE_EPOCH is forwarded
-# so any timestamps embedded in the binary match the host's reproducibility
-# anchor.
+# The container runs as root (apk add requires it). Once the build is done,
+# chown the output binary to the invoking host user so subsequent host-side
+# steps — including the trap's rm -rf "$WORK_DIR" — don't trip over root-
+# owned files. SOURCE_DATE_EPOCH is forwarded so any timestamps embedded in
+# the binary match the host's reproducibility anchor.
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
 "$CRYPTSETUP_BUILDER" run --rm \
-    --user "$(id -u):$(id -g)" \
     -v "$CRYPTSETUP_DIR:/build" \
     -w "/build/cryptsetup-${CRYPTSETUP_VERSION}" \
     -e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" \
+    -e "HOST_UID=${HOST_UID}" \
+    -e "HOST_GID=${HOST_GID}" \
     "$CRYPTSETUP_BUILDER_IMAGE" \
     sh -euc '
-        # Drop to root inside the container for apk add, then build as the
-        # invoking user (the --user flag above applies to exec, apk needs root).
-        # We use BUILD_USER so the apk install step can remain root while the
-        # subsequent ./configure && make runs with write access to the mount.
         apk add --no-cache \
             build-base linux-headers pkgconf \
             openssl-dev openssl-libs-static \
@@ -335,6 +335,12 @@ log_info "Building statically inside $CRYPTSETUP_BUILDER_IMAGE"
         make -j"$(nproc)" LDFLAGS="-all-static"
         strip src/cryptsetup
         cp src/cryptsetup /build/cryptsetup-static
+        chown "${HOST_UID}:${HOST_GID}" /build/cryptsetup-static
+        # Intermediate build artefacts stay root-owned inside /build. The host
+        # owns $CRYPTSETUP_DIR itself, so the trap'"'"'s rm -rf can still unlink
+        # them; but make the leaf directories writable by the host user so any
+        # follow-up inspection (find, ls) does not hit permission errors.
+        chown -R "${HOST_UID}:${HOST_GID}" /build
     '
 
 if [[ ! -x "$CRYPTSETUP_DIR/cryptsetup-static" ]]; then
