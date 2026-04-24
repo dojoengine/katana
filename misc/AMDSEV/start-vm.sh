@@ -18,7 +18,12 @@
 #   OVMF_FILE      - OVMF.fd firmware image
 #   KERNEL_FILE    - vmlinuz kernel image
 #   INITRD_FILE    - initrd.img initial ramdisk
-#   KERNEL_CMDLINE - "console=ttyS0"
+#   KERNEL_CMDLINE - "console=ttyS0" plus (for sealed storage):
+#                      KATANA_EXPECTED_LUKS_UUID=<uuid>
+#                      KATANA_ALLOW_FORMAT=1   (provisioning boot only)
+#                    Sealed-storage variants produce a DIFFERENT measurement
+#                    from the unsealed boot. Verifiers must pin the expected
+#                    cmdline variant.
 #
 # SEV-SNP guest configuration:
 #   GUEST_POLICY      - 0x30000 (SMT allowed, debug disabled)
@@ -44,22 +49,39 @@ set -euo pipefail
 
 usage() {
     echo "Usage: $0 [BOOT_COMPONENTS_DIR] [--katana-args CSV] [--no-start]"
+    echo "          [--data-disk PATH] [--luks-uuid UUID] [--allow-format]"
     echo ""
     echo "Starts a SEV-SNP VM and launches Katana asynchronously via control channel."
     echo ""
     echo "Arguments:"
-    echo "  BOOT_COMPONENTS_DIR  Optional path containing OVMF.fd, vmlinuz, initrd.img"
+    echo "  BOOT_COMPONENTS_DIR   Optional path containing OVMF.fd, vmlinuz, initrd.img"
     echo ""
     echo "Options:"
-    echo "  --katana-args CSV    Comma-separated Katana CLI args sent after boot"
-    echo "  --no-start           Boot VM without sending Katana start command"
-    echo "  -h, --help           Show this help"
+    echo "  --katana-args CSV     Comma-separated Katana CLI args sent after boot"
+    echo "  --no-start            Boot VM without sending Katana start command"
+    echo "  --data-disk PATH      Persistent data disk file attached as /dev/sda"
+    echo "                        (default: ~/.katana/data.img, auto-created if absent)"
+    echo "                        A user-specified PATH must already exist."
+    echo "                        Env var: KATANA_DATA_DISK"
+    echo "  --luks-uuid UUID      Enable sealed storage. The guest initrd will refuse"
+    echo "                        to open any disk whose LUKS header UUID does not"
+    echo "                        match. Operator-generated ahead of time via uuidgen."
+    echo "                        Env var: KATANA_LUKS_UUID"
+    echo "  --allow-format        Provisioning boot: permits the guest to luksFormat"
+    echo "                        an unformatted disk with the expected UUID. Requires"
+    echo "                        --luks-uuid. Produces a DIFFERENT measurement from"
+    echo "                        normal boot — verifiers must distinguish."
+    echo "  -h, --help            Show this help"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOOT_DIR="${SCRIPT_DIR}/output/qemu"
 KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp"
 AUTO_START_KATANA=1
+DATA_DISK="${KATANA_DATA_DISK:-}"
+DATA_DISK_DEFAULT="${HOME}/.katana/data.img"
+LUKS_UUID="${KATANA_LUKS_UUID:-}"
+ALLOW_FORMAT=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -74,6 +96,29 @@ while [[ $# -gt 0 ]]; do
 
         --no-start)
             AUTO_START_KATANA=0
+            shift
+            ;;
+
+        --data-disk)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --data-disk requires a value"
+                exit 1
+            }
+            DATA_DISK="$2"
+            shift 2
+            ;;
+
+        --luks-uuid)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --luks-uuid requires a value"
+                exit 1
+            }
+            LUKS_UUID="$2"
+            shift 2
+            ;;
+
+        --allow-format)
+            ALLOW_FORMAT=1
             shift
             ;;
 
@@ -95,6 +140,20 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --allow-format is meaningless without --luks-uuid (provisioning-mode signals)
+if [[ "$ALLOW_FORMAT" -eq 1 && -z "$LUKS_UUID" ]]; then
+    echo "Error: --allow-format requires --luks-uuid"
+    exit 1
+fi
+
+# UUID must be canonical 8-4-4-4-12 hex (what cryptsetup luksUUID emits).
+if [[ -n "$LUKS_UUID" ]]; then
+    if [[ ! "$LUKS_UUID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+        echo "Error: --luks-uuid must be canonical UUID form (e.g. from uuidgen): got '$LUKS_UUID'"
+        exit 1
+    fi
+fi
 
 # ------------------------------------------------------------------------------
 # Launch measurement inputs (must match values documented above)
@@ -125,8 +184,16 @@ CONTROL_PORT_NAME="org.katana.control.0"
 CONTROL_SOCKET="/tmp/katana-tee-vm-control.$$.sock"
 CONTROL_TIMEOUT=60
 
-# VM data disk (required by init script)
-DISK_IMAGE="$(mktemp /tmp/katana-tee-vm-data.XXXXXX.img)"
+# VM data disk (required by init script). Persistent on host; NOT cleaned up
+# on exit. Sealed-mode guests treat the disk as LUKS-encrypted; unsealed
+# guests treat it as plain ext4.
+if [[ -z "$DATA_DISK" ]]; then
+    DATA_DISK="$DATA_DISK_DEFAULT"
+    CREATE_DEFAULT_DISK=1
+else
+    CREATE_DEFAULT_DISK=0
+fi
+DISK_IMAGE="$DATA_DISK"
 DISK_SIZE_MB=1024
 
 # Logs
@@ -173,7 +240,7 @@ cleanup() {
 
     [[ -f "$SERIAL_LOG" ]] && rm -f "$SERIAL_LOG"
     [[ -S "$CONTROL_SOCKET" ]] && rm -f "$CONTROL_SOCKET"
-    [[ -f "$DISK_IMAGE" ]] && rm -f "$DISK_IMAGE"
+    # NOTE: $DISK_IMAGE is persistent — not cleaned up.
 
     echo "=== Cleanup complete ==="
     exit "$exit_code"
@@ -212,12 +279,47 @@ for file in "$OVMF_FILE" "$KERNEL_FILE" "$INITRD_FILE"; do
     echo "  Found: $file ($(ls -lh "$file" | awk '{print $5}'))"
 done
 
-# Prepare required ext4 data disk for /dev/sda
+# Prepare data disk for /dev/sda.
+# ┌─ path exists? ─┬─ sealed mode? ─┬─ action ───────────────────────────┐
+# │  yes           │  yes / no      │  attach as-is                       │
+# │  no            │  no            │  dd + mkfs.ext4 (only for default) │
+# │  no            │  yes           │  dd only (guest luksFormat's it)   │
+# │  no + explicit │  any           │  error (operator must provision)   │
+# └────────────────┴────────────────┴─────────────────────────────────────┘
 echo ""
 echo "Preparing VM data disk..."
-dd if=/dev/zero of="$DISK_IMAGE" bs=1M count="$DISK_SIZE_MB" status=none
-mkfs.ext4 -F -q "$DISK_IMAGE"
-echo "  Disk image: $DISK_IMAGE (${DISK_SIZE_MB}MB, ext4)"
+if [[ ! -f "$DISK_IMAGE" ]]; then
+    if [[ "$CREATE_DEFAULT_DISK" -ne 1 ]]; then
+        echo "Error: --data-disk path does not exist: $DISK_IMAGE"
+        echo "  Provision the disk explicitly before booting, or drop --data-disk to use the default."
+        exit 1
+    fi
+    mkdir -p "$(dirname "$DISK_IMAGE")"
+    dd if=/dev/zero of="$DISK_IMAGE" bs=1M count="$DISK_SIZE_MB" status=none
+    if [[ -z "$LUKS_UUID" ]]; then
+        # Unsealed: put an ext4 fs on the raw disk directly.
+        mkfs.ext4 -F -q "$DISK_IMAGE"
+        echo "  Created: $DISK_IMAGE (${DISK_SIZE_MB}MB, plain ext4)"
+    else
+        # Sealed: leave raw; guest provisioning (--allow-format) will luksFormat.
+        echo "  Created: $DISK_IMAGE (${DISK_SIZE_MB}MB, raw — guest will luksFormat)"
+        if [[ "$ALLOW_FORMAT" -ne 1 ]]; then
+            echo "  WARNING: sealed mode, fresh disk, but --allow-format not set."
+            echo "  The guest will fatal_boot. Re-run with --allow-format to provision."
+        fi
+    fi
+else
+    echo "  Reusing existing disk: $DISK_IMAGE"
+fi
+
+# Build the effective measured kernel command line. Any additions here produce
+# a DIFFERENT launch measurement; verifiers must pin the exact variant.
+if [[ -n "$LUKS_UUID" ]]; then
+    KERNEL_CMDLINE="${KERNEL_CMDLINE} KATANA_EXPECTED_LUKS_UUID=${LUKS_UUID}"
+fi
+if [[ "$ALLOW_FORMAT" -eq 1 ]]; then
+    KERNEL_CMDLINE="${KERNEL_CMDLINE} KATANA_ALLOW_FORMAT=1"
+fi
 
 echo ""
 echo "Starting TEE QEMU VM..."
