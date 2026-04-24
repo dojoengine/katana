@@ -20,6 +20,11 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+// `zeroize` is used only by the `snp-derivekey` binary, not this library.
+// Acknowledge the workspace dep here so `unused_crate_dependencies` stays quiet.
+#[cfg(feature = "snp")]
+use zeroize as _;
+
 mod error;
 mod provider;
 
