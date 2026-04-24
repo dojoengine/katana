@@ -28,8 +28,10 @@
 
 set -euo pipefail
 
-REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync)
-SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync)
+REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync \
+                   tr grep rm blkid mkfifo mkfs.ext2)
+SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync \
+                  tr grep rm blkid mkfifo mkfs.ext2)
 
 usage() {
     echo "Usage: $0 KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]"
@@ -491,7 +493,10 @@ cat > init <<'INIT_EOF'
 set -eu
 export PATH=/bin
 
-log() { echo "[init] $*"; }
+# log writes to stderr so command substitution like `$(strip_db_args ...)`
+# captures only the function's real output. Both stdout and stderr are
+# redirected to /dev/console below, so operator UX is unchanged.
+log() { echo "[init] $*" >&2; }
 
 KATANA_PID=""
 KATANA_DB_DIR="/mnt/data/katana-db"
@@ -500,13 +505,240 @@ KATANA_EXIT_CODE="never"
 CONTROL_PORT_NAME="org.katana.control.0"
 CONTROL_PORT_LINK="/dev/virtio-ports/org.katana.control.0"
 
+# Sealed-storage state (populated from /proc/cmdline; see parse_cmdline_vars).
+# SEALED_MODE=1 means an encrypted /dev/sda backs /mnt/data and the derived key
+# must match; SEALED_MODE=0 keeps the legacy plain-ext4 behaviour.
+EXPECTED_LUKS_UUID=""
+ALLOW_FORMAT=0
+SEALED_MODE=0
+LUKS_MAPPER_NAME="katana-data"
+LUKS_MAPPER_DEV="/dev/mapper/${LUKS_MAPPER_NAME}"
+LUKS_DEVICE="/dev/sda"
+LUKS_OPENED=0
+
 fatal_boot() {
     log "ERROR: $*"
+    teardown_and_halt
+}
+
+# Unified teardown path, safe to call from any phase.
+# Each step is idempotent — tolerates being called before the mount / before
+# the LUKS device is opened / before Katana has started. No step is allowed to
+# block; every unmount / luksClose runs with timeouts or `|| true` so a stuck
+# filesystem cannot prevent the VM from powering off.
+teardown_and_halt() {
+    if [ "$SHUTTING_DOWN" -eq 1 ]; then
+        # Re-entry (e.g. fatal_boot called from within shutdown_handler).
+        # Keep spinning; the first caller is already driving the teardown.
+        while true; do sleep 1; done
+    fi
+    SHUTTING_DOWN=1
+
+    log "Teardown: stopping katana (if running)..."
+    if [ -n "${KATANA_PID:-}" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
+        kill -TERM "$KATANA_PID" 2>/dev/null || true
+        TIMEOUT=30
+        while [ "$TIMEOUT" -gt 0 ] && kill -0 "$KATANA_PID" 2>/dev/null; do
+            sleep 1
+            TIMEOUT=$((TIMEOUT - 1))
+        done
+        if kill -0 "$KATANA_PID" 2>/dev/null; then
+            log "Teardown: forcing kill of katana"
+            kill -KILL "$KATANA_PID" 2>/dev/null || true
+        fi
+    fi
+
+    log "Teardown: syncing and unmounting..."
     sync || true
+    umount /mnt/data 2>/dev/null || true
+
+    if [ "$LUKS_OPENED" -eq 1 ]; then
+        log "Teardown: closing LUKS mapper $LUKS_MAPPER_NAME"
+        /bin/cryptsetup luksClose "$LUKS_MAPPER_NAME" 2>/dev/null || true
+        LUKS_OPENED=0
+    fi
+
+    umount /tmp 2>/dev/null || true
+    umount /dev 2>/dev/null || true
+    umount /sys/kernel/config 2>/dev/null || true
+    umount /sys 2>/dev/null || true
+    umount /proc 2>/dev/null || true
+
+    log "Teardown: poweroff"
     poweroff -f
-    while true; do
-        sleep 1
+    while true; do sleep 1; done
+}
+
+# Parse KATANA_EXPECTED_LUKS_UUID and KATANA_ALLOW_FORMAT out of /proc/cmdline.
+# Both are produced by start-vm.sh and live inside the measured kernel command
+# line — any tamper changes the launch measurement.
+parse_cmdline_vars() {
+    if [ ! -r /proc/cmdline ]; then
+        log "WARNING: /proc/cmdline not readable; sealed-storage vars unset"
+        return 0
+    fi
+    # Space-separated `key=value` tokens; iterate and pick out the two we care
+    # about. We deliberately avoid `grep -oP` (GNU-only) to stay portable
+    # against busybox variants.
+    for tok in $(cat /proc/cmdline); do
+        case "$tok" in
+            KATANA_EXPECTED_LUKS_UUID=*)
+                EXPECTED_LUKS_UUID="${tok#KATANA_EXPECTED_LUKS_UUID=}"
+                ;;
+            KATANA_ALLOW_FORMAT=1)
+                ALLOW_FORMAT=1
+                ;;
+        esac
     done
+    if [ -n "$EXPECTED_LUKS_UUID" ]; then
+        SEALED_MODE=1
+        log "Sealed mode enabled: EXPECTED_LUKS_UUID=$EXPECTED_LUKS_UUID ALLOW_FORMAT=$ALLOW_FORMAT"
+    else
+        log "Sealed mode NOT enabled (KATANA_EXPECTED_LUKS_UUID unset)"
+    fi
+}
+
+# Load device-mapper modules in dependency order. dm_mod must be loaded first
+# because dm_crypt and dm_integrity register themselves against it.
+load_dm_modules() {
+    for mod in dm-mod dm-crypt dm-integrity; do
+        if [ -f "/lib/modules/${mod}.ko" ]; then
+            /bin/insmod "/lib/modules/${mod}.ko" 2>/dev/null \
+                && log "Loaded ${mod}.ko" \
+                || log "WARNING: insmod ${mod}.ko failed (may be builtin)"
+        else
+            log "WARNING: /lib/modules/${mod}.ko missing"
+        fi
+    done
+}
+
+# Drop any --db-dir / --db-* flags from a space-separated arg string. This
+# prevents an operator with access to the virtio-serial control channel from
+# pointing Katana at a db-dir outside the sealed mount, escaping the sealing
+# guarantee. Runs inside the measured initrd, so the defense itself is pinned.
+#
+# Handles:  `--db-dir value`     (two tokens — next token consumed)
+#           `--db-dir=value`     (one token)
+#           `--db-anything[=val]` (catch-all for future --db-* flags)
+strip_db_args() {
+    SKIP_NEXT=0
+    OUT=""
+    for tok in $*; do
+        if [ "$SKIP_NEXT" -eq 1 ]; then
+            SKIP_NEXT=0
+            log "strip_db_args: dropped value token '$tok'"
+            continue
+        fi
+        case "$tok" in
+            --db-*=*)
+                log "strip_db_args: dropped '$tok'"
+                continue
+                ;;
+            --db-*)
+                log "strip_db_args: dropped '$tok' (and next token)"
+                SKIP_NEXT=1
+                continue
+                ;;
+        esac
+        OUT="${OUT}${OUT:+ }${tok}"
+    done
+    echo "$OUT"
+}
+
+# Sealed-storage unlock. Called only when SEALED_MODE=1.
+#
+# Flow:
+#   1. require /dev/sev-guest (else fatal)
+#   2. derive 32-byte key via snp-derivekey, piped through a 0600 FIFO
+#   3. if ALLOW_FORMAT=1 and /dev/sda has no LUKS header:
+#        luksFormat with the expected UUID (provisioning)
+#        (then re-derive — the format consumed the key)
+#   4. require /dev/sda to have a LUKS header (else fatal: header wiped)
+#   5. require that header's UUID to match the expected UUID (else fatal: disk swapped)
+#   6. luksOpen (else fatal: chip or measurement drift — key derives differently)
+#   7. if the decrypted mapper has no filesystem:
+#        mkfs.ext2 when ALLOW_FORMAT=1, else fatal
+#   8. mount /dev/mapper/<name> at /mnt/data
+#
+# Note: busybox ships mkfs.ext2 but not mkfs.ext4. MDBX is indifferent; we
+# accept ext2 for the sealed mount. Upgrading to a statically-built mke2fs
+# later is an isolated follow-up.
+KEY_FIFO="/tmp/katana-luks.key"
+
+_unseal_spawn_key_writer() {
+    rm -f "$KEY_FIFO"
+    mkfifo -m 0600 "$KEY_FIFO" || teardown_and_halt "unseal: mkfifo failed"
+    /bin/snp-derivekey > "$KEY_FIFO" &
+    KEY_PID=$!
+}
+
+_unseal_wait_key_writer() {
+    wait "$KEY_PID" 2>/dev/null || true
+    KEY_PID=""
+    rm -f "$KEY_FIFO"
+}
+
+unseal_and_mount() {
+    [ -c /dev/sev-guest ] || teardown_and_halt "sealed mode requires /dev/sev-guest"
+    [ -b "$LUKS_DEVICE" ] || teardown_and_halt "sealed mode: $LUKS_DEVICE not found"
+
+    HAS_LUKS_HEADER=0
+    if /bin/cryptsetup isLuks "$LUKS_DEVICE" 2>/dev/null; then
+        HAS_LUKS_HEADER=1
+    fi
+
+    # Provisioning: format if allowed and the disk is blank.
+    if [ "$HAS_LUKS_HEADER" -eq 0 ]; then
+        if [ "$ALLOW_FORMAT" -ne 1 ]; then
+            teardown_and_halt "sealed mode: $LUKS_DEVICE has no LUKS header and KATANA_ALLOW_FORMAT not set (header wiped?)"
+        fi
+        log "Provisioning: luksFormat $LUKS_DEVICE with UUID=$EXPECTED_LUKS_UUID"
+        _unseal_spawn_key_writer
+        if ! /bin/cryptsetup --batch-mode \
+                --type luks2 \
+                --cipher aes-xts-plain64 --key-size 512 \
+                --hash sha256 \
+                --uuid "$EXPECTED_LUKS_UUID" \
+                --integrity hmac-sha256 \
+                --pbkdf pbkdf2 --pbkdf-force-iterations 1000 \
+                --key-file "$KEY_FIFO" \
+                luksFormat "$LUKS_DEVICE"; then
+            _unseal_wait_key_writer
+            teardown_and_halt "luksFormat failed"
+        fi
+        _unseal_wait_key_writer
+    fi
+
+    # Enforce header UUID matches the measured expectation.
+    DISK_UUID="$(/bin/cryptsetup luksUUID "$LUKS_DEVICE" 2>/dev/null || true)"
+    if [ "$DISK_UUID" != "$EXPECTED_LUKS_UUID" ]; then
+        teardown_and_halt "sealed mode: disk UUID '$DISK_UUID' does not match expected '$EXPECTED_LUKS_UUID' (disk swapped?)"
+    fi
+
+    # Open. A failure here almost always means the derived key differs from
+    # what the disk was sealed with — i.e. different chip, or the measured
+    # image changed between sealing and now.
+    _unseal_spawn_key_writer
+    if ! /bin/cryptsetup --key-file "$KEY_FIFO" luksOpen "$LUKS_DEVICE" "$LUKS_MAPPER_NAME"; then
+        _unseal_wait_key_writer
+        teardown_and_halt "luksOpen failed — chip mismatch or measurement drift"
+    fi
+    _unseal_wait_key_writer
+    LUKS_OPENED=1
+
+    # Filesystem on the decrypted mapper.
+    if ! /bin/blkid "$LUKS_MAPPER_DEV" >/dev/null 2>&1; then
+        if [ "$ALLOW_FORMAT" -ne 1 ]; then
+            teardown_and_halt "decrypted volume has no filesystem and KATANA_ALLOW_FORMAT not set"
+        fi
+        log "Provisioning: mkfs.ext2 $LUKS_MAPPER_DEV"
+        /bin/mkfs.ext2 "$LUKS_MAPPER_DEV" >/dev/null 2>&1 \
+            || teardown_and_halt "mkfs on decrypted volume failed"
+    fi
+
+    /bin/mount -t ext2 "$LUKS_MAPPER_DEV" /mnt/data \
+        || teardown_and_halt "failed to mount $LUKS_MAPPER_DEV"
+    log "Sealed storage mounted at /mnt/data"
 }
 
 refresh_katana_state() {
@@ -564,7 +796,12 @@ handle_control_command() {
 
             KATANA_ARGS=""
             if [ -n "$CMD_PAYLOAD" ]; then
-                KATANA_ARGS="$(echo "$CMD_PAYLOAD" | tr ',' ' ')"
+                RAW_ARGS="$(echo "$CMD_PAYLOAD" | tr ',' ' ')"
+                # Defense in depth: a later clap flag on the command line
+                # would override the --db-dir we bake in below, letting an
+                # operator point Katana at a directory outside the sealed
+                # mount. Strip any --db-* from attacker-influenced input.
+                KATANA_ARGS="$(strip_db_args $RAW_ARGS)"
             fi
 
             log "Starting katana asynchronously..."
@@ -594,38 +831,8 @@ handle_control_command() {
 }
 
 shutdown_handler() {
-    if [ "$SHUTTING_DOWN" -eq 1 ]; then
-        return 0
-    fi
-    SHUTTING_DOWN=1
-
-    log "Received shutdown signal, stopping katana..."
-    if [ -n "$KATANA_PID" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
-        kill -TERM "$KATANA_PID" 2>/dev/null || true
-
-        TIMEOUT=30
-        while [ "$TIMEOUT" -gt 0 ] && kill -0 "$KATANA_PID" 2>/dev/null; do
-            sleep 1
-            TIMEOUT=$((TIMEOUT - 1))
-        done
-
-        if kill -0 "$KATANA_PID" 2>/dev/null; then
-            log "Katana did not stop gracefully, forcing..."
-            kill -KILL "$KATANA_PID" 2>/dev/null || true
-        fi
-    fi
-
-    log "Syncing and unmounting filesystems..."
-    sync || true
-    umount /mnt/data 2>/dev/null || true
-    umount /tmp 2>/dev/null || true
-    umount /dev 2>/dev/null || true
-    umount /sys/kernel/config 2>/dev/null || true
-    umount /sys 2>/dev/null || true
-    umount /proc 2>/dev/null || true
-
-    log "Powering off VM..."
-    poweroff -f
+    log "Received shutdown signal"
+    teardown_and_halt
 }
 
 trap shutdown_handler TERM INT
@@ -694,18 +901,33 @@ else
     log "WARNING: eth0 interface not found; skipping static network setup"
 fi
 
-# Require persistent storage at /dev/sda
+# Parse sealed-storage vars out of the measured kernel cmdline.
+parse_cmdline_vars
+
+# Load dm-mod / dm-crypt / dm-integrity. Needed for sealed mode; harmless
+# otherwise (modules just idle).
+load_dm_modules
+
+# Attach /dev/sda — either through LUKS (sealed) or directly (legacy).
 if [ ! -b /dev/sda ]; then
     fatal_boot "required storage device /dev/sda not found"
 fi
-
 log "Found storage device /dev/sda"
 mkdir -p /mnt/data
-if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
-    fatal_boot "failed to mount required storage device /dev/sda"
+
+if [ "$SEALED_MODE" -eq 1 ]; then
+    unseal_and_mount
+else
+    # Legacy path: plain ext4 on /dev/sda. Kept for backward compat with
+    # non-sealed boot flows (CI, dev). Producing a quote under this path
+    # is equivalent to the pre-H5 attestation model.
+    if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
+        fatal_boot "failed to mount /dev/sda (unsealed)"
+    fi
+    log "Unsealed storage mounted at /mnt/data"
 fi
+
 mkdir -p "$KATANA_DB_DIR"
-log "Storage mounted at /mnt/data"
 
 # Start async control loop for Katana startup/status commands.
 log "Waiting for control channel ($CONTROL_PORT_NAME)..."
