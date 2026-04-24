@@ -9,6 +9,8 @@
 # Dependencies downloaded:
 #   - busybox-static: Provides shell and basic utilities
 #   - linux-modules-extra: Contains SEV-SNP kernel modules (tsm.ko, sev-guest.ko)
+#   - cryptsetup (source): Built statically inside a pinned Alpine container
+#                          for LUKS2 sealed-storage unlock in the measured initrd
 #
 # Usage:
 #   ./build-initrd.sh KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]
@@ -44,6 +46,14 @@ usage() {
     echo "  BUSYBOX_PKG_SHA256               SHA256 checksum of the busybox .deb package"
     echo "  KERNEL_MODULES_EXTRA_PKG_VERSION Exact apt package version for linux-modules-extra"
     echo "  KERNEL_MODULES_EXTRA_PKG_SHA256  SHA256 checksum of the linux-modules-extra .deb"
+    echo "  CRYPTSETUP_VERSION               Exact cryptsetup source release (e.g., 2.7.5)"
+    echo "  CRYPTSETUP_SHA256                SHA256 checksum of the cryptsetup source tarball"
+    echo "  CRYPTSETUP_BUILDER_IMAGE         Pinned container image digest used to build"
+    echo "                                   cryptsetup statically (e.g., alpine@sha256:...)"
+    echo ""
+    echo "OPTIONAL ENVIRONMENT VARIABLES:"
+    echo "  CRYPTSETUP_BUILDER               Container runtime to use (default: docker;"
+    echo "                                   can be set to podman or another compatible CLI)"
     echo ""
     echo "EXAMPLES:"
     echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
@@ -51,6 +61,9 @@ usage() {
     echo "  export BUSYBOX_PKG_SHA256='abc123...'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_VERSION='6.8.0-90.99'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_SHA256='def456...'"
+    echo "  export CRYPTSETUP_VERSION='2.7.5'"
+    echo "  export CRYPTSETUP_SHA256='ghi789...'"
+    echo "  export CRYPTSETUP_BUILDER_IMAGE='alpine@sha256:jkl012...'"
     echo "  $0 ./katana ./initrd.img 6.8.0-90"
     exit 1
 }
@@ -108,6 +121,8 @@ echo ""
 echo "Package versions:"
 echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
 echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
+echo "  cryptsetup (source):   ${CRYPTSETUP_VERSION:-<not set>}"
+echo "  cryptsetup builder:    ${CRYPTSETUP_BUILDER_IMAGE:-<not set>}"
 
 if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
     die "SOURCE_DATE_EPOCH must be set for reproducible builds"
@@ -127,10 +142,17 @@ if [[ ! -w "$OUTPUT_DIR" ]]; then
     die "Output directory is not writable: $OUTPUT_DIR"
 fi
 
-REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr)
+REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr curl tar)
 for tool in "${REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
 done
+
+# Static cryptsetup is built inside a pinned container. Verify the chosen
+# runtime is installed now so we fail fast, not after an hour of downloading.
+CRYPTSETUP_BUILDER="${CRYPTSETUP_BUILDER:-docker}"
+command -v "$CRYPTSETUP_BUILDER" >/dev/null 2>&1 \
+    || die "Container runtime '$CRYPTSETUP_BUILDER' not found. Install docker/podman or set CRYPTSETUP_BUILDER."
+
 log_ok "Preflight validation complete"
 
 WORK_DIR="$(mktemp -d)"
@@ -203,7 +225,112 @@ dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
 log_ok "Packages extracted"
 
 # ==============================================================================
-# SECTION 3: Build Initrd Structure
+# SECTION 3: Build Static cryptsetup
+# ==============================================================================
+# Build a statically-linked cryptsetup binary inside a pinned Alpine
+# container. Alpine's musl + `*-static` packages yield a single binary with
+# no runtime library dependencies, which is what we need inside the initrd.
+#
+# The container image is pinned by sha256 digest — same reproducibility bar
+# as the apt packages above. The cryptsetup source tarball is pinned by
+# version + SHA256.
+#
+# Crypto backend: OpenSSL (openssl-libs-static). LUKS2 argon2id KDF uses
+# libargon2 (also static). Optional features (asciidoc docs, ssh token
+# plugin, external tokens, i18n) are disabled — not needed for our narrow
+# open/format/close use in the initrd.
+#
+# The output binary ends up at $WORK_DIR/cryptsetup/cryptsetup-static and is
+# copied into the initrd by the "Install Static cryptsetup" subsection in
+# the Initrd Structure step below.
+
+log_section "Build Static cryptsetup"
+
+: "${CRYPTSETUP_VERSION:?CRYPTSETUP_VERSION not set - required for reproducible builds}"
+: "${CRYPTSETUP_SHA256:?CRYPTSETUP_SHA256 not set - required for reproducible builds}"
+: "${CRYPTSETUP_BUILDER_IMAGE:?CRYPTSETUP_BUILDER_IMAGE not set - pinned container image digest required}"
+
+CRYPTSETUP_DIR="$WORK_DIR/cryptsetup"
+mkdir -p "$CRYPTSETUP_DIR"
+pushd "$CRYPTSETUP_DIR" >/dev/null
+
+# kernel.org tarball URLs are organised under major.minor (e.g. v2.7).
+CRYPTSETUP_MAJOR_MINOR="$(printf '%s' "$CRYPTSETUP_VERSION" | awk -F. '{print $1"."$2}')"
+CRYPTSETUP_URL="https://www.kernel.org/pub/linux/utils/cryptsetup/v${CRYPTSETUP_MAJOR_MINOR}/cryptsetup-${CRYPTSETUP_VERSION}.tar.xz"
+CRYPTSETUP_TARBALL="cryptsetup-${CRYPTSETUP_VERSION}.tar.xz"
+
+log_info "Downloading $CRYPTSETUP_URL"
+curl -fLsS -o "$CRYPTSETUP_TARBALL" "$CRYPTSETUP_URL"
+
+log_info "Verifying cryptsetup source checksum"
+ACTUAL_SHA256="$(sha256sum "$CRYPTSETUP_TARBALL" | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$CRYPTSETUP_SHA256" ]]; then
+    die "cryptsetup source checksum mismatch (expected $CRYPTSETUP_SHA256, got $ACTUAL_SHA256)"
+fi
+log_ok "cryptsetup source checksum verified"
+
+log_info "Extracting source"
+tar -xf "$CRYPTSETUP_TARBALL"
+
+log_info "Building statically inside $CRYPTSETUP_BUILDER_IMAGE"
+# The build script runs inside the container. Errors inside propagate via
+# set -eu and the non-zero exit code below. SOURCE_DATE_EPOCH is forwarded
+# so any timestamps embedded in the binary match the host's reproducibility
+# anchor.
+"$CRYPTSETUP_BUILDER" run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$CRYPTSETUP_DIR:/build" \
+    -w "/build/cryptsetup-${CRYPTSETUP_VERSION}" \
+    -e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" \
+    "$CRYPTSETUP_BUILDER_IMAGE" \
+    sh -euc '
+        # Drop to root inside the container for apk add, then build as the
+        # invoking user (the --user flag above applies to exec, apk needs root).
+        # We use BUILD_USER so the apk install step can remain root while the
+        # subsequent ./configure && make runs with write access to the mount.
+        apk add --no-cache \
+            build-base linux-headers pkgconf \
+            openssl-dev openssl-libs-static \
+            popt-dev popt-static \
+            json-c-dev \
+            util-linux-dev util-linux-static \
+            lvm2-dev lvm2-static \
+            argon2-dev argon2-static \
+            libblkid-static libuuid-static
+        ./configure \
+            --disable-shared \
+            --enable-static \
+            --with-crypto_backend=openssl \
+            --disable-asciidoc \
+            --disable-ssh-token \
+            --disable-external-tokens \
+            --disable-nls
+        make -j"$(nproc)" LDFLAGS="-all-static"
+        strip src/cryptsetup
+        cp src/cryptsetup /build/cryptsetup-static
+    '
+
+if [[ ! -x "$CRYPTSETUP_DIR/cryptsetup-static" ]]; then
+    die "cryptsetup static build did not produce a binary at $CRYPTSETUP_DIR/cryptsetup-static"
+fi
+
+log_info "Verifying cryptsetup is statically linked"
+LDD_OUT="$(ldd "$CRYPTSETUP_DIR/cryptsetup-static" 2>&1 || true)"
+if echo "$LDD_OUT" | grep -qE "not a dynamic executable|statically linked"; then
+    log_ok "cryptsetup is statically linked"
+else
+    log_warn "cryptsetup may not be fully static:"
+    echo "$LDD_OUT" | sed 's/^/    /'
+    die "cryptsetup must be statically linked to run in the initrd"
+fi
+
+log_info "Normalising timestamp for reproducibility"
+touch -d "@${SOURCE_DATE_EPOCH}" "$CRYPTSETUP_DIR/cryptsetup-static"
+
+popd >/dev/null
+
+# ==============================================================================
+# SECTION 4: Build Initrd Structure
 # ==============================================================================
 
 log_section "Build Initrd Structure"
@@ -246,6 +373,23 @@ for cmd in "${SYMLINK_APPLETS[@]}"; do
     fi
 done
 log_ok "Busybox installed and applets validated"
+
+# ------------------------------------------------------------------------------
+# Install Static cryptsetup
+# ------------------------------------------------------------------------------
+# Built in SECTION 3 via a pinned Alpine container. Binary is fully static,
+# so no .so files need to be vendored alongside it.
+log_info "Installing static cryptsetup"
+[[ -x "$CRYPTSETUP_DIR/cryptsetup-static" ]] \
+    || die "cryptsetup-static not found at $CRYPTSETUP_DIR/cryptsetup-static (SECTION 3 did not run?)"
+
+cp "$CRYPTSETUP_DIR/cryptsetup-static" bin/cryptsetup
+chmod +x bin/cryptsetup
+
+if ! bin/cryptsetup --version >/dev/null 2>&1; then
+    die "Installed cryptsetup binary is not functional"
+fi
+log_ok "cryptsetup installed"
 
 # ------------------------------------------------------------------------------
 # Install SEV-SNP Kernel Modules
@@ -552,7 +696,7 @@ echo "root:x:0:" > etc/group
 log_ok "/etc files created"
 
 # ==============================================================================
-# SECTION 4: Create CPIO Archive
+# SECTION 5: Create CPIO Archive
 # ==============================================================================
 
 log_section "Create CPIO Archive"
@@ -578,7 +722,7 @@ find . -print0 | LC_ALL=C sort -z | cpio "${CPIO_FLAGS[@]}" | gzip -n > "$OUTPUT
 touch -d "@${SOURCE_DATE_EPOCH}" "$OUTPUT_INITRD"
 
 # ==============================================================================
-# SECTION 5: Final Validation
+# SECTION 6: Final Validation
 # ==============================================================================
 
 log_section "Final Validation"
