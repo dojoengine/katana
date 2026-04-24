@@ -27,8 +27,7 @@
 //! through arbitrary destructors.
 
 use std::io::Write;
-use std::panic;
-use std::process;
+use std::{panic, process};
 
 use sev_snp::device::{DerivedKeyOptions, RootKeyType};
 use sev_snp::SevSnp;
@@ -82,9 +81,7 @@ fn run() -> Result<(), String> {
     );
 
     let mut stdout = std::io::stdout().lock();
-    stdout
-        .write_all(&key[..])
-        .map_err(|e| format!("stdout write failed: {e}"))?;
+    stdout.write_all(&key[..]).map_err(|e| format!("stdout write failed: {e}"))?;
     stdout.flush().map_err(|e| format!("stdout flush failed: {e}"))?;
 
     Ok(())
