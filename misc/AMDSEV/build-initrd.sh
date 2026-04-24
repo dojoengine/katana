@@ -8,7 +8,11 @@
 #
 # Dependencies downloaded:
 #   - busybox-static: Provides shell and basic utilities
+#   - linux-modules:       Contains device-mapper modules (dm-mod.ko, dm-crypt.ko,
+#                          dm-integrity.ko) for LUKS-based sealed storage
 #   - linux-modules-extra: Contains SEV-SNP kernel modules (tsm.ko, sev-guest.ko)
+#   - cryptsetup (source): Built statically inside a pinned Alpine container
+#                          for LUKS2 sealed-storage unlock in the measured initrd
 #
 # Usage:
 #   ./build-initrd.sh KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]
@@ -24,8 +28,10 @@
 
 set -euo pipefail
 
-REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync)
-SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync)
+REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync \
+                   tr grep rm blkid mkfifo mkfs.ext2)
+SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync \
+                  tr grep rm blkid mkfifo mkfs.ext2)
 
 usage() {
     echo "Usage: $0 KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]"
@@ -42,15 +48,30 @@ usage() {
     echo "  SOURCE_DATE_EPOCH                Unix timestamp for reproducible builds"
     echo "  BUSYBOX_PKG_VERSION              Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1)"
     echo "  BUSYBOX_PKG_SHA256               SHA256 checksum of the busybox .deb package"
+    echo "  KERNEL_MODULES_PKG_VERSION       Exact apt package version for linux-modules"
+    echo "  KERNEL_MODULES_PKG_SHA256        SHA256 checksum of the linux-modules .deb"
     echo "  KERNEL_MODULES_EXTRA_PKG_VERSION Exact apt package version for linux-modules-extra"
     echo "  KERNEL_MODULES_EXTRA_PKG_SHA256  SHA256 checksum of the linux-modules-extra .deb"
+    echo "  CRYPTSETUP_VERSION               Exact cryptsetup source release (e.g., 2.7.5)"
+    echo "  CRYPTSETUP_SHA256                SHA256 checksum of the cryptsetup source tarball"
+    echo "  CRYPTSETUP_BUILDER_IMAGE         Pinned container image digest used to build"
+    echo "                                   cryptsetup statically (e.g., alpine@sha256:...)"
+    echo ""
+    echo "OPTIONAL ENVIRONMENT VARIABLES:"
+    echo "  CRYPTSETUP_BUILDER               Container runtime to use (default: docker;"
+    echo "                                   can be set to podman or another compatible CLI)"
     echo ""
     echo "EXAMPLES:"
     echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
     echo "  export BUSYBOX_PKG_VERSION='1:1.36.1-6ubuntu3.1'"
     echo "  export BUSYBOX_PKG_SHA256='abc123...'"
+    echo "  export KERNEL_MODULES_PKG_VERSION='6.8.0-90.99'"
+    echo "  export KERNEL_MODULES_PKG_SHA256='aaa111...'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_VERSION='6.8.0-90.99'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_SHA256='def456...'"
+    echo "  export CRYPTSETUP_VERSION='2.7.5'"
+    echo "  export CRYPTSETUP_SHA256='ghi789...'"
+    echo "  export CRYPTSETUP_BUILDER_IMAGE='alpine@sha256:jkl012...'"
     echo "  $0 ./katana ./initrd.img 6.8.0-90"
     exit 1
 }
@@ -107,7 +128,10 @@ echo "  SOURCE_DATE_EPOCH:     ${SOURCE_DATE_EPOCH:-<not set>}"
 echo ""
 echo "Package versions:"
 echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
+echo "  linux-modules:         ${KERNEL_MODULES_PKG_VERSION:-<not set>}"
 echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
+echo "  cryptsetup (source):   ${CRYPTSETUP_VERSION:-<not set>}"
+echo "  cryptsetup builder:    ${CRYPTSETUP_BUILDER_IMAGE:-<not set>}"
 
 if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
     die "SOURCE_DATE_EPOCH must be set for reproducible builds"
@@ -127,11 +151,53 @@ if [[ ! -w "$OUTPUT_DIR" ]]; then
     die "Output directory is not writable: $OUTPUT_DIR"
 fi
 
-REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr)
+REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr curl tar)
 for tool in "${REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
 done
-log_ok "Preflight validation complete"
+
+# Sealed-storage build is opt-in via env vars. Either all of CRYPTSETUP_VERSION /
+# CRYPTSETUP_SHA256 / CRYPTSETUP_BUILDER_IMAGE / KERNEL_MODULES_PKG_VERSION /
+# KERNEL_MODULES_PKG_SHA256 are set (full sealed support — build static
+# cryptsetup, cherry-pick dm-crypt / dm-integrity, optionally install
+# snp-derivekey), or none are set (unsealed-only initrd, pre-H5 shape).
+# Setting some but not all is an error — almost certainly a mistake.
+SEALED_STORAGE_BUILD=0
+SEALED_VARS_SET=0
+SEALED_VARS_TOTAL=0
+for v in CRYPTSETUP_VERSION CRYPTSETUP_SHA256 CRYPTSETUP_BUILDER_IMAGE \
+         KERNEL_MODULES_PKG_VERSION KERNEL_MODULES_PKG_SHA256; do
+    SEALED_VARS_TOTAL=$((SEALED_VARS_TOTAL + 1))
+    if [[ -n "${!v:-}" ]]; then
+        SEALED_VARS_SET=$((SEALED_VARS_SET + 1))
+    fi
+done
+if [[ "$SEALED_VARS_SET" -eq "$SEALED_VARS_TOTAL" ]]; then
+    SEALED_STORAGE_BUILD=1
+elif [[ "$SEALED_VARS_SET" -gt 0 ]]; then
+    die "partial sealed-storage env vars set ($SEALED_VARS_SET of $SEALED_VARS_TOTAL); set all or none"
+fi
+
+# Static cryptsetup is built inside a pinned container. Verify the chosen
+# runtime is installed now so we fail fast, not after an hour of downloading.
+# Only required when sealed-storage build is requested.
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    CRYPTSETUP_BUILDER="${CRYPTSETUP_BUILDER:-docker}"
+    command -v "$CRYPTSETUP_BUILDER" >/dev/null 2>&1 \
+        || die "Container runtime '$CRYPTSETUP_BUILDER' not found. Install docker/podman or set CRYPTSETUP_BUILDER."
+fi
+
+# Optional: path to a pre-built static snp-derivekey binary. When present and
+# sealed-storage build is enabled, it ends up at /bin/snp-derivekey in the
+# initrd. Build with:
+#   cargo build -p katana-tee --features snp --bin snp-derivekey \
+#       --release --target x86_64-unknown-linux-musl
+SNP_DERIVEKEY_BINARY="${SNP_DERIVEKEY_BINARY:-}"
+if [[ -n "$SNP_DERIVEKEY_BINARY" && ! -x "$SNP_DERIVEKEY_BINARY" ]]; then
+    die "SNP_DERIVEKEY_BINARY set but not executable: $SNP_DERIVEKEY_BINARY"
+fi
+
+log_ok "Preflight validation complete (sealed-storage build: $([ "$SEALED_STORAGE_BUILD" -eq 1 ] && echo yes || echo no))"
 
 WORK_DIR="$(mktemp -d)"
 cleanup() {
@@ -161,6 +227,11 @@ pushd "$PACKAGES_DIR" >/dev/null
 log_info "Downloading busybox-static=${BUSYBOX_PKG_VERSION}"
 apt-get download "busybox-static=${BUSYBOX_PKG_VERSION}"
 
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    log_info "Downloading linux-modules-${KERNEL_VERSION}-generic=${KERNEL_MODULES_PKG_VERSION}"
+    apt-get download "linux-modules-${KERNEL_VERSION}-generic=${KERNEL_MODULES_PKG_VERSION}"
+fi
+
 log_info "Downloading linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 
@@ -177,6 +248,18 @@ if [[ "$ACTUAL_SHA256" != "$BUSYBOX_PKG_SHA256" ]]; then
     die "busybox-static checksum mismatch (expected $BUSYBOX_PKG_SHA256, got $ACTUAL_SHA256)"
 fi
 log_ok "busybox-static checksum verified"
+
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    # linux-modules-*.deb and linux-modules-extra-*.deb share the `linux-modules-*`
+    # filename prefix, so the glob has to be tight enough to pick exactly one file.
+    log_info "Verifying linux-modules checksum"
+    MODULES_DEB="$(ls linux-modules-"${KERNEL_VERSION}"-generic_*.deb)"
+    ACTUAL_SHA256="$(sha256sum "$MODULES_DEB" | awk '{print $1}')"
+    if [[ "$ACTUAL_SHA256" != "$KERNEL_MODULES_PKG_SHA256" ]]; then
+        die "linux-modules checksum mismatch (expected $KERNEL_MODULES_PKG_SHA256, got $ACTUAL_SHA256)"
+    fi
+    log_ok "linux-modules checksum verified"
+fi
 
 log_info "Verifying linux-modules-extra checksum"
 ACTUAL_SHA256="$(sha256sum linux-modules-extra-*.deb | awk '{print $1}')"
@@ -198,12 +281,128 @@ mkdir -p "$EXTRACTED_DIR"
 log_info "Extracting busybox-static"
 dpkg-deb -x "$PACKAGES_DIR"/busybox-static_*.deb "$EXTRACTED_DIR"
 
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    log_info "Extracting linux-modules"
+    dpkg-deb -x "$PACKAGES_DIR"/linux-modules-"${KERNEL_VERSION}"-generic_*.deb "$EXTRACTED_DIR"
+fi
+
 log_info "Extracting linux-modules-extra"
 dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
 log_ok "Packages extracted"
 
 # ==============================================================================
-# SECTION 3: Build Initrd Structure
+# SECTION 3: Build Static cryptsetup
+# ==============================================================================
+# Build a statically-linked cryptsetup binary inside a pinned Alpine
+# container. Alpine's musl + `*-static` packages yield a single binary with
+# no runtime library dependencies, which is what we need inside the initrd.
+#
+# The container image is pinned by sha256 digest — same reproducibility bar
+# as the apt packages above. The cryptsetup source tarball is pinned by
+# version + SHA256.
+#
+# Crypto backend: OpenSSL (openssl-libs-static). LUKS2 argon2id KDF uses
+# libargon2 (also static). Optional features (asciidoc docs, ssh token
+# plugin, external tokens, i18n) are disabled — not needed for our narrow
+# open/format/close use in the initrd.
+#
+# The output binary ends up at $WORK_DIR/cryptsetup/cryptsetup-static and is
+# copied into the initrd by the "Install Static cryptsetup" subsection in
+# the Initrd Structure step below.
+
+if [[ "$SEALED_STORAGE_BUILD" -ne 1 ]]; then
+    log_section "Build Static cryptsetup (SKIPPED — unsealed-only build)"
+else
+log_section "Build Static cryptsetup"
+
+CRYPTSETUP_DIR="$WORK_DIR/cryptsetup"
+mkdir -p "$CRYPTSETUP_DIR"
+pushd "$CRYPTSETUP_DIR" >/dev/null
+
+# kernel.org tarball URLs are organised under major.minor (e.g. v2.7).
+CRYPTSETUP_MAJOR_MINOR="$(printf '%s' "$CRYPTSETUP_VERSION" | awk -F. '{print $1"."$2}')"
+CRYPTSETUP_URL="https://www.kernel.org/pub/linux/utils/cryptsetup/v${CRYPTSETUP_MAJOR_MINOR}/cryptsetup-${CRYPTSETUP_VERSION}.tar.xz"
+CRYPTSETUP_TARBALL="cryptsetup-${CRYPTSETUP_VERSION}.tar.xz"
+
+log_info "Downloading $CRYPTSETUP_URL"
+curl -fLsS -o "$CRYPTSETUP_TARBALL" "$CRYPTSETUP_URL"
+
+log_info "Verifying cryptsetup source checksum"
+ACTUAL_SHA256="$(sha256sum "$CRYPTSETUP_TARBALL" | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$CRYPTSETUP_SHA256" ]]; then
+    die "cryptsetup source checksum mismatch (expected $CRYPTSETUP_SHA256, got $ACTUAL_SHA256)"
+fi
+log_ok "cryptsetup source checksum verified"
+
+log_info "Extracting source"
+tar -xf "$CRYPTSETUP_TARBALL"
+
+log_info "Building statically inside $CRYPTSETUP_BUILDER_IMAGE"
+# The container runs as root (apk add requires it). Once the build is done,
+# chown the output binary to the invoking host user so subsequent host-side
+# steps — including the trap's rm -rf "$WORK_DIR" — don't trip over root-
+# owned files. SOURCE_DATE_EPOCH is forwarded so any timestamps embedded in
+# the binary match the host's reproducibility anchor.
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+"$CRYPTSETUP_BUILDER" run --rm \
+    -v "$CRYPTSETUP_DIR:/build" \
+    -w "/build/cryptsetup-${CRYPTSETUP_VERSION}" \
+    -e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" \
+    -e "HOST_UID=${HOST_UID}" \
+    -e "HOST_GID=${HOST_GID}" \
+    "$CRYPTSETUP_BUILDER_IMAGE" \
+    sh -euc '
+        apk add --no-cache \
+            build-base linux-headers pkgconf \
+            openssl-dev openssl-libs-static \
+            popt-dev popt-static \
+            json-c-dev \
+            util-linux-dev util-linux-static \
+            lvm2-dev lvm2-static \
+            argon2-dev argon2-static \
+            libblkid-static libuuid-static
+        ./configure \
+            --disable-shared \
+            --enable-static \
+            --with-crypto_backend=openssl \
+            --disable-asciidoc \
+            --disable-ssh-token \
+            --disable-external-tokens \
+            --disable-nls
+        make -j"$(nproc)" LDFLAGS="-all-static"
+        strip src/cryptsetup
+        cp src/cryptsetup /build/cryptsetup-static
+        chown "${HOST_UID}:${HOST_GID}" /build/cryptsetup-static
+        # Intermediate build artefacts stay root-owned inside /build. The host
+        # owns $CRYPTSETUP_DIR itself, so the trap'"'"'s rm -rf can still unlink
+        # them; but make the leaf directories writable by the host user so any
+        # follow-up inspection (find, ls) does not hit permission errors.
+        chown -R "${HOST_UID}:${HOST_GID}" /build
+    '
+
+if [[ ! -x "$CRYPTSETUP_DIR/cryptsetup-static" ]]; then
+    die "cryptsetup static build did not produce a binary at $CRYPTSETUP_DIR/cryptsetup-static"
+fi
+
+log_info "Verifying cryptsetup is statically linked"
+LDD_OUT="$(ldd "$CRYPTSETUP_DIR/cryptsetup-static" 2>&1 || true)"
+if echo "$LDD_OUT" | grep -qE "not a dynamic executable|statically linked"; then
+    log_ok "cryptsetup is statically linked"
+else
+    log_warn "cryptsetup may not be fully static:"
+    echo "$LDD_OUT" | sed 's/^/    /'
+    die "cryptsetup must be statically linked to run in the initrd"
+fi
+
+log_info "Normalising timestamp for reproducibility"
+touch -d "@${SOURCE_DATE_EPOCH}" "$CRYPTSETUP_DIR/cryptsetup-static"
+
+popd >/dev/null
+fi  # SEALED_STORAGE_BUILD
+
+# ==============================================================================
+# SECTION 4: Build Initrd Structure
 # ==============================================================================
 
 log_section "Build Initrd Structure"
@@ -248,6 +447,41 @@ done
 log_ok "Busybox installed and applets validated"
 
 # ------------------------------------------------------------------------------
+# Install Static cryptsetup (sealed-storage build only)
+# ------------------------------------------------------------------------------
+# Built in SECTION 3 via a pinned Alpine container. Binary is fully static,
+# so no .so files need to be vendored alongside it.
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    log_info "Installing static cryptsetup"
+    [[ -x "$CRYPTSETUP_DIR/cryptsetup-static" ]] \
+        || die "cryptsetup-static not found at $CRYPTSETUP_DIR/cryptsetup-static (SECTION 3 did not run?)"
+
+    cp "$CRYPTSETUP_DIR/cryptsetup-static" bin/cryptsetup
+    chmod +x bin/cryptsetup
+
+    if ! bin/cryptsetup --version >/dev/null 2>&1; then
+        die "Installed cryptsetup binary is not functional"
+    fi
+    log_ok "cryptsetup installed"
+fi
+
+# ------------------------------------------------------------------------------
+# Install snp-derivekey (sealed-storage build only, if binary provided)
+# ------------------------------------------------------------------------------
+# Built out-of-band with:
+#   cargo build -p katana-tee --features snp --bin snp-derivekey \
+#       --release --target x86_64-unknown-linux-musl
+# and passed in via the $SNP_DERIVEKEY_BINARY env var. Required at runtime
+# by unseal_and_mount; if absent, the init script's sealed-mode path
+# fatal_boots at the first cryptsetup call.
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 && -n "$SNP_DERIVEKEY_BINARY" ]]; then
+    log_info "Installing snp-derivekey"
+    cp "$SNP_DERIVEKEY_BINARY" bin/snp-derivekey
+    chmod +x bin/snp-derivekey
+    log_ok "snp-derivekey installed"
+fi
+
+# ------------------------------------------------------------------------------
 # Install SEV-SNP Kernel Modules
 # ------------------------------------------------------------------------------
 log_info "Installing SEV-SNP kernel modules"
@@ -279,6 +513,33 @@ else
 fi
 
 # ------------------------------------------------------------------------------
+# Install Device-Mapper Kernel Modules (sealed-storage build only)
+# ------------------------------------------------------------------------------
+# Required by cryptsetup for LUKS2 open/format. Load order at runtime is
+# dm-mod first, then dm-crypt and dm-integrity (both depend on dm-mod).
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    log_info "Installing device-mapper kernel modules"
+    DM_MODULES_DIR="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic/kernel/drivers/md"
+
+    if [[ -d "$DM_MODULES_DIR" ]]; then
+        for mod in dm-mod dm-crypt dm-integrity; do
+            if [[ -f "$DM_MODULES_DIR/${mod}.ko.zst" ]]; then
+                zstd -dq "$DM_MODULES_DIR/${mod}.ko.zst" -o "lib/modules/${mod}.ko"
+                log_ok "${mod}.ko installed (decompressed)"
+            elif [[ -f "$DM_MODULES_DIR/${mod}.ko" ]]; then
+                cp "$DM_MODULES_DIR/${mod}.ko" "lib/modules/${mod}.ko"
+                log_ok "${mod}.ko installed"
+            else
+                log_warn "${mod}.ko not found at $DM_MODULES_DIR/${mod}.ko(.zst)"
+            fi
+        done
+    else
+        log_warn "Device-mapper modules directory not found: $DM_MODULES_DIR"
+        log_warn "Sealed storage will not be available"
+    fi
+fi
+
+# ------------------------------------------------------------------------------
 # Install Katana Binary
 # ------------------------------------------------------------------------------
 log_info "Installing Katana binary"
@@ -297,7 +558,10 @@ cat > init <<'INIT_EOF'
 set -eu
 export PATH=/bin
 
-log() { echo "[init] $*"; }
+# log writes to stderr so command substitution like `$(strip_db_args ...)`
+# captures only the function's real output. Both stdout and stderr are
+# redirected to /dev/console below, so operator UX is unchanged.
+log() { echo "[init] $*" >&2; }
 
 KATANA_PID=""
 KATANA_DB_DIR="/mnt/data/katana-db"
@@ -306,13 +570,239 @@ KATANA_EXIT_CODE="never"
 CONTROL_PORT_NAME="org.katana.control.0"
 CONTROL_PORT_LINK="/dev/virtio-ports/org.katana.control.0"
 
+# Sealed-storage state (populated from /proc/cmdline; see parse_cmdline_vars).
+# SEALED_MODE=1 means an encrypted /dev/sda backs /mnt/data and the derived key
+# must match; SEALED_MODE=0 keeps the legacy plain-ext4 behaviour.
+EXPECTED_LUKS_UUID=""
+SEALED_MODE=0
+LUKS_MAPPER_NAME="katana-data"
+LUKS_MAPPER_DEV="/dev/mapper/${LUKS_MAPPER_NAME}"
+LUKS_DEVICE="/dev/sda"
+LUKS_OPENED=0
+
 fatal_boot() {
     log "ERROR: $*"
+    teardown_and_halt
+}
+
+# Unified teardown path, safe to call from any phase.
+# Each step is idempotent — tolerates being called before the mount / before
+# the LUKS device is opened / before Katana has started. No step is allowed to
+# block; every unmount / luksClose runs with timeouts or `|| true` so a stuck
+# filesystem cannot prevent the VM from powering off.
+teardown_and_halt() {
+    if [ "$SHUTTING_DOWN" -eq 1 ]; then
+        # Re-entry (e.g. fatal_boot called from within shutdown_handler).
+        # Keep spinning; the first caller is already driving the teardown.
+        while true; do sleep 1; done
+    fi
+    SHUTTING_DOWN=1
+
+    log "Teardown: stopping katana (if running)..."
+    if [ -n "${KATANA_PID:-}" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
+        kill -TERM "$KATANA_PID" 2>/dev/null || true
+        TIMEOUT=30
+        while [ "$TIMEOUT" -gt 0 ] && kill -0 "$KATANA_PID" 2>/dev/null; do
+            sleep 1
+            TIMEOUT=$((TIMEOUT - 1))
+        done
+        if kill -0 "$KATANA_PID" 2>/dev/null; then
+            log "Teardown: forcing kill of katana"
+            kill -KILL "$KATANA_PID" 2>/dev/null || true
+        fi
+    fi
+
+    log "Teardown: syncing and unmounting..."
     sync || true
+    umount /mnt/data 2>/dev/null || true
+
+    if [ "$LUKS_OPENED" -eq 1 ]; then
+        log "Teardown: closing LUKS mapper $LUKS_MAPPER_NAME"
+        /bin/cryptsetup luksClose "$LUKS_MAPPER_NAME" 2>/dev/null || true
+        LUKS_OPENED=0
+    fi
+
+    umount /tmp 2>/dev/null || true
+    umount /dev 2>/dev/null || true
+    umount /sys/kernel/config 2>/dev/null || true
+    umount /sys 2>/dev/null || true
+    umount /proc 2>/dev/null || true
+
+    log "Teardown: poweroff"
     poweroff -f
-    while true; do
-        sleep 1
+    while true; do sleep 1; done
+}
+
+# Parse KATANA_EXPECTED_LUKS_UUID out of /proc/cmdline. It is produced by
+# start-vm.sh and lives inside the measured kernel command line — any tamper
+# changes the launch measurement.
+parse_cmdline_vars() {
+    if [ ! -r /proc/cmdline ]; then
+        log "WARNING: /proc/cmdline not readable; sealed-storage vars unset"
+        return 0
+    fi
+    # Space-separated `key=value` tokens; iterate and pick out the one we care
+    # about. We deliberately avoid `grep -oP` (GNU-only) to stay portable
+    # against busybox variants.
+    for tok in $(cat /proc/cmdline); do
+        case "$tok" in
+            KATANA_EXPECTED_LUKS_UUID=*)
+                EXPECTED_LUKS_UUID="${tok#KATANA_EXPECTED_LUKS_UUID=}"
+                ;;
+        esac
     done
+    if [ -n "$EXPECTED_LUKS_UUID" ]; then
+        SEALED_MODE=1
+        log "Sealed mode enabled: EXPECTED_LUKS_UUID=$EXPECTED_LUKS_UUID"
+    else
+        log "Sealed mode NOT enabled (KATANA_EXPECTED_LUKS_UUID unset)"
+    fi
+}
+
+# Load device-mapper modules in dependency order. dm_mod must be loaded first
+# because dm_crypt and dm_integrity register themselves against it.
+load_dm_modules() {
+    for mod in dm-mod dm-crypt dm-integrity; do
+        if [ -f "/lib/modules/${mod}.ko" ]; then
+            /bin/insmod "/lib/modules/${mod}.ko" 2>/dev/null \
+                && log "Loaded ${mod}.ko" \
+                || log "WARNING: insmod ${mod}.ko failed (may be builtin)"
+        else
+            log "WARNING: /lib/modules/${mod}.ko missing"
+        fi
+    done
+}
+
+# Drop any --db-dir / --db-* flags from a space-separated arg string. This
+# prevents an operator with access to the virtio-serial control channel from
+# pointing Katana at a db-dir outside the sealed mount, escaping the sealing
+# guarantee. Runs inside the measured initrd, so the defense itself is pinned.
+#
+# Handles:  `--db-dir value`     (two tokens — next token consumed)
+#           `--db-dir=value`     (one token)
+#           `--db-anything[=val]` (catch-all for future --db-* flags)
+strip_db_args() {
+    SKIP_NEXT=0
+    OUT=""
+    for tok in $*; do
+        if [ "$SKIP_NEXT" -eq 1 ]; then
+            SKIP_NEXT=0
+            log "strip_db_args: dropped value token '$tok'"
+            continue
+        fi
+        case "$tok" in
+            --db-*=*)
+                log "strip_db_args: dropped '$tok'"
+                continue
+                ;;
+            --db-*)
+                log "strip_db_args: dropped '$tok' (and next token)"
+                SKIP_NEXT=1
+                continue
+                ;;
+        esac
+        OUT="${OUT}${OUT:+ }${tok}"
+    done
+    echo "$OUT"
+}
+
+# Sealed-storage unlock. Called only when SEALED_MODE=1.
+#
+# Flow:
+#   1. require /dev/sev-guest (else fatal)
+#   2. if /dev/sda has no LUKS header, luksFormat with the expected UUID
+#      (first-boot / post-wipe auto-provisioning — same measurement as
+#      subsequent boots, so the derived key matches)
+#   3. require the header's UUID to match the expected UUID
+#      (else fatal: different disk mounted)
+#   4. luksOpen (else fatal: chip or measurement drift — derived key
+#      differs from what sealed the header)
+#   5. if the decrypted mapper has no filesystem, mkfs.ext2
+#   6. mount /dev/mapper/<name> at /mnt/data
+#
+# On first boot or after a hostile header-wipe, steps 2 and 5 both fire and
+# the disk is recreated from scratch. An attacker who wipes the header does
+# not gain state-substitution (they cannot produce blocks the verifier
+# accepts unless the verifier independently pins the chain anchor); they
+# only downgrade the chain to a fresh start. See docs/amdsev.md trust model.
+#
+# Note: busybox ships mkfs.ext2 but not mkfs.ext4. MDBX is indifferent; we
+# accept ext2 for the sealed mount. Upgrading to a statically-built mke2fs
+# later is an isolated follow-up.
+KEY_FIFO="/tmp/katana-luks.key"
+
+_unseal_spawn_key_writer() {
+    rm -f "$KEY_FIFO"
+    mkfifo -m 0600 "$KEY_FIFO" || teardown_and_halt "unseal: mkfifo failed"
+    /bin/snp-derivekey > "$KEY_FIFO" &
+    KEY_PID=$!
+}
+
+_unseal_wait_key_writer() {
+    wait "$KEY_PID" 2>/dev/null || true
+    KEY_PID=""
+    rm -f "$KEY_FIFO"
+}
+
+unseal_and_mount() {
+    [ -c /dev/sev-guest ] || teardown_and_halt "sealed mode requires /dev/sev-guest"
+    [ -b "$LUKS_DEVICE" ] || teardown_and_halt "sealed mode: $LUKS_DEVICE not found"
+
+    HAS_LUKS_HEADER=0
+    if /bin/cryptsetup isLuks "$LUKS_DEVICE" 2>/dev/null; then
+        HAS_LUKS_HEADER=1
+    fi
+
+    # First boot / post-wipe: format the blank disk with the expected UUID
+    # under the current measurement's derived key. Subsequent boots with the
+    # same measurement re-derive the same key and open cleanly.
+    if [ "$HAS_LUKS_HEADER" -eq 0 ]; then
+        log "No LUKS header on $LUKS_DEVICE; formatting with UUID=$EXPECTED_LUKS_UUID"
+        _unseal_spawn_key_writer
+        if ! /bin/cryptsetup --batch-mode \
+                --type luks2 \
+                --cipher aes-xts-plain64 --key-size 512 \
+                --hash sha256 \
+                --uuid "$EXPECTED_LUKS_UUID" \
+                --integrity hmac-sha256 \
+                --pbkdf pbkdf2 --pbkdf-force-iterations 1000 \
+                --key-file "$KEY_FIFO" \
+                luksFormat "$LUKS_DEVICE"; then
+            _unseal_wait_key_writer
+            teardown_and_halt "luksFormat failed"
+        fi
+        _unseal_wait_key_writer
+    fi
+
+    # Enforce header UUID matches the measured expectation.
+    DISK_UUID="$(/bin/cryptsetup luksUUID "$LUKS_DEVICE" 2>/dev/null || true)"
+    if [ "$DISK_UUID" != "$EXPECTED_LUKS_UUID" ]; then
+        teardown_and_halt "sealed mode: disk UUID '$DISK_UUID' does not match expected '$EXPECTED_LUKS_UUID' (disk swapped?)"
+    fi
+
+    # Open. A failure here almost always means the derived key differs from
+    # what the disk was sealed with — i.e. different chip, or the measured
+    # image changed between sealing and now.
+    _unseal_spawn_key_writer
+    if ! /bin/cryptsetup --key-file "$KEY_FIFO" luksOpen "$LUKS_DEVICE" "$LUKS_MAPPER_NAME"; then
+        _unseal_wait_key_writer
+        teardown_and_halt "luksOpen failed — chip mismatch or measurement drift"
+    fi
+    _unseal_wait_key_writer
+    LUKS_OPENED=1
+
+    # Filesystem on the decrypted mapper. A missing filesystem only happens
+    # on a fresh luksFormat (step 2 above) or if a prior boot failed between
+    # format and mkfs — both are fine to (re-)format.
+    if ! /bin/blkid "$LUKS_MAPPER_DEV" >/dev/null 2>&1; then
+        log "Creating ext2 filesystem on $LUKS_MAPPER_DEV"
+        /bin/mkfs.ext2 "$LUKS_MAPPER_DEV" >/dev/null 2>&1 \
+            || teardown_and_halt "mkfs on decrypted volume failed"
+    fi
+
+    /bin/mount -t ext2 "$LUKS_MAPPER_DEV" /mnt/data \
+        || teardown_and_halt "failed to mount $LUKS_MAPPER_DEV"
+    log "Sealed storage mounted at /mnt/data"
 }
 
 refresh_katana_state() {
@@ -370,7 +860,12 @@ handle_control_command() {
 
             KATANA_ARGS=""
             if [ -n "$CMD_PAYLOAD" ]; then
-                KATANA_ARGS="$(echo "$CMD_PAYLOAD" | tr ',' ' ')"
+                RAW_ARGS="$(echo "$CMD_PAYLOAD" | tr ',' ' ')"
+                # Defense in depth: a later clap flag on the command line
+                # would override the --db-dir we bake in below, letting an
+                # operator point Katana at a directory outside the sealed
+                # mount. Strip any --db-* from attacker-influenced input.
+                KATANA_ARGS="$(strip_db_args $RAW_ARGS)"
             fi
 
             log "Starting katana asynchronously..."
@@ -400,38 +895,8 @@ handle_control_command() {
 }
 
 shutdown_handler() {
-    if [ "$SHUTTING_DOWN" -eq 1 ]; then
-        return 0
-    fi
-    SHUTTING_DOWN=1
-
-    log "Received shutdown signal, stopping katana..."
-    if [ -n "$KATANA_PID" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
-        kill -TERM "$KATANA_PID" 2>/dev/null || true
-
-        TIMEOUT=30
-        while [ "$TIMEOUT" -gt 0 ] && kill -0 "$KATANA_PID" 2>/dev/null; do
-            sleep 1
-            TIMEOUT=$((TIMEOUT - 1))
-        done
-
-        if kill -0 "$KATANA_PID" 2>/dev/null; then
-            log "Katana did not stop gracefully, forcing..."
-            kill -KILL "$KATANA_PID" 2>/dev/null || true
-        fi
-    fi
-
-    log "Syncing and unmounting filesystems..."
-    sync || true
-    umount /mnt/data 2>/dev/null || true
-    umount /tmp 2>/dev/null || true
-    umount /dev 2>/dev/null || true
-    umount /sys/kernel/config 2>/dev/null || true
-    umount /sys 2>/dev/null || true
-    umount /proc 2>/dev/null || true
-
-    log "Powering off VM..."
-    poweroff -f
+    log "Received shutdown signal"
+    teardown_and_halt
 }
 
 trap shutdown_handler TERM INT
@@ -500,18 +965,33 @@ else
     log "WARNING: eth0 interface not found; skipping static network setup"
 fi
 
-# Require persistent storage at /dev/sda
+# Parse sealed-storage vars out of the measured kernel cmdline.
+parse_cmdline_vars
+
+# Load dm-mod / dm-crypt / dm-integrity. Needed for sealed mode; harmless
+# otherwise (modules just idle).
+load_dm_modules
+
+# Attach /dev/sda — either through LUKS (sealed) or directly (legacy).
 if [ ! -b /dev/sda ]; then
     fatal_boot "required storage device /dev/sda not found"
 fi
-
 log "Found storage device /dev/sda"
 mkdir -p /mnt/data
-if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
-    fatal_boot "failed to mount required storage device /dev/sda"
+
+if [ "$SEALED_MODE" -eq 1 ]; then
+    unseal_and_mount
+else
+    # Legacy path: plain ext4 on /dev/sda. Kept for backward compat with
+    # non-sealed boot flows (CI, dev). Producing a quote under this path
+    # is equivalent to the pre-H5 attestation model.
+    if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
+        fatal_boot "failed to mount /dev/sda (unsealed)"
+    fi
+    log "Unsealed storage mounted at /mnt/data"
 fi
+
 mkdir -p "$KATANA_DB_DIR"
-log "Storage mounted at /mnt/data"
 
 # Start async control loop for Katana startup/status commands.
 log "Waiting for control channel ($CONTROL_PORT_NAME)..."
@@ -552,7 +1032,7 @@ echo "root:x:0:" > etc/group
 log_ok "/etc files created"
 
 # ==============================================================================
-# SECTION 4: Create CPIO Archive
+# SECTION 5: Create CPIO Archive
 # ==============================================================================
 
 log_section "Create CPIO Archive"
@@ -578,7 +1058,7 @@ find . -print0 | LC_ALL=C sort -z | cpio "${CPIO_FLAGS[@]}" | gzip -n > "$OUTPUT
 touch -d "@${SOURCE_DATE_EPOCH}" "$OUTPUT_INITRD"
 
 # ==============================================================================
-# SECTION 5: Final Validation
+# SECTION 6: Final Validation
 # ==============================================================================
 
 log_section "Final Validation"
