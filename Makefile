@@ -42,6 +42,9 @@ SCARB_VERSION := $(shell awk '$$1 == "scarb" { print $$2 }' $(CONTRACTS_DIR)/.to
 # The scarb version required by VRF contracts, if specified in its .tool-versions.
 VRF_SCARB_VERSION := $(shell if [ -f $(VRF_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_DIR)/.tool-versions; fi)
 
+# The scarb version required by the piltover submodule, if its .tool-versions exists.
+PILTOVER_SCARB_VERSION := $(shell if [ -f $(PILTOVER_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(PILTOVER_DIR)/.tool-versions; fi)
+
 # The scarb version required by the test VRF contracts.
 VRF_TEST_SCARB_VERSION := $(shell if [ -f $(VRF_TEST_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_TEST_DIR)/.tool-versions; fi)
 # `make contracts` only compiles the VRF test contracts, and that succeeds with the
@@ -50,7 +53,7 @@ VRF_TEST_SCARB_VERSION := $(shell if [ -f $(VRF_TEST_DIR)/.tool-versions ]; then
 VRF_TEST_BUILD_SCARB_VERSION := $(VRF_SCARB_VERSION)
 
 # All scarb versions needed for `make contracts`.
-SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZEPPELIN_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_BUILD_SCARB_VERSION))
+SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZEPPELIN_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_BUILD_SCARB_VERSION) $(PILTOVER_SCARB_VERSION))
 
 .DEFAULT_GOAL := all
 .SILENT: clean
