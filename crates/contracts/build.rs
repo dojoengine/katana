@@ -24,6 +24,7 @@ fn main() {
         "contracts/test-contracts",
         "contracts/vrf",
         "contracts/avnu",
+        "contracts/piltover",
         OPENZEPPELIN_SUBMODULE_DIR,
         CONTROLLER_CLASSES_SUBDIR,
     ];
@@ -98,6 +99,10 @@ fn main() {
     let avnu_dir = contracts_dir.join("avnu/contracts");
     build_avnu_contracts(&avnu_dir);
 
+    // Build Piltover contracts (scarb version pinned via submodule's .tool-versions)
+    let piltover_dir = contracts_dir.join("piltover");
+    build_piltover_contracts(&piltover_dir);
+
     // Build the canonical OpenZeppelin account preset with a newer scarb than the
     // local contracts workspace uses, then copy only the account class artifact.
     build_openzeppelin_account_preset(&openzeppelin_dir);
@@ -137,6 +142,17 @@ fn main() {
         println!("cargo:warning=AVNU contract artifacts copied to build directory");
     } else {
         println!("cargo:warning=No AVNU contract artifacts found in avnu/contracts/target/dev");
+    }
+
+    // Copy Piltover contract artifacts from piltover/target/dev to build directory
+    let piltover_target_dir = piltover_dir.join("target/dev");
+    if piltover_target_dir.exists() {
+        if let Err(e) = copy_dir_contents(&piltover_target_dir, build_dir) {
+            panic!("Failed to copy Piltover contract artifacts: {e}");
+        }
+        println!("cargo:warning=Piltover contract artifacts copied to build directory");
+    } else {
+        println!("cargo:warning=No Piltover contract artifacts found in piltover/target/dev");
     }
 
     let openzeppelin_account_artifact =
@@ -378,6 +394,45 @@ fn initialize_submodule(submodule_dir: &Path, submodule_name: &str) {
             "{submodule_name} directory doesn't exist at {} and couldn't fetch it through git \
              submodule (not in a git repository)",
             submodule_dir.display()
+        );
+    }
+}
+
+fn build_piltover_contracts(piltover_dir: &Path) {
+    // If the submodule directory wasn't checked out, try initializing it first.
+    if !piltover_dir.join("Scarb.toml").exists() {
+        let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+        initialize_submodule(
+            Path::new(&manifest_dir).join("contracts/piltover").as_path(),
+            "Piltover",
+        );
+    }
+
+    println!("cargo:warning=Building Piltover contracts with scarb...");
+
+    // Scarb version is pinned by piltover's own .tool-versions file (asdf honors
+    // the closest ancestor when run from `piltover_dir`).
+    let output = Command::new("asdf")
+        .args(["exec", "scarb", "build"])
+        .current_dir(piltover_dir)
+        .output()
+        .expect("Failed to execute scarb build for Piltover contracts");
+
+    if !output.status.success() {
+        let logs = String::from_utf8_lossy(&output.stdout);
+        let last_n_lines = logs
+            .split('\n')
+            .rev()
+            .take(50)
+            .collect::<Vec<&str>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<&str>>()
+            .join("\n");
+
+        panic!(
+            "Piltover contracts compilation failed. Below are the last 50 lines of `scarb build` \
+             output:\n\n{last_n_lines}"
         );
     }
 }

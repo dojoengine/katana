@@ -6102,6 +6102,7 @@ dependencies = [
  "katana-bootstrap",
  "katana-chain-spec",
  "katana-cli",
+ "katana-contracts",
  "katana-db",
  "katana-genesis",
  "katana-primitives",
