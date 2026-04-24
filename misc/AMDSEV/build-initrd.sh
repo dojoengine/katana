@@ -509,7 +509,6 @@ CONTROL_PORT_LINK="/dev/virtio-ports/org.katana.control.0"
 # SEALED_MODE=1 means an encrypted /dev/sda backs /mnt/data and the derived key
 # must match; SEALED_MODE=0 keeps the legacy plain-ext4 behaviour.
 EXPECTED_LUKS_UUID=""
-ALLOW_FORMAT=0
 SEALED_MODE=0
 LUKS_MAPPER_NAME="katana-data"
 LUKS_MAPPER_DEV="/dev/mapper/${LUKS_MAPPER_NAME}"
@@ -569,15 +568,15 @@ teardown_and_halt() {
     while true; do sleep 1; done
 }
 
-# Parse KATANA_EXPECTED_LUKS_UUID and KATANA_ALLOW_FORMAT out of /proc/cmdline.
-# Both are produced by start-vm.sh and live inside the measured kernel command
-# line — any tamper changes the launch measurement.
+# Parse KATANA_EXPECTED_LUKS_UUID out of /proc/cmdline. It is produced by
+# start-vm.sh and lives inside the measured kernel command line — any tamper
+# changes the launch measurement.
 parse_cmdline_vars() {
     if [ ! -r /proc/cmdline ]; then
         log "WARNING: /proc/cmdline not readable; sealed-storage vars unset"
         return 0
     fi
-    # Space-separated `key=value` tokens; iterate and pick out the two we care
+    # Space-separated `key=value` tokens; iterate and pick out the one we care
     # about. We deliberately avoid `grep -oP` (GNU-only) to stay portable
     # against busybox variants.
     for tok in $(cat /proc/cmdline); do
@@ -585,14 +584,11 @@ parse_cmdline_vars() {
             KATANA_EXPECTED_LUKS_UUID=*)
                 EXPECTED_LUKS_UUID="${tok#KATANA_EXPECTED_LUKS_UUID=}"
                 ;;
-            KATANA_ALLOW_FORMAT=1)
-                ALLOW_FORMAT=1
-                ;;
         esac
     done
     if [ -n "$EXPECTED_LUKS_UUID" ]; then
         SEALED_MODE=1
-        log "Sealed mode enabled: EXPECTED_LUKS_UUID=$EXPECTED_LUKS_UUID ALLOW_FORMAT=$ALLOW_FORMAT"
+        log "Sealed mode enabled: EXPECTED_LUKS_UUID=$EXPECTED_LUKS_UUID"
     else
         log "Sealed mode NOT enabled (KATANA_EXPECTED_LUKS_UUID unset)"
     fi
@@ -649,16 +645,21 @@ strip_db_args() {
 #
 # Flow:
 #   1. require /dev/sev-guest (else fatal)
-#   2. derive 32-byte key via snp-derivekey, piped through a 0600 FIFO
-#   3. if ALLOW_FORMAT=1 and /dev/sda has no LUKS header:
-#        luksFormat with the expected UUID (provisioning)
-#        (then re-derive — the format consumed the key)
-#   4. require /dev/sda to have a LUKS header (else fatal: header wiped)
-#   5. require that header's UUID to match the expected UUID (else fatal: disk swapped)
-#   6. luksOpen (else fatal: chip or measurement drift — key derives differently)
-#   7. if the decrypted mapper has no filesystem:
-#        mkfs.ext2 when ALLOW_FORMAT=1, else fatal
-#   8. mount /dev/mapper/<name> at /mnt/data
+#   2. if /dev/sda has no LUKS header, luksFormat with the expected UUID
+#      (first-boot / post-wipe auto-provisioning — same measurement as
+#      subsequent boots, so the derived key matches)
+#   3. require the header's UUID to match the expected UUID
+#      (else fatal: different disk mounted)
+#   4. luksOpen (else fatal: chip or measurement drift — derived key
+#      differs from what sealed the header)
+#   5. if the decrypted mapper has no filesystem, mkfs.ext2
+#   6. mount /dev/mapper/<name> at /mnt/data
+#
+# On first boot or after a hostile header-wipe, steps 2 and 5 both fire and
+# the disk is recreated from scratch. An attacker who wipes the header does
+# not gain state-substitution (they cannot produce blocks the verifier
+# accepts unless the verifier independently pins the chain anchor); they
+# only downgrade the chain to a fresh start. See docs/amdsev.md trust model.
 #
 # Note: busybox ships mkfs.ext2 but not mkfs.ext4. MDBX is indifferent; we
 # accept ext2 for the sealed mount. Upgrading to a statically-built mke2fs
@@ -687,12 +688,11 @@ unseal_and_mount() {
         HAS_LUKS_HEADER=1
     fi
 
-    # Provisioning: format if allowed and the disk is blank.
+    # First boot / post-wipe: format the blank disk with the expected UUID
+    # under the current measurement's derived key. Subsequent boots with the
+    # same measurement re-derive the same key and open cleanly.
     if [ "$HAS_LUKS_HEADER" -eq 0 ]; then
-        if [ "$ALLOW_FORMAT" -ne 1 ]; then
-            teardown_and_halt "sealed mode: $LUKS_DEVICE has no LUKS header and KATANA_ALLOW_FORMAT not set (header wiped?)"
-        fi
-        log "Provisioning: luksFormat $LUKS_DEVICE with UUID=$EXPECTED_LUKS_UUID"
+        log "No LUKS header on $LUKS_DEVICE; formatting with UUID=$EXPECTED_LUKS_UUID"
         _unseal_spawn_key_writer
         if ! /bin/cryptsetup --batch-mode \
                 --type luks2 \
@@ -726,12 +726,11 @@ unseal_and_mount() {
     _unseal_wait_key_writer
     LUKS_OPENED=1
 
-    # Filesystem on the decrypted mapper.
+    # Filesystem on the decrypted mapper. A missing filesystem only happens
+    # on a fresh luksFormat (step 2 above) or if a prior boot failed between
+    # format and mkfs — both are fine to (re-)format.
     if ! /bin/blkid "$LUKS_MAPPER_DEV" >/dev/null 2>&1; then
-        if [ "$ALLOW_FORMAT" -ne 1 ]; then
-            teardown_and_halt "decrypted volume has no filesystem and KATANA_ALLOW_FORMAT not set"
-        fi
-        log "Provisioning: mkfs.ext2 $LUKS_MAPPER_DEV"
+        log "Creating ext2 filesystem on $LUKS_MAPPER_DEV"
         /bin/mkfs.ext2 "$LUKS_MAPPER_DEV" >/dev/null 2>&1 \
             || teardown_and_halt "mkfs on decrypted volume failed"
     fi

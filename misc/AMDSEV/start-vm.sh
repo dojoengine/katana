@@ -20,9 +20,8 @@
 #   INITRD_FILE    - initrd.img initial ramdisk
 #   KERNEL_CMDLINE - "console=ttyS0" plus (for sealed storage):
 #                      KATANA_EXPECTED_LUKS_UUID=<uuid>
-#                      KATANA_ALLOW_FORMAT=1   (provisioning boot only)
-#                    Sealed-storage variants produce a DIFFERENT measurement
-#                    from the unsealed boot. Verifiers must pin the expected
+#                    Sealed and unsealed variants produce different
+#                    measurements. Verifiers must pin the expected
 #                    cmdline variant.
 #
 # SEV-SNP guest configuration:
@@ -49,7 +48,7 @@ set -euo pipefail
 
 usage() {
     echo "Usage: $0 [BOOT_COMPONENTS_DIR] [--katana-args CSV] [--no-start]"
-    echo "          [--data-disk PATH] [--luks-uuid UUID] [--allow-format]"
+    echo "          [--data-disk PATH] [--luks-uuid UUID]"
     echo ""
     echo "Starts a SEV-SNP VM and launches Katana asynchronously via control channel."
     echo ""
@@ -63,14 +62,11 @@ usage() {
     echo "                        (default: ~/.katana/data.img, auto-created if absent)"
     echo "                        A user-specified PATH must already exist."
     echo "                        Env var: KATANA_DATA_DISK"
-    echo "  --luks-uuid UUID      Enable sealed storage. The guest initrd will refuse"
-    echo "                        to open any disk whose LUKS header UUID does not"
-    echo "                        match. Operator-generated ahead of time via uuidgen."
+    echo "  --luks-uuid UUID      Enable sealed storage. The guest initrd will open the"
+    echo "                        disk if its LUKS header UUID matches, format it with"
+    echo "                        the expected UUID if the disk is blank, and refuse any"
+    echo "                        other state. Operator-generated via uuidgen."
     echo "                        Env var: KATANA_LUKS_UUID"
-    echo "  --allow-format        Provisioning boot: permits the guest to luksFormat"
-    echo "                        an unformatted disk with the expected UUID. Requires"
-    echo "                        --luks-uuid. Produces a DIFFERENT measurement from"
-    echo "                        normal boot — verifiers must distinguish."
     echo "  -h, --help            Show this help"
 }
 
@@ -81,7 +77,6 @@ AUTO_START_KATANA=1
 DATA_DISK="${KATANA_DATA_DISK:-}"
 DATA_DISK_DEFAULT="${HOME}/.katana/data.img"
 LUKS_UUID="${KATANA_LUKS_UUID:-}"
-ALLOW_FORMAT=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -117,11 +112,6 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
-        --allow-format)
-            ALLOW_FORMAT=1
-            shift
-            ;;
-
         -h|--help)
             usage
             exit 0
@@ -140,12 +130,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-
-# --allow-format is meaningless without --luks-uuid (provisioning-mode signals)
-if [[ "$ALLOW_FORMAT" -eq 1 && -z "$LUKS_UUID" ]]; then
-    echo "Error: --allow-format requires --luks-uuid"
-    exit 1
-fi
 
 # UUID must be canonical 8-4-4-4-12 hex (what cryptsetup luksUUID emits).
 if [[ -n "$LUKS_UUID" ]]; then
@@ -301,24 +285,18 @@ if [[ ! -f "$DISK_IMAGE" ]]; then
         mkfs.ext4 -F -q "$DISK_IMAGE"
         echo "  Created: $DISK_IMAGE (${DISK_SIZE_MB}MB, plain ext4)"
     else
-        # Sealed: leave raw; guest provisioning (--allow-format) will luksFormat.
-        echo "  Created: $DISK_IMAGE (${DISK_SIZE_MB}MB, raw — guest will luksFormat)"
-        if [[ "$ALLOW_FORMAT" -ne 1 ]]; then
-            echo "  WARNING: sealed mode, fresh disk, but --allow-format not set."
-            echo "  The guest will fatal_boot. Re-run with --allow-format to provision."
-        fi
+        # Sealed: leave raw; guest will luksFormat on first boot.
+        echo "  Created: $DISK_IMAGE (${DISK_SIZE_MB}MB, raw — guest will luksFormat on first boot)"
     fi
 else
     echo "  Reusing existing disk: $DISK_IMAGE"
 fi
 
-# Build the effective measured kernel command line. Any additions here produce
-# a DIFFERENT launch measurement; verifiers must pin the exact variant.
+# Build the effective measured kernel command line. Adding the UUID produces
+# a different launch measurement from the unsealed boot; verifiers pin the
+# exact variant they expect.
 if [[ -n "$LUKS_UUID" ]]; then
     KERNEL_CMDLINE="${KERNEL_CMDLINE} KATANA_EXPECTED_LUKS_UUID=${LUKS_UUID}"
-fi
-if [[ "$ALLOW_FORMAT" -eq 1 ]]; then
-    KERNEL_CMDLINE="${KERNEL_CMDLINE} KATANA_ALLOW_FORMAT=1"
 fi
 
 echo ""
