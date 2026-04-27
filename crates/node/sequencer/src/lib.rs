@@ -51,6 +51,7 @@ use katana_rpc_server::middleware::cartridge::{ControllerDeploymentLayer, VrfLay
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::middleware::logger::RpcLoggerLayer;
 use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
+use katana_rpc_api::tee::compute_katana_tee_config_hash;
 use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
@@ -394,12 +395,32 @@ where
                 }
                 #[cfg(feature = "tee-mock")]
                 TeeProviderType::Mock => Arc::new(katana_tee::MockProvider::new()),
+                // The `Mock` variant on `TeeProviderType` is gated on
+                // `feature = "tee-mock"` in `katana-tee`, but cargo features
+                // unify across the workspace — so the variant can be visible
+                // here even when this crate's own `tee-mock` feature is off.
+                #[allow(unreachable_patterns)]
+                _ => anyhow::bail!("Mock TEE provider requires the 'tee-mock' feature"),
             };
 
-            let api = TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
+            let katana_tee_config_hash = compute_katana_tee_config_hash(
+                backend.chain_spec.id().into(),
+                backend.chain_spec.fee_contracts().strk.into(),
+            );
+            let api = TeeApi::new(
+                provider.clone(),
+                tee_provider,
+                tee_config.fork_block_number,
+                katana_tee_config_hash,
+            );
             rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 
-            info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
+            info!(
+                target: "node",
+                provider = ?tee_config.provider_type,
+                %katana_tee_config_hash,
+                "TEE API enabled"
+            );
         }
 
         // --- build rpc middleware

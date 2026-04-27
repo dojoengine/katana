@@ -13,6 +13,7 @@ use katana_provider::ProviderFactory;
 use katana_rpc_api::error::tee::TeeApiError;
 use katana_rpc_api::tee::{
     EventProofResponse, TeeApiServer, TeeL1ToL2Message, TeeL2ToL1Message, TeeQuoteResponse,
+    KATANA_TEE_APPCHAIN_MODE, KATANA_TEE_REPORT_VERSION, KATANA_TEE_SHARDING_MODE,
 };
 use katana_tee::TeeProvider;
 use starknet_types_core::hash::{Poseidon, StarkHash};
@@ -31,6 +32,9 @@ where
     /// The block number Katana forked from (if running in fork mode).
     /// Included in report_data so SP1 can prove fork freshness.
     fork_block_number: Option<u64>,
+    /// Versioned environment config hash precomputed from the chain spec at
+    /// construction time. Bound into every attestation's `report_data`.
+    katana_tee_config_hash: Felt,
 }
 
 impl<PF> TeeApi<PF>
@@ -42,14 +46,16 @@ where
         provider_factory: PF,
         tee_provider: Arc<dyn TeeProvider>,
         fork_block_number: Option<u64>,
+        katana_tee_config_hash: Felt,
     ) -> Self {
         info!(
             target: "rpc::tee",
             provider_type = tee_provider.provider_type(),
             ?fork_block_number,
+            %katana_tee_config_hash,
             "TEE API initialized"
         );
-        Self { provider_factory, tee_provider, fork_block_number }
+        Self { provider_factory, tee_provider, fork_block_number, katana_tee_config_hash }
     }
 }
 
@@ -70,10 +76,13 @@ where
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
     ) -> RpcResult<TeeQuoteResponse> {
+        let katana_tee_config_hash = self.katana_tee_config_hash;
+
         debug!(
             target: "rpc::tee",
             ?prev_block,
             block,
+            %katana_tee_config_hash,
             "Generating TEE attestation quote"
         );
 
@@ -127,6 +136,7 @@ where
                 block.into(),
                 fork_block.into(),
                 events_commitment,
+                katana_tee_config_hash,
             );
 
             let quote = self
@@ -140,6 +150,7 @@ where
                 block_number = block,
                 %prev_block_hash,
                 %block_hash,
+                %katana_tee_config_hash,
                 quote_size = quote.len(),
                 "Generated TEE attestation quote"
             );
@@ -154,6 +165,7 @@ where
                 block_number: block,
                 fork_block_number: self.fork_block_number,
                 events_commitment,
+                katana_tee_config_hash,
                 l1_to_l2_messages: Vec::new(),
                 l2_to_l1_messages: Vec::new(),
                 messages_commitment: Felt::ZERO,
@@ -241,6 +253,7 @@ where
                 prev_block_id,
                 block.into(),
                 messages_commitment,
+                katana_tee_config_hash,
             );
 
             let quote = self
@@ -254,6 +267,7 @@ where
                 block_number = block,
                 %prev_block_hash,
                 %block_hash,
+                %katana_tee_config_hash,
                 quote_size = quote.len(),
                 l2_to_l1_count = l2_to_l1_messages.len(),
                 l1_to_l2_count = l1_to_l2_messages.len(),
@@ -270,6 +284,7 @@ where
                 block_number: block,
                 fork_block_number: self.fork_block_number,
                 events_commitment,
+                katana_tee_config_hash,
                 l1_to_l2_messages,
                 l2_to_l1_messages,
                 messages_commitment,
@@ -384,10 +399,12 @@ where
     }
 }
 
-/// Compute the 64-byte report data for attestation.
+/// Compute the 64-byte report data for fork/sharding attestation (v1 schema).
 ///
 /// ```text
-/// Poseidon(
+/// commitment = Poseidon(
+///     KATANA_TEE_REPORT_VERSION,
+///     KATANA_TEE_SHARDING_MODE,
 ///     prev_state_root,
 ///     state_root,
 ///     prev_block_hash,
@@ -396,8 +413,9 @@ where
 ///     block_number,
 ///     fork_block_number,
 ///     events_commitment,
+///     katana_tee_config_hash,
 /// )
-/// report_data = commitment_bytes_be ++ [0u8; 32]   // 64 bytes total
+/// report_data = commitment_bytes_be ++ katana_tee_config_hash_bytes_be
 /// ```
 #[allow(clippy::too_many_arguments)]
 fn compute_report_data_sharding(
@@ -409,9 +427,11 @@ fn compute_report_data_sharding(
     block_number: Felt,
     fork_block_number: Felt,
     events_commitment: Felt,
+    katana_tee_config_hash: Felt,
 ) -> [u8; 64] {
-    // Compute Poseidon hash of state_root and block_hash
     let commitment = Poseidon::hash_array(&[
+        KATANA_TEE_REPORT_VERSION.into(),
+        KATANA_TEE_SHARDING_MODE.into(),
         prev_state_root,
         state_root,
         prev_block_hash,
@@ -420,15 +440,10 @@ fn compute_report_data_sharding(
         block_number,
         fork_block_number,
         events_commitment,
+        katana_tee_config_hash,
     ]);
 
-    // Convert Felt to bytes (32 bytes) and pad to 64 bytes
-    let commitment_bytes = commitment.to_bytes_be();
-
-    let mut report_data = [0u8; 64];
-    // Place the 32-byte hash in the first half
-    report_data[..32].copy_from_slice(&commitment_bytes);
-    // Second half remains zeros
+    let report_data = encode_report_data(commitment, katana_tee_config_hash);
 
     debug!(
         target: "rpc::tee",
@@ -436,6 +451,7 @@ fn compute_report_data_sharding(
         %block_hash,
         ?fork_block_number,
         %events_commitment,
+        %katana_tee_config_hash,
         %commitment,
         "Computed report data for attestation"
     );
@@ -443,19 +459,22 @@ fn compute_report_data_sharding(
     report_data
 }
 
-/// Compute the 64-byte report data for attestation.
+/// Compute the 64-byte report data for appchain attestation (v1 schema).
 ///
 /// ```text
-/// Poseidon(
+/// commitment = Poseidon(
+///     KATANA_TEE_REPORT_VERSION,
+///     KATANA_TEE_APPCHAIN_MODE,
 ///     prev_state_root,
 ///     state_root,
 ///     prev_block_hash,
 ///     block_hash,
 ///     prev_block_number,
 ///     block_number,
-///     messages_commitment
+///     messages_commitment,
+///     katana_tee_config_hash,
 /// )
-/// report_data = commitment_bytes_be ++ [0u8; 32]   // 64 bytes total
+/// report_data = commitment_bytes_be ++ katana_tee_config_hash_bytes_be
 /// ```
 fn compute_report_data_appchain(
     prev_state_root: Felt,
@@ -465,8 +484,11 @@ fn compute_report_data_appchain(
     prev_block_number: Felt,
     block_number: Felt,
     messages_commitment: Felt,
+    katana_tee_config_hash: Felt,
 ) -> [u8; 64] {
     let commitment = Poseidon::hash_array(&[
+        KATANA_TEE_REPORT_VERSION.into(),
+        KATANA_TEE_APPCHAIN_MODE.into(),
         prev_state_root,
         state_root,
         prev_block_hash,
@@ -474,20 +496,26 @@ fn compute_report_data_appchain(
         prev_block_number,
         block_number,
         messages_commitment,
+        katana_tee_config_hash,
     ]);
 
-    let commitment_bytes = commitment.to_bytes_be();
-
-    let mut report_data = [0u8; 64];
-    report_data[..32].copy_from_slice(&commitment_bytes);
+    let report_data = encode_report_data(commitment, katana_tee_config_hash);
 
     debug!(
         target: "rpc::tee",
         %state_root,
         %block_hash,
+        %katana_tee_config_hash,
         %commitment,
         "Computed report data for attestation"
     );
 
+    report_data
+}
+
+fn encode_report_data(commitment: Felt, katana_tee_config_hash: Felt) -> [u8; 64] {
+    let mut report_data = [0u8; 64];
+    report_data[..32].copy_from_slice(&commitment.to_bytes_be());
+    report_data[32..].copy_from_slice(&katana_tee_config_hash.to_bytes_be());
     report_data
 }

@@ -1,18 +1,47 @@
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_primitives::cairo::ShortString;
+use katana_primitives::hash::{Pedersen, StarkHash};
 use katana_primitives::Felt;
 use katana_rpc_types::trie::Nodes;
 use serde::{Deserialize, Serialize};
+
+/// Version tag for the Katana TEE environment config hash.
+pub const KATANA_TEE_CONFIG_VERSION: ShortString = ShortString::from_ascii("KatanaTeeConfig1");
+
+/// Version tag for the v1 Katana TEE report-data schema.
+pub const KATANA_TEE_REPORT_VERSION: ShortString = ShortString::from_ascii("KatanaTeeReport1");
+
+/// Mode tag for appchain settlement attestations.
+pub const KATANA_TEE_APPCHAIN_MODE: ShortString = ShortString::from_ascii("KatanaTeeAppchain");
+
+/// Mode tag for fork/sharding attestations.
+pub const KATANA_TEE_SHARDING_MODE: ShortString = ShortString::from_ascii("KatanaTeeSharding");
+
+/// Computes the Starknet-OS-style config hash bound into v1 TEE report data.
+///
+/// This mirrors the Starknet OS pattern of hashing a version tag plus stable
+/// environment fields. The non-legacy fee token address is the STRK fee token
+/// address for the appchain/Katana network.
+pub fn compute_katana_tee_config_hash(
+    appchain_chain_id_or_katana_chain_id: Felt,
+    fee_token_address: Felt,
+) -> Felt {
+    Pedersen::hash_array(&[
+        KATANA_TEE_CONFIG_VERSION.into(),
+        appchain_chain_id_or_katana_chain_id,
+        fee_token_address,
+    ])
+}
 
 /// Serializes an `Option<BlockNumber>` as a `Felt`-encoded hex string, mapping
 /// `None` to `Felt::MAX` (the genesis "no previous block" sentinel that
 /// matches Piltover's `AppchainState` initial value). Deserializes the inverse:
 /// `Felt::MAX` becomes `None`, anything else becomes `Some(felt as u64)`.
 ///
-/// The non-optional `block_number` field uses `serde_utils::serialize_as_hex` +
-/// `serde_utils::deserialize_u64` directly. We can't reuse `serde_utils::{serialize_opt_as_hex,
-/// deserialize_opt_u64}` here because those map `None ↔ null`, not `None ↔ Felt::MAX`.
+/// The wire format is `Felt`, not JSON `null`, so the field can be hashed into
+/// the on-chain commitment without a separate sentinel encoding step.
 mod prev_block_number_serde {
     use katana_primitives::block::BlockNumber;
     use katana_primitives::Felt;
@@ -90,16 +119,14 @@ pub struct TeeQuoteResponse {
 
     /// The number of the previous block. Serialized as a `Felt`-encoded hex
     /// string (with `Felt::MAX` representing the genesis "no previous block"
-    /// case) so the JSON wire format matches what
-    /// `katana_tee_client::TeeQuoteResponse` (used by `saya-tee`) expects.
-    /// See [`prev_block_number_serde`].
+    /// case) so the field can be hashed into the on-chain commitment without
+    /// a separate sentinel encoding step. See [`prev_block_number_serde`].
     #[serde(with = "prev_block_number_serde")]
     pub prev_block_number: Option<BlockNumber>,
 
     /// The number of the attested block. Serialized as a `0x`-prefixed hex
-    /// string so the JSON wire format matches `Felt`'s default serde
-    /// representation, which is what `katana_tee_client::TeeQuoteResponse`
-    /// (typed as `Felt` upstream) expects.
+    /// string matching `Felt`'s default serde representation, so the field
+    /// can be hashed as a `Felt` on both sides of the wire.
     #[serde(
         serialize_with = "serde_utils::serialize_as_hex",
         deserialize_with = "serde_utils::deserialize_u64"
@@ -112,7 +139,7 @@ pub struct TeeQuoteResponse {
     pub fork_block_number: Option<BlockNumber>,
 
     /// Merkle root of all events in the attested block.
-    /// Included in report_data: Poseidon(state_root, block_hash, fork_block, events_commitment).
+    /// Included in fork/sharding report_data.
     pub events_commitment: Felt,
 
     /// Poseidon commitment over all L1<->L2 messages from prev_block+1 to block_number.
@@ -120,6 +147,11 @@ pub struct TeeQuoteResponse {
     /// Computed as `Poseidon(l2_to_l1_commitment, l1_to_l2_commitment)` where each direction's
     /// commitment is `Poseidon` over the individual message hashes in that range.
     pub messages_commitment: Felt,
+
+    /// Versioned Katana TEE environment config hash attested in `report_data`.
+    ///
+    /// Always non-zero in v1 — precomputed by the node from its chain spec.
+    pub katana_tee_config_hash: Felt,
 
     /// All L2→L1 messages emitted in the attested block range.
     pub l2_to_l1_messages: Vec<TeeL2ToL1Message>,
@@ -173,11 +205,13 @@ pub struct EventProofResponse {
 pub trait TeeApi {
     /// Generate a TEE attestation quote for the requested block state.
     ///
-    /// The quote includes a commitment to the requested block's state root
-    /// and block hash, allowing verifiers to cryptographically verify
-    /// that the state was attested from within a trusted execution environment.
+    /// The quote commits to the block's transition fields and to a versioned
+    /// `katana_tee_config_hash` that the node precomputes from its chain spec
+    /// at startup. Verifiers can recompute the same hash from on-chain config
+    /// and reject attestations bound to a different environment.
     ///
-    /// `prev_block_id` is optional and included in the response for transition-style flows.
+    /// `prev_block_id` is optional and included in the response for
+    /// transition-style flows; `None` is the genesis case.
     #[method(name = "generateQuote")]
     async fn generate_quote(
         &self,
