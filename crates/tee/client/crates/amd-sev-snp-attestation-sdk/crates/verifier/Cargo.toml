@@ -1,0 +1,32 @@
+[package]
+name = "amd-sev-snp-attestation-verifier"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+sp1 = ["x509-verifier-rust-crypto/sp1"]
+risc0 = ["x509-verifier-rust-crypto/risc0"]
+pico = ["x509-verifier-rust-crypto/pico"]
+
+[dependencies]
+# Bonsai-trie (Katana/Starknet format) for storage proof verification. Only option.
+bonsai-trie = { git = "https://github.com/dojoengine/bonsai-trie/", rev = "351d5be", default-features = false, features = ["std"] }
+starknet-crypto = { version = "0.2.0", default-features = false }
+indexmap = { version = "2" }
+parity-scale-codec = { version = "3", default-features = false }
+starknet-types-core = { version = "0.2", default-features = false, features = ["parity-scale-codec"] }
+bitvec = { version = "1", default-features = false, features = ["alloc"] }
+serde_json.workspace = true
+serde.workspace = true
+byteorder.workspace = true
+serde_with.workspace = true
+serde_bytes.workspace = true
+x509-verifier-rust-crypto = { workspace = true }
+anyhow.workspace = true
+alloy-sol-types = { workspace = true, features = ["json"] }
+alloy-primitives.workspace = true
+hex.workspace = true
