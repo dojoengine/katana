@@ -1,17 +1,6 @@
-[workspace]
-resolver = "2"
-
-[workspace.package]
-version = "0.3.2"
-edition = "2021"
-license = "Apache-2.0"
-repository = "https://github.com/dojoengine/saya"
-
-[workspace.dependencies]
-
 [package]
 name = "saya-tee"
-version.workspace = true
+version = "0.3.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -39,24 +28,3 @@ tokio = { version = "1", default-features = false, features = ["rt-multi-thread"
 tracing = { version = "0.1.40", default-features = false, features = ["std", "attributes"] }
 url = "2"
 
-[patch.crates-io]
-alloy = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-consensus = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-consensus-any = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-contract = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-eips = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-json-rpc = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-network = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-network-primitives = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-provider = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-client = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-types-any = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-types-engine = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-types-eth = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-serde = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-signer = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-signer-aws = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-signer-local = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-transport = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
