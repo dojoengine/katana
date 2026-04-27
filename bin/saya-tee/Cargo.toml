@@ -17,19 +17,22 @@ license.workspace = true
 repository.workspace = true
 
 # saya-tee is excluded from the parent katana workspace (see root Cargo.toml's
-# `[workspace.exclude]`) because cartridge-gg/katana-tee@56aa752 strict-pins
+# `[workspace.exclude]`) because cartridge-gg/katana-tee strict-pins
 # alloy-primitives = "=1.3.1" and uses alloy-sol-types 1.3.x macro shapes that
 # conflict with the alloy stack katana wants. saya-tee therefore keeps its own
 # Cargo.lock, [workspace] block, and [patch.crates-io] alloy block.
 #
+# katana-tee itself is now vendored under crates/tee/client/ — these path deps
+# point at the vendored copies, not the external git repo.
+#
 # Build via:  cargo build --manifest-path bin/saya-tee/Cargo.toml
 [dependencies]
 saya-core = { path = "../../crates/saya/core" }
-katana_tee_client = { git = "https://github.com/cartridge-gg/katana-tee.git", rev = "56aa752d2e73e505c356c80b7a00eddd27d4d263" }
-amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/katana-tee.git", rev = "56aa752d2e73e505c356c80b7a00eddd27d4d263", default-features = false, features = ["sp1"] }
-amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/katana-tee.git", rev = "56aa752d2e73e505c356c80b7a00eddd27d4d263" }
-amd_tee_registry_client = { git = "https://github.com/cartridge-gg/katana-tee.git", rev = "56aa752d2e73e505c356c80b7a00eddd27d4d263" }
-x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/katana-tee.git", rev = "56aa752d2e73e505c356c80b7a00eddd27d4d263" }
+katana_tee_client = { path = "../../crates/tee/client/clients/katana_tee_client" }
+amd-sev-snp-attestation-prover = { path = "../../crates/tee/client/crates/amd-sev-snp-attestation-sdk/crates/prover", default-features = false, features = ["sp1"] }
+amd-sev-snp-attestation-verifier = { path = "../../crates/tee/client/crates/amd-sev-snp-attestation-sdk/crates/verifier" }
+amd_tee_registry_client = { path = "../../crates/tee/client/clients/amd_tee_registry_client" }
+x509-verifier-rust-crypto = { path = "../../crates/tee/client/crates/amd-sev-snp-attestation-sdk/crates/x509-verifier-rust-crypto" }
 alloy-primitives = "1.3.1"
 
 piltover = { package = "piltover", git = "https://github.com/cartridge-gg/piltover.git", rev = "dc86b13de0713c172153c4833fd7b3d14a855351" }
