@@ -1,9 +1,0 @@
-/programs/
-/target/
-.env
-.env.persistent
-.env.sovereign
-saya.db
-config.toml
-sequencer_venv
-/bin/*/target/
