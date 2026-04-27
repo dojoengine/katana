@@ -1,0 +1,67 @@
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+
+name: "build"
+
+jobs:
+  build:
+    name: "Build"
+    runs-on: "ubuntu-latest"
+
+    steps:
+      - name: "Checkout source code"
+        uses: "actions/checkout@v4"
+        with:
+          submodules: recursive
+
+      - name: "Setup Rust toolchain"
+        uses: "dtolnay/rust-toolchain@master"
+        with:
+          toolchain: "1.89"
+
+      - name: "Use Rust cache"
+        uses: "Swatinem/rust-cache@v2"
+        with:
+          cache-on-failure: true
+
+      - name: "Setup Python"
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: "Install dependencies"
+        run: |
+          pip install -r requirements.txt
+
+      - name: "Install scarb (version pinned by piltover/.tool-versions)"
+        run: |
+          SCARB_VERSION=$(awk '$1 == "scarb" { print $2 }' piltover/.tool-versions)
+          if [ -z "$SCARB_VERSION" ]; then
+            echo "Could not read scarb version from piltover/.tool-versions"; exit 1
+          fi
+          echo "Installing scarb $SCARB_VERSION"
+          curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v "$SCARB_VERSION"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: "Cargo build (root workspace)"
+        run: |
+          cargo build --workspace --all-features
+
+      - name: "Cargo build (bin/persistent)"
+        working-directory: bin/persistent
+        run: |
+          cargo build --all-features
+
+      - name: "Cargo build (bin/ops)"
+        working-directory: bin/ops
+        run: |
+          cargo build --all-features
+
+      - name: "Cargo build (bin/persistent-tee)"
+        working-directory: bin/persistent-tee
+        run: |
+          cargo build --all-features

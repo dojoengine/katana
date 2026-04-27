@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = [
+    "saya/core",
+    "saya/tracing",
+    "tests/e2e",
+]
+
+[workspace.package]
+version = "0.3.2"
+edition = "2021"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/dojoengine/saya"
+
+
+
+[workspace.dependencies]
+# saya
+saya-core = { path = "saya/core" }
+saya-tracing = { path = "saya/tracing" }
+starknet_api = { git = "https://github.com/karnotxyz/sequencer", rev = "e04617e0581d5ec93a035ec0e15419b4c201b629", features = [
+  "testing",
+] }
+
+anyhow = { version = "1.0.95", default-features = false }
+base64 = { version = "0.22.1" }
+bigdecimal = { version = "0.3.1", default-features = false }
+cairo-vm = "=2.5.0"
+celestia-rpc = { version = "0.16.2", default-features = false }
+celestia-types = { version = "0.20.0", default-features = false }
+chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
+ciborium = { version = "0.2.2", default-features = false }
+clap = { version = "4.5.23", default-features = false, features = ["derive", "env", "std"] }
+futures-util = { version ="0.3.31", default-features = false }
+hex = { version = "0.4.3", default-features = false }
+integrity = { git = "https://github.com/chudkowsky/integrity-rs.git", rev = "9729be1", default-features = false, features = ["recursive_with_poseidon", "keccak_160_lsb", "stone6"] }
+num-traits = { version = "0.2.19", default-features = false }
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+serde = { version = "1.0.217", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0.134", default-features = false }
+
+starknet = "0.17.0"
+starknet-crypto = "0.8.1"
+starknet-types-core = { version = "0.2.1", default-features = false }
+
+swiftness = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false, features = ["recursive_with_poseidon", "keccak_160_lsb", "stone6"] }
+swiftness_air = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false, features = ["recursive_with_poseidon", "keccak_160_lsb", "stone6"] }
+swiftness_commitment = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false }
+swiftness_fri = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false }
+swiftness_pow = {git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false }
+swiftness_stark = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false, features = ["recursive_with_poseidon", "keccak_160_lsb", "stone6"] }
+
+thiserror = "2.0.12"
+tokio = { version = "1.42.0", default-features = false }
+tokio-util = { version = "0.7.13", default-features = false }
+tracing = { version = "0.1.40", default-features = false, features = ["std", "attributes"] }
+tracing-log = { version = "0.2.0", default-features = false }
+tracing-subscriber = { version = "0.3.18", default-features = false, features = ["fmt", "env-filter", "registry", "ansi", "tracing-log"] }
+url = { version = "2.5.4", default-features = false }
+zip = { version = "2.2.2", default-features = false, features = ["deflate"] }
+sqlx = { version = "0.8.2", features = [ "chrono", "macros", "regexp", "runtime-async-std", "runtime-tokio", "sqlite", "uuid" ] }
+piltover = {package = "piltover", git = "https://github.com/cartridge-gg/piltover.git", rev = "dc86b13de0713c172153c4833fd7b3d14a855351" }
+cainome = { version = "0.10.1", features = ["abigen-rs"] }
+generate-pie = {git = "https://github.com/keep-starknet-strange/snos.git",rev = "6cf7040"}
+
+

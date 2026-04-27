@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+
+[workspace.package]
+version = "0.3.2"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/dojoengine/saya"
+
+[workspace.dependencies]
+
+[package]
+name = "saya-ops"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[dependencies]
+anyhow = { version = "1.0.95", default-features = false }
+base64 = { version = "0.22.1" }
+cairo-lang-starknet-classes = "2.12.3"
+celestia-rpc = { version = "0.16.2", default-features = false }
+celestia-types = { version = "0.20.0", default-features = false }
+clap = { version = "4.5.23", default-features = false, features = [
+    "derive",
+    "env",
+    "std",
+] }
+dojo-utils = { git = "https://github.com/dojoengine/dojo", rev = "9b64ea8dc9bc6be8992dba87c104378dbf09b565" }
+saya-tracing = { path = "../../saya/tracing" }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+tracing = { version = "0.1.40", default-features = false, features = ["std", "attributes"] }
+serde_json = { version = "1.0.134", default-features = false }
+starknet = { git = "https://github.com/dojoengine/starknet-rs", branch = "feat/types-rs-100-blake2s" }
+starknet_api = { git = "https://github.com/karnotxyz/sequencer", rev = "e04617e0581d5ec93a035ec0e15419b4c201b629" }
+tokio = { version = "1.42.0", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+    "signal",
+    "time",
+] }
+url = { version = "2.5.4", default-features = false }
+hex = { version = "0.4.3", default-features = false }
