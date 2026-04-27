@@ -35,6 +35,8 @@ members = [
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
 	"crates/runner/macro",
+	"crates/saya/core",
+	"crates/saya/tracing",
 	"crates/serde-utils",
 	"crates/starknet",
 	"crates/storage/codecs",
@@ -53,9 +55,35 @@ members = [
 	"misc/AMDSEV/snp-tools",
 	"tests/db-compat",
 	"tests/reverse-proxy",
+	"tests/saya-e2e",
 	"tests/saya-tee",
 	"tests/vrf",
 	# "tests/snos",
+]
+
+# All three saya binaries stay as nested workspaces — each has transitive deps
+# that conflict with katana's pinned versions. Build each via:
+#
+#   cargo build --manifest-path bin/<name>/Cargo.toml
+#
+# - bin/saya-tee: cartridge-gg/katana-tee@56aa752 strict-pins
+#   alloy-primitives = "=1.3.1" and the verifier's `sol!` macro relies on
+#   alloy-sol-types 1.3.x (vs the 1.5.x pulled in by risc0-ethereum-contracts).
+#
+# - bin/saya: SNOS pulls karnotxyz/sequencer's starknet_os, which links the
+#   native `ckzg` library. Katana's alloy-consensus also links `ckzg`, and
+#   Cargo only allows one package to link a given native lib in a workspace.
+#
+# - bin/saya-ops: depends on a saya-era cairo-lang-starknet-classes API
+#   (`extract_sierra_program(false)`, four-arg `from_contract_class`). Adapting
+#   ~26 source call sites to katana's version is deferred to a follow-up.
+#
+# Saya libraries (crates/saya/{core,tracing}) and tests/saya-e2e DO join the
+# unified workspace — they don't pull the conflicting transitive deps.
+exclude = [
+	"bin/saya",
+	"bin/saya-ops",
+	"bin/saya-tee",
 ]
 
 [workspace.package]
@@ -123,6 +151,9 @@ katana-tee = { path = "crates/tee" }
 katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
+
+saya-core = { path = "crates/saya/core" }
+saya-tracing = { path = "crates/saya/tracing" }
 
 # cairo-lang
 cairo-lang-casm = "2.12.3"
@@ -212,16 +243,20 @@ tonic-reflection = "0.11"
 criterion = "0.5.1"
 pprof = { version = "0.13.0", features = [ "criterion", "flamegraph" ] }
 
-# alloys
-alloy-contract = { version = "1.2.1", default-features = false }
-alloy-network = { version = "1.2.1", default-features = false }
-alloy-primitives = { version = "1.2.1", default-features = false }
-alloy-provider = { version = "1.2.1", default-features = false }
-alloy-rpc-types-eth = { version = "1.2.1", default-features = false }
-alloy-signer = { version = "1.2.1", default-features = false }
-alloy-sol-types = { version = "1.2.1", default-features = false }
-alloy-transport = { version = "1.2.1", default-features = false }
-alloy-transport-http = { version = "1.2.1", default-features = false }
+# alloys — alloy-rs sub-crates have independent release tracks: the umbrella
+# crates (contract, provider, network, signer, transport*) are on 1.2.x while
+# alloy-primitives / alloy-sol-types live on 1.4+ (the 1.2.x umbrella requires
+# alloy-primitives >=1.4.1 transitively). All ranges below are tilde-pinned so
+# the workspace stays in a known-good resolution band.
+alloy-contract = { version = "~1.2", default-features = false }
+alloy-network = { version = "~1.2", default-features = false }
+alloy-primitives = { version = "~1.4", default-features = false }
+alloy-provider = { version = "~1.2", default-features = false }
+alloy-rpc-types-eth = { version = "~1.2", default-features = false }
+alloy-signer = { version = "~1.2", default-features = false }
+alloy-sol-types = { version = "~1.4", default-features = false }
+alloy-transport = { version = "~1.2", default-features = false }
+alloy-transport-http = { version = "~1.2", default-features = false }
 
 # macro
 proc-macro2 = "1.0"
@@ -262,6 +297,15 @@ piltover = { path = "crates/contracts/contracts/piltover/piltover" }
 # paymaster
 paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main
 paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main
+
+# saya — only deps needed by saya-core / saya-tracing / tests/saya-e2e (the
+# saya bins are excluded from the workspace and carry their own pins in
+# bin/saya{,-tee,-ops}/Cargo.toml).
+celestia-rpc = { version = "0.16.2", default-features = false }
+celestia-types = { version = "0.20.0", default-features = false }
+ciborium = { version = "0.2.2", default-features = false }
+sqlx = { version = "0.8.2", features = [ "chrono", "macros", "regexp", "runtime-async-std", "runtime-tokio", "sqlite", "uuid" ] }
+swiftness_stark = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false, features = [ "recursive_with_poseidon", "keccak_160_lsb", "stone6" ] }
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>

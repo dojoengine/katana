@@ -23,7 +23,7 @@ serde_json.workspace = true
 starknet.workspace = true
 starknet-crypto.workspace = true
 starknet-types-core.workspace = true
-swiftness_stark = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false, features = ["recursive_with_poseidon", "keccak_160_lsb", "stone6"], optional = true }
+swiftness_stark = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
