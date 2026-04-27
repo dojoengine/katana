@@ -32,7 +32,7 @@ use garaga_rs::calldata::full_proof_with_hints::groth16::{
 };
 use garaga_rs::definitions::CurveID;
 use num_bigint::BigUint;
-use starknet_rust_core::types::Felt;
+use starknet::core::types::Felt;
 use tracing::info;
 
 use crate::prover::OnchainProof;

@@ -1,5 +1,5 @@
-use starknet_rust_core::crypto::HashFunction;
-use starknet_rust_core::types::Felt;
+use starknet::core::crypto::HashFunction;
+use starknet::core::types::Felt;
 use alloy_primitives::{Bytes, B256};
 use amd_sev_snp_attestation_verifier::compute_storage_commitment;
 

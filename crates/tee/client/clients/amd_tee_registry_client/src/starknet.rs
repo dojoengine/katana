@@ -1,9 +1,9 @@
 use alloy_primitives::B256;
 use num_bigint::BigUint;
-use starknet_rust_core::types::{BlockId, BlockTag, Felt, FunctionCall};
-use starknet_rust_core::utils::get_selector_from_name;
-use starknet_rust_providers::jsonrpc::HttpTransport;
-use starknet_rust_providers::{JsonRpcClient, Provider};
+use starknet::core::types::{BlockId, BlockTag, Felt, FunctionCall};
+use starknet::core::utils::get_selector_from_name;
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider};
 use url::Url;
 
 use crate::Error;

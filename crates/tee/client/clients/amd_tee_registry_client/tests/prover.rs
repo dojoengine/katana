@@ -1,7 +1,7 @@
 use amd_tee_registry_client::{
     AmdAttestationProver, Error, ProverConfig, StarknetRegistryClient, ATTESTATION_REPORT_SIZE,
 };
-use starknet_rust_core::types::Felt;
+use starknet::core::types::Felt;
 
 #[test]
 fn test_prover_creation() {

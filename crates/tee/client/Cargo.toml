@@ -45,6 +45,11 @@ hex = "0.4"
 reqwest = { version = "0.12", features = ["rustls-tls", "blocking"] }
 anyhow = "1"
 
+# Pinned to match katana root workspace's `starknet = "0.17.0"` so consumers
+# of the in-tree katana-tee crates can use the same starknet meta-crate as the
+# rest of the workspace instead of the renamed `starknet-rust-*` fork.
+starknet = "0.17.0"
+
 # SP1 SDK dependencies (matching AMD SDK versions exactly)
 sp1-sdk = { version = "5.2.1", default-features = false, features = ["network"] }
 alloy-primitives = { version = "=1.3.1", default-features = false }

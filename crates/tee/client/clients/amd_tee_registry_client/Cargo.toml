@@ -19,9 +19,9 @@ garaga_rs = { path = "../../crates/garaga/tools/garaga_rs" }
 # BigInt for calldata values
 num-bigint = "0.4"
 
-# Starknet RPC client (local submodule)
-starknet-rust-core = { path = "../../crates/starknet-rust/starknet-rust-core" }
-starknet-rust-providers = { path = "../../crates/starknet-rust/starknet-rust-providers" }
+# Starknet RPC client (matches katana root's `starknet = "0.17.0"` meta-crate;
+# re-exports `starknet::core` + `starknet::providers` etc.).
+starknet = { workspace = true }
 url = "2"
 
 # Async runtime
