@@ -1,0 +1,14 @@
+use starknet_rust::providers::{
+    Provider, Url,
+    jsonrpc::{HttpTransport, JsonRpcClient},
+};
+
+#[tokio::main]
+async fn main() {
+    let provider = JsonRpcClient::new(HttpTransport::new(
+        Url::parse("https://starknet-sepolia.public.blastapi.io/rpc/v0_9").unwrap(),
+    ));
+
+    let block_number = provider.block_number().await.unwrap();
+    println!("{block_number}");
+}

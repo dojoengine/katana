@@ -1,0 +1,27 @@
+[package]
+name = "starknet-rust-core-derive"
+version = "0.1.0"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = """
+Procedural macros for `starknet-rust-core`
+"""
+keywords.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.88"
+quote = "1.0.37"
+syn = "2.0.15"
+
+[features]
+default = []
+import_from_starknet = []
+
+[lints]
+workspace = true

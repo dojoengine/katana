@@ -1,0 +1,7 @@
+/examples/starknet-rust-cxx/build/
+/target/
+/.idea
+
+.DS_Store
+
+.spr.yml

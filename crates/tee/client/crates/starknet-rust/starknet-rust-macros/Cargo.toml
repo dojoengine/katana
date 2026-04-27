@@ -1,0 +1,26 @@
+[package]
+name = "starknet-rust-macros"
+version = "0.2.6"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = """
+Procedural macros for `starknet-rust`
+"""
+keywords.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+starknet-rust-core = { version = "0.17.0", path = "../starknet-rust-core" }
+syn = "2.0.15"
+
+[features]
+default = []
+use_imported_type = []
+
+[lints]
+workspace = true

@@ -1,0 +1,81 @@
+on:
+  push:
+    branches:
+      - "master"
+  pull_request:
+
+name: "Build feature combinations"
+
+jobs:
+  feature-powerset:
+    name: "Build ${{ matrix.package }} features"
+    runs-on: "ubuntu-latest"
+
+    strategy:
+      matrix:
+        package:
+          - "starknet-rust-curve"
+          - "starknet-rust-crypto"
+          - "starknet-rust-core"
+          - "starknet-rust-providers"
+          - "starknet-rust-signers"
+          - "starknet-rust-accounts"
+          - "starknet-rust-contract"
+          - "starknet-rust-macros"
+          - "starknet-rust"
+
+    steps:
+      - name: "Checkout source code"
+        uses: "actions/checkout@v6"
+
+      - name: "Setup stable toolchain"
+        uses: "actions-rs/toolchain@v1"
+        with:
+          toolchain: "stable"
+          profile: "minimal"
+          override: true
+
+      - name: "Use Rust cache"
+        uses: "Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5" # v2.8.2
+        with:
+          cache-on-failure: true
+
+      - name: "Install cargo-hack"
+        run: |
+          cargo install --locked cargo-hack
+
+      - name: "Build all feature combinations"
+        run: |
+          cargo hack build --package ${{ matrix.package }} --feature-powerset
+
+  cpp-integration:
+    name: "Build C++ integration example"
+    runs-on: "ubuntu-latest"
+
+    steps:
+      - name: "Checkout source code"
+        uses: "actions/checkout@v6"
+
+      - name: "Setup stable toolchain"
+        uses: "actions-rs/toolchain@v1"
+        with:
+          toolchain: "stable"
+          profile: "minimal"
+          override: true
+
+      - name: "Use Rust cache"
+        uses: "Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5" # v2.8.2
+        with:
+          cache-on-failure: true
+
+      - name: "Build starknet-rust-cxx example"
+        run: |
+          cd ./examples/starknet-rust-cxx
+          mkdir build
+          cd ./build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          make
+
+      - name: "Run starknet-rust-cxx example"
+        run: |
+          ./examples/starknet-rust-cxx/build/main
