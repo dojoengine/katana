@@ -1,0 +1,42 @@
+[sncast.devnet]
+network = "devnet"
+account = "$DEVNET_ACCOUNT_ADDRESS"
+wait-params = { timeout = 60, retry-interval = 2 }
+show-explorer-links = false
+
+[sncast.devnet.networks]
+devnet = "http://127.0.0.1:5050"
+
+[sncast.sepolia]
+network = "sepolia"
+account = "DevAccount"
+wait-params = { timeout = 300, retry-interval = 10 }
+block-explorer = "StarkScan"
+show-explorer-links = true
+
+[sncast.sepolia.networks]
+sepolia = "$SEPOLIA_RPC_URL"
+
+[sncast.mainnet]
+network = "mainnet"
+account = "$MAINNET_ACCOUNT_ADDRESS"
+wait-params = { timeout = 600, retry-interval = 15 }
+block-explorer = "StarkScan"
+show-explorer-links = true
+
+[sncast.mainnet.networks]
+mainnet = "$MAINNET_RPC_URL"
+
+[sncast.default]
+account = "devnet_mainnet_0"
+
+# Fork configurations for snforge tests
+[[tool.snforge.fork]]
+name = "MAINNET"
+url = "$MAINNET_RPC_URL"
+block_id.tag = "latest"
+
+[[tool.snforge.fork]]
+name = "SEPOLIA"
+url = "$SEPOLIA_RPC_URL"
+block_id.tag = "latest"

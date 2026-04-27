@@ -1,0 +1,45 @@
+# Visit https://foundry-rs.github.io/starknet-foundry/appendix/snfoundry-toml.html
+# and https://foundry-rs.github.io/starknet-foundry/projects/configuration.html for more information
+
+# [sncast.default]                                         # Define a profile name
+# url = "https://api.zan.top/public/starknet-sepolia/rpc/v0_10" # Url of the RPC provider
+# accounts-file = "../account-file"                        # Path to the file with the account data
+# account = "mainuser"                                     # Account from `accounts_file` or default account file that will be used for the transactions
+# keystore = "~/keystore"                                  # Path to the keystore file
+# wait-params = { timeout = 300, retry-interval = 10 }     # Wait for submitted transaction parameters
+# block-explorer = "StarkScan"                             # Block explorer service used to display links to transaction details
+# show-explorer-links = true                               # Print links pointing to pages with transaction details in the chosen block explorer
+
+[sncast.devnet]
+network = "devnet"
+account = "$STARKNET_ACCOUNT"
+wait-params = { timeout = 60, retry-interval = 2 }
+show-explorer-links = false
+
+[sncast.devnet.networks]
+devnet = "$STARKNET_RPC_URL_DEVNET"
+
+[sncast.sepolia]
+network = "sepolia"
+account = "$STARKNET_ACCOUNT"
+accounts-file = "$STARKNET_ACCOUNTS_FILE"
+wait-params = { timeout = 300, retry-interval = 10 }
+block-explorer = "StarkScan"
+show-explorer-links = true
+
+[sncast.sepolia.networks]
+sepolia = "$STARKNET_RPC_URL_SEPOLIA"
+
+[sncast.mainnet]
+network = "mainnet"
+account = "$STARKNET_ACCOUNT"
+accounts-file = "$STARKNET_ACCOUNTS_FILE"
+wait-params = { timeout = 600, retry-interval = 15 }
+block-explorer = "StarkScan"
+show-explorer-links = true
+
+[sncast.mainnet.networks]
+mainnet = "$MAINNET_RPC_URL"
+
+[sncast.default]
+account = "devnet_mainnet_0"

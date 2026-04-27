@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+echo "Running cargo fmt..."
+cargo fmt --all
+
+echo "Running scarb fmt..."
+scarb fmt
+
+echo "Formatting complete!"

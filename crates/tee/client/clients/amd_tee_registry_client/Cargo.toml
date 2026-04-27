@@ -1,0 +1,45 @@
+[package]
+name = "amd_tee_registry_client"
+version.workspace = true
+edition.workspace = true
+description = "AMD TEE attestation prover - generate SP1 Groth16 proofs and Starknet calldata"
+
+[dependencies]
+# AMD SEV-SNP SDK for attestation proving
+amd-sev-snp-attestation-prover = { workspace = true }
+amd-sev-snp-attestation-verifier = { workspace = true }
+x509-verifier-rust-crypto = { workspace = true }
+
+# Alloy types (for Bytes)
+alloy-primitives = { workspace = true }
+
+# Garaga for Starknet calldata generation
+garaga_rs = { path = "../../crates/garaga/tools/garaga_rs" }
+
+# BigInt for calldata values
+num-bigint = "0.4"
+
+# Starknet RPC client (local submodule)
+starknet-rust-core = { path = "../../crates/starknet-rust/starknet-rust-core" }
+starknet-rust-providers = { path = "../../crates/starknet-rust/starknet-rust-providers" }
+url = "2"
+
+# Async runtime
+tokio = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Cryptographic hashing
+sha2 = "0.10"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }

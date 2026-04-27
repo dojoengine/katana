@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  test:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "2.15.0"
+      - uses: foundry-rs/setup-snfoundry@v4
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Install starknet-devnet
+        run: pip install "starknet-devnet==0.7.1"
+      - name: Prepare env
+        run: cp .env.example .env
+      - name: Run full test suite
+        run: make test
