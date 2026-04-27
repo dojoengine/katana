@@ -1,2 +1,9 @@
 [build]
 rustflags = ["-A", "mismatched_lifetime_syntaxes"]
+
+# Cargo's MSRV-aware resolver: when latest crate versions exceed katana root's
+# pinned rustc 1.89.0, fall back to the latest version whose `rust-version` is
+# <= 1.89. Required because some transitive AWS SDK and ruint releases bumped
+# their MSRV past 1.89.
+[resolver]
+incompatible-rust-versions = "fallback"
