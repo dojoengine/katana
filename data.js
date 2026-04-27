@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776957986103,
+  "lastUpdate": 1777315810948,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -22811,6 +22811,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 275,
             "range": "± 17",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "232dba3012dcd5130f27876eabba46bb5f8e4804",
+          "message": "feat(cli): support TEE settlement via `katana init rollup --tee` (#555)\n\n## Summary\n\nAdds a TEE proof-mode path to `katana init rollup` that configures the\ndeployed Piltover core contract for AMD SEV-SNP + SP1 Groth16 settlement\ninstead of STARK proofs.\n\n`katana init rollup --tee --tee-registry-address <ADDR> ...` declares\nand deploys Piltover with the same constructor and program-info setup as\nthe ZK path, but wires its `set_facts_registry(...)` to the\nuser-supplied `IAMDTeeRegistry` contract instead of Herodotus Atlantic.\n\nThe interactive flow gains a \"Proof mode\" select (STARK / TEE) at the\nsame step.\n\n## Decisions\n\n**Flag, not a new subcommand.** A `--tee` switch on `init rollup` keeps\nchain id, settlement chain, account credentials, and output-path\nhandling in one place; a sibling `init tee` subcommand would have\nduplicated the entire `RollupArgs` struct for one behavioural swap.\nClap's `requires_all` pairs `--tee` with `--tee-registry-address` and\n`conflicts_with` makes the TEE flag mutually exclusive with\n`--settlement-facts-registry` at parse time rather than via a runtime\nerror.\n\n**Consume an existing TEE registry address; don't deploy one.**\n`saya-ops` already has `core-contract\ndeclare-and-deploy-tee-registry-mock`, and production TEE registries are\nexpected to be deployed out-of-band. Keeping this responsibility out of\n`katana init` avoids vendoring a second contract class into the binary\nsolely for a test-harness path.\n\n**TEE-specific configuration is not persisted in the chain spec.** Only\nthe Piltover address lands in `SettlementLayer::Starknet {\ncore_contract, ... }` — the TEE registry address flows to `saya-tee\nstart` via its own CLI flag. Persisting it here would expand the\n`SettlementLayer` enum for a value only one downstream consumer uses.\n\n**`set_program_info(...)` is still called with the ZK hashes in TEE\nmode.** Piltover ignores program info on the `TeeInput` code path, but\ncalling it with the existing SNOS / layout-bridge / bootloader hashes\nmatches `saya-ops core-contract setup-program` exactly and lets a\nTEE-configured Piltover fall back cleanly if it is ever redirected at a\nZK fact registry.\n\n**The appchain class is rebuilt from `cartridge-gg/piltover` at\n`feat/tee-persistent` (pinned at `37e487f`) rather than reusing Saya's\nvendored `core_contract.json`.** Saya's vendored class (hash\n`0x777e9e...`) was compiled at piltover commit `67e65b8`, which predates\nthe `TeeInput` variant of `PiltoverInput` — commits `d802157` (add TEE\ninput support) and `dc86b13` (message support in TEEInput) are not in\nits source tree. Deploying that class for TEE would fail at\n`update_state()` because `appchain.cairo` doesn't know how to dispatch a\nTEE input. The class at `37e487f` handles both `LayoutBridgeOutput*` and\n`TeeInput`, so it is a strict superset and serves both ZK and TEE paths;\nkeeping two artifacts for the same contract would be strictly worse.\n\n**Rebuild at workspace-build time instead of re-vendoring, for source\ntraceability.** `crates/contracts/build.rs` now invokes `scarb build`\ninside the submodule alongside the existing VRF / AVNU / OpenZeppelin\nflows and copies the resulting artifacts into `crates/contracts/build/`.\n`katana_contracts::piltover::{Appchain, MockAmdTeeRegistry}` wrap them\nvia the existing `contract!` macro, baking `HASH` and `CASM_HASH` in at\ncompile time; `deployment.rs` now uses those constants directly instead\nof parsing the embedded JSON and computing the CASM hash at runtime,\nwhich also trims ~100 ms off every `katana init rollup` invocation.\n\n**Custom-chain + `--tee` lifts the existing\n`--settlement-facts-registry` requirement.** In TEE mode,\n`--tee-registry-address` *is* the fact registry for the Piltover\ncontract, so demanding a second address for custom settlement chains\nwould be redundant and confusing. The resolution of the effective\nfact-registry value across all three modes (TEE / explicit override /\nprovider default) is isolated in a pure\n`resolve_effective_fact_registry` helper so that decision tree is\nunit-tested without touching the settlement chain.",
+          "timestamp": "2026-04-27T13:17:20-05:00",
+          "tree_id": "7233ad75f1a769db4977f86d1513a153d0118121",
+          "url": "https://github.com/dojoengine/katana/commit/232dba3012dcd5130f27876eabba46bb5f8e4804"
+        },
+        "date": 1777315808344,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2641968,
+            "range": "± 41872",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2916773,
+            "range": "± 20002",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 35,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 25,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 35,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 25,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 639,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 847,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 77,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 36,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 163,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 138,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 161,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 237,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 204,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 254,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 158,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 308,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 139,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 120,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 85,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 58,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 81,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 58,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 85,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 58,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 82,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 58,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 81,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 58,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 25,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 28,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 12,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 18073,
+            "range": "± 241",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3590,
+            "range": "± 93",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 374,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 796,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 147,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 142,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1630,
+            "range": "± 86",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2283,
+            "range": "± 388",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 700,
+            "range": "± 103",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 907,
+            "range": "± 153",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 32055,
+            "range": "± 2205",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6094,
+            "range": "± 260",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 165,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 217,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 299,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 248,
+            "range": "± 16",
             "unit": "ns/iter"
           }
         ]
