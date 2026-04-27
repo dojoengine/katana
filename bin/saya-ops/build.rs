@@ -23,15 +23,17 @@ const CONTRACTS: &[(&str, &str)] = &[
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let workspace_root = manifest_dir.join("../..");
-    let piltover_dir = workspace_root.join("piltover");
+    let repo_root = manifest_dir.join("../..");
+    // Piltover lives under crates/contracts/contracts/piltover in the katana
+    // repo (single shared submodule). Saya's old layout had it at <root>/piltover.
+    let piltover_dir = repo_root.join("crates/contracts/contracts/piltover");
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../../piltover/src");
-    println!("cargo:rerun-if-changed=../../piltover/Scarb.toml");
-    println!("cargo:rerun-if-changed=../../piltover/Scarb.lock");
-    println!("cargo:rerun-if-changed=../../piltover/.tool-versions");
+    println!("cargo:rerun-if-changed=../../crates/contracts/contracts/piltover/src");
+    println!("cargo:rerun-if-changed=../../crates/contracts/contracts/piltover/Scarb.toml");
+    println!("cargo:rerun-if-changed=../../crates/contracts/contracts/piltover/Scarb.lock");
+    println!("cargo:rerun-if-changed=../../crates/contracts/contracts/piltover/.tool-versions");
 
     // Auto-init the submodule if it's empty (user may have cloned without
     // `--recursive`). Mirrors katana's `initialize_submodule` helper in
