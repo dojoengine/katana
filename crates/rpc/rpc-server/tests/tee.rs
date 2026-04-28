@@ -40,12 +40,8 @@ fn mock_api(
     factory: DbProviderFactory,
     fork_block_number: Option<u64>,
 ) -> TeeApi<DbProviderFactory> {
-    TeeApi::new(
-        factory,
-        Arc::new(MockProvider::new()),
-        fork_block_number,
-        sample_katana_tee_config_hash(),
-    )
+    let (chain_id, fee_token) = sample_chain_spec();
+    TeeApi::new(factory, Arc::new(MockProvider::new()), fork_block_number, chain_id, fee_token)
 }
 
 fn make_block(
@@ -120,11 +116,19 @@ fn sharding_report_data_v1(fields: [Felt; 8], katana_tee_config_hash: Felt) -> [
     out
 }
 
-fn sample_katana_tee_config_hash() -> Felt {
-    compute_katana_tee_config_hash(
+/// Sample chain spec inputs that flow through `TeeApi::new` to derive the
+/// expected `katana_tee_config_hash`. Tests use these to construct a `TeeApi`
+/// and to recompute the expected hash for assertions.
+fn sample_chain_spec() -> (Felt, ContractAddress) {
+    (
         felt!("0x4b4154414e41"), // "KATANA"
-        felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"),
+        felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d").into(),
     )
+}
+
+fn sample_katana_tee_config_hash() -> Felt {
+    let (chain_id, fee_token) = sample_chain_spec();
+    compute_katana_tee_config_hash(chain_id, fee_token.into())
 }
 
 fn empty_messages_commitment() -> Felt {
@@ -606,9 +610,10 @@ async fn generate_quote_prev_block_number_wire_format() {
     assert_eq!(round_trip_some.prev_block_number, Some(0));
 }
 
-/// The TeeApi-stored config hash is bound into both halves of `report_data` *and*
-/// echoed back in the response. Guards against a refactor regressing one side or
-/// the other (response field and attested value must agree).
+/// `TeeApi::new` derives the config hash from chain spec inputs (`chain_id`,
+/// `fee_token_address`) and binds it into both halves of `report_data` and
+/// the response. Guards against a refactor regressing the derivation or any
+/// of the bind sites.
 #[tokio::test]
 async fn generate_quote_precomputed_config_hash_binding() {
     let factory = DbProviderFactory::new_in_memory();
@@ -618,23 +623,24 @@ async fn generate_quote_precomputed_config_hash_binding() {
         Vec::new(),
     );
 
-    // Use a distinct hash from sample_katana_tee_config_hash() to prove the binding
-    // tracks whatever the node was constructed with, not a hard-coded constant.
-    let custom_hash = compute_katana_tee_config_hash(
-        felt!("0x534e5f5345504f4c4941"), // "SN_SEPOLIA"
-        felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"),
-    );
-    let api = TeeApi::new(factory, Arc::new(MockProvider::new()), None, custom_hash);
+    // Use distinct chain-spec inputs from `sample_chain_spec` to prove the
+    // hash tracks construction-time values, not a hard-coded constant.
+    let chain_id = felt!("0x534e5f5345504f4c4941"); // "SN_SEPOLIA"
+    let fee_token: ContractAddress =
+        felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d").into();
+    let expected_hash = compute_katana_tee_config_hash(chain_id, fee_token.into());
+
+    let api = TeeApi::new(factory, Arc::new(MockProvider::new()), None, chain_id, fee_token);
     let resp = api.generate_quote(None, 0).await.expect("generate_quote");
 
-    // 1. Response carries the configured hash.
-    assert_eq!(resp.katana_tee_config_hash, custom_hash);
+    // 1. Response carries the derived hash.
+    assert_eq!(resp.katana_tee_config_hash, expected_hash);
 
     // 2. Second half of report_data decodes back to the same Felt.
     let report_data = extract_report_data(&resp.quote);
     let mut second_half = [0u8; 32];
     second_half.copy_from_slice(&report_data[32..]);
-    assert_eq!(Felt::from_bytes_be(&second_half), custom_hash);
+    assert_eq!(Felt::from_bytes_be(&second_half), expected_hash);
 
     // 3. First half is the v1 commitment that includes the same hash as a Poseidon input.
     let expected = appchain_report_data_v1(
@@ -647,7 +653,7 @@ async fn generate_quote_precomputed_config_hash_binding() {
             Felt::ZERO,
             empty_messages_commitment(),
         ],
-        custom_hash,
+        expected_hash,
     );
     assert_eq!(report_data, expected);
 }

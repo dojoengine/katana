@@ -44,7 +44,7 @@ use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::StarknetApiServer;
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
-use katana_rpc_api::tee::{compute_katana_tee_config_hash, TeeApiServer};
+use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::dev::DevApi;
 use katana_rpc_server::middleware::cartridge::{ControllerDeploymentLayer, VrfLayer};
@@ -402,24 +402,16 @@ where
                 _ => anyhow::bail!("Mock TEE provider requires the 'tee-mock' feature"),
             };
 
-            let katana_tee_config_hash = compute_katana_tee_config_hash(
-                backend.chain_spec.id().into(),
-                backend.chain_spec.fee_contracts().strk.into(),
-            );
             let api = TeeApi::new(
                 provider.clone(),
                 tee_provider,
                 tee_config.fork_block_number,
-                katana_tee_config_hash,
+                backend.chain_spec.id().into(),
+                backend.chain_spec.fee_contracts().strk,
             );
             rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 
-            info!(
-                target: "node",
-                provider = ?tee_config.provider_type,
-                %katana_tee_config_hash,
-                "TEE API enabled"
-            );
+            info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
         }
 
         // --- build rpc middleware
