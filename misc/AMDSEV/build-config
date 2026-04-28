@@ -20,3 +20,17 @@ BUSYBOX_PKG_SHA256="944b2728f53ceb3916cec2c962873c9951e612408099601751db2a0a5d81
 # Kernel modules extra (Ubuntu package, for initrd SEV-SNP support)
 KERNEL_MODULES_EXTRA_PKG_VERSION="6.8.0-90.91"
 KERNEL_MODULES_EXTRA_PKG_SHA256="c17bd76779ce68a076dc1ef9b1669947f35f1868f6736dbd0a8a7ccacf7571f3"
+
+# Kernel modules main (Ubuntu package, for initrd dm-crypt / dm-integrity).
+# Used only by the canonical sealed-storage build.
+KERNEL_MODULES_PKG_VERSION="6.8.0-90.91"
+KERNEL_MODULES_PKG_SHA256="466b8912637defb01f8c37191a36afebbf0589eac9395cebff8d33cc269155a7"
+
+# cryptsetup source (kernel.org tarball, built statically inside a pinned
+# Alpine container during the canonical sealed-storage build).
+CRYPTSETUP_VERSION="2.7.5"
+CRYPTSETUP_SHA256="d2be4395b8f503b0ebf4b2d81db90c35a97050a358ee21fe62a0dfb66e5d5522"
+
+# Container image used to build static cryptsetup. Pinned by sha256 digest so
+# the build matches across hosts. Bump when upgrading Alpine.
+CRYPTSETUP_BUILDER_IMAGE="alpine@sha256:1e42bbe2508154c9126d48c2b8a75420c3544343bf86fd041fb7527e017a4b4a"
