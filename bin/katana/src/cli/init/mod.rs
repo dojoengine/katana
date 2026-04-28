@@ -349,6 +349,7 @@ impl RollupArgs {
                     contract,
                     &settlement_provider,
                     effective_fact_registry,
+                    self.tee,
                 )
                 .await
                 .with_context(|| "settlement contract validation failed.".to_string())
@@ -378,6 +379,7 @@ impl RollupArgs {
                     account,
                     chain_id,
                     effective_fact_registry,
+                    self.tee,
                 )
                 .await
                 .with_context(|| "failed to deploy settlement contract".to_string())

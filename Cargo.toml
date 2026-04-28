@@ -257,7 +257,7 @@ starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb
 
 cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
-piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
+piltover = { git = "https://github.com/cartridge-gg/piltover.git", branch = "feat/tee-persistent" }
 
 # paymaster
 paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main

@@ -163,41 +163,44 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
     // TEE mode: point Piltover's fact-registry at the IAMDTeeRegistry.
     // ZK mode: use the provider's default (Herodotus Atlantic for mainnet/sepolia,
     // or the address the user entered for a custom chain).
+    let tee = tee_registry_address.is_some();
     let fact_registry =
         tee_registry_address.map(|a| *a).unwrap_or_else(|| settlement_provider.fact_registry());
 
     // The core settlement contract on L1c.
     // Prompt the user whether to deploy the settlement contract or not.
-    let deployment_outcome =
-        if Confirm::new("Deploy settlement contract?").with_default(true).prompt()? {
-            deployment::deploy_settlement_contract(account, chain_id.into(), fact_registry).await?
-        }
-        // If denied, prompt the user for an already deployed contract.
-        else {
-            let address = CustomType::<ContractAddress>::new("Settlement contract")
-                .with_parser(contract_exist_parser)
-                .prompt()?;
+    let deployment_outcome = if Confirm::new("Deploy settlement contract?")
+        .with_default(true)
+        .prompt()?
+    {
+        deployment::deploy_settlement_contract(account, chain_id.into(), fact_registry, tee).await?
+    }
+    // If denied, prompt the user for an already deployed contract.
+    else {
+        let address = CustomType::<ContractAddress>::new("Settlement contract")
+            .with_parser(contract_exist_parser)
+            .prompt()?;
 
-            // Check that the settlement contract has been initialized with the correct program
-            // info.
-            deployment::check_program_info(
-                chain_id.into(),
-                address,
-                &settlement_provider,
-                fact_registry,
-            )
-            .await
-            .context(
-                "Invalid settlement contract. The contract might have been configured incorrectly.",
-            )?;
+        // Check that the settlement contract has been initialized with the correct program
+        // info.
+        deployment::check_program_info(
+            chain_id.into(),
+            address,
+            &settlement_provider,
+            fact_registry,
+            tee,
+        )
+        .await
+        .context(
+            "Invalid settlement contract. The contract might have been configured incorrectly.",
+        )?;
 
-            let block_number =
-                CustomType::<BlockNumber>::new("Settlement contract deployment block")
-                    .with_help_message("The block at which the settlement contract was deployed")
-                    .prompt()?;
+        let block_number = CustomType::<BlockNumber>::new("Settlement contract deployment block")
+            .with_help_message("The block at which the settlement contract was deployed")
+            .prompt()?;
 
-            DeploymentOutcome { contract_address: address, block_number }
-        };
+        DeploymentOutcome { contract_address: address, block_number }
+    };
 
     let slot_paymasters = prompt_slot_paymasters()?;
 

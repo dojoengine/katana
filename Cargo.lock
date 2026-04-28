@@ -2124,11 +2124,11 @@ source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b
 dependencies = [
  "anyhow",
  "async-trait",
- "cainome-cairo-serde",
- "cainome-cairo-serde-derive",
- "cainome-parser",
- "cainome-rs",
- "cainome-rs-macro",
+ "cainome-cairo-serde 0.3.0",
+ "cainome-cairo-serde-derive 0.1.0 (git+https://github.com/cartridge-gg/cainome?rev=7d60de1)",
+ "cainome-parser 0.5.1",
+ "cainome-rs 0.4.0",
+ "cainome-rs-macro 0.4.0",
  "camino",
  "clap",
  "clap_complete",
@@ -2137,6 +2137,33 @@ dependencies = [
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "starknet-types-core 0.1.8",
+ "thiserror 2.0.12",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "cainome"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f296568cda6f1f4934270a321151f9f51afa737450f67ef13a8534f2bd9afdac"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "cainome-cairo-serde 0.4.1",
+ "cainome-cairo-serde-derive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cainome-parser 0.6.0",
+ "cainome-rs 0.5.1",
+ "cainome-rs-macro 0.5.1",
+ "camino",
+ "clap",
+ "clap_complete",
+ "convert_case 0.8.0",
+ "serde",
+ "serde_json",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "starknet-types-core 0.2.3",
  "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
@@ -2153,6 +2180,31 @@ dependencies = [
  "serde_with",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 2.0.12",
+]
+
+[[package]]
+name = "cainome-cairo-serde"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95ae2d4c21db23c7730a85187c2e9d73fe00c123171839185fb13f31550f3240"
+dependencies = [
+ "num-bigint",
+ "serde",
+ "serde_with",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "cainome-cairo-serde-derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d272424141f0ced49ca5f40bc4b756235ee6e7c9cf6ab01f7ef5ac010f5f8864"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
+ "unzip-n",
 ]
 
 [[package]]
@@ -2180,13 +2232,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "cainome-parser"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ffdbc6abfba9c7e91beb87fe7561f097d9f7bbda45c6ff74be3a9ff3f1a0124"
+dependencies = [
+ "convert_case 0.8.0",
+ "quote",
+ "serde_json",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syn 2.0.104",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "cainome-rs"
 version = "0.4.0"
 source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b3644677f55cee053596e99f461"
 dependencies = [
  "anyhow",
- "cainome-cairo-serde",
- "cainome-parser",
+ "cainome-cairo-serde 0.3.0",
+ "cainome-parser 0.5.1",
+ "camino",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syn 2.0.104",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "cainome-rs"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93aa5c33e66b58ff6723d3e43e60fe163ac20719ea89fce921096e654b15bcd6"
+dependencies = [
+ "anyhow",
+ "cainome-cairo-serde 0.4.1",
+ "cainome-parser 0.6.0",
  "camino",
  "prettyplease",
  "proc-macro2",
@@ -2203,9 +2288,28 @@ version = "0.4.0"
 source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b3644677f55cee053596e99f461"
 dependencies = [
  "anyhow",
- "cainome-cairo-serde",
- "cainome-parser",
- "cainome-rs",
+ "cainome-cairo-serde 0.3.0",
+ "cainome-parser 0.5.1",
+ "cainome-rs 0.4.0",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syn 2.0.104",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "cainome-rs-macro"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d679cd9a88b9d412ed4ed30264b80f1bec6c1aa9656e238f06be560ddebb652"
+dependencies = [
+ "anyhow",
+ "cainome-cairo-serde 0.4.1",
+ "cainome-parser 0.6.0",
+ "cainome-rs 0.5.1",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -6088,7 +6192,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "byte-unit",
- "cainome",
+ "cainome 0.9.1",
  "cairo-lang-starknet-classes",
  "clap",
  "clap_complete",
@@ -6107,6 +6211,7 @@ dependencies = [
  "katana-genesis",
  "katana-primitives",
  "katana-provider",
+ "katana-rpc-api",
  "katana-rpc-types",
  "katana-starknet",
  "katana-utils",
@@ -6682,7 +6787,7 @@ dependencies = [
 name = "katana-paymaster"
 version = "1.7.0"
 dependencies = [
- "cainome",
+ "cainome 0.9.1",
  "http 1.3.1",
  "jsonrpsee 0.26.0",
  "katana-contracts",
@@ -6756,8 +6861,8 @@ dependencies = [
  "arbitrary",
  "assert_matches",
  "blockifier",
- "cainome",
- "cainome-cairo-serde",
+ "cainome 0.9.1",
+ "cainome-cairo-serde 0.3.0",
  "cairo-lang-sierra",
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
@@ -6876,7 +6981,7 @@ dependencies = [
  "assert_matches",
  "auto_impl",
  "axum 0.7.9",
- "cainome",
+ "cainome 0.9.1",
  "cairo-lang-starknet-classes",
  "cartridge",
  "hex",
@@ -6939,8 +7044,8 @@ version = "1.7.0"
 dependencies = [
  "arbitrary",
  "assert_matches",
- "cainome",
- "cainome-cairo-serde",
+ "cainome 0.9.1",
+ "cainome-cairo-serde 0.3.0",
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
  "derive_more 0.99.20",
@@ -8675,9 +8780,9 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 [[package]]
 name = "piltover"
 version = "0.1.0"
-source = "git+https://github.com/kariy/piltover.git?branch=feat%2Frpc0.9#fda4f1668344021d30c506070ef54a790f4cc5cb"
+source = "git+https://github.com/cartridge-gg/piltover.git?branch=feat%2Ftee-persistent#ebb714b3a0e63da8088ea4f371bcca2a1a3f74f0"
 dependencies = [
- "cainome",
+ "cainome 0.10.1",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -10235,7 +10340,7 @@ name = "saya-tee-e2e-test"
 version = "1.7.0"
 dependencies = [
  "anyhow",
- "cainome",
+ "cainome 0.9.1",
  "hex",
  "katana-chain-spec",
  "katana-genesis",
@@ -12848,7 +12953,7 @@ name = "vrf-e2e-test"
 version = "1.7.0"
 dependencies = [
  "axum 0.7.9",
- "cainome",
+ "cainome 0.9.1",
  "cartridge",
  "katana-cli",
  "katana-contracts",
