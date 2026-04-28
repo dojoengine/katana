@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_chain_spec::ChainSpec;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
-use katana_primitives::contract::ContractAddress;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::Tx;
 use katana_primitives::Felt;
@@ -46,17 +46,18 @@ where
     /// Create a new TEE API instance.
     ///
     /// The versioned environment config hash is derived from the chain spec
-    /// at construction time — `pedersen_array([KATANA_TEE_CONFIG_VERSION, chain_id,
-    /// fee_token_address])` — and bound into every attestation's `report_data`.
+    /// at construction time — `pedersen_array([KATANA_TEE_CONFIG_VERSION,
+    /// chain_id, fee_token_address])` — and bound into every attestation's
+    /// `report_data`.
     pub fn new(
         provider_factory: PF,
         tee_provider: Arc<dyn TeeProvider>,
         fork_block_number: Option<u64>,
-        chain_id: Felt,
-        fee_token_address: ContractAddress,
+        chain_spec: &ChainSpec,
     ) -> Self {
-        let katana_tee_config_hash =
-            compute_katana_tee_config_hash(chain_id, fee_token_address.into());
+        let chain_id: Felt = chain_spec.id().into();
+        let fee_token: Felt = chain_spec.fee_contracts().strk.into();
+        let katana_tee_config_hash = compute_katana_tee_config_hash(chain_id, fee_token);
         info!(
             target: "rpc::tee",
             provider_type = tee_provider.provider_type(),

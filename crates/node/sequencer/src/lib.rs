@@ -406,8 +406,7 @@ where
                 provider.clone(),
                 tee_provider,
                 tee_config.fork_block_number,
-                backend.chain_spec.id().into(),
-                backend.chain_spec.fee_contracts().strk,
+                &backend.chain_spec,
             );
             rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 

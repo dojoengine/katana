@@ -17,6 +17,7 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use jsonrpsee::server::ServerBuilder;
+use katana_chain_spec::ChainSpec;
 use katana_primitives::block::{Block, BlockNumber, FinalityStatus, Header, SealedBlockWithStatus};
 use katana_primitives::fee::FeeInfo;
 use katana_primitives::hash::{Poseidon, StarkHash};
@@ -40,8 +41,8 @@ fn mock_api(
     factory: DbProviderFactory,
     fork_block_number: Option<u64>,
 ) -> TeeApi<DbProviderFactory> {
-    let (chain_id, fee_token) = sample_chain_spec();
-    TeeApi::new(factory, Arc::new(MockProvider::new()), fork_block_number, chain_id, fee_token)
+    let chain_spec = sample_chain_spec();
+    TeeApi::new(factory, Arc::new(MockProvider::new()), fork_block_number, &chain_spec)
 }
 
 fn make_block(
@@ -116,19 +117,28 @@ fn sharding_report_data_v1(fields: [Felt; 8], katana_tee_config_hash: Felt) -> [
     out
 }
 
-/// Sample chain spec inputs that flow through `TeeApi::new` to derive the
-/// expected `katana_tee_config_hash`. Tests use these to construct a `TeeApi`
-/// and to recompute the expected hash for assertions.
-fn sample_chain_spec() -> (Felt, ContractAddress) {
-    (
+/// Build a minimal `ChainSpec` for tests by cloning the dev default and
+/// overriding only the two fields `TeeApi::new` reads to derive the config
+/// hash (chain id + STRK fee token address).
+fn build_chain_spec(chain_id: Felt, fee_token: ContractAddress) -> ChainSpec {
+    let mut spec = katana_chain_spec::dev::DEV.clone();
+    spec.id = chain_id.into();
+    spec.fee_contracts.strk = fee_token;
+    ChainSpec::Dev(spec)
+}
+
+fn sample_chain_spec() -> ChainSpec {
+    build_chain_spec(
         felt!("0x4b4154414e41"), // "KATANA"
         felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d").into(),
     )
 }
 
 fn sample_katana_tee_config_hash() -> Felt {
-    let (chain_id, fee_token) = sample_chain_spec();
-    compute_katana_tee_config_hash(chain_id, fee_token.into())
+    compute_katana_tee_config_hash(
+        felt!("0x4b4154414e41"),
+        felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"),
+    )
 }
 
 fn empty_messages_commitment() -> Felt {
@@ -629,8 +639,9 @@ async fn generate_quote_precomputed_config_hash_binding() {
     let fee_token: ContractAddress =
         felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d").into();
     let expected_hash = compute_katana_tee_config_hash(chain_id, fee_token.into());
+    let chain_spec = build_chain_spec(chain_id, fee_token);
 
-    let api = TeeApi::new(factory, Arc::new(MockProvider::new()), None, chain_id, fee_token);
+    let api = TeeApi::new(factory, Arc::new(MockProvider::new()), None, &chain_spec);
     let resp = api.generate_quote(None, 0).await.expect("generate_quote");
 
     // 1. Response carries the derived hash.
