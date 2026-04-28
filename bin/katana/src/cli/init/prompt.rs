@@ -59,30 +59,55 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
     // Ask about the proof mode before provider construction so the custom-chain
     // flow can use the TEE registry address as the provider's fact registry
     // (skipping the separate "Facts Registry" prompt).
-    #[derive(Debug, Clone, strum_macros::Display)]
+    #[derive(Debug, Clone, Copy, strum_macros::Display)]
     enum ProofMode {
-        #[strum(serialize = "STARK (Atlantic)")]
-        Stark,
-        #[strum(serialize = "TEE (AMD SEV-SNP + SP1 Groth16)")]
+        #[strum(serialize = "Validity Proof")]
+        ValidityProof,
+        #[strum(serialize = "TEE")]
         Tee,
     }
 
-    let proof_mode = Select::new("Proof mode", vec![ProofMode::Stark, ProofMode::Tee])
+    #[derive(Debug, Clone, Copy, strum_macros::Display)]
+    enum ValidityProofVariant {
+        #[strum(serialize = "STARK (Atlantic)")]
+        Stark,
+    }
+
+    #[derive(Debug, Clone, Copy, strum_macros::Display)]
+    enum TeeVariant {
+        #[strum(serialize = "AMD SEV-SNP + SP1 Groth16")]
+        AmdSevSnpSp1Groth16,
+    }
+
+    let proof_mode = Select::new("Proof mode", vec![ProofMode::ValidityProof, ProofMode::Tee])
         .with_help_message(
-            "STARK settles via Herodotus Atlantic; TEE points Piltover's fact-registry at an \
-             IAMDTeeRegistry contract.",
+            "Validity proofs settle via a fact registry (e.g. Herodotus Atlantic); TEE points \
+             Piltover's fact-registry at an attestation registry contract.",
         )
         .prompt()?;
 
-    let tee_registry_address: Option<ContractAddress> = match proof_mode {
-        ProofMode::Stark => None,
-        ProofMode::Tee => Some(
+    let use_tee = match proof_mode {
+        ProofMode::ValidityProof => {
+            let _ =
+                Select::new("Validity proof type", vec![ValidityProofVariant::Stark]).prompt()?;
+            false
+        }
+        ProofMode::Tee => {
+            let _ = Select::new("TEE type", vec![TeeVariant::AmdSevSnpSp1Groth16]).prompt()?;
+            true
+        }
+    };
+
+    let tee_registry_address: Option<ContractAddress> = if use_tee {
+        Some(
             CustomType::<ContractAddress>::new("TEE registry address")
                 .with_help_message(
                     "Address of the IAMDTeeRegistry contract on the settlement chain.",
                 )
                 .prompt()?,
-        ),
+        )
+    } else {
+        None
     };
 
     let settlement_provider = match network_type {
