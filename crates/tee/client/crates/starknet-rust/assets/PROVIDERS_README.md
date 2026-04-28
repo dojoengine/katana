@@ -1,1 +1,0 @@
-../starknet-rust-providers/README.md

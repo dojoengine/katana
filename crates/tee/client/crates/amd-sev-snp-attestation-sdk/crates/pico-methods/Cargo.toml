@@ -1,4 +1,0 @@
-[package]
-name = "pico-methods"
-version.workspace = true
-edition.workspace = true

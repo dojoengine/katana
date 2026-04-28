@@ -1,1 +1,0 @@
-../starknet-rust-accounts/README.md
