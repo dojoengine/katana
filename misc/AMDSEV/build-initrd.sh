@@ -44,7 +44,7 @@ usage() {
     echo "  OUTPUT_INITRD    Output path for the generated initrd.img"
     echo "  KERNEL_VERSION   Kernel version for module lookup (or set KERNEL_VERSION env var)"
     echo ""
-    echo "ENVIRONMENT VARIABLES (all required for reproducible builds):"
+    echo "ENVIRONMENT VARIABLES (all required for the canonical sealed build):"
     echo "  SOURCE_DATE_EPOCH                Unix timestamp for reproducible builds"
     echo "  BUSYBOX_PKG_VERSION              Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1)"
     echo "  BUSYBOX_PKG_SHA256               SHA256 checksum of the busybox .deb package"
@@ -57,9 +57,25 @@ usage() {
     echo "  CRYPTSETUP_BUILDER_IMAGE         Pinned container image digest used to build"
     echo "                                   cryptsetup statically (e.g., alpine@sha256:...)"
     echo ""
+    echo "All of these have canonical defaults in misc/AMDSEV/build-config; the"
+    echo "expected invocation is to source that file and run this script."
+    echo ""
     echo "OPTIONAL ENVIRONMENT VARIABLES:"
+    echo "  KATANA_UNSEALED_BUILD            Set to 1 to opt OUT of the sealed build."
+    echo "                                   Produces a pre-H5 unsealed-only initrd: no"
+    echo "                                   cryptsetup, no dm-* modules, no snp-derivekey."
+    echo "                                   Used by CI on hosts without Docker and for"
+    echo "                                   cheap dev iteration."
     echo "  CRYPTSETUP_BUILDER               Container runtime to use (default: docker;"
     echo "                                   can be set to podman or another compatible CLI)"
+    echo "  SNP_DERIVEKEY_BINARY             Path to a pre-built static snp-derivekey"
+    echo "                                   binary. Required for sealed-mode boot to work"
+    echo "                                   at runtime; if absent, the initrd builds but"
+    echo "                                   sealed boot will fatal_boot at first cryptsetup"
+    echo "                                   call. Build with:"
+    echo "                                     cargo build -p katana-tee --features snp \\"
+    echo "                                                 --bin snp-derivekey --release \\"
+    echo "                                                 --target x86_64-unknown-linux-musl"
     echo ""
     echo "EXAMPLES:"
     echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
@@ -156,26 +172,26 @@ for tool in "${REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
 done
 
-# Sealed-storage build is opt-in via env vars. Either all of CRYPTSETUP_VERSION /
-# CRYPTSETUP_SHA256 / CRYPTSETUP_BUILDER_IMAGE / KERNEL_MODULES_PKG_VERSION /
-# KERNEL_MODULES_PKG_SHA256 are set (full sealed support — build static
-# cryptsetup, cherry-pick dm-crypt / dm-integrity, optionally install
-# snp-derivekey), or none are set (unsealed-only initrd, pre-H5 shape).
-# Setting some but not all is an error — almost certainly a mistake.
-SEALED_STORAGE_BUILD=0
-SEALED_VARS_SET=0
-SEALED_VARS_TOTAL=0
-for v in CRYPTSETUP_VERSION CRYPTSETUP_SHA256 CRYPTSETUP_BUILDER_IMAGE \
-         KERNEL_MODULES_PKG_VERSION KERNEL_MODULES_PKG_SHA256; do
-    SEALED_VARS_TOTAL=$((SEALED_VARS_TOTAL + 1))
-    if [[ -n "${!v:-}" ]]; then
-        SEALED_VARS_SET=$((SEALED_VARS_SET + 1))
-    fi
-done
-if [[ "$SEALED_VARS_SET" -eq "$SEALED_VARS_TOTAL" ]]; then
+# Sealed-storage is the canonical build. The pinned env vars come from
+# `misc/AMDSEV/build-config`; sourcing that file is the standard way to invoke
+# this script (see `.github/workflows/amdsev-initrd-test.yml`).
+#
+# Opt out by setting `KATANA_UNSEALED_BUILD=1` in the environment. Used by
+# CI on hosts without Docker and for cheap dev-iteration builds. The result is
+# the pre-H5 unsealed-only initrd shape.
+#
+# Setting some but not all sealed env vars is an error — almost certainly a
+# misconfiguration of the operator's build environment rather than an
+# intentional partial build.
+if [[ "${KATANA_UNSEALED_BUILD:-0}" -eq 1 ]]; then
+    SEALED_STORAGE_BUILD=0
+else
     SEALED_STORAGE_BUILD=1
-elif [[ "$SEALED_VARS_SET" -gt 0 ]]; then
-    die "partial sealed-storage env vars set ($SEALED_VARS_SET of $SEALED_VARS_TOTAL); set all or none"
+    : "${CRYPTSETUP_VERSION:?canonical sealed build requires CRYPTSETUP_VERSION (source build-config or set KATANA_UNSEALED_BUILD=1 to opt out)}"
+    : "${CRYPTSETUP_SHA256:?canonical sealed build requires CRYPTSETUP_SHA256}"
+    : "${CRYPTSETUP_BUILDER_IMAGE:?canonical sealed build requires CRYPTSETUP_BUILDER_IMAGE}"
+    : "${KERNEL_MODULES_PKG_VERSION:?canonical sealed build requires KERNEL_MODULES_PKG_VERSION}"
+    : "${KERNEL_MODULES_PKG_SHA256:?canonical sealed build requires KERNEL_MODULES_PKG_SHA256}"
 fi
 
 # Static cryptsetup is built inside a pinned container. Verify the chosen

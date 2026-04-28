@@ -48,9 +48,11 @@ set -euo pipefail
 
 usage() {
     echo "Usage: $0 [BOOT_COMPONENTS_DIR] [--katana-args CSV] [--no-start]"
-    echo "          [--data-disk PATH] [--luks-uuid UUID]"
+    echo "          [--data-disk PATH] [--luks-uuid UUID] [--unsealed]"
     echo ""
     echo "Starts a SEV-SNP VM and launches Katana asynchronously via control channel."
+    echo "Sealed storage is the default — the disk is wrapped in LUKS2 + dm-integrity"
+    echo "and unlocked inside the guest via SNP_GET_DERIVED_KEY."
     echo ""
     echo "Arguments:"
     echo "  BOOT_COMPONENTS_DIR   Optional path containing OVMF.fd, vmlinuz, initrd.img"
@@ -62,11 +64,16 @@ usage() {
     echo "                        (default: ~/.katana/data.img, auto-created if absent)"
     echo "                        A user-specified PATH must already exist."
     echo "                        Env var: KATANA_DATA_DISK"
-    echo "  --luks-uuid UUID      Enable sealed storage. The guest initrd will open the"
-    echo "                        disk if its LUKS header UUID matches, format it with"
-    echo "                        the expected UUID if the disk is blank, and refuse any"
-    echo "                        other state. Operator-generated via uuidgen."
+    echo "  --luks-uuid UUID      Override the LUKS UUID used for sealed storage."
+    echo "                        Default: read from ~/.katana/luks-uuid, auto-generated"
+    echo "                        with uuidgen on first run and reused after. Stable per"
+    echo "                        host so the launch measurement is stable per host."
     echo "                        Env var: KATANA_LUKS_UUID"
+    echo "  --unsealed            Skip sealed storage — boot with plain ext4 on /dev/sda."
+    echo "                        Used for dev iteration and CI runs without Docker. The"
+    echo "                        kernel cmdline does NOT carry KATANA_EXPECTED_LUKS_UUID,"
+    echo "                        which produces a different (and pinnable) launch"
+    echo "                        measurement from the canonical sealed boot."
     echo "  -h, --help            Show this help"
 }
 
@@ -77,6 +84,8 @@ AUTO_START_KATANA=1
 DATA_DISK="${KATANA_DATA_DISK:-}"
 DATA_DISK_DEFAULT="${HOME}/.katana/data.img"
 LUKS_UUID="${KATANA_LUKS_UUID:-}"
+LUKS_UUID_FILE="${HOME}/.katana/luks-uuid"
+UNSEALED=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -112,6 +121,11 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
+        --unsealed)
+            UNSEALED=1
+            shift
+            ;;
+
         -h|--help)
             usage
             exit 0
@@ -131,12 +145,39 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# UUID must be canonical 8-4-4-4-12 hex (what cryptsetup luksUUID emits).
-if [[ -n "$LUKS_UUID" ]]; then
-    if [[ ! "$LUKS_UUID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
-        echo "Error: --luks-uuid must be canonical UUID form (e.g. from uuidgen): got '$LUKS_UUID'"
+# Sealed storage is canonical. Resolve the LUKS UUID unless the operator
+# explicitly opted out with --unsealed. Default: read from ~/.katana/luks-uuid,
+# generating with uuidgen on first run. This keeps the measurement stable per
+# host across boots while different operators get distinct UUIDs.
+#
+# UUIDs are normalised to lowercase before any persist/print/cmdline use:
+# macOS uuidgen emits uppercase, cryptsetup luksUUID always returns lowercase
+# at runtime, and the init does an exact string compare.
+if [[ "$UNSEALED" -eq 0 ]]; then
+    if [[ -z "$LUKS_UUID" ]]; then
+        if [[ -f "$LUKS_UUID_FILE" ]]; then
+            LUKS_UUID="$(tr -d '[:space:]' < "$LUKS_UUID_FILE")"
+            LUKS_UUID="$(printf '%s' "$LUKS_UUID" | tr '[:upper:]' '[:lower:]')"
+            echo "Reusing LUKS UUID from $LUKS_UUID_FILE: $LUKS_UUID"
+        else
+            command -v uuidgen >/dev/null 2>&1 \
+                || { echo "Error: uuidgen not found and no UUID provided"; exit 1; }
+            LUKS_UUID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+            mkdir -p "$(dirname "$LUKS_UUID_FILE")"
+            printf '%s\n' "$LUKS_UUID" > "$LUKS_UUID_FILE"
+            echo "Generated new LUKS UUID and stored at $LUKS_UUID_FILE: $LUKS_UUID"
+        fi
+    else
+        LUKS_UUID="$(printf '%s' "$LUKS_UUID" | tr '[:upper:]' '[:lower:]')"
+    fi
+
+    if [[ ! "$LUKS_UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        echo "Error: LUKS UUID must be canonical (e.g. from uuidgen): got '$LUKS_UUID'"
         exit 1
     fi
+elif [[ -n "$LUKS_UUID" ]]; then
+    echo "Error: --unsealed and --luks-uuid are mutually exclusive"
+    exit 1
 fi
 
 # ------------------------------------------------------------------------------

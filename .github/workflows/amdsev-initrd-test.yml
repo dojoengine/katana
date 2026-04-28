@@ -84,7 +84,13 @@ jobs:
                   KATANA_BINARY="./target/x86_64-unknown-linux-musl/performance/katana"
 
                   ./misc/AMDSEV/build-kernel.sh ./misc/AMDSEV/output/qemu
-                  ./misc/AMDSEV/build-initrd.sh "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/initrd.img "$KERNEL_VERSION"
+                  # The katana-dev container does not have Docker, so CI opts out
+                  # of the canonical sealed build (no static cryptsetup, no dm-*
+                  # modules). Sealed-mode validation needs a host runner with
+                  # Docker; tracked as a follow-up. test-initrd.sh below boots
+                  # the unsealed variant, which is the same shape as pre-H5.
+                  KATANA_UNSEALED_BUILD=1 \
+                      ./misc/AMDSEV/build-initrd.sh "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/initrd.img "$KERNEL_VERSION"
 
                   cp "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/katana
 
