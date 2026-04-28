@@ -11,11 +11,11 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use katana_tee::{SevSnpProvider, TeeProvider};
+//! use katana_tee::{Attester, SevSnpAttester};
 //!
-//! let provider = SevSnpProvider::new()?;
+//! let attester = SevSnpAttester::new()?;
 //! let user_data = [0u8; 64]; // Your 64-byte commitment
-//! let quote = provider.generate_quote(&user_data)?;
+//! let quote = attester.generate_quote(&user_data)?;
 //! ```
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
@@ -32,16 +32,16 @@ mod snp;
 
 pub use error::TeeError;
 #[cfg(any(test, feature = "tee-mock"))]
-pub use mock::MockProvider;
+pub use mock::MockAttester;
 #[cfg(feature = "snp")]
-pub use snp::SevSnpProvider;
+pub use snp::SevSnpAttester;
 
-/// Trait for TEE providers that can generate attestation quotes.
+/// Trait for TEE attesters that can generate attestation quotes.
 ///
 /// Implementations of this trait interact with TEE hardware to generate
 /// cryptographic attestation quotes that bind user-provided data to the
 /// hardware state.
-pub trait TeeProvider: Send + Sync + Debug {
+pub trait Attester: Send + Sync + Debug {
     /// Generate an attestation quote with the given user data.
     ///
     /// # Arguments
@@ -53,11 +53,11 @@ pub trait TeeProvider: Send + Sync + Debug {
     /// * `Err(TeeError)` - If quote generation fails.
     fn generate_quote(&self, user_data: &[u8; 64]) -> Result<Vec<u8>, TeeError>;
 
-    /// Returns the name/type of this TEE provider for logging purposes.
-    fn provider_type(&self) -> &'static str;
+    /// Returns the name of this attester for logging purposes.
+    fn name(&self) -> &'static str;
 }
 
-/// TEE provider type enumeration.
+/// TEE attester kind enumeration.
 ///
 /// `SevSnp` is the only variant intended for production use. `Mock` is gated
 /// behind the `tee-mock` feature and exists exclusively to let integration test
@@ -65,17 +65,17 @@ pub trait TeeProvider: Send + Sync + Debug {
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
 )]
-pub enum TeeProviderType {
-    /// AMD SEV-SNP provider.
+pub enum AttesterKind {
+    /// AMD SEV-SNP attester.
     #[value(name = "sev-snp", alias = "snp")]
     SevSnp,
-    /// Software-only mock provider (test infrastructure only).
+    /// Software-only mock attester (test infrastructure only).
     #[cfg(any(test, feature = "tee-mock"))]
     #[value(name = "mock")]
     Mock,
 }
 
-impl std::fmt::Display for TeeProviderType {
+impl std::fmt::Display for AttesterKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SevSnp => write!(f, "sev-snp"),
@@ -85,7 +85,7 @@ impl std::fmt::Display for TeeProviderType {
     }
 }
 
-impl std::str::FromStr for TeeProviderType {
+impl std::str::FromStr for AttesterKind {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -93,7 +93,7 @@ impl std::str::FromStr for TeeProviderType {
             "sev-snp" | "snp" => Ok(Self::SevSnp),
             #[cfg(any(test, feature = "tee-mock"))]
             "mock" => Ok(Self::Mock),
-            other => Err(format!("Unknown TEE provider: '{other}'. Available providers: sev-snp")),
+            other => Err(format!("Unknown TEE attester: '{other}'. Available attesters: sev-snp")),
         }
     }
 }

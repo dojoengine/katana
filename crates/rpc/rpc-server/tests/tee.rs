@@ -4,10 +4,10 @@
 //!
 //! `TeeApi<DbProviderFactory>` is constructed directly against an in-memory provider —
 //! no HTTP server needed because the method is a thin wrapper over provider reads plus
-//! a TEE provider call. `MockProvider` lays out its output as
+//! a TEE attester call. `MockAttester` lays out its output as
 //! `"MOCK" (4 bytes) | user_data (64 bytes) | checksum (4 bytes)`, so decoding the
 //! response's `quote` hex and slicing `[4..68]` recovers the exact `report_data` the
-//! API passed to the TEE provider — giving us a cryptographic handle on whether the
+//! API passed to the attester — giving us a cryptographic handle on whether the
 //! response is bound to the requested inputs.
 
 use std::sync::Arc;
@@ -25,7 +25,7 @@ use katana_provider::api::block::BlockWriter;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_rpc_api::tee::{TeeApiServer, TeeL1ToL2Message, TeeL2ToL1Message};
 use katana_rpc_server::tee::TeeApi;
-use katana_tee::MockProvider;
+use katana_tee::MockAttester;
 
 // ---------- helpers ----------
 
@@ -33,7 +33,7 @@ fn mock_api(
     factory: DbProviderFactory,
     fork_block_number: Option<u64>,
 ) -> TeeApi<DbProviderFactory> {
-    TeeApi::new(factory, Arc::new(MockProvider::new()), fork_block_number)
+    TeeApi::new(factory, Arc::new(MockAttester::new()), fork_block_number)
 }
 
 fn make_block(
@@ -54,9 +54,9 @@ fn insert(factory: &DbProviderFactory, block: SealedBlockWithStatus, receipts: V
     pm.commit().expect("commit");
 }
 
-/// Extract the 64-byte `report_data` that was passed to the mock TEE provider.
+/// Extract the 64-byte `report_data` that was passed to the mock TEE attester.
 ///
-/// See [`katana_tee::MockProvider`] — layout: `"MOCK" | user_data | checksum_le_u32`.
+/// See [`katana_tee::MockAttester`] — layout: `"MOCK" | user_data | checksum_le_u32`.
 fn extract_report_data(quote_hex: &str) -> [u8; 64] {
     let bytes =
         hex::decode(quote_hex.strip_prefix("0x").expect("quote has 0x prefix")).expect("valid hex");

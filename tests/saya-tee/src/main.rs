@@ -13,7 +13,7 @@
 //!
 //! | Component | Real | Mock |
 //! |-----------|------|------|
-//! | `tee_generateQuote` on L3 | AMD SEV-SNP hardware-signed quote | `katana_tee::MockProvider`: stub quote. `report_data` is a real Poseidon commitment over the state diff; only the hardware signature is absent. |
+//! | `tee_generateQuote` on L3 | AMD SEV-SNP hardware-signed quote | `katana_tee::MockAttester`: stub quote. `report_data` is a real Poseidon commitment over the state diff; only the hardware signature is absent. |
 //! | SP1 proving in saya-tee | Real SP1 proof over the state diff | `--mock-prove` synthesizes a stub `OnchainProof`. SP1 prover network is never contacted. |
 //! | AMD KDS + cert-chain verification | saya-tee walks AMD root → VCEK | Skipped by `--mock-prove`. |
 //! | On-chain fact registry | Runs SP1 verifier in Cairo | `mock_amd_tee_registry` (piltover#15): returns the SP1 journal verbatim. |

@@ -374,32 +374,32 @@ where
 
         // --- build tee api (if configured)
         if let Some(ref tee_config) = config.tee {
-            use katana_tee::{TeeProvider, TeeProviderType};
+            use katana_tee::{Attester, AttesterKind};
 
-            let tee_provider: Arc<dyn TeeProvider> = match tee_config.provider_type {
-                TeeProviderType::SevSnp => {
+            let attester: Arc<dyn Attester> = match tee_config.attester {
+                AttesterKind::SevSnp => {
                     #[cfg(feature = "tee-snp")]
                     {
                         Arc::new(
-                            katana_tee::SevSnpProvider::new()
-                                .context("Failed to initialize SEV-SNP provider")?,
+                            katana_tee::SevSnpAttester::new()
+                                .context("Failed to initialize SEV-SNP attester")?,
                         )
                     }
                     #[cfg(not(feature = "tee-snp"))]
                     {
                         anyhow::bail!(
-                            "SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled"
+                            "SEV-SNP TEE attester requires the 'tee-snp' feature to be enabled"
                         );
                     }
                 }
                 #[cfg(feature = "tee-mock")]
-                TeeProviderType::Mock => Arc::new(katana_tee::MockProvider::new()),
+                AttesterKind::Mock => Arc::new(katana_tee::MockAttester::new()),
             };
 
-            let api = TeeApi::new(provider.clone(), tee_provider, tee_config.fork_block_number);
+            let api = TeeApi::new(provider.clone(), attester, tee_config.fork_block_number);
             rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 
-            info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
+            info!(target: "node", attester = ?tee_config.attester, "TEE API enabled");
         }
 
         // --- build rpc middleware

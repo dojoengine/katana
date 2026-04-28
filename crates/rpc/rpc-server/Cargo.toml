@@ -92,5 +92,5 @@ url.workspace = true
 
 [features]
 explorer = [ "dep:katana-explorer" ]
-# Enables `MockProvider` for use by integration tests. Not for production binaries.
+# Enables `MockAttester` for use by integration tests. Not for production binaries.
 tee-mock = [ "katana-tee/tee-mock" ]

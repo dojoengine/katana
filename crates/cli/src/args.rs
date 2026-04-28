@@ -713,7 +713,7 @@ impl SequencerNodeArgs {
     }
 
     fn tee_config(&self) -> Option<TeeConfig> {
-        self.tee.provider.map(|provider_type| TeeConfig { provider_type, fork_block_number: None })
+        self.tee.attester.map(|attester| TeeConfig { attester, fork_block_number: None })
     }
 
     /// Parse the node config from the command line arguments and the config file,

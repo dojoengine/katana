@@ -5,7 +5,7 @@
 //! - **L2** — vanilla dev chain acting as the settlement layer. Hosts Piltover and the mock TEE
 //!   registry that `saya-ops` deploys into it.
 //! - **L3** — rollup chain whose `SettlementLayer::Starknet` points at L2's Piltover address.
-//!   Configured with `Config.tee = TeeConfig { provider_type: Mock, .. }` so its
+//!   Configured with `Config.tee = TeeConfig { attester: Mock, .. }` so its
 //!   `tee_generateQuote` RPC serves a stub attestation that `saya-tee --mock-prove` consumes.
 //!
 //! Both Nodes run in one process with independent [`ClassCache`] instances. Previously the L2
@@ -30,7 +30,7 @@ use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use katana_primitives::U256;
 use katana_sequencer_node::config::tee::TeeConfig;
-use katana_tee::TeeProviderType;
+use katana_tee::AttesterKind;
 use katana_utils::TestNode;
 use starknet::accounts::SingleOwnerAccount;
 use starknet::providers::jsonrpc::HttpTransport;
@@ -149,7 +149,7 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
 
     let mut config = katana_utils::node::test_config();
     config.chain = Arc::new(ChainSpec::Rollup(l3_chain));
-    config.tee = Some(TeeConfig { provider_type: TeeProviderType::Mock, fork_block_number: None });
+    config.tee = Some(TeeConfig { attester: AttesterKind::Mock, fork_block_number: None });
     // Note: rollup chain specs (provable mode) never produce empty blocks
     // even with `block_time` set, per the upstream Saya README. The L3 only
     // advances when transactions are submitted; we drive that explicitly

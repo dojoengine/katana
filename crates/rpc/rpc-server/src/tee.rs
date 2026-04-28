@@ -14,7 +14,7 @@ use katana_rpc_api::error::tee::TeeApiError;
 use katana_rpc_api::tee::{
     EventProofResponse, TeeApiServer, TeeL1ToL2Message, TeeL2ToL1Message, TeeQuoteResponse,
 };
-use katana_tee::TeeProvider;
+use katana_tee::Attester;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, info};
 
@@ -26,8 +26,8 @@ where
 {
     /// Storage provider factory for accessing blockchain state.
     provider_factory: PF,
-    /// TEE provider for generating attestation quotes.
-    tee_provider: Arc<dyn TeeProvider>,
+    /// TEE attester for generating attestation quotes.
+    attester: Arc<dyn Attester>,
     /// The block number Katana forked from (if running in fork mode).
     /// Included in report_data so SP1 can prove fork freshness.
     fork_block_number: Option<u64>,
@@ -40,16 +40,16 @@ where
     /// Create a new TEE API instance.
     pub fn new(
         provider_factory: PF,
-        tee_provider: Arc<dyn TeeProvider>,
+        attester: Arc<dyn Attester>,
         fork_block_number: Option<u64>,
     ) -> Self {
         info!(
             target: "rpc::tee",
-            provider_type = tee_provider.provider_type(),
+            attester = attester.name(),
             ?fork_block_number,
             "TEE API initialized"
         );
-        Self { provider_factory, tee_provider, fork_block_number }
+        Self { provider_factory, attester, fork_block_number }
     }
 }
 
@@ -130,7 +130,7 @@ where
             );
 
             let quote = self
-                .tee_provider
+                .attester
                 .generate_quote(&report_data)
                 .map_err(|e| TeeApiError::QuoteGenerationFailed(e.to_string()))?;
 
@@ -244,7 +244,7 @@ where
             );
 
             let quote = self
-                .tee_provider
+                .attester
                 .generate_quote(&report_data)
                 .map_err(|e| TeeApiError::QuoteGenerationFailed(e.to_string()))?;
 

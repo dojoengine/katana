@@ -1095,21 +1095,21 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[command(next_help_heading = "TEE options")]
 pub struct TeeOptions {
-    /// Enable TEE attestation support with the given provider.
+    /// Enable TEE attestation support with the given attester.
     ///
     /// When set, the TEE RPC API becomes available for generating
-    /// hardware-backed attestation quotes. Using the `sev-snp` provider
+    /// hardware-backed attestation quotes. Using the `sev-snp` attester
     /// requires running in an SEV-SNP VM with /dev/sev-guest available.
-    #[arg(long = "tee", value_name = "PROVIDER")]
+    #[arg(long = "tee", value_name = "ATTESTER")]
     #[serde(default)]
-    pub provider: Option<katana_tee::TeeProviderType>,
+    pub attester: Option<katana_tee::AttesterKind>,
 }
 
 impl TeeOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
-            if self.provider.is_none() {
-                self.provider = other.provider;
+            if self.attester.is_none() {
+                self.attester = other.attester;
             }
         }
     }
