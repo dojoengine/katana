@@ -44,14 +44,13 @@ use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::StarknetApiServer;
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
-use katana_rpc_api::tee::TeeApiServer;
+use katana_rpc_api::tee::{compute_katana_tee_config_hash, TeeApiServer};
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::dev::DevApi;
 use katana_rpc_server::middleware::cartridge::{ControllerDeploymentLayer, VrfLayer};
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::middleware::logger::RpcLoggerLayer;
 use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
-use katana_rpc_api::tee::compute_katana_tee_config_hash;
 use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};

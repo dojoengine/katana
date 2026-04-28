@@ -587,10 +587,7 @@ async fn generate_quote_prev_block_number_wire_format() {
         serde_json::to_value(Felt::MAX).unwrap(),
         "None must serialize to Felt::MAX, not null"
     );
-    assert!(
-        !json_none["prevBlockNumber"].is_null(),
-        "None must NOT serialize to JSON null"
-    );
+    assert!(!json_none["prevBlockNumber"].is_null(), "None must NOT serialize to JSON null");
     let round_trip_none: katana_rpc_api::tee::TeeQuoteResponse =
         serde_json::from_value(json_none).expect("deserialize");
     assert_matches!(round_trip_none.prev_block_number, None);
@@ -615,7 +612,11 @@ async fn generate_quote_prev_block_number_wire_format() {
 #[tokio::test]
 async fn generate_quote_precomputed_config_hash_binding() {
     let factory = DbProviderFactory::new_in_memory();
-    insert(&factory, make_block(0, felt!("0xa0"), felt!("0xa1"), Felt::ZERO, Vec::new()), Vec::new());
+    insert(
+        &factory,
+        make_block(0, felt!("0xa0"), felt!("0xa1"), Felt::ZERO, Vec::new()),
+        Vec::new(),
+    );
 
     // Use a distinct hash from sample_katana_tee_config_hash() to prove the binding
     // tracks whatever the node was constructed with, not a hard-coded constant.
