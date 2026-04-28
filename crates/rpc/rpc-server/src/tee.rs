@@ -476,6 +476,7 @@ fn compute_report_data_sharding(
 /// )
 /// report_data = commitment_bytes_be ++ katana_tee_config_hash_bytes_be
 /// ```
+#[allow(clippy::too_many_arguments)]
 fn compute_report_data_appchain(
     prev_state_root: Felt,
     state_root: Felt,
