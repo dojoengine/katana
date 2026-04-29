@@ -1,4 +1,4 @@
-use tracing::{debug, info};
+use katana_tracing::{debug, info};
 
 use crate::error::TeeError;
 use crate::Attester;

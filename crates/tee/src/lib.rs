@@ -23,6 +23,7 @@
 use std::fmt::Debug;
 
 mod error;
+mod amd;
 
 #[cfg(any(test, feature = "tee-mock"))]
 pub mod mock;
