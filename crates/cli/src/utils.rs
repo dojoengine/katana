@@ -17,7 +17,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
 use katana_rpc_server::middleware::cors::HeaderValue;
-use katana_tracing::LogFormat;
+use katana_tracing::{EnvFilter, LogFormat};
 use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;
 
@@ -60,6 +60,22 @@ pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
     } else {
         Ok(false)
     }
+}
+
+/// Default per-target log levels used when `RUST_LOG` is unset.
+pub const DEFAULT_LOG_FILTER: &str =
+    "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
+     executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
+     messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,\
+     katana_stage::downloader=trace,katana_paymaster=trace,middleware::cartridge=trace,\
+     middleware::cartridge::vrf=trace,rpc::cartridge=debug,info";
+
+/// Builds the [`EnvFilter`] used by the node binaries: honors `RUST_LOG` when set,
+/// otherwise falls back to [`DEFAULT_LOG_FILTER`].
+pub fn default_log_filter() -> Result<EnvFilter> {
+    EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new(DEFAULT_LOG_FILTER))
+        .context("failed to parse log filter")
 }
 
 pub fn parse_seed(seed: &str) -> [u8; 32] {

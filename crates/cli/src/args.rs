@@ -149,7 +149,8 @@ impl SequencerNodeArgs {
             file_max_files: self.logging.file.max_files,
         };
 
-        katana_tracing::init(logging, self.tracer_config()).await?;
+        katana_tracing::init(logging, self.tracer_config(), crate::utils::default_log_filter()?)
+            .await?;
 
         self.start_node(build_info).await
     }
