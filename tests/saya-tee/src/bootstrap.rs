@@ -273,15 +273,15 @@ fn resolve_saya_ops_bin() -> Result<PathBuf> {
     // in dojoengine/saya@5ff9948). Manual PATH search keeps the dep set minimal.
     if let Ok(path) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path) {
-            let candidate = dir.join("ops");
+            let candidate = dir.join("saya-ops");
             if candidate.is_file() {
                 return Ok(candidate);
             }
         }
     }
     Err(anyhow!(
-        "`ops` binary not found. Set SAYA_OPS_BIN env var or add it to $PATH. Build from \
-         dojoengine/saya@5ff9948 with `cargo install --path bin/ops`."
+        "`saya-ops` binary not found. Set SAYA_OPS_BIN env var or add it to $PATH. Build from \
+         dojoengine/saya@5ff9948 with `cargo install --path bin/saya-ops`."
     ))
 }
 
