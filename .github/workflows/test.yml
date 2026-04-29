@@ -608,7 +608,6 @@ jobs:
     saya-tee-e2e:
         needs: [detect-changes, fmt, clippy, generate-test-artifacts]
         runs-on: ubuntu-latest-32-cores
-        timeout-minutes: 45
         if: |
             needs.detect-changes.outputs.broader-rust == 'true' &&
             (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
