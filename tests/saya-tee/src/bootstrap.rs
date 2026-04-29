@@ -1,7 +1,7 @@
 //! L2 contract deployment via `saya-ops`.
 //!
 //! Shells out to the `saya-ops` binary (built from
-//! `dojoengine/saya@0072383` — `feat/tee` post-PR-#72, with `ProgramInfo`
+//! `dojoengine/saya@0a34e57` — `feat/tee` post-PR-#72, with `ProgramInfo`
 //! enum + `katana_tee_config_hash` plumbing) to declare and deploy:
 //!
 //! 1. The `mock_amd_tee_registry` contract — a permissive `IAMDTeeRegistry` mock from
@@ -270,7 +270,7 @@ fn resolve_saya_ops_bin() -> Result<PathBuf> {
         return Ok(PathBuf::from(path));
     }
     // The bin target is `ops` (saya `bin/ops` package, renamed from `saya-ops`
-    // in dojoengine/saya@0072383). Manual PATH search keeps the dep set minimal.
+    // in dojoengine/saya@0a34e57). Manual PATH search keeps the dep set minimal.
     if let Ok(path) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path) {
             let candidate = dir.join("ops");
@@ -281,7 +281,7 @@ fn resolve_saya_ops_bin() -> Result<PathBuf> {
     }
     Err(anyhow!(
         "`ops` binary not found. Set SAYA_OPS_BIN env var or add it to $PATH. Build from \
-         dojoengine/saya@0072383 with `cargo install --path bin/ops`."
+         dojoengine/saya@0a34e57 with `cargo install --path bin/ops`."
     ))
 }
 

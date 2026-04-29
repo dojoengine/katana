@@ -637,15 +637,7 @@ jobs:
             - name: Clone Saya repository
               run: |
                   git clone https://github.com/dojoengine/saya /tmp/saya
-                  git -C /tmp/saya checkout 0072383
-
-            # saya@feat/tee pins `cartridge-gg/katana-tee.git` via `ssh://git@github.com/...`
-            # in `bin/persistent-tee/Cargo.toml`. CI doesn't have an SSH deploy key
-            # loaded, but the repo is public — rewrite SSH GitHub URLs to HTTPS so the
-            # cargo fetch resolves anonymously. (`saya@main` uses HTTPS directly; this
-            # workaround is only needed while the rev is on `feat/tee`.)
-            - name: Rewrite ssh:// GitHub URLs to https://
-              run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+                  git -C /tmp/saya checkout 0a34e57
 
             - uses: software-mansion/setup-scarb@v1
               with:
