@@ -637,7 +637,7 @@ jobs:
             - name: Clone Saya repository
               run: |
                   git clone https://github.com/dojoengine/saya /tmp/saya
-                  git -C /tmp/saya checkout 0a34e57
+                  git -C /tmp/saya checkout 5ff9948
 
             - uses: software-mansion/setup-scarb@v1
               with:
