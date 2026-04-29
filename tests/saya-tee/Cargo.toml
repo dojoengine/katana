@@ -15,6 +15,7 @@ katana-chain-spec.workspace = true
 katana-genesis.workspace = true
 katana-messaging.workspace = true
 katana-primitives.workspace = true
+katana-rpc-api.workspace = true
 katana-sequencer-node = { workspace = true, features = ["tee-mock"] }
 katana-tee = { workspace = true, features = ["tee-mock"] }
 katana-utils = { workspace = true, features = ["node"] }

@@ -7,7 +7,7 @@
 //! Build instructions:
 //!
 //! ```sh
-//! cd dojoengine/saya  # rev: 5a3b8c9
+//! cd dojoengine/saya  # rev: 0072383
 //! cd bin/persistent-tee && cargo install --path .
 //! ```
 //!

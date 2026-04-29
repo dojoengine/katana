@@ -10346,6 +10346,7 @@ dependencies = [
  "katana-genesis",
  "katana-messaging",
  "katana-primitives",
+ "katana-rpc-api",
  "katana-sequencer-node",
  "katana-tee",
  "katana-utils",
