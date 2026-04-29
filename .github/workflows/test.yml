@@ -644,7 +644,7 @@ jobs:
                   scarb-version: "2.13.1"
 
             - name: Install saya-ops
-              run: cargo install --locked --path /tmp/saya/bin/ops --bin ops
+              run: cargo install --locked --path /tmp/saya/bin/ops --bin saya-ops
 
             - name: Install saya-tee
               run: cargo install --locked --path /tmp/saya/bin/persistent-tee --bin saya-tee
