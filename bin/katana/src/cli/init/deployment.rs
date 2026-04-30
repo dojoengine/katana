@@ -64,6 +64,9 @@ pub struct DeploymentOutcome {
     pub contract_address: ContractAddress,
     /// The block number at which the contract was deployed.
     pub block_number: BlockNumber,
+    /// Whether the Piltover Appchain class was declared during this run.
+    /// `false` means it was already present on the settlement chain and reused.
+    pub class_declared: bool,
 }
 
 /// Deploys the settlement contract in the settlement layer and initializes it with the right
@@ -99,9 +102,14 @@ pub async fn deploy_settlement_contract(
         let class_hash = Appchain::HASH;
 
         // Check if the class has already been declared,
-        match account.provider().get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await {
+        let class_declared = match account
+            .provider()
+            .get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash)
+            .await
+        {
             Ok(..) => {
                 // Class has already been declared, no need to do anything...
+                false
             }
 
             Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
@@ -120,10 +128,11 @@ pub async fn deploy_settlement_contract(
                     .map_err(ContractInitError::DeclarationError)?;
 
                 TxWaiter::new(res.transaction_hash, &starknet_client).await?;
+                true
             }
 
             Err(err) => return Err(ContractInitError::Provider(err)),
-        }
+        };
 
         sp.update_text("Deploying contract...");
 
@@ -242,6 +251,7 @@ pub async fn deploy_settlement_contract(
         Ok(DeploymentOutcome {
             block_number: deployment_block,
             contract_address: deployed_appchain_contract.into(),
+            class_declared,
         })
     }
     .await;

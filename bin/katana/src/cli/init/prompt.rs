@@ -221,7 +221,7 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
                     .with_help_message("The block at which the settlement contract was deployed")
                     .prompt()?;
 
-            DeploymentOutcome { contract_address: address, block_number }
+            DeploymentOutcome { contract_address: address, block_number, class_declared: false }
         };
 
     let slot_paymasters = prompt_slot_paymasters()?;
@@ -231,6 +231,8 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         deployment_outcome,
         rpc_url: settlement_provider.url().clone(),
         settlement_id: ShortString::try_from(l1_chain_id)?,
+        effective_fact_registry: fact_registry,
+        tee: use_tee,
         #[cfg(feature = "init-slot")]
         slot_paymasters,
     })

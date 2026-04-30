@@ -64,6 +64,7 @@ use deployment::DeploymentOutcome;
 use katana_chain_spec::rollup::{ChainConfigDir, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
 use katana_chain_spec::{rollup, FeeContracts, SettlementLayer};
 use katana_cli::utils::ShortStringValueParser;
+use katana_contracts::piltover::Appchain;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_genesis::Genesis;
@@ -267,14 +268,60 @@ impl RollupArgs {
 
         let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
 
-        if let Some(path) = self.output_path {
-            let dir = ChainConfigDir::create(path)?;
-            rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
-        } else {
+        let dir = match &self.output_path {
+            Some(path) => ChainConfigDir::create(path)?,
             // Write to the local chain config directory by default if user
             // doesn't specify the output path
-            rollup::write_local(&chain_spec).context("failed to write chain spec file")?;
+            None => ChainConfigDir::create_local(&chain_spec.id)?,
+        };
+        rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
+
+        // ----- Print initialization summary -----
+
+        let mode_label = if output.tee {
+            "TEE (Persistent / SP1 Groth16)"
+        } else {
+            "ZK (STARK proofs via Atlantic)"
+        };
+
+        println!(
+            r"
+CHAIN
+=====
+
+| Chain ID        | {chain_id} ({chain_id_felt:#x})
+| Config file     | {config_path}
+| Genesis file    | {genesis_path}
+
+
+SETTLEMENT LAYER
+================
+
+| Mode            | {mode_label}
+| Chain ID        | {settlement_id} ({settlement_id_felt:#x})
+| RPC URL         | {rpc_url}
+| Core contract   | {core_contract}
+| Deployed block  | #{deployed_block}
+| Fact registry   | {fact_registry:#066x}",
+            chain_id = output.id,
+            chain_id_felt = Felt::from(output.id),
+            config_path = dir.config_path().display(),
+            genesis_path = dir.genesis_path().display(),
+            settlement_id = output.settlement_id,
+            settlement_id_felt = Felt::from(output.settlement_id),
+            rpc_url = output.rpc_url,
+            core_contract = output.deployment_outcome.contract_address,
+            deployed_block = output.deployment_outcome.block_number,
+            fact_registry = output.effective_fact_registry,
+        );
+
+        // Only show the Piltover class hash when we actually declared/deployed it ourselves.
+        // For --settlement-contract (user-supplied), check_program_info validates program info
+        // but not the on-chain class hash, so printing it would risk misleading the operator.
+        if output.deployment_outcome.class_declared {
+            println!("| Class hash      | {:#066x} (declared this run)", Appchain::HASH);
         }
+        println!();
 
         Ok(())
     }
@@ -362,6 +409,7 @@ impl RollupArgs {
                     block_number: self
                         .settlement_contract_deployed_block
                         .expect("must exist at this point"),
+                    class_declared: false,
                 }
             }
             // If settlement contract is not provided, then we will deploy it.
@@ -392,6 +440,8 @@ impl RollupArgs {
                 deployment_outcome,
                 rpc_url: settlement_provider.url().clone(),
                 settlement_id: ShortString::try_from(l1_chain_id).unwrap(),
+                effective_fact_registry,
+                tee: self.tee,
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
             }))
@@ -427,14 +477,29 @@ impl SovereignArgs {
 
         let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
 
-        if let Some(path) = self.output_path {
-            let dir = ChainConfigDir::create(path)?;
-            rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
-        } else {
-            // Write to the local chain config directory by default if user
-            // doesn't specify the output path
-            rollup::write_local(&chain_spec).context("failed to write chain spec file")?;
-        }
+        let dir = match &self.output_path {
+            Some(path) => ChainConfigDir::create(path)?,
+            None => ChainConfigDir::create_local(&chain_spec.id)?,
+        };
+        rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
+
+        // ----- Print initialization summary -----
+
+        println!(
+            r"
+CHAIN
+=====
+
+| Chain ID        | {chain_id} ({chain_id_felt:#x})
+| Mode            | Sovereign
+| Config file     | {config_path}
+| Genesis file    | {genesis_path}
+",
+            chain_id = output.id,
+            chain_id_felt = Felt::from(output.id),
+            config_path = dir.config_path().display(),
+            genesis_path = dir.genesis_path().display(),
+        );
 
         Ok(())
     }
@@ -469,6 +534,15 @@ struct PersistentOutcome {
     pub rpc_url: Url,
 
     pub deployment_outcome: DeploymentOutcome,
+
+    /// The fact registry address that was wired into the Piltover core contract via
+    /// `set_facts_registry(...)`. In ZK mode this is the Herodotus Atlantic integrity contract;
+    /// in TEE mode it is the `IAMDTeeRegistry` contract.
+    pub effective_fact_registry: Felt,
+
+    /// Whether the chain was initialized in TEE proof mode. Sourced from `--tee` for the
+    /// CLI-flag path and from the interactive proof-mode prompt for the prompt path.
+    pub tee: bool,
 
     #[cfg(feature = "init-slot")]
     pub slot_paymasters: Option<Vec<slot::PaymasterAccountArgs>>,
