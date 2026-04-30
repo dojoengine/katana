@@ -35,8 +35,7 @@ members = [
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
 	"crates/runner/macro",
-	"crates/saya/core",
-	"crates/saya/tracing",
+	"crates/saya/saya-core",
 	"crates/serde-utils",
 	"crates/starknet",
 	"crates/storage/codecs",
@@ -152,8 +151,7 @@ katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
 
-saya-core = { path = "crates/saya/core" }
-saya-tracing = { path = "crates/saya/tracing" }
+saya-core = { path = "crates/saya/saya-core" }
 
 # cairo-lang
 cairo-lang-casm = "2.12.3"
@@ -248,15 +246,15 @@ pprof = { version = "0.13.0", features = [ "criterion", "flamegraph" ] }
 # alloy-primitives / alloy-sol-types live on 1.4+ (the 1.2.x umbrella requires
 # alloy-primitives >=1.4.1 transitively). All ranges below are tilde-pinned so
 # the workspace stays in a known-good resolution band.
-alloy-contract = { version = "~1.2", default-features = false }
-alloy-network = { version = "~1.2", default-features = false }
+alloy-contract = { version = "~1.4", default-features = false }
+alloy-network = { version = "~1.4", default-features = false }
 alloy-primitives = { version = "~1.4", default-features = false }
-alloy-provider = { version = "~1.2", default-features = false }
-alloy-rpc-types-eth = { version = "~1.2", default-features = false }
-alloy-signer = { version = "~1.2", default-features = false }
+alloy-provider = { version = "~1.4", default-features = false }
+alloy-rpc-types-eth = { version = "~1.4", default-features = false }
+alloy-signer = { version = "~1.4", default-features = false }
 alloy-sol-types = { version = "~1.4", default-features = false }
-alloy-transport = { version = "~1.2", default-features = false }
-alloy-transport-http = { version = "~1.2", default-features = false }
+alloy-transport = { version = "~1.4", default-features = false }
+alloy-transport-http = { version = "~1.4", default-features = false }
 
 # macro
 proc-macro2 = "1.0"
@@ -306,6 +304,12 @@ celestia-types = { version = "0.20.0", default-features = false }
 ciborium = { version = "0.2.2", default-features = false }
 sqlx = { version = "0.8.2", features = [ "chrono", "macros", "regexp", "runtime-async-std", "runtime-tokio", "sqlite", "uuid" ] }
 swiftness_stark = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false, features = [ "recursive_with_poseidon", "keccak_160_lsb", "stone6" ] }
+
+# AMD SEV-SNP SDKs
+amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16", default-features = false }
+amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
+x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
+
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
