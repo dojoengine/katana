@@ -22,3 +22,4 @@ tracing.workspace = true
 futures-util.workspace = true
 rand.workspace = true
 starknet.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
