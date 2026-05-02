@@ -1,7 +1,8 @@
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -12,6 +13,22 @@ use tokio_util::task::TaskTracker;
 use tracing::trace;
 
 use crate::{CpuBlockingTaskPool, TaskSpawner};
+
+/// A unique identifier for a task spawned on a [`TaskManager`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TaskId(u64);
+
+impl TaskId {
+    pub(crate) fn new(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for TaskId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Usage for this task manager is mainly to spawn tasks that can be cancelled, and capture
 /// panicked tasks (which in the context of the task manager are considered critical) for graceful
@@ -38,7 +55,6 @@ pub struct TaskManager {
     inner: Arc<Inner>,
 }
 
-#[derive(Debug)]
 pub(crate) struct Inner {
     /// A handle to the Tokio runtime.
     pub(crate) handle: Handle,
@@ -50,6 +66,23 @@ pub(crate) struct Inner {
     pub(crate) on_cancel: CancellationToken,
     /// Pool dedicated to CPU-bound blocking work.
     pub(crate) blocking_pool: CpuBlockingTaskPool,
+    /// Counter for generating unique task IDs.
+    pub(crate) next_task_id: AtomicU64,
+    /// Stores the ID of the task that initiated a graceful shutdown, if any.
+    pub(crate) shutdown_initiator: Mutex<Option<TaskId>>,
+}
+
+impl core::fmt::Debug for Inner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inner")
+            .field("handle", &self.handle)
+            .field("tracker", &self.tracker)
+            .field("on_cancel", &self.on_cancel)
+            .field("blocking_pool", &self.blocking_pool)
+            .field("next_task_id", &self.next_task_id)
+            .field("shutdown_initiator", &self.shutdown_initiator)
+            .finish()
+    }
 }
 
 impl TaskManager {
@@ -67,6 +100,8 @@ impl TaskManager {
                 blocking_pool,
                 tracker: TaskTracker::new(),
                 on_cancel: CancellationToken::new(),
+                next_task_id: AtomicU64::new(0),
+                shutdown_initiator: Mutex::new(None),
             }),
         }
     }
@@ -110,6 +145,13 @@ impl TaskManager {
         });
 
         ShutdownFuture { fut }
+    }
+
+    /// Returns the ID of the task that initiated a graceful shutdown, if any.
+    ///
+    /// This is useful during development to identify which task caused the manager to shut down.
+    pub fn shutdown_initiator(&self) -> Option<TaskId> {
+        *self.inner.shutdown_initiator.lock().unwrap()
     }
 
     /// Wait until all spawned tasks are completed.
@@ -187,14 +229,20 @@ mod tests {
         // normal task completion shouldn't trigger graceful shutdown
         let _ = spawner.build_task().spawn(future::ready(())).await;
         assert!(!manager.inner.on_cancel.is_cancelled());
+        assert!(manager.shutdown_initiator().is_none(), "no shutdown initiator yet");
 
         // but we can still spawn new tasks, and ongoing tasks shouldn't be cancelled
         let result = spawner.spawn(async { true }).await;
         assert!(result.is_ok());
 
         // task with graceful shutdown should trigger graceful shutdown on success completion
-        let _ = spawner.build_task().graceful_shutdown().spawn(future::ready(())).await;
+        let shutdown_task = spawner.build_task().graceful_shutdown();
+        let shutdown_task_id = shutdown_task.id();
+        let _ = shutdown_task.spawn(future::ready(())).await;
         assert!(manager.inner.on_cancel.is_cancelled());
+
+        // verify the shutdown initiator is set correctly
+        assert_eq!(manager.shutdown_initiator(), Some(shutdown_task_id));
 
         // wait for the task manager to shutdown gracefully
         manager.wait_for_shutdown().await;
@@ -220,15 +268,20 @@ mod tests {
         let result = spawner.build_task().spawn(async { panic!("panicking") }).await;
         assert!(result.unwrap_err().is_panic());
         assert!(!manager.inner.on_cancel.is_cancelled());
+        assert!(manager.shutdown_initiator().is_none(), "no shutdown initiator yet");
 
         // but we can still spawn new tasks, and ongoing tasks shouldn't be cancelled
         let result = spawner.spawn(async { true }).await;
         assert!(result.is_ok());
 
         // task with graceful shutdown should trigger graceful shutdown on panic
-        let result =
-            spawner.build_task().graceful_shutdown().spawn(async { panic!("panicking") }).await;
+        let shutdown_task = spawner.build_task().graceful_shutdown();
+        let shutdown_task_id = shutdown_task.id();
+        let result = shutdown_task.spawn(async { panic!("panicking") }).await;
         assert!(result.unwrap_err().is_panic());
+
+        // verify the shutdown initiator is set correctly
+        assert_eq!(manager.shutdown_initiator(), Some(shutdown_task_id));
 
         // wait for the task manager to shutdown gracefully
         manager.wait_for_shutdown().await;
@@ -254,15 +307,20 @@ mod tests {
         let result = spawner.build_task().spawn_blocking(|| panic!("panicking")).await;
         assert!(result.unwrap_err().is_panic());
         assert!(!manager.inner.on_cancel.is_cancelled());
+        assert!(manager.shutdown_initiator().is_none(), "no shutdown initiator yet");
 
         // but we can still spawn new tasks, and ongoing tasks shouldn't be cancelled
         let result = spawner.spawn_blocking(|| true).await;
         assert!(result.is_ok());
 
         // blocking task with graceful shutdown should trigger graceful shutdown on panic
-        let result =
-            spawner.build_task().graceful_shutdown().spawn_blocking(|| panic!("panicking")).await;
+        let shutdown_task = spawner.build_task().graceful_shutdown();
+        let shutdown_task_id = shutdown_task.id();
+        let result = shutdown_task.spawn_blocking(|| panic!("panicking")).await;
         assert!(result.unwrap_err().is_panic());
+
+        // verify the shutdown initiator is set correctly
+        assert_eq!(manager.shutdown_initiator(), Some(shutdown_task_id));
 
         // wait for the task manager to shutdown gracefully
         manager.wait_for_shutdown().await;
