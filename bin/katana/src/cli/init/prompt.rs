@@ -14,7 +14,7 @@ use starknet::providers::Provider;
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::runtime::Handle;
 
-use super::{deployment, PersistentOutcome, SovereignOutcome};
+use super::{deployment, PersistentOutcome, ProofImpl, SovereignOutcome};
 use crate::cli::init::deployment::DeploymentOutcome;
 use crate::cli::init::settlement::SettlementChainProvider;
 use crate::cli::init::slot::{self, PaymasterAccountArgs};
@@ -86,17 +86,19 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         )
         .prompt()?;
 
-    let use_tee = match proof_mode {
+    let proof_impl = match proof_mode {
         ProofMode::ValidityProof => {
-            let _ =
-                Select::new("Validity proof type", vec![ValidityProofVariant::Stark]).prompt()?;
-            false
+            match Select::new("Validity proof type", vec![ValidityProofVariant::Stark]).prompt()? {
+                ValidityProofVariant::Stark => ProofImpl::Stark,
+            }
         }
         ProofMode::Tee => {
-            let _ = Select::new("TEE type", vec![TeeVariant::AmdSevSnpSp1Groth16]).prompt()?;
-            true
+            match Select::new("TEE type", vec![TeeVariant::AmdSevSnpSp1Groth16]).prompt()? {
+                TeeVariant::AmdSevSnpSp1Groth16 => ProofImpl::AmdSevSnpSp1Groth16,
+            }
         }
     };
+    let use_tee = proof_impl.is_tee();
 
     let tee_registry_address: Option<ContractAddress> = if use_tee {
         Some(
@@ -237,7 +239,7 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         rpc_url: settlement_provider.url().clone(),
         settlement_id: ShortString::try_from(l1_chain_id)?,
         effective_fact_registry: fact_registry,
-        tee: use_tee,
+        proof_impl,
         #[cfg(feature = "init-slot")]
         slot_paymasters,
     })

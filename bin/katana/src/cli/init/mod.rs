@@ -278,12 +278,6 @@ impl RollupArgs {
 
         // ----- Print initialization summary -----
 
-        let mode_label = if output.tee {
-            "TEE (Persistent / SP1 Groth16)"
-        } else {
-            "ZK (STARK proofs via Atlantic)"
-        };
-
         println!(
             r"
 CHAIN
@@ -297,7 +291,8 @@ CHAIN
 SETTLEMENT LAYER
 ================
 
-| Mode            | {mode_label}
+| Proof category  | {proof_category}
+| Proof type      | {proof_implementation}
 | Chain ID        | {settlement_id} ({settlement_id_felt:#x})
 | RPC URL         | {rpc_url}
 | Core contract   | {core_contract}
@@ -308,6 +303,8 @@ SETTLEMENT LAYER
             chain_id_felt = Felt::from(output.id),
             config_path = dir.config_path().display(),
             genesis_path = dir.genesis_path().display(),
+            proof_category = output.proof_impl.category_label(),
+            proof_implementation = output.proof_impl.implementation_label(),
             settlement_id = output.settlement_id,
             settlement_id_felt = Felt::from(output.settlement_id),
             rpc_url = output.rpc_url,
@@ -438,13 +435,16 @@ SETTLEMENT LAYER
                 }
             };
 
+            let proof_impl =
+                if self.tee { ProofImpl::AmdSevSnpSp1Groth16 } else { ProofImpl::Stark };
+
             Some(Ok(PersistentOutcome {
                 id,
                 deployment_outcome,
                 rpc_url: settlement_provider.url().clone(),
                 settlement_id: ShortString::try_from(l1_chain_id).unwrap(),
                 effective_fact_registry,
-                tee: self.tee,
+                proof_impl,
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
             }))
@@ -543,12 +543,42 @@ struct PersistentOutcome {
     /// in TEE mode it is the `IAMDTeeRegistry` contract.
     pub effective_fact_registry: Felt,
 
-    /// Whether the chain was initialized in TEE proof mode. Sourced from `--tee` for the
-    /// CLI-flag path and from the interactive proof-mode prompt for the prompt path.
-    pub tee: bool,
+    /// The proof implementation the chain was initialized with. Sourced from `--tee` for the
+    /// CLI-flag path and from the interactive proof-mode + variant prompts for the prompt path.
+    pub proof_impl: ProofImpl,
 
     #[cfg(feature = "init-slot")]
     pub slot_paymasters: Option<Vec<slot::PaymasterAccountArgs>>,
+}
+
+/// A specific proof implementation. Each variant belongs to one of the two top-level proof
+/// categories — Validity Proof or TEE — exposed via [`ProofImpl::category_label`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProofImpl {
+    /// STARK proofs verified via Herodotus Atlantic on the settlement chain.
+    Stark,
+    /// AMD SEV-SNP attestations verified via SP1 Groth16 in the IAMDTeeRegistry contract.
+    AmdSevSnpSp1Groth16,
+}
+
+impl ProofImpl {
+    pub(super) fn category_label(self) -> &'static str {
+        match self {
+            Self::Stark => "Validity Proof",
+            Self::AmdSevSnpSp1Groth16 => "TEE",
+        }
+    }
+
+    pub(super) fn implementation_label(self) -> &'static str {
+        match self {
+            Self::Stark => "STARK (Atlantic)",
+            Self::AmdSevSnpSp1Groth16 => "AMD SEV-SNP + SP1 Groth16",
+        }
+    }
+
+    pub(super) fn is_tee(self) -> bool {
+        matches!(self, Self::AmdSevSnpSp1Groth16)
+    }
 }
 
 /// Selects the fact-registry address that Piltover's `set_facts_registry(...)` will be wired to,
