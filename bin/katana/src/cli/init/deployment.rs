@@ -67,6 +67,9 @@ pub struct DeploymentOutcome {
     /// Whether the Piltover Appchain class was declared during this run.
     /// `false` means it was already present on the settlement chain and reused.
     pub class_declared: bool,
+    /// The SNOS config hash that was wired into Piltover via `set_program_info(...)`.
+    /// Derived from the chain id and the appchain's fee token address.
+    pub config_hash: Felt,
 }
 
 /// Deploys the settlement contract in the settlement layer and initializes it with the right
@@ -252,6 +255,7 @@ pub async fn deploy_settlement_contract(
             block_number: deployment_block,
             contract_address: deployed_appchain_contract.into(),
             class_declared,
+            config_hash: snos_config_hash,
         })
     }
     .await;
@@ -276,12 +280,14 @@ pub async fn deploy_settlement_contract(
 ///
 /// `expected_fact_registry` is the Herodotus Atlantic address in ZK mode and the
 /// `IAMDTeeRegistry` address in TEE mode.
+/// On success, returns the SNOS config hash (the value that was verified to match the on-chain
+/// `snos_config_hash`).
 pub async fn check_program_info(
     chain_id: Felt,
     appchain_address: ContractAddress,
     provider: &SettlementChainProvider,
     expected_fact_registry: Felt,
-) -> Result<(), ContractInitError> {
+) -> Result<Felt, ContractInitError> {
     let appchain = AppchainContractReader::new(appchain_address.into(), provider);
 
     // Compute the chain's config hash
@@ -336,7 +342,7 @@ pub async fn check_program_info(
         });
     }
 
-    Ok(())
+    Ok(config_hash)
 }
 
 /// Error that can happen during the initialization of the core contract.

@@ -205,7 +205,7 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
 
             // Check that the settlement contract has been initialized with the correct program
             // info.
-            deployment::check_program_info(
+            let config_hash = deployment::check_program_info(
                 chain_id.into(),
                 address,
                 &settlement_provider,
@@ -221,7 +221,12 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
                     .with_help_message("The block at which the settlement contract was deployed")
                     .prompt()?;
 
-            DeploymentOutcome { contract_address: address, block_number, class_declared: false }
+            DeploymentOutcome {
+                contract_address: address,
+                block_number,
+                class_declared: false,
+                config_hash,
+            }
         };
 
     let slot_paymasters = prompt_slot_paymasters()?;

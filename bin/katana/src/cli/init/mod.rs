@@ -302,7 +302,8 @@ SETTLEMENT LAYER
 | RPC URL         | {rpc_url}
 | Core contract   | {core_contract}
 | Deployed block  | #{deployed_block}
-| Fact registry   | {fact_registry:#066x}",
+| Fact registry   | {fact_registry:#066x}
+| Config hash     | {config_hash:#066x}",
             chain_id = output.id,
             chain_id_felt = Felt::from(output.id),
             config_path = dir.config_path().display(),
@@ -313,6 +314,7 @@ SETTLEMENT LAYER
             core_contract = output.deployment_outcome.contract_address,
             deployed_block = output.deployment_outcome.block_number,
             fact_registry = output.effective_fact_registry,
+            config_hash = output.deployment_outcome.config_hash,
         );
 
         // Only show the Piltover class hash when we actually declared/deployed it ourselves.
@@ -391,7 +393,7 @@ SETTLEMENT LAYER
             let chain_id = Felt::from(id);
 
             let deployment_outcome = if let Some(contract) = self.settlement_contract {
-                match deployment::check_program_info(
+                let config_hash = match deployment::check_program_info(
                     chain_id,
                     contract,
                     &settlement_provider,
@@ -400,7 +402,7 @@ SETTLEMENT LAYER
                 .await
                 .with_context(|| "settlement contract validation failed.".to_string())
                 {
-                    Ok(..) => (),
+                    Ok(hash) => hash,
                     Err(err) => return Some(Err(err)),
                 };
 
@@ -410,6 +412,7 @@ SETTLEMENT LAYER
                         .settlement_contract_deployed_block
                         .expect("must exist at this point"),
                     class_declared: false,
+                    config_hash,
                 }
             }
             // If settlement contract is not provided, then we will deploy it.
