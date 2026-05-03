@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use cairo_lang_starknet_classes::abi;
 use clap::{Args, Subcommand};
+use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{ContractClass, MaybeInvalidSierraContractAbi};
 use katana_primitives::utils::get_selector_from_name;
 use katana_primitives::Felt;
@@ -23,6 +24,15 @@ enum UtilsCommands {
 
     #[command(about = "Display a contract class's entry points with their human-readable names")]
     ClassAbi(ClassAbiArgs),
+
+    #[command(about = "Convert a felt value to its hexadecimal representation")]
+    ToHex(FeltArg),
+
+    #[command(about = "Convert a felt value to its decimal representation")]
+    ToDec(FeltArg),
+
+    #[command(about = "Parse a felt as a Cairo short string (up to 31 ASCII bytes)")]
+    ShortString(FeltArg),
 }
 
 #[derive(Debug, Args)]
@@ -39,6 +49,13 @@ struct ClassAbiArgs {
     path: PathBuf,
 }
 
+#[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq))]
+struct FeltArg {
+    /// A felt value, in decimal or hexadecimal (with `0x` prefix).
+    value: Felt,
+}
+
 impl UtilsArgs {
     pub fn execute(self) -> Result<()> {
         match self.command {
@@ -51,6 +68,20 @@ impl UtilsArgs {
                 let json = std::fs::read_to_string(&args.path)?;
                 let class: ContractClass = json.parse()?;
                 display_class_entry_points(&class);
+                Ok(())
+            }
+            UtilsCommands::ToHex(args) => {
+                println!("{:#x}", args.value);
+                Ok(())
+            }
+            UtilsCommands::ToDec(args) => {
+                println!("{}", args.value);
+                Ok(())
+            }
+            UtilsCommands::ShortString(args) => {
+                let s = ShortString::try_from(args.value)
+                    .context("felt is not a valid Cairo short string")?;
+                println!("{s}");
                 Ok(())
             }
         }

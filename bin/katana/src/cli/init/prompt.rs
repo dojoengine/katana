@@ -14,7 +14,7 @@ use starknet::providers::Provider;
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::runtime::Handle;
 
-use super::{deployment, PersistentOutcome, SovereignOutcome};
+use super::{deployment, PersistentOutcome, ProofImpl, SovereignOutcome};
 use crate::cli::init::deployment::DeploymentOutcome;
 use crate::cli::init::settlement::SettlementChainProvider;
 use crate::cli::init::slot::{self, PaymasterAccountArgs};
@@ -59,30 +59,57 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
     // Ask about the proof mode before provider construction so the custom-chain
     // flow can use the TEE registry address as the provider's fact registry
     // (skipping the separate "Facts Registry" prompt).
-    #[derive(Debug, Clone, strum_macros::Display)]
+    #[derive(Debug, Clone, Copy, strum_macros::Display)]
     enum ProofMode {
-        #[strum(serialize = "STARK (Atlantic)")]
-        Stark,
-        #[strum(serialize = "TEE (AMD SEV-SNP + SP1 Groth16)")]
+        #[strum(serialize = "Validity Proof")]
+        ValidityProof,
+        #[strum(serialize = "TEE")]
         Tee,
     }
 
-    let proof_mode = Select::new("Proof mode", vec![ProofMode::Stark, ProofMode::Tee])
+    #[derive(Debug, Clone, Copy, strum_macros::Display)]
+    enum ValidityProofVariant {
+        #[strum(serialize = "STARK (Atlantic)")]
+        Stark,
+    }
+
+    #[derive(Debug, Clone, Copy, strum_macros::Display)]
+    enum TeeVariant {
+        #[strum(serialize = "AMD SEV-SNP + SP1 Groth16")]
+        AmdSevSnpSp1Groth16,
+    }
+
+    let proof_mode = Select::new("Proof mode", vec![ProofMode::ValidityProof, ProofMode::Tee])
         .with_help_message(
-            "STARK settles via Herodotus Atlantic; TEE points Piltover's fact-registry at an \
-             IAMDTeeRegistry contract.",
+            "Validity proofs settle via a fact registry (e.g. Herodotus Atlantic); TEE points \
+             Piltover's fact-registry at an attestation registry contract.",
         )
         .prompt()?;
 
-    let tee_registry_address: Option<ContractAddress> = match proof_mode {
-        ProofMode::Stark => None,
-        ProofMode::Tee => Some(
+    let proof_impl = match proof_mode {
+        ProofMode::ValidityProof => {
+            match Select::new("Validity proof type", vec![ValidityProofVariant::Stark]).prompt()? {
+                ValidityProofVariant::Stark => ProofImpl::Stark,
+            }
+        }
+        ProofMode::Tee => {
+            match Select::new("TEE type", vec![TeeVariant::AmdSevSnpSp1Groth16]).prompt()? {
+                TeeVariant::AmdSevSnpSp1Groth16 => ProofImpl::AmdSevSnpSp1Groth16,
+            }
+        }
+    };
+    let use_tee = proof_impl.is_tee();
+
+    let tee_registry_address: Option<ContractAddress> = if use_tee {
+        Some(
             CustomType::<ContractAddress>::new("TEE registry address")
                 .with_help_message(
                     "Address of the IAMDTeeRegistry contract on the settlement chain.",
                 )
                 .prompt()?,
-        ),
+        )
+    } else {
+        None
     };
 
     let settlement_provider = match network_type {
@@ -183,7 +210,7 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
 
         // Check that the settlement contract has been initialized with the correct program
         // info.
-        deployment::check_program_info(
+        let config_hash = deployment::check_program_info(
             chain_id.into(),
             address,
             &settlement_provider,
@@ -199,7 +226,12 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
             .with_help_message("The block at which the settlement contract was deployed")
             .prompt()?;
 
-        DeploymentOutcome { contract_address: address, block_number }
+        DeploymentOutcome {
+            contract_address: address,
+            block_number,
+            class_declared: false,
+            config_hash,
+        }
     };
 
     let slot_paymasters = prompt_slot_paymasters()?;
@@ -209,6 +241,8 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         deployment_outcome,
         rpc_url: settlement_provider.url().clone(),
         settlement_id: ShortString::try_from(l1_chain_id)?,
+        effective_fact_registry: fact_registry,
+        proof_impl,
         #[cfg(feature = "init-slot")]
         slot_paymasters,
     })
