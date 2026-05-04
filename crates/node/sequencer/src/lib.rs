@@ -2,7 +2,6 @@
 
 pub mod config;
 pub mod exit;
-pub mod settlement_check;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -14,7 +13,7 @@ use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::core::middleware::layer::Either;
 use jsonrpsee::RpcModule;
-use katana_chain_spec::{ChainSpec, SettlementLayer};
+use katana_chain_spec::{settlement_check, ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;

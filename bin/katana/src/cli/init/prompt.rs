@@ -8,7 +8,7 @@ use inquire::{Confirm, CustomType, Select};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::{ContractAddress, Felt};
-use katana_sequencer_node::settlement_check::SettlementChainProvider;
+use katana_chain_spec::settlement_check::SettlementChainProvider;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag};
 use starknet::providers::Provider;

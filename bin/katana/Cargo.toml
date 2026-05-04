@@ -17,7 +17,6 @@ katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-types.workspace = true
-katana-sequencer-node.workspace = true
 katana-starknet.workspace = true
 katana-utils.workspace = true
 

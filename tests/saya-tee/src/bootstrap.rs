@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use katana_chain_spec::rollup::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
-use katana_rpc_api::tee::compute_katana_tee_config_hash;
+use katana_chain_spec::tee::compute_katana_tee_config_hash;
 use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, Call};
 use starknet::macros::{selector, short_string};

@@ -15,16 +15,18 @@
 
 use std::sync::Arc;
 
-use katana_chain_spec::SettlementProofKind;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::{felt, ContractAddress, Felt};
-use katana_rpc_api::tee::compute_katana_tee_config_hash;
 use piltover::{AppchainContractReader, ProgramInfo};
 use starknet::core::crypto::compute_hash_on_elements;
+use starknet::core::types::StarknetError;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, ProviderError};
 use thiserror::Error;
 use url::Url;
+
+use crate::tee::compute_katana_tee_config_hash;
+use crate::SettlementProofKind;
 
 /// The StarknetOS program (SNOS) is the cairo program that executes the state
 /// transition of a new Katana block from the previous block. The settlement contract must know this
@@ -98,6 +100,183 @@ impl SettlementChainProvider {
     pub fn url(&self) -> &Url {
         &self.url
     }
+}
+
+/// Errors surfaced when validating an on-chain Piltover settlement contract against the chain
+/// spec.
+#[derive(Error, Debug)]
+pub enum SettlementValidationError {
+    #[error(
+        "settlement core contract not found at {address} on the settlement chain — the chain \
+         spec points at an address that has no deployed contract"
+    )]
+    CoreContractNotFound { address: ContractAddress },
+
+    #[error(
+        "invalid program info: layout bridge program hash mismatch - expected {expected:#x}, got \
+         {actual:#x}"
+    )]
+    InvalidLayoutBridgeProgramHash { expected: Felt, actual: Felt },
+
+    #[error(
+        "invalid program info: bootloader program hash mismatch - expected {expected:#x}, got \
+         {actual:#x}"
+    )]
+    InvalidBootloaderProgramHash { expected: Felt, actual: Felt },
+
+    #[error(
+        "invalid program info: snos program hash mismatch - expected {expected:#x}, got \
+         {actual:#x}"
+    )]
+    InvalidSnosProgramHash { expected: Felt, actual: Felt },
+
+    #[error(
+        "invalid program info: config hash mismatch - expected {expected:#x}, got {actual:#x}"
+    )]
+    InvalidConfigHash { expected: Felt, actual: Felt },
+
+    #[error(
+        "invalid program info: katana tee config hash mismatch - expected {expected:#x}, got \
+         {actual:#x}"
+    )]
+    InvalidKatanaTeeConfigHash { expected: Felt, actual: Felt },
+
+    #[error(
+        "invalid program info: settlement-mode mismatch - expected {expected} variant, got \
+         {actual}"
+    )]
+    InvalidProgramInfoVariant { expected: &'static str, actual: &'static str },
+
+    #[error("failed to read program info from settlement contract: {0}")]
+    Provider(#[from] ProviderError),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+/// Validates the on-chain Piltover core contract against the chain's expected program info.
+///
+/// In [`SettlementProofKind::ValidityProof`] mode, validates SNOS, layout-bridge, and bootloader
+/// program hashes plus the SNOS config hash. In [`SettlementProofKind::Tee`] mode, only the SNOS
+/// config hash is validated — TEE settlement does not depend on the Cairo program hashes.
+pub async fn validate_starknet_settlement(
+    chain_id: Felt,
+    fee_token: Felt,
+    contract: ContractAddress,
+    provider: &SettlementChainProvider,
+    proof_kind: SettlementProofKind,
+) -> Result<(), SettlementValidationError> {
+    let appchain = AppchainContractReader::new(contract.into(), provider);
+    let on_chain = appchain
+        .get_program_info()
+        .call()
+        .await
+        .map_err(|e| map_program_info_error(&e, contract))?;
+
+    check_program_info(&on_chain, chain_id, fee_token, proof_kind)
+}
+
+/// Maps an error from `AppchainContractReader::get_program_info().call()` into a
+/// [`SettlementValidationError`]. Surfaces `ContractNotFound` distinctly so the operator can tell
+/// "wrong address in chain spec" apart from generic RPC failures.
+///
+/// We accept any error type and walk its `source()` chain rather than matching cainome's error
+/// directly. Piltover and this crate currently resolve to different cainome versions, so the
+/// types aren't compatible — but `starknet::providers::ProviderError` is shared via the workspace
+/// `starknet` dep, and that's what cainome wraps as the `source` of its `Provider` variant.
+fn map_program_info_error<E>(err: &E, contract: ContractAddress) -> SettlementValidationError
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = cause {
+        if let Some(provider_err) = e.downcast_ref::<ProviderError>() {
+            if matches!(provider_err, ProviderError::StarknetError(StarknetError::ContractNotFound))
+            {
+                return SettlementValidationError::CoreContractNotFound { address: contract };
+            }
+            break;
+        }
+        cause = e.source();
+    }
+
+    SettlementValidationError::Other(anyhow::anyhow!("{err}"))
+}
+
+/// Pure comparison between an on-chain [`ProgramInfo`] and the chain's expected values. Split out
+/// from the network-bound [`validate_starknet_settlement`] so it can be unit-tested without a
+/// running settlement node.
+fn check_program_info(
+    on_chain: &ProgramInfo,
+    chain_id: Felt,
+    fee_token: Felt,
+    proof_kind: SettlementProofKind,
+) -> Result<(), SettlementValidationError> {
+    match (proof_kind, on_chain) {
+        (SettlementProofKind::ValidityProof, ProgramInfo::StarknetOs(info)) => {
+            let expected_config_hash = compute_starknet_os_config_hash(chain_id, fee_token);
+
+            if info.snos_config_hash != expected_config_hash {
+                return Err(SettlementValidationError::InvalidConfigHash {
+                    expected: expected_config_hash,
+                    actual: info.snos_config_hash,
+                });
+            }
+
+            if info.snos_program_hash != SNOS_PROGRAM_HASH {
+                return Err(SettlementValidationError::InvalidSnosProgramHash {
+                    expected: SNOS_PROGRAM_HASH,
+                    actual: info.snos_program_hash,
+                });
+            }
+
+            if info.layout_bridge_program_hash != LAYOUT_BRIDGE_PROGRAM_HASH {
+                return Err(SettlementValidationError::InvalidLayoutBridgeProgramHash {
+                    expected: LAYOUT_BRIDGE_PROGRAM_HASH,
+                    actual: info.layout_bridge_program_hash,
+                });
+            }
+
+            if info.bootloader_program_hash != BOOTLOADER_PROGRAM_HASH {
+                return Err(SettlementValidationError::InvalidBootloaderProgramHash {
+                    expected: BOOTLOADER_PROGRAM_HASH,
+                    actual: info.bootloader_program_hash,
+                });
+            }
+        }
+
+        (SettlementProofKind::Tee, ProgramInfo::KatanaTee(info)) => {
+            let expected = compute_katana_tee_config_hash(chain_id, fee_token);
+            if info.katana_tee_config_hash != expected {
+                return Err(SettlementValidationError::InvalidKatanaTeeConfigHash {
+                    expected,
+                    actual: info.katana_tee_config_hash,
+                });
+            }
+        }
+
+        (SettlementProofKind::ValidityProof, ProgramInfo::KatanaTee(_)) => {
+            return Err(SettlementValidationError::InvalidProgramInfoVariant {
+                expected: "StarknetOs",
+                actual: "KatanaTee",
+            });
+        }
+
+        (SettlementProofKind::Tee, ProgramInfo::StarknetOs(_)) => {
+            return Err(SettlementValidationError::InvalidProgramInfoVariant {
+                expected: "KatanaTee",
+                actual: "StarknetOs",
+            });
+        }
+    }
+
+    Ok(())
+}
+
+// https://github.com/starkware-libs/sequencer/blob/e13acc4c582352e777f5beae3476d157e6bdf4cf/crates/apollo_starknet_os_program/src/cairo/starkware/starknet/core/os/os_config/os_config.cairo#L10
+pub fn compute_starknet_os_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
+    const STARKNET_OS_CONFIG_VERSION: ShortString = ShortString::from_ascii("StarknetOsConfig3");
+    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION.into(), chain_id, fee_token])
 }
 
 mod provider {
@@ -436,162 +615,21 @@ mod provider {
     }
 }
 
-/// Errors surfaced when validating an on-chain Piltover settlement contract against the chain
-/// spec.
-#[derive(Error, Debug)]
-pub enum SettlementValidationError {
-    #[error(
-        "invalid program info: layout bridge program hash mismatch - expected {expected:#x}, got \
-         {actual:#x}"
-    )]
-    InvalidLayoutBridgeProgramHash { expected: Felt, actual: Felt },
-
-    #[error(
-        "invalid program info: bootloader program hash mismatch - expected {expected:#x}, got \
-         {actual:#x}"
-    )]
-    InvalidBootloaderProgramHash { expected: Felt, actual: Felt },
-
-    #[error(
-        "invalid program info: snos program hash mismatch - expected {expected:#x}, got \
-         {actual:#x}"
-    )]
-    InvalidSnosProgramHash { expected: Felt, actual: Felt },
-
-    #[error(
-        "invalid program info: config hash mismatch - expected {expected:#x}, got {actual:#x}"
-    )]
-    InvalidConfigHash { expected: Felt, actual: Felt },
-
-    #[error(
-        "invalid program info: katana tee config hash mismatch - expected {expected:#x}, got \
-         {actual:#x}"
-    )]
-    InvalidKatanaTeeConfigHash { expected: Felt, actual: Felt },
-
-    #[error(
-        "invalid program info: settlement-mode mismatch - expected {expected} variant, got \
-         {actual}"
-    )]
-    InvalidProgramInfoVariant { expected: &'static str, actual: &'static str },
-
-    #[error("failed to read program info from settlement contract: {0}")]
-    Provider(#[from] ProviderError),
-
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
-}
-
-/// Validates the on-chain Piltover core contract against the chain's expected program info.
-///
-/// In [`SettlementProofKind::ValidityProof`] mode, validates SNOS, layout-bridge, and bootloader
-/// program hashes plus the SNOS config hash. In [`SettlementProofKind::Tee`] mode, only the SNOS
-/// config hash is validated — TEE settlement does not depend on the Cairo program hashes.
-pub async fn validate_starknet_settlement(
-    chain_id: Felt,
-    fee_token: Felt,
-    contract: ContractAddress,
-    provider: &SettlementChainProvider,
-    proof_kind: SettlementProofKind,
-) -> Result<(), SettlementValidationError> {
-    let appchain = AppchainContractReader::new(contract.into(), provider);
-    let on_chain = appchain
-        .get_program_info()
-        .call()
-        .await
-        .map_err(|e| SettlementValidationError::Other(anyhow::anyhow!(e)))?;
-
-    check_program_info(&on_chain, chain_id, fee_token, proof_kind)
-}
-
-/// Pure comparison between an on-chain [`ProgramInfo`] and the chain's expected values. Split out
-/// from the network-bound [`validate_starknet_settlement`] so it can be unit-tested without a
-/// running settlement node.
-fn check_program_info(
-    on_chain: &ProgramInfo,
-    chain_id: Felt,
-    fee_token: Felt,
-    proof_kind: SettlementProofKind,
-) -> Result<(), SettlementValidationError> {
-    match (proof_kind, on_chain) {
-        (SettlementProofKind::ValidityProof, ProgramInfo::StarknetOs(info)) => {
-            let expected_config_hash = compute_starknet_os_config_hash(chain_id, fee_token);
-
-            if info.snos_config_hash != expected_config_hash {
-                return Err(SettlementValidationError::InvalidConfigHash {
-                    expected: expected_config_hash,
-                    actual: info.snos_config_hash,
-                });
-            }
-
-            if info.snos_program_hash != SNOS_PROGRAM_HASH {
-                return Err(SettlementValidationError::InvalidSnosProgramHash {
-                    expected: SNOS_PROGRAM_HASH,
-                    actual: info.snos_program_hash,
-                });
-            }
-
-            if info.layout_bridge_program_hash != LAYOUT_BRIDGE_PROGRAM_HASH {
-                return Err(SettlementValidationError::InvalidLayoutBridgeProgramHash {
-                    expected: LAYOUT_BRIDGE_PROGRAM_HASH,
-                    actual: info.layout_bridge_program_hash,
-                });
-            }
-
-            if info.bootloader_program_hash != BOOTLOADER_PROGRAM_HASH {
-                return Err(SettlementValidationError::InvalidBootloaderProgramHash {
-                    expected: BOOTLOADER_PROGRAM_HASH,
-                    actual: info.bootloader_program_hash,
-                });
-            }
-        }
-
-        (SettlementProofKind::Tee, ProgramInfo::KatanaTee(info)) => {
-            let expected = compute_katana_tee_config_hash(chain_id, fee_token);
-            if info.katana_tee_config_hash != expected {
-                return Err(SettlementValidationError::InvalidKatanaTeeConfigHash {
-                    expected,
-                    actual: info.katana_tee_config_hash,
-                });
-            }
-        }
-
-        (SettlementProofKind::ValidityProof, ProgramInfo::KatanaTee(_)) => {
-            return Err(SettlementValidationError::InvalidProgramInfoVariant {
-                expected: "StarknetOs",
-                actual: "KatanaTee",
-            });
-        }
-
-        (SettlementProofKind::Tee, ProgramInfo::StarknetOs(_)) => {
-            return Err(SettlementValidationError::InvalidProgramInfoVariant {
-                expected: "KatanaTee",
-                actual: "StarknetOs",
-            });
-        }
-    }
-
-    Ok(())
-}
-
-// https://github.com/starkware-libs/sequencer/blob/e13acc4c582352e777f5beae3476d157e6bdf4cf/crates/apollo_starknet_os_program/src/cairo/starkware/starknet/core/os/os_config/os_config.cairo#L10
-pub fn compute_starknet_os_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
-    const STARKNET_OS_CONFIG_VERSION: ShortString = ShortString::from_ascii("StarknetOsConfig3");
-    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION.into(), chain_id, fee_token])
-}
-
 #[cfg(test)]
 mod tests {
-    use katana_chain_spec::SettlementProofKind;
-    use katana_primitives::{felt, Felt};
-    use katana_rpc_api::tee::compute_katana_tee_config_hash;
+    use crate::SettlementProofKind;
+    use katana_primitives::{felt, ContractAddress, Felt};
     use piltover::{KatanaTeeProgramInfo, ProgramInfo, StarknetOsProgramInfo};
     use starknet::core::chain_id::{MAINNET, SEPOLIA};
+    use starknet::core::types::StarknetError;
+    use starknet::providers::ProviderError;
 
     use super::{
-        check_program_info, compute_starknet_os_config_hash, SettlementValidationError,
-        BOOTLOADER_PROGRAM_HASH, LAYOUT_BRIDGE_PROGRAM_HASH, SNOS_PROGRAM_HASH,
+        check_program_info, compute_starknet_os_config_hash, map_program_info_error,
+        SettlementValidationError, BOOTLOADER_PROGRAM_HASH, LAYOUT_BRIDGE_PROGRAM_HASH,
+        SNOS_PROGRAM_HASH,
     };
+    use crate::tee::compute_katana_tee_config_hash;
 
     const STRK_FEE_TOKEN: Felt =
         felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d");
@@ -749,6 +787,50 @@ mod tests {
         )
         .expect_err("must reject SNOS config hash mismatch");
         assert!(matches!(err, SettlementValidationError::InvalidConfigHash { .. }));
+    }
+
+    /// Stand-in for cainome's error: a `Display`-able wrapper whose `source()` returns the inner
+    /// `ProviderError`. The real cainome `Error::Provider(ProviderError)` shapes its source the
+    /// same way (via `#[from]`), so this exercises the same path `map_program_info_error` walks
+    /// in production.
+    #[derive(Debug)]
+    struct CainomeLikeError(ProviderError);
+
+    impl std::fmt::Display for CainomeLikeError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "provider error: {}", self.0)
+        }
+    }
+
+    impl std::error::Error for CainomeLikeError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[test]
+    fn maps_contract_not_found_to_distinct_error() {
+        let address = ContractAddress::from(felt!("0xdeadbeef"));
+        let err = map_program_info_error(
+            &CainomeLikeError(ProviderError::StarknetError(StarknetError::ContractNotFound)),
+            address,
+        );
+        match err {
+            SettlementValidationError::CoreContractNotFound { address: a } => {
+                assert_eq!(a, address);
+            }
+            other => panic!("expected CoreContractNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn maps_other_provider_errors_to_other() {
+        let address = ContractAddress::from(felt!("0xdeadbeef"));
+        let err = map_program_info_error(
+            &CainomeLikeError(ProviderError::RateLimited),
+            address,
+        );
+        assert!(matches!(err, SettlementValidationError::Other(_)));
     }
 
     #[test]

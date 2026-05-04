@@ -72,7 +72,7 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt, U256};
-use katana_sequencer_node::settlement_check::SettlementChainProvider;
+use katana_chain_spec::settlement_check::SettlementChainProvider;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::providers::Provider;
 use starknet::signers::SigningKey;

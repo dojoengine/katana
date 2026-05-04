@@ -5,9 +5,9 @@ use katana_contracts::piltover::Appchain;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::ContractClass;
 use katana_primitives::{felt, ContractAddress, Felt};
-use katana_rpc_api::tee::compute_katana_tee_config_hash;
+use katana_chain_spec::tee::compute_katana_tee_config_hash;
 use katana_rpc_types::class::Class;
-use katana_sequencer_node::settlement_check::{
+use katana_chain_spec::settlement_check::{
     self, SettlementChainProvider, SettlementValidationError,
 };
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;

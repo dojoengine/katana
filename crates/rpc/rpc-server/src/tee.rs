@@ -3,6 +3,10 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_chain_spec::tee::{
+    compute_katana_tee_config_hash, KATANA_TEE_APPCHAIN_MODE, KATANA_TEE_REPORT_VERSION,
+    KATANA_TEE_SHARDING_MODE,
+};
 use katana_chain_spec::ChainSpec;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::receipt::Receipt;
@@ -13,9 +17,7 @@ use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
 use katana_provider::ProviderFactory;
 use katana_rpc_api::error::tee::TeeApiError;
 use katana_rpc_api::tee::{
-    compute_katana_tee_config_hash, EventProofResponse, TeeApiServer, TeeL1ToL2Message,
-    TeeL2ToL1Message, TeeQuoteResponse, KATANA_TEE_APPCHAIN_MODE, KATANA_TEE_REPORT_VERSION,
-    KATANA_TEE_SHARDING_MODE,
+    EventProofResponse, TeeApiServer, TeeL1ToL2Message, TeeL2ToL1Message, TeeQuoteResponse,
 };
 use katana_tee::TeeProvider;
 use starknet_types_core::hash::{Poseidon, StarkHash};

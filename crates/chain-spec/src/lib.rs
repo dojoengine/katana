@@ -8,6 +8,8 @@ use url::Url;
 pub mod dev;
 pub mod full_node;
 pub mod rollup;
+pub mod settlement_check;
+pub mod tee;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChainSpec {
