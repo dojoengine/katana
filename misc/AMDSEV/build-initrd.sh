@@ -693,14 +693,23 @@ load_dm_modules() {
     done
 }
 
-# Drop any --db-dir / --db-* flags from a space-separated arg string. This
-# prevents an operator with access to the virtio-serial control channel from
-# pointing Katana at a db-dir outside the sealed mount, escaping the sealing
-# guarantee. Runs inside the measured initrd, so the defense itself is pinned.
+# Drop any --data-dir / --db-dir / --db-* flags from a space-separated arg
+# string. This prevents an operator with access to the virtio-serial control
+# channel from pointing Katana at a data directory outside the sealed mount,
+# escaping the sealing guarantee. Runs inside the measured initrd, so the
+# defense itself is pinned.
 #
-# Handles:  `--db-dir value`     (two tokens — next token consumed)
-#           `--db-dir=value`     (one token)
-#           `--db-anything[=val]` (catch-all for future --db-* flags)
+# `--data-dir` is the canonical katana flag; `--db-dir` is its alias (see
+# crates/cli/src/options.rs). Both must be filtered. The `--db-*` wildcard
+# additionally catches any future db-namespaced flags. We do not use a
+# `--data-*` wildcard because unrelated future flags could legitimately
+# start with `--data-`.
+#
+# Handles:  `--data-dir value`     (two tokens — next token consumed)
+#           `--data-dir=value`     (one token)
+#           `--db-dir value`       (alias, two tokens)
+#           `--db-dir=value`       (alias, one token)
+#           `--db-anything[=val]`  (catch-all for future --db-* flags)
 strip_db_args() {
     SKIP_NEXT=0
     OUT=""
@@ -711,11 +720,11 @@ strip_db_args() {
             continue
         fi
         case "$tok" in
-            --db-*=*)
+            --data-dir=*|--db-*=*)
                 log "strip_db_args: dropped '$tok'"
                 continue
                 ;;
-            --db-*)
+            --data-dir|--db-*)
                 log "strip_db_args: dropped '$tok' (and next token)"
                 SKIP_NEXT=1
                 continue
