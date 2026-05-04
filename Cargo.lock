@@ -6210,7 +6210,6 @@ dependencies = [
  "katana-genesis",
  "katana-primitives",
  "katana-provider",
- "katana-rpc-api",
  "katana-rpc-types",
  "katana-starknet",
  "katana-utils",

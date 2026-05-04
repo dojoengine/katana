@@ -107,8 +107,8 @@ impl SettlementChainProvider {
 #[derive(Error, Debug)]
 pub enum SettlementValidationError {
     #[error(
-        "settlement core contract not found at {address} on the settlement chain — the chain \
-         spec points at an address that has no deployed contract"
+        "settlement core contract not found at {address} on the settlement chain — the chain spec \
+         points at an address that has no deployed contract"
     )]
     CoreContractNotFound { address: ContractAddress },
 
@@ -617,7 +617,6 @@ mod provider {
 
 #[cfg(test)]
 mod tests {
-    use crate::SettlementProofKind;
     use katana_primitives::{felt, ContractAddress, Felt};
     use piltover::{KatanaTeeProgramInfo, ProgramInfo, StarknetOsProgramInfo};
     use starknet::core::chain_id::{MAINNET, SEPOLIA};
@@ -630,6 +629,7 @@ mod tests {
         SNOS_PROGRAM_HASH,
     };
     use crate::tee::compute_katana_tee_config_hash;
+    use crate::SettlementProofKind;
 
     const STRK_FEE_TOKEN: Felt =
         felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d");
@@ -826,10 +826,7 @@ mod tests {
     #[test]
     fn maps_other_provider_errors_to_other() {
         let address = ContractAddress::from(felt!("0xdeadbeef"));
-        let err = map_program_info_error(
-            &CainomeLikeError(ProviderError::RateLimited),
-            address,
-        );
+        let err = map_program_info_error(&CainomeLikeError(ProviderError::RateLimited), address);
         assert!(matches!(err, SettlementValidationError::Other(_)));
     }
 

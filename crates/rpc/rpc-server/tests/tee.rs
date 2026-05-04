@@ -17,6 +17,10 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use jsonrpsee::server::ServerBuilder;
+use katana_chain_spec::tee::{
+    compute_katana_tee_config_hash, KATANA_TEE_APPCHAIN_MODE, KATANA_TEE_REPORT_VERSION,
+    KATANA_TEE_SHARDING_MODE,
+};
 use katana_chain_spec::ChainSpec;
 use katana_primitives::block::{Block, BlockNumber, FinalityStatus, Header, SealedBlockWithStatus};
 use katana_primitives::fee::FeeInfo;
@@ -28,10 +32,6 @@ use katana_primitives::transaction::{InvokeTx, InvokeTxV1, L1HandlerTx, Tx, TxWi
 use katana_primitives::{address, felt, ContractAddress, Felt, B256};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
-use katana_chain_spec::tee::{
-    compute_katana_tee_config_hash, KATANA_TEE_APPCHAIN_MODE, KATANA_TEE_REPORT_VERSION,
-    KATANA_TEE_SHARDING_MODE,
-};
 use katana_rpc_api::tee::{TeeApiServer, TeeL1ToL2Message, TeeL2ToL1Message};
 use katana_rpc_server::tee::TeeApi;
 use katana_tee::MockProvider;
