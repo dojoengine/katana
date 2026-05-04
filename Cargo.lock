@@ -8743,7 +8743,6 @@ dependencies = [
  "katana-rpc-types",
  "rstest 0.18.2",
  "serde",
- "serde-utils",
  "serde_json",
  "thiserror 1.0.69",
 ]
@@ -9001,7 +9000,6 @@ dependencies = [
  "amd-sev-snp-attestation-verifier",
  "anyhow",
  "bincode 1.3.3",
- "cainome 0.9.1",
  "clap",
  "garaga_rs",
  "hex",
@@ -13402,6 +13400,7 @@ dependencies = [
  "anyhow",
  "cainome 0.9.1",
  "clap",
+ "hex",
  "katana-primitives",
  "katana-rpc-api",
  "katana-rpc-types",

@@ -3,10 +3,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Error;
-use sqlx::query;
 use sqlx::sqlite::SqlitePoolOptions;
-use sqlx::Pool;
-use sqlx::Sqlite;
+use sqlx::{query, Pool, Sqlite};
 use tracing::trace;
 
 mod storage;

@@ -4,10 +4,10 @@ use anyhow::Result;
 use starknet_types_core::felt::Felt;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{
-    block_ingestor::BlockInfo, data_availability::DataAvailabilityCursor, prover::TeeProof,
-    service::Daemon,
-};
+use crate::block_ingestor::BlockInfo;
+use crate::data_availability::DataAvailabilityCursor;
+use crate::prover::TeeProof;
+use crate::service::Daemon;
 
 pub trait SettlementBackendBuilder {
     type Backend: SettlementBackend;

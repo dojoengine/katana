@@ -7,7 +7,8 @@
 
 use katana_rpc_types::tee::BlockAttestation;
 
-use crate::{block_ingestor::BlockInfo, prover::HasBlockNumber};
+use crate::block_ingestor::BlockInfo;
+use crate::prover::HasBlockNumber;
 
 /// Attestation data fetched from a Katana rollup node for a batch of blocks.
 ///

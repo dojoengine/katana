@@ -66,9 +66,9 @@ pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
 pub const DEFAULT_LOG_FILTER: &str =
     "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
      executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
-     messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,\
-     katana_stage::downloader=trace,katana_paymaster=trace,middleware::cartridge=trace,\
-     middleware::cartridge::vrf=trace,rpc::cartridge=debug,info";
+     messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,katana_stage::downloader=trace,\
+     katana_paymaster=trace,middleware::cartridge=trace,middleware::cartridge::vrf=trace,\
+     rpc::cartridge=debug,info";
 
 /// Builds the [`EnvFilter`] used by the node binaries: honors `RUST_LOG` when set,
 /// otherwise falls back to [`DEFAULT_LOG_FILTER`].

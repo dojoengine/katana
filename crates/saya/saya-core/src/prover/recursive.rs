@@ -2,10 +2,8 @@ use anyhow::Result;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::debug;
 
-use crate::{
-    prover::{PipelineStage, PipelineStageBuilder},
-    service::{Daemon, FinishHandle, ShutdownHandle},
-};
+use crate::prover::{PipelineStage, PipelineStageBuilder};
+use crate::service::{Daemon, FinishHandle, ShutdownHandle};
 
 const BRIDGE_BUFFER_SIZE: usize = 4;
 
@@ -30,10 +28,7 @@ struct PipelineChainState {
 
 impl<U, D> PipelineChainBuilder<U, D> {
     pub fn new(upstream_builder: U, downstream_builder: D) -> Self {
-        Self {
-            upstream_builder,
-            downstream_builder,
-        }
+        Self { upstream_builder, downstream_builder }
     }
 }
 

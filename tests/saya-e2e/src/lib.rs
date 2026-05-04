@@ -4,12 +4,11 @@ use std::time::Duration;
 
 use anyhow::Result;
 use piltover::{AppchainContractReader, ProgramInfo};
-use starknet::{
-    core::types::{
-        BlockId, BlockTag, Felt, MaybePreConfirmedBlockWithTxs, ReceiptBlock, Transaction,
-    },
-    providers::{jsonrpc::HttpTransport, JsonRpcClient, Provider},
+use starknet::core::types::{
+    BlockId, BlockTag, Felt, MaybePreConfirmedBlockWithTxs, ReceiptBlock, Transaction,
 };
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider};
 
 /// Decoded appchain state returned by the piltover `get_state` entry point.
 #[derive(Debug)]
@@ -31,11 +30,7 @@ pub async fn get_settlement_state(
             .call()
             .await?;
 
-    Ok(AppchainState {
-        state_root,
-        block_number,
-        block_hash,
-    })
+    Ok(AppchainState { state_root, block_number, block_hash })
 }
 
 /// Query the piltover contract for the configured program info.
@@ -131,9 +126,7 @@ pub async fn wait_for_tx_block(
 
 /// Build a JSON-RPC provider from a URL string.
 pub fn provider(url: &str) -> JsonRpcClient<HttpTransport> {
-    JsonRpcClient::new(HttpTransport::new(
-        url.parse::<url::Url>().expect("invalid RPC URL"),
-    ))
+    JsonRpcClient::new(HttpTransport::new(url.parse::<url::Url>().expect("invalid RPC URL")))
 }
 
 /// Walk up from `CARGO_MANIFEST_DIR` until `compose.yml` is found.

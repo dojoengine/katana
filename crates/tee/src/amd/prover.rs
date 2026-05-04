@@ -50,23 +50,23 @@
 //! - For network proving, the actual proof is generated on secure GPU clusters
 //! - The final Groth16 proof is cryptographically secure
 
-use crate::amd::{
-    config::ProverConfig, report::AttestationReportBytes, starknet::StarknetRegistryClient, Error,
-};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use alloy_primitives::{Bytes, B256};
+// Re-export OnchainProof for convenience
+pub use amd_sev_snp_attestation_prover::OnchainProof;
 use amd_sev_snp_attestation_prover::{
     AmdSevSnpProver, ProverConfig as SdkProverConfig, RawProofType, SP1ProverConfig, KDS,
 };
-use amd_sev_snp_attestation_verifier::{
-    stub::{ProcessorType, VerifierInput},
-    AttestationReport,
-};
+use amd_sev_snp_attestation_verifier::stub::{ProcessorType, VerifierInput};
+use amd_sev_snp_attestation_verifier::AttestationReport;
 use katana_tracing::info;
-use std::time::{SystemTime, UNIX_EPOCH};
 use x509_verifier_rust_crypto::CertChain;
 
-// Re-export OnchainProof for convenience
-pub use amd_sev_snp_attestation_prover::OnchainProof;
+use crate::amd::config::ProverConfig;
+use crate::amd::report::AttestationReportBytes;
+use crate::amd::starknet::StarknetRegistryClient;
+use crate::amd::Error;
 
 /// Optional storage proof data for ZK circuit. When set, the circuit verifies:
 /// 1. global_state_root = hash("STARKNET_STATE_V0", contracts_tree_root, classes_tree_root)
@@ -215,8 +215,9 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         self.prove_with_timestamp(report_bytes, current_timestamp()?, registry_client).await
     }
 
-    /// Generate an SP1 Groth16 proof with optional storage proof (same flow as `prove_with_timestamp`).
-    /// When `storage` is `Some`, the ZK circuit verifies the proof and commits storage commitment to the journal.
+    /// Generate an SP1 Groth16 proof with optional storage proof (same flow as
+    /// `prove_with_timestamp`). When `storage` is `Some`, the ZK circuit verifies the proof and
+    /// commits storage commitment to the journal.
     pub async fn prove_with_storage(
         &self,
         report_bytes: &[u8],
@@ -245,7 +246,8 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
             .await
     }
 
-    /// Generate an SP1 Groth16 proof with timestamp, cache lookup, and optional storage/event proofs.
+    /// Generate an SP1 Groth16 proof with timestamp, cache lookup, and optional storage/event
+    /// proofs.
     pub async fn prove_with_timestamp_and_storage(
         &self,
         report_bytes: &[u8],

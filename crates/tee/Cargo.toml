@@ -7,7 +7,6 @@ version.workspace = true
 [dependencies]
 katana-primitives.workspace = true
 
-cainome.workspace = true
 bincode = { workspace = true, optional = true }
 clap = { workspace = true, default-features = false, features = [ "derive" ] }
 serde.workspace = true

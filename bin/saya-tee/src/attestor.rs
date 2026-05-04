@@ -6,21 +6,17 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use katana_primitives::Felt;
-use katana_rpc_api::{tee::TeeApiClient, HttpClientBuilder};
-use katana_rpc_types::{tee::BlockAttestation, L2ToL1Message};
+use katana_rpc_api::tee::TeeApiClient;
+use katana_rpc_api::HttpClientBuilder;
+use saya_core::block_ingestor::BlockInfo;
+#[allow(unused_imports)]
+use saya_core::prover::HasBlockNumber;
+use saya_core::prover::{PipelineStage, PipelineStageBuilder};
+use saya_core::service::{Daemon, FinishHandle, ShutdownHandle};
+use saya_core::tee::TeeAttestation;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info};
 use url::Url;
-
-#[allow(unused_imports)]
-use saya_core::prover::HasBlockNumber;
-use saya_core::{
-    block_ingestor::BlockInfo,
-    prover::{PipelineStage, PipelineStageBuilder},
-    service::{Daemon, FinishHandle, ShutdownHandle},
-    tee::{L1ToL2Message, TeeAttestation},
-};
 
 /// Fetches TEE attestation from the Katana rollup node for each incoming batch of
 /// [`BlockInfo`].

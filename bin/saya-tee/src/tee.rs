@@ -1,21 +1,22 @@
 //! `persistent-tee tee start` — runs the TEE pipeline end-to-end.
 
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use saya_core::{
-    block_ingestor::BatchingPollingBlockIngestorBuilder, orchestrator::TeeOrchestratorBuilder,
-    service::Daemon, storage::SqliteDb,
-};
-
-use crate::settlement::TeePiltoverSettlementBackendBuilder;
+use katana_primitives::ContractAddress;
+use saya_core::block_ingestor::BatchingPollingBlockIngestorBuilder;
+use saya_core::orchestrator::TeeOrchestratorBuilder;
+use saya_core::service::Daemon;
+use saya_core::storage::SqliteDb;
 use starknet_types_core::felt::Felt;
 use url::Url;
 
 use crate::attestor::TeeAttestorBuilder;
 use crate::common::SAYA_DB_PATH;
 use crate::prover::TeeProverBuilder;
+use crate::settlement::TeePiltoverSettlementBackendBuilder;
 
 /// 10 seconds.
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -45,16 +46,16 @@ struct Start {
     settlement_rpc: Url,
     /// Settlement network piltover contract address
     #[clap(long, env)]
-    settlement_piltover_address: Felt,
+    settlement_piltover_address: ContractAddress,
     /// Settlement network account contract address
     #[clap(long, env)]
-    settlement_account_address: Felt,
+    settlement_account_address: ContractAddress,
     /// Settlement network account private key
     #[clap(long, env)]
     settlement_account_private_key: Felt,
     /// TEE registry contract address on the prover network
     #[clap(long, env)]
-    tee_registry_address: Felt,
+    tee_registry_address: ContractAddress,
     /// Private key for the prover network account
     #[clap(long, env)]
     prover_private_key: String,

@@ -1,28 +1,22 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
-use starknet::{
-    core::types::BlockId,
-    providers::{jsonrpc::HttpTransport, JsonRpcClient, Provider},
-};
-use tokio::{
-    sync::{
-        mpsc::{self, Sender},
-        Mutex,
-    },
-    task,
-    time::sleep,
-};
+use starknet::core::types::BlockId;
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider};
+use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::Mutex;
+use tokio::task;
+use tokio::time::sleep;
 use tracing::{debug, error, trace};
 use url::Url;
 
-use crate::{
-    block_ingestor::{
-        BatchingBlockIngestorBuilder, BlockInfo, BlockIngestor, BlockIngestorBuilder,
-    },
-    service::{Daemon, FinishHandle, ShutdownHandle},
-    storage::{BlockStatus, PersistantStorage},
+use crate::block_ingestor::{
+    BatchingBlockIngestorBuilder, BlockInfo, BlockIngestor, BlockIngestorBuilder,
 };
+use crate::service::{Daemon, FinishHandle, ShutdownHandle};
+use crate::storage::{BlockStatus, PersistantStorage};
 
 const BLOCK_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const TASK_BUFFER_SIZE: usize = 4;
@@ -81,7 +75,8 @@ where
         }
     }
 
-    /// Worker function: fetches the state update for a block and emits `BlockInfo { status: Mined }`.
+    /// Worker function: fetches the state update for a block and emits `BlockInfo { status: Mined
+    /// }`.
     async fn worker(
         task_rx: Arc<Mutex<mpsc::Receiver<u64>>>,
         finish_handle: FinishHandle,
@@ -102,9 +97,7 @@ where
                 break;
             }
 
-            db.initialize_block(block_number.try_into().unwrap())
-                .await
-                .unwrap();
+            db.initialize_block(block_number.try_into().unwrap()).await.unwrap();
 
             let state_update = &JsonRpcClient::new(HttpTransport::new(rpc_url.clone()))
                 .get_state_update(BlockId::Number(block_number))
@@ -167,10 +160,7 @@ where
                                 return;
                             }
                         }
-                        self.db
-                            .mark_failed_blocks_as_handled(&block_ids)
-                            .await
-                            .unwrap();
+                        self.db.mark_failed_blocks_as_handled(&block_ids).await.unwrap();
                     }
                     if task_tx.send(self.current_block).await.is_err() {
                         return;
@@ -192,13 +182,7 @@ where
 
 impl<DB> PollingBlockIngestorBuilder<DB> {
     pub fn new(rpc_url: Url, db: DB, workers_count: usize) -> Self {
-        Self {
-            rpc_url,
-            start_block: None,
-            channel: None,
-            db,
-            workers_count,
-        }
+        Self { rpc_url, start_block: None, channel: None, db, workers_count }
     }
 }
 
@@ -215,9 +199,7 @@ where
             current_block: self
                 .start_block
                 .ok_or_else(|| anyhow::anyhow!("`start_block` not set"))?,
-            channel: self
-                .channel
-                .ok_or_else(|| anyhow::anyhow!("`channel` not set"))?,
+            channel: self.channel.ok_or_else(|| anyhow::anyhow!("`channel` not set"))?,
             finish_handle: FinishHandle::new(),
             workers_count: self.workers_count,
         })
@@ -283,14 +265,7 @@ pub struct BatchingPollingBlockIngestorBuilder<DB> {
 
 impl<DB> BatchingPollingBlockIngestorBuilder<DB> {
     pub fn new(rpc_url: Url, db: DB, batch_size: usize, idle_timeout: Duration) -> Self {
-        Self {
-            rpc_url,
-            start_block: None,
-            channel: None,
-            db,
-            batch_size,
-            idle_timeout,
-        }
+        Self { rpc_url, start_block: None, channel: None, db, batch_size, idle_timeout }
     }
 }
 
@@ -307,9 +282,7 @@ where
             current_block: self
                 .start_block
                 .ok_or_else(|| anyhow::anyhow!("`start_block` not set"))?,
-            channel: self
-                .channel
-                .ok_or_else(|| anyhow::anyhow!("`channel` not set"))?,
+            channel: self.channel.ok_or_else(|| anyhow::anyhow!("`channel` not set"))?,
             finish_handle: FinishHandle::new(),
             batch_size: self.batch_size,
             idle_timeout: self.idle_timeout,
@@ -391,9 +364,7 @@ where
             }
         };
 
-        self.db
-            .add_state_update(block_number.try_into()?, state_update.clone())
-            .await?;
+        self.db.add_state_update(block_number.try_into()?, state_update.clone()).await?;
 
         trace!(block_number, "Block fetched, buffering for next batch");
 

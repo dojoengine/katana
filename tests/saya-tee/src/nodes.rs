@@ -5,8 +5,8 @@
 //! - **L2** — vanilla dev chain acting as the settlement layer. Hosts Piltover and the mock TEE
 //!   registry that `saya-ops` deploys into it.
 //! - **L3** — rollup chain whose `SettlementLayer::Starknet` points at L2's Piltover address.
-//!   Configured with `Config.tee = TeeConfig { attester: Mock, .. }` so its
-//!   `tee_generateQuote` RPC serves a stub attestation that `saya-tee --mock-prove` consumes.
+//!   Configured with `Config.tee = TeeConfig { attester: Mock, .. }` so its `tee_generateQuote` RPC
+//!   serves a stub attestation that `saya-tee --mock-prove` consumes.
 //!
 //! Both Nodes run in one process with independent [`ClassCache`] instances. Previously the L2
 //! had to be spawned as a subprocess because Katana's executor shared a process-global

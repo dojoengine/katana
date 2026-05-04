@@ -2,11 +2,11 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{
-    block_ingestor::BlockInfo,
-    data_availability::{DataAvailabilityPacketContext, DataAvailabilityPayload, PersistentPacket},
-    service::Daemon,
+use crate::block_ingestor::BlockInfo;
+use crate::data_availability::{
+    DataAvailabilityPacketContext, DataAvailabilityPayload, PersistentPacket,
 };
+use crate::service::Daemon;
 
 mod recursive;
 pub use recursive::{PipelineChain, PipelineChainBuilder};
@@ -15,12 +15,12 @@ mod block_orderer;
 pub use block_orderer::{BlockOrderer, BlockOrdererBuilder};
 
 pub mod tee;
+#[cfg(feature = "snos")]
+use swiftness_stark::types::StarkProof;
 pub use tee::{TeeProof, TeeProver, TeeProverBuilder};
 
 #[cfg(feature = "snos")]
 use crate::data_availability::SovereignPacket;
-#[cfg(feature = "snos")]
-use swiftness_stark::types::StarkProof;
 
 /// Implemented by pipeline items that carry a block number.
 pub trait HasBlockNumber {
@@ -80,10 +80,7 @@ impl DataAvailabilityPayload for SnosProof<StarkProof> {
     }
 
     fn into_packet(self, ctx: DataAvailabilityPacketContext) -> Self::Packet {
-        SovereignPacket {
-            prev: ctx.prev,
-            proof: self,
-        }
+        SovereignPacket { prev: ctx.prev, proof: self }
     }
 }
 
@@ -95,8 +92,6 @@ impl DataAvailabilityPayload for BlockInfo {
     }
 
     fn into_packet(self, _ctx: DataAvailabilityPacketContext) -> Self::Packet {
-        PersistentPacket {
-            state_update: self.state_update,
-        }
+        PersistentPacket { state_update: self.state_update }
     }
 }

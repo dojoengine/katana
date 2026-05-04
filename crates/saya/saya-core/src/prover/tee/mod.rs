@@ -4,19 +4,15 @@
 //! same [`PipelineStageBuilder`] interface.
 
 use anyhow::Result;
+use katana_primitives::Felt;
 use katana_rpc_types::{L1ToL2Message, L2ToL1Message};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::debug;
 
-use katana_primitives::block::{BlockHash, BlockNumber};
-use katana_primitives::Felt;
-
-use crate::{
-    block_ingestor::BlockInfo,
-    prover::{HasBlockNumber, PipelineStage, PipelineStageBuilder},
-    service::{Daemon, FinishHandle, ShutdownHandle},
-    tee::TeeAttestation,
-};
+use crate::block_ingestor::BlockInfo;
+use crate::prover::{HasBlockNumber, PipelineStage, PipelineStageBuilder};
+use crate::service::{Daemon, FinishHandle, ShutdownHandle};
+use crate::tee::TeeAttestation;
 
 /// A proof produced by the TEE proving service for a batch of blocks.
 ///

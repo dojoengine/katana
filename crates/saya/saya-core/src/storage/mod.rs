@@ -1,7 +1,9 @@
-use crate::data_availability::DataAvailabilityPointer;
+use std::future::Future;
+
 use anyhow::Result;
 use starknet::core::types::StateUpdate;
-use std::future::Future;
+
+use crate::data_availability::DataAvailabilityPointer;
 
 mod in_memory;
 pub use in_memory::InMemoryStorageBackend;

@@ -1,43 +1,156 @@
 //! TEE settlement backend — submits `PiltoverInput::TeeInput` to the Piltover contract.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
-use cainome::cairo_serde::{CairoSerde, ContractAddress};
-use katana_tee_client::{OnchainProof, StarknetCalldata};
-use piltover::{MessageToAppchain, MessageToStarknet, PiltoverInput, TEEInput};
+use cainome::cairo_serde::ContractAddress as CainomeContractAddress;
+use cainome::rs::abigen;
+use katana_primitives::ContractAddress;
+use katana_rpc_types::{L1ToL2Message, L2ToL1Message};
+use katana_tee::amd::{OnchainProof, StarknetCalldata};
+use saya_core::prover::TeeProof;
+use saya_core::service::{Daemon, FinishHandle, ShutdownHandle};
+use saya_core::settlement::{SettlementBackend, SettlementCursor, TeeSettlementBackendBuilder};
 use sha3::{Digest, Keccak256};
-use starknet::{
-    accounts::{Account, ExecutionEncoding, SingleOwnerAccount},
-    core::types::{BlockId, BlockTag, Call, Felt, FunctionCall, TransactionReceipt},
-    macros::selector,
-    providers::{jsonrpc::HttpTransport, JsonRpcClient, Provider},
-    signers::{LocalWallet, SigningKey},
-};
+use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
+use starknet::core::types::{BlockId, BlockTag, Felt, FunctionCall, TransactionReceipt};
+use starknet::macros::selector;
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider};
+use starknet::signers::{LocalWallet, SigningKey};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error};
 use url::Url;
 
-use saya_core::{
-    prover::TeeProof,
-    service::{Daemon, FinishHandle, ShutdownHandle},
-    settlement::{SettlementBackend, SettlementCursor, TeeSettlementBackendBuilder},
-    tee::{L1ToL2Message, L2ToL1Message},
-};
-
 const POLLING_INTERVAL: Duration = Duration::from_secs(2);
+
+abigen!(PiltoverAppchainCoreContract, [
+    {
+        "type": "interface",
+        "name": "piltover::interface::IAppchain",
+        "items": [
+            {
+                "type": "function",
+                "name": "update_state",
+                "inputs": [
+                    {
+                        "name": "piltover_input",
+                        "type": "piltover::input::component::PiltoverInput"
+                    }
+                ],
+                "outputs": [],
+                "state_mutability": "external"
+            }
+        ]
+    },
+    {
+        "type": "enum",
+        "name": "piltover::input::component::PiltoverInput",
+        "variants": [
+            {
+                "name": "LayoutBridgeOutputNoDa",
+                "type": "core::array::Span::<core::felt252>"
+            },
+            {
+                "name": "LayoutBridgeOutputWithDa",
+                "type": "(core::array::Span::<core::felt252>, piltover::input::layout_bridge::DaLayerInfo)"
+            },
+            {
+                "name": "TeeInput",
+                "type": "piltover::input::tee_input::TEEInput"
+            }
+        ]
+    },
+    {
+        "type": "struct",
+        "name": "piltover::input::tee_input::TEEInput",
+        "members": [
+            {
+                "name": "sp1_proof",
+                "type": "core::array::Span::<core::felt252>"
+            },
+            { "name": "prev_state_root", "type": "core::felt252" },
+            { "name": "state_root", "type": "core::felt252" },
+            { "name": "prev_block_hash", "type": "core::felt252" },
+            { "name": "block_hash", "type": "core::felt252" },
+            { "name": "prev_block_number", "type": "core::felt252" },
+            { "name": "block_number", "type": "core::felt252" },
+            { "name": "messages_commitment", "type": "core::felt252" },
+            {
+                "name": "messages_to_starknet",
+                "type": "core::array::Span::<piltover::input::snos_output::MessageToStarknet>"
+            },
+            {
+                "name": "messages_to_appchain",
+                "type": "core::array::Span::<piltover::input::snos_output::MessageToAppchain>"
+            },
+            {
+                "name": "l1_to_l2_msg_hashes",
+                "type": "core::array::Span::<core::felt252>"
+            }
+        ]
+    },
+    {
+        "type": "struct",
+        "name": "piltover::input::snos_output::MessageToStarknet",
+        "members": [
+            {
+                "name": "from_address",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "to_address",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "payload",
+                "type": "core::array::Span::<core::felt252>"
+            }
+        ]
+    },
+    {
+        "type": "struct",
+        "name": "piltover::input::snos_output::MessageToAppchain",
+        "members": [
+            {
+                "name": "from_address",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "to_address",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            { "name": "nonce", "type": "core::felt252" },
+            { "name": "selector", "type": "core::felt252" },
+            {
+                "name": "payload",
+                "type": "core::array::Span::<core::felt252>"
+            }
+        ]
+    },
+    {
+        "type": "struct",
+        "name": "piltover::input::layout_bridge::DaLayerInfo",
+        "members": [
+            { "name": "height", "type": "core::felt252" },
+            { "name": "commitment", "type": "core::felt252" },
+            { "name": "namespace", "type": "core::felt252" }
+        ]
+    }
+]);
 
 /// Computes the Starknet L1→L2 message hash using keccak256.
 ///
 /// Matches the Ethereum StarknetMessaging.sol formula:
-/// `keccak256(abi.encodePacked(from_address, to_address, nonce, selector, payload.length, payload))`
-/// where `from_address` is a 20-byte Ethereum address (lower 20 bytes of the felt252).
+/// `keccak256(abi.encodePacked(from_address, to_address, nonce, selector, payload.length,
+/// payload))` where `from_address` is a 20-byte Ethereum address (lower 20 bytes of the felt252).
 fn compute_l1_to_l2_msg_hash(msg: &L1ToL2Message) -> Felt {
     let mut hasher = Keccak256::new();
-    hasher.update(&msg.from_address.to_bytes_be()[12..]);
+    hasher.update(&msg.from_address.as_slice()[12..]);
     hasher.update(msg.to_address.to_bytes_be());
     hasher.update(msg.nonce.to_bytes_be());
-    hasher.update(msg.selector.to_bytes_be());
+    hasher.update(msg.entry_point_selector.to_bytes_be());
     hasher.update(Felt::from(msg.payload.len() as u64).to_bytes_be());
     for p in &msg.payload {
         hasher.update(p.to_bytes_be());
@@ -48,8 +161,8 @@ fn compute_l1_to_l2_msg_hash(msg: &L1ToL2Message) -> Felt {
 fn messages_to_starknet(msgs: &[L2ToL1Message]) -> Vec<MessageToStarknet> {
     msgs.iter()
         .map(|m| MessageToStarknet {
-            from_address: ContractAddress(m.from_address),
-            to_address: ContractAddress(m.to_address),
+            from_address: CainomeContractAddress(m.from_address.into()),
+            to_address: CainomeContractAddress(m.to_address),
             payload: m.payload.clone(),
         })
         .collect()
@@ -57,12 +170,19 @@ fn messages_to_starknet(msgs: &[L2ToL1Message]) -> Vec<MessageToStarknet> {
 
 fn messages_to_appchain(msgs: &[L1ToL2Message]) -> Vec<MessageToAppchain> {
     msgs.iter()
-        .map(|m| MessageToAppchain {
-            from_address: ContractAddress(m.from_address),
-            to_address: ContractAddress(m.to_address),
-            nonce: m.nonce,
-            selector: m.selector,
-            payload: m.payload.clone(),
+        .map(|m| {
+            let from_address = Felt::from_bytes_be_slice(m.from_address.as_slice());
+            let from_address = CainomeContractAddress(from_address);
+
+            let to_address = CainomeContractAddress(m.to_address.into());
+
+            MessageToAppchain {
+                from_address,
+                to_address,
+                nonce: m.nonce,
+                selector: m.entry_point_selector,
+                payload: m.payload.clone(),
+            }
         })
         .collect()
 }
@@ -78,7 +198,7 @@ fn messages_to_appchain(msgs: &[L1ToL2Message]) -> Vec<MessageToAppchain> {
 /// — a Cairo-Serde-serialized stub `VerifierJournal` — which the paired
 /// `piltover_mock_amd_tee_registry` contract decodes as-is. We forward the
 /// felts directly to `TEEInput.sp1_proof` without going through `OnchainProof`.
-fn build_tee_calldata(proof: &TeeProof, mock_prove: bool) -> Result<Vec<Felt>> {
+fn build_piltover_tee_input(proof: &TeeProof, mock_prove: bool) -> Result<PiltoverInput> {
     let sp1_proof: Vec<Felt> = if mock_prove {
         crate::mock_proof::bytes_to_felts(&proof.data)
             .ok_or_else(|| anyhow::anyhow!("mock proof data length is not a multiple of 32"))?
@@ -94,7 +214,7 @@ fn build_tee_calldata(proof: &TeeProof, mock_prove: bool) -> Result<Vec<Felt>> {
     let l1_to_l2_msg_hashes: Vec<Felt> =
         proof.l1_to_l2_messages.iter().map(compute_l1_to_l2_msg_hash).collect();
 
-    let tee_input = TEEInput {
+    Ok(PiltoverInput::TeeInput(TEEInput {
         sp1_proof,
         prev_state_root: proof.prev_state_root,
         state_root: proof.state_root,
@@ -106,9 +226,7 @@ fn build_tee_calldata(proof: &TeeProof, mock_prove: bool) -> Result<Vec<Felt>> {
         messages_to_starknet: messages_to_starknet(&proof.l2_to_l1_messages),
         messages_to_appchain: messages_to_appchain(&proof.l1_to_l2_messages),
         l1_to_l2_msg_hashes,
-    };
-
-    Ok(PiltoverInput::cairo_serialize(&PiltoverInput::TeeInput(tee_input)))
+    }))
 }
 
 /// Settlement backend that submits TEE proofs to the Piltover contract via `update_state`.
@@ -116,7 +234,7 @@ fn build_tee_calldata(proof: &TeeProof, mock_prove: bool) -> Result<Vec<Felt>> {
 pub struct TeePiltoverSettlementBackend {
     provider: Arc<JsonRpcClient<HttpTransport>>,
     account: SingleOwnerAccount<Arc<JsonRpcClient<HttpTransport>>, LocalWallet>,
-    piltover_address: Felt,
+    piltover_address: ContractAddress,
     /// When `true`, decode `TeeProof.data` as a raw felt buffer (mock journal)
     /// instead of `OnchainProof` JSON. Must be paired with the upstream
     /// `TeeProver` running with `mock_prove = true`.
@@ -129,8 +247,8 @@ pub struct TeePiltoverSettlementBackend {
 #[derive(Debug)]
 pub struct TeePiltoverSettlementBackendBuilder {
     rpc_url: Url,
-    piltover_address: Felt,
-    account_address: Felt,
+    piltover_address: ContractAddress,
+    account_address: ContractAddress,
     account_private_key: Felt,
     mock_prove: bool,
     proof_channel: Option<Receiver<TeeProof>>,
@@ -140,8 +258,8 @@ pub struct TeePiltoverSettlementBackendBuilder {
 impl TeePiltoverSettlementBackendBuilder {
     pub fn new(
         rpc_url: Url,
-        piltover_address: Felt,
-        account_address: Felt,
+        piltover_address: ContractAddress,
+        account_address: ContractAddress,
         account_private_key: Felt,
         mock_prove: bool,
     ) -> Self {
@@ -167,7 +285,7 @@ impl TeeSettlementBackendBuilder for TeePiltoverSettlementBackendBuilder {
         let mut account = SingleOwnerAccount::new(
             provider.clone(),
             LocalWallet::from_signing_key(SigningKey::from_secret_scalar(self.account_private_key)),
-            self.account_address,
+            self.account_address.into(),
             chain_id,
             ExecutionEncoding::New,
         );
@@ -205,7 +323,7 @@ impl TeePiltoverSettlementBackend {
             .provider
             .call(
                 FunctionCall {
-                    contract_address: self.piltover_address,
+                    contract_address: self.piltover_address.into(),
                     entry_point_selector: selector!("get_state"),
                     calldata: vec![],
                 },
@@ -253,7 +371,7 @@ impl TeePiltoverSettlementBackend {
                 },
             };
 
-            let calldata = match build_tee_calldata(&proof, self.mock_prove) {
+            let tee_input = match build_piltover_tee_input(&proof, self.mock_prove) {
                 Ok(c) => c,
                 Err(e) => {
                     error!(
@@ -265,12 +383,10 @@ impl TeePiltoverSettlementBackend {
                 }
             };
 
-            let call =
-                Call { to: self.piltover_address, selector: selector!("update_state"), calldata };
+            let piltover_contract =
+                PiltoverAppchainCoreContract::new(self.piltover_address.into(), &self.account);
 
-            let execution = self.account.execute_v3(vec![call]);
-
-            let _fees = match execution.estimate_fee().await {
+            let _ = match piltover_contract.update_state(&tee_input).estimate_fee().await {
                 Ok(f) => f,
                 Err(e) => {
                     error!(
@@ -281,7 +397,8 @@ impl TeePiltoverSettlementBackend {
                     continue;
                 }
             };
-            let transaction = match execution.send().await {
+
+            let transaction = match piltover_contract.update_state(&tee_input).send().await {
                 Ok(t) => t,
                 Err(e) => {
                     error!("Settlement transaction failed for block {}: {}", proof.block_number, e);

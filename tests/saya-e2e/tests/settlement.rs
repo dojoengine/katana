@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use saya_e2e::{
     compose_up, env, get_facts_registry, get_program_info, provider, wait_for_settlement,
     ComposeGuard,
@@ -6,7 +8,6 @@ use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::Felt;
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::{felt, short_string};
-use std::time::Duration;
 
 const BOOTLOADER_PROGRAM_HASH: Felt =
     felt!("0x5ab580b04e3532b6b18f81cfa654a05e29dd8e2352d88df1e765a84072db07");
@@ -38,15 +39,9 @@ async fn test_program_info_and_fact_registry() {
         env::fee_token_address(),
     ]);
 
-    assert_eq!(
-        program_info.bootloader_program_hash,
-        BOOTLOADER_PROGRAM_HASH
-    );
+    assert_eq!(program_info.bootloader_program_hash, BOOTLOADER_PROGRAM_HASH);
     assert_eq!(program_info.snos_program_hash, SNOS_PROGRAM_HASH);
-    assert_eq!(
-        program_info.layout_bridge_program_hash,
-        LAYOUT_BRIDGE_PROGRAM_HASH
-    );
+    assert_eq!(program_info.layout_bridge_program_hash, LAYOUT_BRIDGE_PROGRAM_HASH);
     assert_eq!(program_info.snos_config_hash, snos_config_hash);
     assert_eq!(facts_registry, env::fact_registry_address());
 }
@@ -69,8 +64,6 @@ async fn test_settlement_advances_after_genesis() {
     .await
     .expect("settlement did not advance past genesis within timeout");
 
-    let _settled: u64 = state
-        .block_number
-        .try_into()
-        .expect("failed to convert settled block number");
+    let _settled: u64 =
+        state.block_number.try_into().expect("failed to convert settled block number");
 }

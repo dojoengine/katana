@@ -1,8 +1,7 @@
+use sqlx::{query, Row};
+
 use super::SqliteDb;
-use crate::storage::{BlockStatus, Query};
-use crate::storage::{PersistantStorage, Step};
-use sqlx::query;
-use sqlx::Row;
+use crate::storage::{BlockStatus, PersistantStorage, Query, Step};
 
 impl PersistantStorage for SqliteDb {
     async fn add_pie(
@@ -81,24 +80,24 @@ impl PersistantStorage for SqliteDb {
 
         let mut tx = self.pool.begin().await?;
         // Ensure a row exists in proofs before updating
-        query("INSERT OR IGNORE INTO proofs (block_id, snos_proof, bridge_proof) VALUES (?, NULL, NULL);")
-            .bind(block_number)
-            .execute(&mut *tx)
-            .await?;
+        query(
+            "INSERT OR IGNORE INTO proofs (block_id, snos_proof, bridge_proof) VALUES (?, NULL, \
+             NULL);",
+        )
+        .bind(block_number)
+        .execute(&mut *tx)
+        .await?;
 
         let column = match step {
             Step::Snos => "snos_proof",
             Step::Bridge => "bridge_proof",
         };
 
-        query(&format!(
-            "UPDATE proofs SET {} = ? WHERE block_id = ?",
-            column
-        ))
-        .bind(proof)
-        .bind(block_number)
-        .execute(&mut *tx)
-        .await?;
+        query(&format!("UPDATE proofs SET {} = ? WHERE block_id = ?", column))
+            .bind(proof)
+            .bind(block_number)
+            .execute(&mut *tx)
+            .await?;
 
         query("UPDATE blocks SET status = ? WHERE block_id = ?;")
             .bind(new_status)
@@ -115,13 +114,10 @@ impl PersistantStorage for SqliteDb {
             Step::Bridge => "bridge_proof",
         };
 
-        let row = query(&format!(
-            "SELECT {} FROM proofs WHERE block_id = ?1",
-            column
-        ))
-        .bind(block_number)
-        .fetch_one(&self.pool)
-        .await?;
+        let row = query(&format!("SELECT {} FROM proofs WHERE block_id = ?1", column))
+            .bind(block_number)
+            .fetch_one(&self.pool)
+            .await?;
 
         let proof: Vec<u8> = row.try_get(0)?;
         if proof.is_empty() {
@@ -144,7 +140,8 @@ impl PersistantStorage for SqliteDb {
 
         let mut tx = self.pool.begin().await?;
         query(
-            "INSERT OR IGNORE INTO job_ids (block_id, snos_proof_query_id, trace_gen_query_id, bridge_proof_query_id) VALUES (?, NULL, NULL, NULL);",
+            "INSERT OR IGNORE INTO job_ids (block_id, snos_proof_query_id, trace_gen_query_id, \
+             bridge_proof_query_id) VALUES (?, NULL, NULL, NULL);",
         )
         .bind(block_number)
         .execute(&mut *tx)
@@ -156,14 +153,11 @@ impl PersistantStorage for SqliteDb {
             Query::SnosProof => "snos_proof_query_id",
         };
 
-        query(&format!(
-            "UPDATE job_ids SET {} = ? WHERE block_id = ?",
-            column
-        ))
-        .bind(query_id)
-        .bind(block_number)
-        .execute(&mut *tx)
-        .await?;
+        query(&format!("UPDATE job_ids SET {} = ? WHERE block_id = ?", column))
+            .bind(query_id)
+            .bind(block_number)
+            .execute(&mut *tx)
+            .await?;
 
         query("UPDATE blocks SET status = ? WHERE block_id = ?;")
             .bind(new_status)
@@ -185,13 +179,10 @@ impl PersistantStorage for SqliteDb {
             Query::SnosProof => "snos_proof_query_id",
         };
 
-        let row = query(&format!(
-            "SELECT {} FROM job_ids WHERE block_id = ?1",
-            column
-        ))
-        .bind(block_number)
-        .fetch_one(&self.pool)
-        .await?;
+        let row = query(&format!("SELECT {} FROM job_ids WHERE block_id = ?1", column))
+            .bind(block_number)
+            .fetch_one(&self.pool)
+            .await?;
 
         let query_id: String = row.try_get(0)?;
         if query_id.is_empty() {
@@ -239,9 +230,7 @@ impl PersistantStorage for SqliteDb {
     }
 
     async fn get_first_db_block(&self) -> Result<u32, anyhow::Error> {
-        let row = query("SELECT MIN(block_id) FROM blocks")
-            .fetch_one(&self.pool)
-            .await?;
+        let row = query("SELECT MIN(block_id) FROM blocks").fetch_one(&self.pool).await?;
         let first_block: u32 = row.try_get(0)?;
         Ok(first_block)
     }
@@ -341,9 +330,8 @@ mod tests {
     use starknet::core::types::StateDiff;
     use starknet_types_core::felt::Felt;
 
-    use crate::storage::sql_lite::IN_MEMORY_DB;
-
     use super::*;
+    use crate::storage::sql_lite::IN_MEMORY_DB;
 
     #[tokio::test]
     async fn test_initialize_and_remove_block() {
@@ -357,10 +345,7 @@ mod tests {
         // Remove block
         db.remove_block(1).await.unwrap();
         let result = db.get_status(1).await;
-        assert!(
-            result.is_err(),
-            "Block should be removed, but status was found"
-        );
+        assert!(result.is_err(), "Block should be removed, but status was found");
     }
 
     #[tokio::test]
@@ -393,9 +378,7 @@ mod tests {
         let bridge_pie = vec![4, 5, 6];
 
         db.add_pie(1, snos_pie.clone(), Step::Snos).await.unwrap();
-        db.add_pie(1, bridge_pie.clone(), Step::Bridge)
-            .await
-            .unwrap();
+        db.add_pie(1, bridge_pie.clone(), Step::Bridge).await.unwrap();
 
         let result_snos = db.get_pie(1, Step::Snos).await.unwrap();
         let result_bridge = db.get_pie(1, Step::Bridge).await.unwrap();
@@ -429,10 +412,7 @@ mod tests {
         let db = SqliteDb::new(IN_MEMORY_DB).await.unwrap();
 
         let result = db.get_pie(99, Step::Snos).await;
-        assert!(
-            result.is_err(),
-            "Expected error when getting pie for non-existent block"
-        );
+        assert!(result.is_err(), "Expected error when getting pie for non-existent block");
     }
 
     #[tokio::test]
@@ -440,10 +420,7 @@ mod tests {
         let db = SqliteDb::new(IN_MEMORY_DB).await.unwrap();
 
         let result = db.get_proof(99, Step::Snos).await;
-        assert!(
-            result.is_err(),
-            "Expected error when getting proof for non-existent block"
-        );
+        assert!(result.is_err(), "Expected error when getting proof for non-existent block");
     }
 
     #[tokio::test]
@@ -456,12 +433,8 @@ mod tests {
         let query_id_1 = "query_1".to_string();
         let query_id_2 = "query_2".to_string();
 
-        db.add_query_id(1, query_id_1.clone(), Query::BridgeProof)
-            .await
-            .unwrap();
-        db.add_query_id(2, query_id_2.clone(), Query::SnosProof)
-            .await
-            .unwrap();
+        db.add_query_id(1, query_id_1.clone(), Query::BridgeProof).await.unwrap();
+        db.add_query_id(2, query_id_2.clone(), Query::SnosProof).await.unwrap();
 
         let result_1 = db.get_query_id(1, Query::BridgeProof).await.unwrap();
         let result_2 = db.get_query_id(2, Query::SnosProof).await.unwrap();
@@ -479,12 +452,8 @@ mod tests {
         let snos_query_id = "snos_123".to_string();
         let bridge_query_id = "bridge_456".to_string();
 
-        db.add_query_id(1, snos_query_id.clone(), Query::SnosProof)
-            .await
-            .unwrap();
-        db.add_query_id(1, bridge_query_id.clone(), Query::BridgeProof)
-            .await
-            .unwrap();
+        db.add_query_id(1, snos_query_id.clone(), Query::SnosProof).await.unwrap();
+        db.add_query_id(1, bridge_query_id.clone(), Query::BridgeProof).await.unwrap();
 
         let result_snos = db.get_query_id(1, Query::SnosProof).await.unwrap();
         let result_bridge = db.get_query_id(1, Query::BridgeProof).await.unwrap();
@@ -499,15 +468,11 @@ mod tests {
 
         db.initialize_block(1).await.unwrap();
 
-        db.set_status(1, "snos_proof_submitted".to_string())
-            .await
-            .unwrap();
+        db.set_status(1, "snos_proof_submitted".to_string()).await.unwrap();
         let status = db.get_status(1).await.unwrap();
         assert_eq!(status, BlockStatus::SnosProofSubmitted);
 
-        db.set_status(1, "bridge_proof_generated".to_string())
-            .await
-            .unwrap();
+        db.set_status(1, "bridge_proof_generated".to_string()).await.unwrap();
         let status = db.get_status(1).await.unwrap();
         assert_eq!(status, BlockStatus::BridgeProofGenerated);
     }
@@ -517,10 +482,7 @@ mod tests {
         let db = SqliteDb::new(IN_MEMORY_DB).await.unwrap();
 
         let result = db.get_status(99).await;
-        assert!(
-            result.is_err(),
-            "Expected error when getting status for non-existent block"
-        );
+        assert!(result.is_err(), "Expected error when getting status for non-existent block");
     }
 
     #[tokio::test]
@@ -540,14 +502,8 @@ mod tests {
         let pie_result = db.get_pie(1, Step::Snos).await;
         let proof_result = db.get_proof(1, Step::Snos).await;
 
-        assert!(
-            pie_result.is_err(),
-            "Expected error when getting pie for deleted block"
-        );
-        assert!(
-            proof_result.is_err(),
-            "Expected error when getting proof for deleted block"
-        );
+        assert!(pie_result.is_err(), "Expected error when getting pie for deleted block");
+        assert!(proof_result.is_err(), "Expected error when getting proof for deleted block");
     }
 
     #[tokio::test]
@@ -640,16 +596,12 @@ mod tests {
         let query_id_2 = "query_2".to_string();
 
         // Add first query id
-        db.add_query_id(1, query_id_1.clone(), Query::SnosProof)
-            .await
-            .unwrap();
+        db.add_query_id(1, query_id_1.clone(), Query::SnosProof).await.unwrap();
         let result1 = db.get_query_id(1, Query::SnosProof).await.unwrap();
         assert_eq!(result1, query_id_1);
 
         // Update with second query id (should update, not create duplicate)
-        db.add_query_id(1, query_id_2.clone(), Query::SnosProof)
-            .await
-            .unwrap();
+        db.add_query_id(1, query_id_2.clone(), Query::SnosProof).await.unwrap();
         let result2 = db.get_query_id(1, Query::SnosProof).await.unwrap();
         assert_eq!(result2, query_id_2);
     }
@@ -689,16 +641,12 @@ mod tests {
         };
 
         // Add first state update
-        db.add_state_update(1, state_update_1.clone())
-            .await
-            .unwrap();
+        db.add_state_update(1, state_update_1.clone()).await.unwrap();
         let result1 = db.get_state_update(1).await.unwrap();
         assert_eq!(result1.block_hash, state_update_1.block_hash);
 
         // Update with second state update (should update, not create duplicate)
-        db.add_state_update(1, state_update_2.clone())
-            .await
-            .unwrap();
+        db.add_state_update(1, state_update_2.clone()).await.unwrap();
         let result2 = db.get_state_update(1).await.unwrap();
         assert_eq!(result2.new_root, state_update_2.new_root);
         assert_eq!(result2.old_root, state_update_2.old_root);

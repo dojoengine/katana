@@ -5,6 +5,8 @@
 //!
 //!   cargo test --test messaging -p saya-e2e -- --nocapture --test-threads=1
 
+use std::time::Duration;
+
 use saya_e2e::{
     compose_up, env, provider, wait_for_l1_handler, wait_for_settlement, wait_for_tx_block,
     ComposeGuard,
@@ -13,9 +15,9 @@ use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, Call, ExecutionResult, Felt, TransactionReceipt};
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::selector;
-use starknet::providers::{jsonrpc::HttpTransport, JsonRpcClient, Provider};
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider};
 use starknet::signers::{LocalWallet, SigningKey};
-use std::time::Duration;
 
 fn build_account(
     rpc: JsonRpcClient<HttpTransport>,
@@ -25,13 +27,8 @@ fn build_account(
 ) -> SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet> {
     let signer = LocalWallet::from(SigningKey::from_secret_scalar(private_key));
     let chain_id = cairo_short_string_to_felt(chain_id_str).expect("invalid chain id string");
-    let mut account = SingleOwnerAccount::new(
-        rpc,
-        signer,
-        account_address,
-        chain_id,
-        ExecutionEncoding::New,
-    );
+    let mut account =
+        SingleOwnerAccount::new(rpc, signer, account_address, chain_id, ExecutionEncoding::New);
     account.set_block_id(BlockId::Tag(BlockTag::Latest));
     account
 }
@@ -48,10 +45,7 @@ async fn test_l2_to_l3_message() {
     let l3_provider = provider(&env::l3_rpc_url());
 
     // Record the current L3 tip before we send so we don't miss the tx.
-    let start_block = l3_provider
-        .block_number()
-        .await
-        .expect("failed to get L3 block number");
+    let start_block = l3_provider.block_number().await.expect("failed to get L3 block number");
 
     let l2_account = build_account(
         provider(&env::settlement_rpc_url()),

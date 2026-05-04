@@ -18,13 +18,12 @@ use anyhow::Result;
 use tokio::sync::mpsc::Receiver;
 use tracing::{debug, info};
 
-use crate::{
-    block_ingestor::{BatchingBlockIngestorBuilder, BlockInfo, BlockIngestor},
-    prover::{tee::TeeProof, PipelineStage, PipelineStageBuilder},
-    service::{Daemon, FinishHandle, ShutdownHandle},
-    settlement::{SettlementBackend, SettlementCursor, TeeSettlementBackendBuilder},
-    tee::TeeAttestation,
-};
+use crate::block_ingestor::{BatchingBlockIngestorBuilder, BlockInfo, BlockIngestor};
+use crate::prover::tee::TeeProof;
+use crate::prover::{PipelineStage, PipelineStageBuilder};
+use crate::service::{Daemon, FinishHandle, ShutdownHandle};
+use crate::settlement::{SettlementBackend, SettlementCursor, TeeSettlementBackendBuilder};
+use crate::tee::TeeAttestation;
 
 const BLOCK_INGESTOR_BUFFER_SIZE: usize = 4;
 const ATTESTATION_BUFFER_SIZE: usize = 4;

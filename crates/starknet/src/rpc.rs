@@ -26,14 +26,12 @@ use katana_rpc_types::trace::{
 };
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
+pub use katana_rpc_types::{BlockIdOrTag, FunctionCall};
 use katana_rpc_types::{
     CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, ResultPageRequest,
     SimulationFlag, SyncingResponse, TxStatus,
 };
-
 use url::Url;
-
-pub use katana_rpc_types::{BlockIdOrTag, FunctionCall};
 
 type Result<T> = std::result::Result<T, StarknetRpcClientError>;
 

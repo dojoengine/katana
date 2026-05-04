@@ -22,9 +22,7 @@ impl SqliteDb {
 
     /// Function to check if the blocks table has the correct columns
     pub(crate) async fn check_blocks_table(pool: &Pool<Sqlite>) -> Result<bool, Error> {
-        let columns = sqlx::query("PRAGMA table_info(blocks);")
-            .fetch_all(pool)
-            .await?;
+        let columns = sqlx::query("PRAGMA table_info(blocks);").fetch_all(pool).await?;
         // Check if the table has the expected columns: id and status
         let mut has_id = false;
         let mut has_status = false;
@@ -42,9 +40,7 @@ impl SqliteDb {
 
     /// Function to check if the proofs table has the correct columns
     pub(crate) async fn check_proof_table(pool: &Pool<Sqlite>) -> Result<bool, Error> {
-        let columns = sqlx::query("PRAGMA table_info(proofs);")
-            .fetch_all(pool)
-            .await?;
+        let columns = sqlx::query("PRAGMA table_info(proofs);").fetch_all(pool).await?;
         // Check if the table has the expected columns: id, block_id, and proofs
         let mut has_id = false;
         let mut has_block_id = false;
@@ -66,9 +62,7 @@ impl SqliteDb {
 
     /// Function to check if the pies table has the correct columns
     pub(crate) async fn check_pies_table(pool: &Pool<Sqlite>) -> Result<bool, Error> {
-        let columns = sqlx::query("PRAGMA table_info(pies);")
-            .fetch_all(pool)
-            .await?;
+        let columns = sqlx::query("PRAGMA table_info(pies);").fetch_all(pool).await?;
         // Check if the table has the expected columns: id, block_id, and proofs
         let mut has_id = false;
         let mut has_block_id = false;
@@ -90,9 +84,7 @@ impl SqliteDb {
 
     /// Function to check if the job_ids table has the correct columns
     pub(crate) async fn check_ids_table(pool: &Pool<Sqlite>) -> Result<bool, Error> {
-        let columns = sqlx::query("PRAGMA table_info(job_ids);")
-            .fetch_all(pool)
-            .await?;
+        let columns = sqlx::query("PRAGMA table_info(job_ids);").fetch_all(pool).await?;
         // Check if the table has the expected columns: id, block_id, and proofs
         let mut has_id = false;
         let mut has_block_id = false;
@@ -120,9 +112,7 @@ impl SqliteDb {
 
     /// Function to check if the failed_blocks table has the correct columns
     pub(crate) async fn check_failed_blocks_table(pool: &Pool<Sqlite>) -> Result<bool, Error> {
-        let columns = sqlx::query("PRAGMA table_info(failed_blocks);")
-            .fetch_all(pool)
-            .await?;
+        let columns = sqlx::query("PRAGMA table_info(failed_blocks);").fetch_all(pool).await?;
         // Check if the table has the expected columns: id, block_id, and failure_reason
         let mut has_id = false;
         let mut has_block_id = false;
@@ -141,9 +131,7 @@ impl SqliteDb {
 
     /// Function to check if the state_updates table has the correct columns
     pub(crate) async fn check_state_updates_table(pool: &Pool<Sqlite>) -> Result<bool, Error> {
-        let columns = sqlx::query("PRAGMA table_info(state_updates);")
-            .fetch_all(pool)
-            .await?;
+        let columns = sqlx::query("PRAGMA table_info(state_updates);").fetch_all(pool).await?;
         let mut has_id = false;
         let mut has_block_id = false;
         let mut has_state_update = false;
@@ -161,14 +149,8 @@ impl SqliteDb {
 
     /// Function to check if the tables exist
     pub(crate) async fn check_tables_exist(pool: &Pool<Sqlite>) -> Result<bool, Error> {
-        let expected_tables = vec![
-            "blocks",
-            "pies",
-            "proofs",
-            "job_ids",
-            "failed_blocks",
-            "state_updates",
-        ];
+        let expected_tables =
+            vec!["blocks", "pies", "proofs", "job_ids", "failed_blocks", "state_updates"];
         for table in expected_tables {
             let exists =
                 sqlx::query("SELECT name FROM sqlite_master WHERE type='table' AND name=?")

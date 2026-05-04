@@ -1,7 +1,6 @@
 use alloy_primitives::B256;
 use katana_primitives::{ContractAddress, Felt};
-use katana_starknet::rpc::StarknetRpcClient;
-use katana_starknet::rpc::{BlockIdOrTag, FunctionCall};
+use katana_starknet::rpc::{BlockIdOrTag, FunctionCall, StarknetRpcClient};
 use num_bigint::BigUint;
 use starknet::core::utils::get_selector_from_name;
 use url::Url;

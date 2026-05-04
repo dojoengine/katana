@@ -48,12 +48,11 @@ pub use calldata::StarknetCalldata;
 pub use config::ProverConfig;
 pub use error::Error;
 pub use kds::{parse_processor_type, KdsClient, KdsFetcher, RootCertInfo};
+// Re-export BigUint for users who need raw calldata values
+pub use num_bigint::BigUint;
 pub use prover::{
     prepare_verifier_input_with_storage, AmdAttestationProver, EventProofParams, OnchainProof,
     ProofWithCacheInfo, Sp1Backend, Sp1NetworkBackend, StorageProofParams,
 };
 pub use report::ATTESTATION_REPORT_SIZE;
 pub use starknet::StarknetRegistryClient;
-
-// Re-export BigUint for users who need raw calldata values
-pub use num_bigint::BigUint;

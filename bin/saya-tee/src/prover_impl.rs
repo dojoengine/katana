@@ -7,11 +7,12 @@
 //! inside KDS does not create a nested runtime; then we create a tokio runtime
 //! only for registry lookup and proof generation.
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use anyhow::Result;
-use katana_primitives::ContractAddress;
+use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::tee::BlockAttestation;
 use katana_tee::amd::{OnchainProof, ProverConfig, StarknetRegistryClient};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
 
 /// Structured error type for TEE attestation operations.
@@ -36,21 +37,23 @@ use alloy_primitives::Bytes;
 use amd_sev_snp_attestation_prover::{
     AmdSevSnpProver, ProverConfig as SdkProverConfig, RawProofType, SP1ProverConfig, KDS,
 };
-use amd_sev_snp_attestation_verifier::{stub::ProcessorType, AttestationReport};
-use katana_tee::amd::{prepare_verifier_input_with_storage, report::AttestationReportBytes};
+use amd_sev_snp_attestation_verifier::stub::ProcessorType;
+use amd_sev_snp_attestation_verifier::AttestationReport;
+use katana_tee::amd::prepare_verifier_input_with_storage;
+use katana_tee::amd::report::AttestationReportBytes;
 use x509_verifier_rust_crypto::CertChain;
 
 /// TEE attestation with proof generation capabilities.
 pub struct TeeAttestation {
     /// 1184 bytes for AMD SEV-SNP.
     quote_bytes: Vec<u8>,
-    block_number: u64,
+    block_number: Felt,
 }
 
 impl TeeAttestation {
     pub fn from_response(response: &BlockAttestation) -> Result<Self, AttestationError> {
-        let quote_bytes =
-            response.quote_bytes().map_err(|e| AttestationError::InvalidReport(e.to_string()))?;
+        let quote = response.quote.strip_prefix("0x").unwrap_or(&response.quote);
+        let quote_bytes = hex::decode(quote).expect("invalid quote: must be hex-encoded");
         Ok(Self { quote_bytes, block_number: response.block_number })
     }
 

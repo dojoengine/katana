@@ -1,19 +1,19 @@
 use anyhow::Result;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use celestia_rpc::{BlobClient, Client, TxConfig};
-use celestia_types::{nmt::Namespace, AppVersion, Blob};
+use celestia_types::nmt::Namespace;
+use celestia_types::{AppVersion, Blob};
 use starknet_types_core::felt::Felt;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, info};
 use url::Url;
 
-use crate::{
-    data_availability::{
-        DataAvailabilityBackend, DataAvailabilityBackendBuilder, DataAvailabilityCursor,
-        DataAvailabilityPacketContext, DataAvailabilityPayload, DataAvailabilityPointer,
-    },
-    service::{Daemon, FinishHandle, ShutdownHandle},
+use crate::data_availability::{
+    DataAvailabilityBackend, DataAvailabilityBackendBuilder, DataAvailabilityCursor,
+    DataAvailabilityPacketContext, DataAvailabilityPayload, DataAvailabilityPointer,
 };
+use crate::service::{Daemon, FinishHandle, ShutdownHandle};
 
 #[derive(Debug)]
 pub struct CelestiaDataAvailabilityBackend<P> {
@@ -61,9 +61,7 @@ where
 
             let packet = new_proof
                 .clone()
-                .into_packet(DataAvailabilityPacketContext {
-                    prev: self.last_pointer,
-                });
+                .into_packet(DataAvailabilityPacketContext { prev: self.last_pointer });
 
             // TODO: error handling
             let mut serialized_packet: Vec<u8> = Vec::new();
@@ -74,10 +72,7 @@ where
             let commitment = blob.clone().commitment;
             let commitment = commitment.hash();
 
-            let tx_config = TxConfig {
-                key_name: self.key_name.clone(),
-                ..Default::default()
-            };
+            let tx_config = TxConfig { key_name: self.key_name.clone(), ..Default::default() };
 
             debug!(
                 block_number = new_proof.block_number(),

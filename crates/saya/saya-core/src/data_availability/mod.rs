@@ -1,7 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use starknet::core::types::Felt;
-use starknet::core::types::StateUpdate;
+use starknet::core::types::{Felt, StateUpdate};
 #[cfg(feature = "snos")]
 use swiftness_stark::types::StarkProof;
 use tokio::sync::mpsc::{Receiver, Sender};

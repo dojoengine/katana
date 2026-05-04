@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
-use katana_contracts::piltover::Appchain;
+use katana_contracts::piltover::AppchainCoreContract;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::class::ContractClass;
@@ -96,7 +96,7 @@ pub async fn deploy_settlement_contract(
         // both `LayoutBridgeOutput*` (ZK/Atlantic) and `TeeInput` (TEE/SP1 Groth16)
         // variants of `PiltoverInput` — only `set_facts_registry(...)` differs between
         // modes.
-        let class_hash = Appchain::HASH;
+        let class_hash = AppchainCoreContract::HASH;
 
         // Check if the class has already been declared,
         match account.provider().get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await {
@@ -106,11 +106,11 @@ pub async fn deploy_settlement_contract(
 
             Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
                 sp.update_text("Declaring contract...");
-                let class = (*Appchain::CLASS).clone();
+                let class = (*AppchainCoreContract::CLASS).clone();
                 let rpc_class = prepare_contract_declaration_params(class)?;
 
                 let res = account
-                    .declare_v3(rpc_class.into(), Appchain::CASM_HASH)
+                    .declare_v3(rpc_class.into(), AppchainCoreContract::CASM_HASH)
                     .send()
                     .await
                     .inspect(|res| {

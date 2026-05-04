@@ -72,7 +72,6 @@
 //!           prev_block_number, block_number, messages_commitment)`, which the
 //! mock prover computes ahead of time and embeds via this layout.
 
-use katana_primitives::block::BlockNumber;
 use starknet_types_core::felt::Felt;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 

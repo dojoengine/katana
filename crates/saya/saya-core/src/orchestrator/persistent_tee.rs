@@ -2,13 +2,11 @@ use anyhow::Result;
 use tokio::sync::mpsc::Receiver;
 use tracing::{debug, info};
 
-use crate::{
-    block_ingestor::{BlockInfo, BlockIngestor, BlockIngestorBuilder},
-    data_availability::DataAvailabilityCursor,
-    prover::{BlockOrderer, BlockOrdererBuilder, PipelineStageBuilder},
-    service::{Daemon, FinishHandle, ShutdownHandle},
-    settlement::{SettlementBackend, SettlementBackendBuilder, SettlementCursor},
-};
+use crate::block_ingestor::{BlockInfo, BlockIngestor, BlockIngestorBuilder};
+use crate::data_availability::DataAvailabilityCursor;
+use crate::prover::{BlockOrderer, BlockOrdererBuilder, PipelineStageBuilder};
+use crate::service::{Daemon, FinishHandle, ShutdownHandle};
+use crate::settlement::{SettlementBackend, SettlementBackendBuilder, SettlementCursor};
 
 /// Size of the `BlockInfo` channel between ingestor and the orderer.
 const BLOCK_INGESTOR_BUFFER_SIZE: usize = 4;
@@ -59,10 +57,7 @@ struct PersistentTeeOrchestratorState {
 
 impl<I, S> PersistentTeeOrchestratorBuilder<I, S> {
     pub fn new(ingestor_builder: I, settlement_builder: S) -> Self {
-        Self {
-            ingestor_builder,
-            settlement_builder,
-        }
+        Self { ingestor_builder, settlement_builder }
     }
 }
 
@@ -94,12 +89,8 @@ where
         let start_block = settlement.get_block_number().await? + 1;
         let start_block: u64 = start_block.try_into()?;
 
-        let ingestor = self
-            .ingestor_builder
-            .start_block(start_block)
-            .channel(new_block_tx)
-            .build()
-            .unwrap();
+        let ingestor =
+            self.ingestor_builder.start_block(start_block).channel(new_block_tx).build().unwrap();
 
         let orderer = BlockOrdererBuilder::new()
             .start_block(start_block)

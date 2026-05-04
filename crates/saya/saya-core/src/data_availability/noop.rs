@@ -2,13 +2,11 @@ use anyhow::Result;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::debug;
 
-use crate::{
-    data_availability::{
-        DataAvailabilityBackend, DataAvailabilityBackendBuilder, DataAvailabilityCursor,
-        DataAvailabilityPayload, DataAvailabilityPointer,
-    },
-    service::{Daemon, FinishHandle, ShutdownHandle},
+use crate::data_availability::{
+    DataAvailabilityBackend, DataAvailabilityBackendBuilder, DataAvailabilityCursor,
+    DataAvailabilityPayload, DataAvailabilityPointer,
 };
+use crate::service::{Daemon, FinishHandle, ShutdownHandle};
 
 /// A placeholder to fill the gap where a data availability backend is expected but no data needs to
 /// be published.
@@ -62,10 +60,7 @@ where
 
 impl<P> NoopDataAvailabilityBackendBuilder<P> {
     pub fn new() -> Self {
-        Self {
-            proof_channel: None,
-            cursor_channel: None,
-        }
+        Self { proof_channel: None, cursor_channel: None }
     }
 }
 

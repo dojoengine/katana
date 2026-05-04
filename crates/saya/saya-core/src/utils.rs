@@ -1,4 +1,5 @@
-use std::{future::Future, time::Duration};
+use std::future::Future;
+use std::time::Duration;
 
 use tracing::debug;
 

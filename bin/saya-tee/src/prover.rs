@@ -10,14 +10,11 @@
 //! `OnchainProof::decode_json` and `StarknetCalldata::from_proof`.
 
 use anyhow::Result;
-use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::tee::BlockAttestation;
+use katana_primitives::ContractAddress;
 use katana_tee::amd::ProverConfig;
-use saya_core::{
-    prover::{HasBlockNumber, PipelineStage, PipelineStageBuilder, TeeProof},
-    service::{Daemon, FinishHandle, ShutdownHandle},
-    tee::TeeAttestation,
-};
+use saya_core::prover::{HasBlockNumber, PipelineStage, PipelineStageBuilder, TeeProof};
+use saya_core::service::{Daemon, FinishHandle, ShutdownHandle};
+use saya_core::tee::TeeAttestation;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info};
 
@@ -152,13 +149,13 @@ impl TeeProver {
             info!(block_number, "TEE mock proving (no SP1, no KDS, no AMD verification)");
 
             let commitment = mock_proof::compute_appchain_commitment(
-                attestation.prev_state_root,
-                attestation.state_root,
-                attestation.prev_block_hash,
-                attestation.block_hash,
-                attestation.prev_block_number,
-                attestation.block_number,
-                attestation.messages_commitment,
+                attestation.attestation.prev_state_root,
+                attestation.attestation.state_root,
+                attestation.attestation.prev_block_hash,
+                attestation.attestation.block_hash,
+                attestation.attestation.prev_block_number,
+                attestation.attestation.block_number,
+                attestation.attestation.messages_commitment,
             );
 
             let felts = mock_proof::serialize_mock_journal(commitment);
@@ -166,30 +163,18 @@ impl TeeProver {
         } else {
             info!(block_number, "TEE proving started for block batch");
 
-            let response = BlockAttestation {
-                quote: attestation.quote.clone(),
-                prev_state_root: attestation.prev_state_root.clone(),
-                state_root: attestation.state_root.clone(),
-                prev_block_hash: attestation.prev_block_hash.clone(),
-                block_hash: attestation.block_hash.clone(),
-                prev_block_number: Some(attestation.prev_block_number),
-                block_number: attestation.block_number,
-                messages_commitment: attestation.messages_commitment,
-                l2_to_l1_messages: Vec::new(),
-                l1_to_l2_messages: Vec::new(),
-                events_commitment: Felt::ZERO,
-                fork_block_number: None,
-            };
+            let tee = TeeAttestationProver::from_response(&attestation.attestation)?;
 
-            let tee = TeeAttestationProver::from_response(&response)?;
             let config = ProverConfig {
                 rpc_url: None,
                 private_key: Some(self.private_key.clone()),
                 skip_time_validity_check: false,
             };
-            let proof =
-                tee.generate_proof(&self.provider_url, self.registry_address, config).await?;
-            let proof_raw = proof.encode_json()?;
+
+            let proof_raw = tee
+                .generate_proof(&self.provider_url, self.registry_address, config)
+                .await?
+                .encode_json()?;
 
             info!(block_number, "TEE proving completed, proof size: {} bytes", proof_raw.len());
 
@@ -199,15 +184,15 @@ impl TeeProver {
         Ok(TeeProof {
             blocks: attestation.blocks,
             data: proof_raw,
-            prev_state_root,
-            state_root,
-            prev_block_hash,
-            block_hash,
-            prev_block_number: attestation.prev_block_number,
-            block_number: attestation.block_number,
-            messages_commitment: attestation.messages_commitment,
-            l2_to_l1_messages: attestation.l2_to_l1_messages,
-            l1_to_l2_messages: attestation.l1_to_l2_messages,
+            prev_state_root: attestation.attestation.prev_state_root,
+            state_root: attestation.attestation.state_root,
+            prev_block_hash: attestation.attestation.prev_block_hash,
+            block_hash: attestation.attestation.block_hash,
+            prev_block_number: attestation.attestation.prev_block_number,
+            block_number: attestation.attestation.block_number,
+            messages_commitment: attestation.attestation.messages_commitment,
+            l2_to_l1_messages: attestation.attestation.l2_to_l1_messages,
+            l1_to_l2_messages: attestation.attestation.l1_to_l2_messages,
         })
     }
 }

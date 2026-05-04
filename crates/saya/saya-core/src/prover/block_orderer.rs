@@ -1,13 +1,12 @@
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::collections::BTreeMap;
+use std::marker::PhantomData;
 
 use anyhow::Result;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::debug;
 
-use crate::{
-    prover::{HasBlockNumber, PipelineStage, PipelineStageBuilder},
-    service::{Daemon, FinishHandle, ShutdownHandle},
-};
+use crate::prover::{HasBlockNumber, PipelineStage, PipelineStageBuilder};
+use crate::service::{Daemon, FinishHandle, ShutdownHandle};
 
 /// A pipeline stage that reorders items from concurrent upstream workers into sequential order.
 ///
@@ -31,12 +30,7 @@ pub struct BlockOrdererBuilder<T> {
 
 impl<T> BlockOrdererBuilder<T> {
     pub fn new() -> Self {
-        Self {
-            input_channel: None,
-            output_channel: None,
-            start_block: None,
-            _phantom: PhantomData,
-        }
+        Self { input_channel: None, output_channel: None, start_block: None, _phantom: PhantomData }
     }
 }
 

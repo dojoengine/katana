@@ -1,5 +1,4 @@
 use anyhow::Result;
-
 use starknet::core::types::StateUpdate;
 use tokio::sync::mpsc::Sender;
 
@@ -10,7 +9,8 @@ pub use polling::{
     PollingBlockIngestorBuilder,
 };
 
-use crate::{service::Daemon, storage::BlockStatus};
+use crate::service::Daemon;
+use crate::storage::BlockStatus;
 
 pub trait BlockIngestorBuilder {
     type Ingestor: BlockIngestor;

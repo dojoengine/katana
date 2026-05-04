@@ -17,11 +17,9 @@ amd-sev-snp-attestation-prover = { workspace = true, features = ["sp1"] }
 amd-sev-snp-attestation-verifier.workspace = true
 x509-verifier-rust-crypto.workspace = true
 
-# katana_tee_client = { path = "../../crates/tee/client/clients/katana_tee_client" }
-# amd_tee_registry_client = { path = "../../crates/tee/client/clients/amd_tee_registry_client" }
-
 piltover = { package = "piltover", git = "https://github.com/cartridge-gg/piltover.git", rev = "dc86b13de0713c172153c4833fd7b3d14a855351" }
 cainome.workspace = true
+hex.workspace = true
 sha3 = "0.10"
 
 alloy-primitives.workspace = true

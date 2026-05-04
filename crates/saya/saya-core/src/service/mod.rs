@@ -30,10 +30,7 @@ impl FinishHandle {
     }
 
     pub fn shutdown_handle(&self) -> ShutdownHandle {
-        ShutdownHandle {
-            cancellation: self.cancellation.clone(),
-            finish: self.finish.clone(),
-        }
+        ShutdownHandle { cancellation: self.cancellation.clone(), finish: self.finish.clone() }
     }
 
     /// Signals that the service has finish executing.

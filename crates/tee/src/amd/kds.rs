@@ -2,13 +2,13 @@
 //!
 //! Fetch AMD root certificates and compute their hashes for on-chain verification.
 
-use amd_sev_snp_attestation_prover::KDS as SdkKDS;
-use amd_sev_snp_attestation_verifier::stub::ProcessorType;
-use katana_tracing::info;
-use katana_tracing::trace;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
+
+use amd_sev_snp_attestation_prover::KDS as SdkKDS;
+use amd_sev_snp_attestation_verifier::stub::ProcessorType;
+use katana_tracing::trace;
+use sha2::{Digest, Sha256};
 
 /// Result of fetching a root certificate
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -18,11 +18,7 @@ impl ProverConfig {
         rpc_url: Option<String>,
         skip_time_validity_check: bool,
     ) -> Self {
-        Self {
-            private_key,
-            rpc_url,
-            skip_time_validity_check,
-        }
+        Self { private_key, rpc_url, skip_time_validity_check }
     }
 
     /// Create config from environment variables.
