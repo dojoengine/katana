@@ -664,9 +664,8 @@ where
         // --- validate the on-chain settlement contract for rollup chains
 
         if let ChainSpec::Rollup(spec) = self.config.chain.as_ref() {
-            if let SettlementLayer::Starknet {
-                rpc_url, core_contract, proof_kind, ..
-            } = &spec.settlement
+            if let SettlementLayer::Starknet { rpc_url, core_contract, proof_kind, .. } =
+                &spec.settlement
             {
                 let provider =
                     settlement_check::SettlementChainProvider::new(rpc_url.clone(), Felt::ZERO);

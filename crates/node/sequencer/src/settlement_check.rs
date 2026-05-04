@@ -3,8 +3,8 @@
 //!
 //! Behavior depends on the chain's [`SettlementProofKind`] and the on-chain
 //! [`piltover::ProgramInfo`] variant:
-//! - [`SettlementProofKind::ValidityProof`] expects [`ProgramInfo::StarknetOs`] and checks the
-//!   SNOS / layout-bridge / bootloader program hashes plus the SNOS config hash.
+//! - [`SettlementProofKind::ValidityProof`] expects [`ProgramInfo::StarknetOs`] and checks the SNOS
+//!   / layout-bridge / bootloader program hashes plus the SNOS config hash.
 //! - [`SettlementProofKind::Tee`] expects [`ProgramInfo::KatanaTee`] and checks the
 //!   `KatanaTeeConfig1`-tagged config hash only.
 //! - Cross-mode mismatch (chain spec says ZK but contract is TEE-mode, or vice versa) is a
@@ -648,13 +648,9 @@ mod tests {
     #[test]
     fn cross_mode_tee_chain_with_starknet_os_contract_rejected() {
         let info = well_formed_starknet_os();
-        let err = check_program_info(
-            &info,
-            TEST_CHAIN_ID,
-            TEST_FEE_TOKEN,
-            SettlementProofKind::Tee,
-        )
-        .expect_err("TEE chain pointing at StarknetOs contract must be rejected");
+        let err =
+            check_program_info(&info, TEST_CHAIN_ID, TEST_FEE_TOKEN, SettlementProofKind::Tee)
+                .expect_err("TEE chain pointing at StarknetOs contract must be rejected");
         assert!(matches!(
             err,
             SettlementValidationError::InvalidProgramInfoVariant {
@@ -760,13 +756,9 @@ mod tests {
         let info = ProgramInfo::KatanaTee(KatanaTeeProgramInfo {
             katana_tee_config_hash: Felt::from(0xdeadu32),
         });
-        let err = check_program_info(
-            &info,
-            TEST_CHAIN_ID,
-            TEST_FEE_TOKEN,
-            SettlementProofKind::Tee,
-        )
-        .expect_err("must reject KatanaTee config hash mismatch");
+        let err =
+            check_program_info(&info, TEST_CHAIN_ID, TEST_FEE_TOKEN, SettlementProofKind::Tee)
+                .expect_err("must reject KatanaTee config hash mismatch");
         assert!(matches!(err, SettlementValidationError::InvalidKatanaTeeConfigHash { .. }));
     }
 }

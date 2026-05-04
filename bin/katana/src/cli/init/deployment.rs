@@ -16,16 +16,16 @@ use piltover::{
     AppchainContract, AppchainContractReader, KatanaTeeProgramInfo, ProgramInfo,
     StarknetOsProgramInfo,
 };
+use settlement_check::{
+    compute_starknet_os_config_hash, BOOTLOADER_PROGRAM_HASH, LAYOUT_BRIDGE_PROGRAM_HASH,
+    SNOS_PROGRAM_HASH,
+};
 use spinoff::{spinners, Color, Spinner};
 use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAccount};
 use starknet::contract::{ContractFactory, UdcSelector};
 use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
 use starknet::providers::{Provider, ProviderError};
 use starknet::signers::LocalWallet;
-use settlement_check::{
-    compute_starknet_os_config_hash, BOOTLOADER_PROGRAM_HASH, LAYOUT_BRIDGE_PROGRAM_HASH,
-    SNOS_PROGRAM_HASH,
-};
 use thiserror::Error;
 use tracing::trace;
 
@@ -277,8 +277,11 @@ pub async fn check_program_info(
     .await?;
 
     let appchain = AppchainContractReader::new(appchain_address.into(), provider);
-    let facts_registry =
-        appchain.get_facts_registry().call().await.map_err(|e| ContractInitError::Other(anyhow!(e)))?;
+    let facts_registry = appchain
+        .get_facts_registry()
+        .call()
+        .await
+        .map_err(|e| ContractInitError::Other(anyhow!(e)))?;
 
     if facts_registry != expected_fact_registry.into() {
         return Err(ContractInitError::InvalidFactRegistry {
@@ -362,4 +365,3 @@ fn prepare_contract_declaration_params(class: ContractClass) -> Result<Flattened
     let Class::Sierra(class) = rpc_class else { unreachable!("unexpected legacy class") };
     Ok(class.try_into()?)
 }
-

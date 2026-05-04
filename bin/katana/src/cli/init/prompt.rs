@@ -8,6 +8,7 @@ use inquire::{Confirm, CustomType, Select};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::{ContractAddress, Felt};
+use katana_sequencer_node::settlement_check::SettlementChainProvider;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag};
 use starknet::providers::Provider;
@@ -16,7 +17,6 @@ use tokio::runtime::Handle;
 
 use super::{deployment, PersistentOutcome, ProofImpl, SovereignOutcome};
 use crate::cli::init::deployment::DeploymentOutcome;
-use katana_sequencer_node::settlement_check::SettlementChainProvider;
 use crate::cli::init::slot::{self, PaymasterAccountArgs};
 
 pub async fn prompt_rollup() -> Result<PersistentOutcome> {
