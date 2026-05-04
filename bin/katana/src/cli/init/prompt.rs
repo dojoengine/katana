@@ -16,7 +16,7 @@ use tokio::runtime::Handle;
 
 use super::{deployment, PersistentOutcome, ProofImpl, SovereignOutcome};
 use crate::cli::init::deployment::DeploymentOutcome;
-use crate::cli::init::settlement::SettlementChainProvider;
+use katana_sequencer_node::settlement_check::SettlementChainProvider;
 use crate::cli::init::slot::{self, PaymasterAccountArgs};
 
 pub async fn prompt_rollup() -> Result<PersistentOutcome> {

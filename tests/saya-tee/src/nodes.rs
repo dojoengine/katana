@@ -23,7 +23,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use cainome::rs::abigen_legacy;
 use katana_chain_spec::rollup::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
-use katana_chain_spec::{rollup, ChainSpec, FeeContracts, SettlementLayer};
+use katana_chain_spec::{rollup, ChainSpec, FeeContracts, SettlementLayer, SettlementProofKind};
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_genesis::Genesis;
@@ -138,6 +138,7 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
         id: l2_chain_id,
         rpc_url: l2_url,
         core_contract: piltover_address.into(),
+        proof_kind: SettlementProofKind::Tee,
     };
 
     let l3_chain = rollup::ChainSpec {

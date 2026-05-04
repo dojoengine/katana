@@ -62,7 +62,7 @@ use anyhow::Context;
 use clap::{Args, Subcommand};
 use deployment::DeploymentOutcome;
 use katana_chain_spec::rollup::{ChainConfigDir, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
-use katana_chain_spec::{rollup, FeeContracts, SettlementLayer};
+use katana_chain_spec::{rollup, FeeContracts, SettlementLayer, SettlementProofKind};
 use katana_cli::utils::ShortStringValueParser;
 use katana_contracts::piltover::Appchain;
 use katana_genesis::allocation::DevAllocationsGenerator;
@@ -72,7 +72,7 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt, U256};
-use settlement::SettlementChainProvider;
+use katana_sequencer_node::settlement_check::SettlementChainProvider;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::providers::Provider;
 use starknet::signers::SigningKey;
@@ -80,7 +80,6 @@ use url::Url;
 
 mod deployment;
 mod prompt;
-mod settlement;
 #[cfg(feature = "init-slot")]
 mod slot;
 
@@ -246,11 +245,18 @@ impl RollupArgs {
             prompt::prompt_rollup().await?
         };
 
+        let proof_kind = if output.proof_impl.is_tee() {
+            SettlementProofKind::Tee
+        } else {
+            SettlementProofKind::ValidityProof
+        };
+
         let settlement = SettlementLayer::Starknet {
             rpc_url: output.rpc_url.clone(),
             id: ChainId::parse(&output.settlement_id)?,
             block: output.deployment_outcome.block_number,
             core_contract: output.deployment_outcome.contract_address,
+            proof_kind,
         };
 
         let id = ChainId::parse(&output.id)?;

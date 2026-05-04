@@ -69,6 +69,7 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
         id: ChainId::default(),
         core_contract: Default::default(),
         rpc_url: Url::parse("http://localhost:5050").unwrap(),
+        proof_kind: Default::default(),
     };
 
     rollup::ChainSpec { id, genesis, settlement, fee_contracts }

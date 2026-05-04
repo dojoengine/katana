@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod exit;
+pub mod settlement_check;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -33,6 +34,7 @@ use katana_pool::TxPool;
 use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
+use katana_primitives::Felt;
 use katana_provider::{
     DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
 };
@@ -658,6 +660,28 @@ where
     pub async fn launch(self) -> Result<LaunchedNode<P>> {
         let chain = self.backend.chain_spec.id();
         info!(%chain, "Starting node.");
+
+        // --- validate the on-chain settlement contract for rollup chains
+
+        if let ChainSpec::Rollup(spec) = self.config.chain.as_ref() {
+            if let SettlementLayer::Starknet {
+                rpc_url, core_contract, proof_kind, ..
+            } = &spec.settlement
+            {
+                let provider =
+                    settlement_check::SettlementChainProvider::new(rpc_url.clone(), Felt::ZERO);
+
+                settlement_check::validate_starknet_settlement(
+                    spec.id.id(),
+                    spec.fee_contracts.strk.into(),
+                    *core_contract,
+                    &provider,
+                    *proof_kind,
+                )
+                .await
+                .context("settlement core contract validation failed")?;
+            }
+        }
 
         // --- start the metrics server (if configured)
 
