@@ -1,14 +1,3 @@
-[workspace]
-resolver = "2"
-
-[workspace.package]
-version = "0.3.2"
-edition = "2021"
-license = "Apache-2.0"
-repository = "https://github.com/dojoengine/katana"
-
-[workspace.dependencies]
-
 [package]
 name = "saya-tee"
 version.workspace = true
@@ -16,57 +5,31 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# saya-tee is excluded from the parent katana workspace (see root Cargo.toml's
-# `[workspace.exclude]`) because cartridge-gg/katana-tee strict-pins
-# alloy-primitives = "=1.3.1" and uses alloy-sol-types 1.3.x macro shapes that
-# conflict with the alloy stack katana wants. saya-tee therefore keeps its own
-# Cargo.lock, [workspace] block, and [patch.crates-io] alloy block.
-#
-# katana-tee itself is now vendored under crates/tee/client/ — these path deps
-# point at the vendored copies, not the external git repo.
-#
-# Build via:  cargo build --manifest-path bin/saya-tee/Cargo.toml
 [dependencies]
-saya-core = { path = "../../crates/saya/core" }
-katana_tee_client = { path = "../../crates/tee/client/clients/katana_tee_client" }
-amd-sev-snp-attestation-prover = { path = "../../crates/tee/client/crates/amd-sev-snp-attestation-sdk/crates/prover", default-features = false, features = ["sp1"] }
-amd-sev-snp-attestation-verifier = { path = "../../crates/tee/client/crates/amd-sev-snp-attestation-sdk/crates/verifier" }
-amd_tee_registry_client = { path = "../../crates/tee/client/clients/amd_tee_registry_client" }
-x509-verifier-rust-crypto = { path = "../../crates/tee/client/crates/amd-sev-snp-attestation-sdk/crates/x509-verifier-rust-crypto" }
-alloy-primitives = "1.3.1"
+katana-tracing.workspace = true
+katana-primitives.workspace = true
+katana-tee.workspace = true
+katana-rpc-types.workspace = true
+katana-rpc-api = { workspace = true, features = [ "client" ] }
+saya-core.workspace = true
+
+amd-sev-snp-attestation-prover = { workspace = true, features = ["sp1"] }
+amd-sev-snp-attestation-verifier.workspace = true
+x509-verifier-rust-crypto.workspace = true
+
+# katana_tee_client = { path = "../../crates/tee/client/clients/katana_tee_client" }
+# amd_tee_registry_client = { path = "../../crates/tee/client/clients/amd_tee_registry_client" }
 
 piltover = { package = "piltover", git = "https://github.com/cartridge-gg/piltover.git", rev = "dc86b13de0713c172153c4833fd7b3d14a855351" }
-cainome = { version = "0.10.1", features = ["abigen-rs"] }
+cainome.workspace = true
 sha3 = "0.10"
 
-anyhow = "1"
-clap = { version = "4", default-features = false, features = ["derive", "env", "std"] }
-saya-tracing = { path = "../../crates/saya/tracing" }
-starknet = "0.17.0"
-starknet-types-core = { version = "0.2.1", default-features = false }
-thiserror = "2"
+alloy-primitives.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+starknet.workspace = true
+starknet-types-core.workspace = true
+thiserror.workspace = true
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "signal", "time"] }
-tracing = { version = "0.1.40", default-features = false, features = ["std", "attributes"] }
-url = "2"
-
-[patch.crates-io]
-alloy = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-consensus = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-consensus-any = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-contract = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-eips = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-json-rpc = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-network = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-network-primitives = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-provider = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-client = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-types-any = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-types-engine = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-rpc-types-eth = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-serde = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-signer = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-signer-aws = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-signer-local = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-transport = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
-alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", tag = "v1.0.41" }
+tracing.workspace = true
+url.workspace = true

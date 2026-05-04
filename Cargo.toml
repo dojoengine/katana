@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
 	"bin/katana",
+	"bin/saya-tee",
 	"crates/bootstrap",
 	"crates/cartridge",
 	"crates/chain-spec",
@@ -81,8 +82,6 @@ members = [
 # unified workspace — they don't pull the conflicting transitive deps.
 exclude = [
 	"bin/saya",
-	"bin/saya-ops",
-	"bin/saya-tee",
 ]
 
 [workspace.package]

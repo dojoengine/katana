@@ -66,12 +66,7 @@ impl<I, A, P, S> TeeOrchestratorBuilder<I, A, P, S> {
         prover_builder: P,
         settlement_builder: S,
     ) -> Self {
-        Self {
-            ingestor_builder,
-            attestor_builder,
-            prover_builder,
-            settlement_builder,
-        }
+        Self { ingestor_builder, attestor_builder, prover_builder, settlement_builder }
     }
 }
 
@@ -103,11 +98,8 @@ where
         let start_block = settlement.get_block_number().await? + 1;
         let start_block: u64 = start_block.try_into()?;
 
-        let ingestor = self
-            .ingestor_builder
-            .start_block(start_block)
-            .channel(new_block_tx)
-            .build()?;
+        let ingestor =
+            self.ingestor_builder.start_block(start_block).channel(new_block_tx).build()?;
 
         let attestor = self
             .attestor_builder
@@ -115,11 +107,8 @@ where
             .output_channel(attestation_tx)
             .build()?;
 
-        let prover = self
-            .prover_builder
-            .input_channel(attestation_rx)
-            .output_channel(proof_tx)
-            .build()?;
+        let prover =
+            self.prover_builder.input_channel(attestation_rx).output_channel(proof_tx).build()?;
 
         Ok(TeeOrchestrator {
             cursor_channel: settle_cursor_rx,

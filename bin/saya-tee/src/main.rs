@@ -3,7 +3,7 @@
 //! Saya TEE proving orchestrator — runs the full TEE pipeline: block ingestion,
 //! attestation, SP1 proof generation, and on-chain settlement.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 mod attestor;
@@ -14,6 +14,7 @@ mod prover_impl;
 mod settlement;
 mod tee;
 
+use katana_tracing::{EnvFilter, LogColor, LogFormat};
 use tee::Tee;
 
 #[derive(Debug, Parser)]
@@ -33,11 +34,25 @@ enum Subcommands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    initialize_logging().await?;
 
-    saya_tracing::init("info,persistent_tee=trace,saya_core=trace")?;
-
-    match cli.command {
+    match Cli::parse().command {
         Subcommands::Tee(cmd) => cmd.run().await,
     }
+}
+
+async fn initialize_logging() -> Result<()> {
+    const DEFAULT_LOG_FILTER: &str = "info,persistent_tee=trace,saya_core=trace";
+
+    let filter = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new(DEFAULT_LOG_FILTER))
+        .context("failed to parse log filter")?;
+
+    let logging = katana_tracing::LoggingConfig {
+        stdout_format: LogFormat::Full,
+        stdout_color: LogColor::Always,
+        ..Default::default()
+    };
+
+    Ok(katana_tracing::init(logging, None, filter).await?)
 }

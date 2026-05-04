@@ -82,6 +82,12 @@ pub struct EmittedEvent {
     pub event_index: u64,
     /// The address of the contract that emitted the event.
     pub from_address: ContractAddress,
+
+    pub event: RawEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RawEvent {
     pub keys: Vec<Felt>,
     pub data: Vec<Felt>,
 }

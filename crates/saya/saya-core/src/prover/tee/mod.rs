@@ -4,16 +4,18 @@
 //! same [`PipelineStageBuilder`] interface.
 
 use anyhow::Result;
+use katana_rpc_types::{L1ToL2Message, L2ToL1Message};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::debug;
 
-use starknet_types_core::felt::Felt;
+use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_primitives::Felt;
 
 use crate::{
     block_ingestor::BlockInfo,
     prover::{HasBlockNumber, PipelineStage, PipelineStageBuilder},
     service::{Daemon, FinishHandle, ShutdownHandle},
-    tee::{L1ToL2Message, L2ToL1Message, TeeAttestation},
+    tee::TeeAttestation,
 };
 
 /// A proof produced by the TEE proving service for a batch of blocks.
@@ -135,10 +137,10 @@ impl TeeProver {
     }
 
     fn prove(&self, attestation: TeeAttestation) -> TeeProof {
-        let prev_state_root = Felt::from_hex(&attestation.prev_state_root).unwrap_or(Felt::ZERO);
-        let state_root = Felt::from_hex(&attestation.state_root).unwrap_or(Felt::ZERO);
-        let prev_block_hash = Felt::from_hex(&attestation.prev_block_hash).unwrap_or(Felt::ZERO);
-        let block_hash = Felt::from_hex(&attestation.block_hash).unwrap_or(Felt::ZERO);
+        let prev_state_root = attestation.attestation.prev_state_root;
+        let state_root = attestation.attestation.state_root;
+        let prev_block_hash = attestation.attestation.prev_block_hash;
+        let block_hash = attestation.attestation.block_hash;
 
         TeeProof {
             blocks: attestation.blocks,
@@ -147,11 +149,11 @@ impl TeeProver {
             state_root,
             prev_block_hash,
             block_hash,
-            prev_block_number: attestation.prev_block_number,
-            block_number: attestation.block_number,
-            messages_commitment: attestation.messages_commitment,
-            l2_to_l1_messages: attestation.l2_to_l1_messages,
-            l1_to_l2_messages: attestation.l1_to_l2_messages,
+            prev_block_number: attestation.attestation.prev_block_number,
+            block_number: attestation.attestation.block_number,
+            messages_commitment: attestation.attestation.messages_commitment,
+            l2_to_l1_messages: attestation.attestation.l2_to_l1_messages,
+            l1_to_l2_messages: attestation.attestation.l1_to_l2_messages,
         }
     }
 }

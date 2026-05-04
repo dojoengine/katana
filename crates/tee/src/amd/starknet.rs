@@ -1,9 +1,9 @@
 use alloy_primitives::B256;
+use katana_primitives::{ContractAddress, Felt};
+use katana_starknet::rpc::StarknetRpcClient;
+use katana_starknet::rpc::{BlockIdOrTag, FunctionCall};
 use num_bigint::BigUint;
-use starknet::core::types::{BlockId, BlockTag, Felt, FunctionCall};
 use starknet::core::utils::get_selector_from_name;
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{JsonRpcClient, Provider};
 use url::Url;
 
 use crate::amd::Error;
@@ -11,24 +11,16 @@ use crate::amd::Error;
 /// Minimal Starknet RPC client for AMD TEE registry cache queries.
 #[derive(Debug, Clone)]
 pub struct StarknetRegistryClient {
-    provider: JsonRpcClient<HttpTransport>,
-    contract_address: Felt,
+    client: StarknetRpcClient,
+    contract_address: ContractAddress,
 }
 
 impl StarknetRegistryClient {
     /// Create a new client from RPC URL and contract address.
-    pub fn new(rpc_url: &str, contract_address: Felt) -> Self {
+    pub fn new(rpc_url: &str, contract_address: ContractAddress) -> Self {
         let url = Url::parse(rpc_url).expect("Invalid Starknet RPC URL");
-        let transport = HttpTransport::new(url);
-        let provider = JsonRpcClient::new(transport);
-        Self { provider, contract_address }
-    }
-
-    /// Create a new client from hex string contract address.
-    pub fn from_hex(rpc_url: &str, contract_address: &str) -> Result<Self, Error> {
-        let contract_address = Felt::from_hex(contract_address)
-            .map_err(|e| Error::Starknet(format!("Invalid contract address: {e}")))?;
-        Ok(Self::new(rpc_url, contract_address))
+        let client = StarknetRpcClient::new(url);
+        Self { client, contract_address }
     }
 
     /// Fetch the trusted certificate prefix length for a single report.
@@ -53,23 +45,23 @@ impl StarknetRegistryClient {
         };
 
         let result = self
-            .provider
-            .call(&call, BlockId::Tag(BlockTag::Latest))
+            .client
+            .call(call, BlockIdOrTag::Latest)
             .await
             .map_err(|e| Error::Starknet(format!("RPC call failed: {e}")))?;
 
-        if result.is_empty() {
+        if result.result.is_empty() {
             return Err(Error::Starknet("Empty response from Starknet".to_string()));
         }
 
-        let len = felt_to_u64(&result[0])?;
+        let len = felt_to_u64(&result.result[0])?;
         if len != 1 {
             return Err(Error::Starknet(format!("Unexpected result length: {len}")));
         }
-        if result.len() < 2 {
+        if result.result.len() < 2 {
             return Err(Error::Starknet("Missing prefix length".to_string()));
         }
-        felt_to_u8(&result[1])
+        felt_to_u8(&result.result[1])
     }
 }
 

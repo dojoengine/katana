@@ -91,11 +91,8 @@ fn build_tee_calldata(proof: &TeeProof, mock_prove: bool) -> Result<Vec<Felt>> {
             .collect()
     };
 
-    let l1_to_l2_msg_hashes: Vec<Felt> = proof
-        .l1_to_l2_messages
-        .iter()
-        .map(compute_l1_to_l2_msg_hash)
-        .collect();
+    let l1_to_l2_msg_hashes: Vec<Felt> =
+        proof.l1_to_l2_messages.iter().map(compute_l1_to_l2_msg_hash).collect();
 
     let tee_input = TEEInput {
         sp1_proof,
@@ -103,17 +100,15 @@ fn build_tee_calldata(proof: &TeeProof, mock_prove: bool) -> Result<Vec<Felt>> {
         state_root: proof.state_root,
         prev_block_hash: proof.prev_block_hash,
         block_hash: proof.block_hash,
-        prev_block_number: proof.prev_block_number,
-        block_number: proof.block_number,
+        prev_block_number: proof.prev_block_number.into(),
+        block_number: proof.block_number.into(),
         messages_commitment: proof.messages_commitment,
         messages_to_starknet: messages_to_starknet(&proof.l2_to_l1_messages),
         messages_to_appchain: messages_to_appchain(&proof.l1_to_l2_messages),
         l1_to_l2_msg_hashes,
     };
 
-    Ok(PiltoverInput::cairo_serialize(&PiltoverInput::TeeInput(
-        tee_input,
-    )))
+    Ok(PiltoverInput::cairo_serialize(&PiltoverInput::TeeInput(tee_input)))
 }
 
 /// Settlement backend that submits TEE proofs to the Piltover contract via `update_state`.
@@ -218,9 +213,7 @@ impl TeePiltoverSettlementBackend {
             )
             .await?;
         // AppchainState: [state_root, block_number, block_hash] — block_number is index 1.
-        raw.get(1)
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("get_state returned fewer than 2 felts"))
+        raw.get(1).copied().ok_or_else(|| anyhow::anyhow!("get_state returned fewer than 2 felts"))
     }
 
     async fn watch_tx(&self, tx_hash: Felt) -> Result<()> {
@@ -272,11 +265,8 @@ impl TeePiltoverSettlementBackend {
                 }
             };
 
-            let call = Call {
-                to: self.piltover_address,
-                selector: selector!("update_state"),
-                calldata,
-            };
+            let call =
+                Call { to: self.piltover_address, selector: selector!("update_state"), calldata };
 
             let execution = self.account.execute_v3(vec![call]);
 
@@ -294,10 +284,7 @@ impl TeePiltoverSettlementBackend {
             let transaction = match execution.send().await {
                 Ok(t) => t,
                 Err(e) => {
-                    error!(
-                        "Settlement transaction failed for block {}: {}",
-                        proof.block_number, e
-                    );
+                    error!("Settlement transaction failed for block {}: {}", proof.block_number, e);
                     continue;
                 }
             };

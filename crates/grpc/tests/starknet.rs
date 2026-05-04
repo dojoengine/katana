@@ -466,8 +466,8 @@ async fn test_get_events() {
         proto_to_felt(grpc_event.transaction_hash.as_ref().expect("grpc missing tx_hash")),
         rpc_event.transaction_hash
     );
-    assert_eq!(grpc_event.keys.len(), rpc_event.keys.len());
-    assert_eq!(grpc_event.data.len(), rpc_event.data.len());
+    assert_eq!(grpc_event.keys.len(), rpc_event.event.keys.len());
+    assert_eq!(grpc_event.data.len(), rpc_event.event.data.len());
 }
 
 #[tokio::test]

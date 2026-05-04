@@ -6,7 +6,9 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use katana_tee_client::KatanaRpcClient;
+use katana_primitives::Felt;
+use katana_rpc_api::{tee::TeeApiClient, HttpClientBuilder};
+use katana_rpc_types::{tee::BlockAttestation, L2ToL1Message};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info};
 use url::Url;
@@ -17,7 +19,7 @@ use saya_core::{
     block_ingestor::BlockInfo,
     prover::{PipelineStage, PipelineStageBuilder},
     service::{Daemon, FinishHandle, ShutdownHandle},
-    tee::{L1ToL2Message, L2ToL1Message, TeeAttestation},
+    tee::{L1ToL2Message, TeeAttestation},
 };
 
 /// Fetches TEE attestation from the Katana rollup node for each incoming batch of
@@ -41,12 +43,7 @@ pub struct TeeAttestorBuilder {
 
 impl TeeAttestorBuilder {
     pub fn new(katana_rpc: Url, poll_interval: Duration) -> Self {
-        Self {
-            katana_rpc,
-            poll_interval,
-            input_channel: None,
-            output_channel: None,
-        }
+        Self { katana_rpc, poll_interval, input_channel: None, output_channel: None }
     }
 }
 
@@ -117,6 +114,7 @@ impl TeeAttestor {
                     continue;
                 }
             };
+
             info!("Fetched TEE attestation for block batch, sending to next stage");
             tokio::select! {
                 _ = self.finish_handle.shutdown_requested() => break,
@@ -129,51 +127,14 @@ impl TeeAttestor {
     }
 
     async fn fetch_attestation(&self, blocks: Vec<BlockInfo>) -> Result<TeeAttestation> {
-        let rpc_client = KatanaRpcClient::new(self.katana_rpc.clone());
+        let rpc_client = HttpClientBuilder::new().build(self.katana_rpc.clone())?;
+
         let block_number = blocks.last().expect("non-empty batch").number;
-        let prev_block_number = blocks.first().expect("non-empty batch").number;
-        let prev_block = if prev_block_number == 0 {
-            None
-        } else {
-            Some(prev_block_number.saturating_sub(1))
-        };
-        let attestation = rpc_client
-            .fetch_attestation(prev_block, block_number)
-            .await?;
-        let l2_to_l1_messages = attestation
-            .l2_to_l1_messages
-            .into_iter()
-            .map(|m| L2ToL1Message {
-                from_address: m.from_address,
-                to_address: m.to_address,
-                payload: m.payload,
-            })
-            .collect();
+        let prev_block = blocks.first().expect("non-empty batch").number;
+        let prev_block = if prev_block == 0 { None } else { Some(prev_block.saturating_sub(1)) };
 
-        let l1_to_l2_messages = attestation
-            .l1_to_l2_messages
-            .into_iter()
-            .map(|m| L1ToL2Message {
-                from_address: m.from_address,
-                to_address: m.to_address,
-                selector: m.selector,
-                payload: m.payload,
-                nonce: m.nonce,
-            })
-            .collect();
+        let attestation = rpc_client.generate_quote(prev_block, block_number).await?;
 
-        Ok(TeeAttestation {
-            blocks,
-            quote: attestation.quote,
-            prev_state_root: attestation.prev_state_root,
-            state_root: attestation.state_root,
-            prev_block_hash: attestation.prev_block_hash,
-            block_hash: attestation.block_hash,
-            prev_block_number: attestation.prev_block_number,
-            block_number: attestation.block_number,
-            messages_commitment: attestation.messages_commitment,
-            l2_to_l1_messages,
-            l1_to_l2_messages,
-        })
+        Ok(TeeAttestation { blocks, attestation })
     }
 }

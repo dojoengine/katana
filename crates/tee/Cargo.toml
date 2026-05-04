@@ -15,6 +15,7 @@ sev = { workspace = true, optional = true }
 sev-snp = { workspace = true, optional = true }
 thiserror.workspace = true
 katana-tracing.workspace = true
+katana-starknet.workspace = true
 
 # AMD SEV-SNP SDK for attestation proving
 amd-sev-snp-attestation-prover = { workspace = true, features = [ "sp1" ] }

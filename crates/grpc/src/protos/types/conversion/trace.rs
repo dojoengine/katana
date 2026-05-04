@@ -172,8 +172,8 @@ impl From<&katana_rpc_types::trace::FunctionInvocation> for FunctionInvocation {
                 .iter()
                 .map(|e| OrderedEvent {
                     order: e.order,
-                    keys: e.keys.to_proto_felts(),
-                    data: e.data.to_proto_felts(),
+                    keys: e.event.keys.to_proto_felts(),
+                    data: e.event.data.to_proto_felts(),
                 })
                 .collect(),
             messages: inv
@@ -181,9 +181,9 @@ impl From<&katana_rpc_types::trace::FunctionInvocation> for FunctionInvocation {
                 .iter()
                 .map(|m| OrderedL2ToL1Message {
                     order: m.order,
-                    from_address: Some(ProtoFelt::from(Felt::from(m.from_address))),
-                    to_address: Some(m.to_address.into()),
-                    payload: m.payload.to_proto_felts(),
+                    from_address: Some(ProtoFelt::from(Felt::from(m.message.from_address))),
+                    to_address: Some(m.message.to_address.into()),
+                    payload: m.message.payload.to_proto_felts(),
                 })
                 .collect(),
             execution_resources: Some(ExecutionResources {

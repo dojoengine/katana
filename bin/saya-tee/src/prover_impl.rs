@@ -8,8 +8,9 @@
 //! only for registry lookup and proof generation.
 
 use anyhow::Result;
-use katana_tee_client::{OnchainProof, ProverConfig, StarknetRegistryClient};
-use starknet_types_core::felt::Felt;
+use katana_primitives::ContractAddress;
+use katana_rpc_types::tee::BlockAttestation;
+use katana_tee::amd::{OnchainProof, ProverConfig, StarknetRegistryClient};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
 
@@ -36,40 +37,31 @@ use amd_sev_snp_attestation_prover::{
     AmdSevSnpProver, ProverConfig as SdkProverConfig, RawProofType, SP1ProverConfig, KDS,
 };
 use amd_sev_snp_attestation_verifier::{stub::ProcessorType, AttestationReport};
-use amd_tee_registry_client::{
-    prepare_verifier_input_with_storage, report::AttestationReportBytes,
-};
+use katana_tee::amd::{prepare_verifier_input_with_storage, report::AttestationReportBytes};
 use x509_verifier_rust_crypto::CertChain;
 
 /// TEE attestation with proof generation capabilities.
 pub struct TeeAttestation {
     /// 1184 bytes for AMD SEV-SNP.
     quote_bytes: Vec<u8>,
-    block_number: Felt,
+    block_number: u64,
 }
 
 impl TeeAttestation {
-    pub fn from_response(
-        response: &katana_tee_client::TeeQuoteResponse,
-    ) -> Result<Self, AttestationError> {
-        let quote_bytes = response
-            .quote_bytes()
-            .map_err(|e| AttestationError::InvalidReport(e.to_string()))?;
-        Ok(Self {
-            quote_bytes,
-            block_number: response.block_number,
-        })
+    pub fn from_response(response: &BlockAttestation) -> Result<Self, AttestationError> {
+        let quote_bytes =
+            response.quote_bytes().map_err(|e| AttestationError::InvalidReport(e.to_string()))?;
+        Ok(Self { quote_bytes, block_number: response.block_number })
     }
 
     /// Generate SP1 Groth16 proof for this attestation.
     pub async fn generate_proof(
         &self,
         provider_url: &str,
-        registry_address: Felt,
+        registry_address: ContractAddress,
         prover_config: ProverConfig,
     ) -> Result<OnchainProof, AttestationError> {
-        self.generate_proof_with_storage(provider_url, registry_address, prover_config)
-            .await
+        self.generate_proof_with_storage(provider_url, registry_address, prover_config).await
     }
 
     /// Generate SP1 Groth16 proof for this attestation, optionally including storage/event proofs.
@@ -79,14 +71,11 @@ impl TeeAttestation {
     pub async fn generate_proof_with_storage(
         &self,
         provider_url: &str,
-        registry_address: Felt,
+        registry_address: ContractAddress,
         prover_config: ProverConfig,
     ) -> Result<OnchainProof, AttestationError> {
         let mode = "network";
-        info!(
-            "{} {} {}",
-            self.block_number, mode, "Generating SP1 proof for TEE attestation"
-        );
+        info!("{} {} {}", self.block_number, mode, "Generating SP1 proof for TEE attestation");
 
         let quote_bytes = self.quote_bytes.clone();
         let provider_url = provider_url.to_string();

@@ -10,6 +10,9 @@ description = "Saya core implementation."
 snos = ["dep:swiftness_stark"]
 
 [dependencies]
+katana-primitives.workspace = true
+katana-rpc-types.workspace = true
+
 anyhow.workspace = true
 base64.workspace = true
 celestia-rpc.workspace = true

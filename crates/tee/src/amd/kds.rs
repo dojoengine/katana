@@ -5,6 +5,7 @@
 use amd_sev_snp_attestation_prover::KDS as SdkKDS;
 use amd_sev_snp_attestation_verifier::stub::ProcessorType;
 use katana_tracing::info;
+use katana_tracing::trace;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
@@ -39,6 +40,26 @@ impl KdsClient {
         Self { inner: SdkKDS::new() }
     }
 
+    /// Fetch root certificate hashes for multiple processor types
+    pub fn fetch_root_certs(
+        &self,
+        processors: &[ProcessorType],
+    ) -> Result<HashMap<String, RootCertInfo>, crate::amd::Error> {
+        let mut results: HashMap<String, RootCertInfo> = HashMap::with_capacity(processors.len());
+
+        for processor in processors {
+            let proc_str = processor
+                .to_str()
+                .map_err(|e| crate::amd::Error::Prover(format!("Invalid processor type: {e}")))?
+                .to_lowercase();
+
+            let info = self.fetch_root_cert_hash(*processor)?;
+            results.insert(proc_str, info);
+        }
+
+        Ok(results)
+    }
+
     /// Fetch root certificate (ARK) hash for a processor type
     pub fn fetch_root_cert_hash(
         &self,
@@ -46,14 +67,14 @@ impl KdsClient {
     ) -> Result<RootCertInfo, crate::amd::Error> {
         let proc_str = processor
             .to_str()
-            .map_err(|e| crate::amd::Error::Prover(format!("Invalid processor type: {}", e)))?;
+            .map_err(|e| crate::amd::Error::Prover(format!("Invalid processor type: {e}")))?;
 
-        info!("Fetching cert chain for {}...", proc_str);
+        trace!(processor = %proc_str, "Fetching cert chain.");
 
         let cert_chain = self
             .inner
             .fetch_model_cert_chain(processor)
-            .map_err(|e| crate::amd::Error::Prover(format!("Failed to fetch cert chain: {}", e)))?;
+            .map_err(|e| crate::amd::Error::Prover(format!("Failed to fetch cert chain: {e}")))?;
 
         // cert_chain is [ASK, ARK] - ARK is index 1
         if cert_chain.len() < 2 {
@@ -65,32 +86,11 @@ impl KdsClient {
 
         let ark_der = &cert_chain[1];
         let ark_hash = Sha256::digest(ark_der.as_ref());
-        let ark_hash_hex = format!("0x{}", hex::encode(ark_hash));
 
-        Ok(RootCertInfo {
-            ark_hash: ark_hash_hex,
-            source: format!("https://kdsintf.amd.com/vcek/v1/{}/cert_chain", proc_str),
-        })
-    }
+        let ark_hash = format!("0x{}", hex::encode(ark_hash));
+        let source = format!("https://kdsintf.amd.com/vcek/v1/{}/cert_chain", proc_str);
 
-    /// Fetch root certificate hashes for multiple processor types
-    pub fn fetch_root_certs(
-        &self,
-        processors: &[ProcessorType],
-    ) -> Result<HashMap<String, RootCertInfo>, crate::amd::Error> {
-        let mut results = HashMap::new();
-
-        for processor in processors {
-            let proc_str = processor
-                .to_str()
-                .map_err(|e| crate::amd::Error::Prover(format!("Invalid processor type: {}", e)))?
-                .to_lowercase();
-
-            let info = self.fetch_root_cert_hash(*processor)?;
-            results.insert(proc_str, info);
-        }
-
-        Ok(results)
+        Ok(RootCertInfo { ark_hash, source })
     }
 
     /// Validate fetched root cert against a local .der file
@@ -102,13 +102,13 @@ impl KdsClient {
         let fetched = self.fetch_root_cert_hash(processor)?;
 
         let local_der = std::fs::read(der_path).map_err(|e| {
-            crate::amd::Error::Prover(format!("Failed to read {}: {}", der_path.display(), e))
+            crate::amd::Error::Prover(format!("Failed to read {}: {e}", der_path.display()))
         })?;
 
         let local_hash = Sha256::digest(&local_der);
-        let local_hash_hex = format!("0x{}", hex::encode(local_hash));
+        let local_hash = format!("0x{}", hex::encode(local_hash));
 
-        Ok(fetched.ark_hash == local_hash_hex)
+        Ok(fetched.ark_hash == local_hash)
     }
 }
 

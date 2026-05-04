@@ -6,6 +6,27 @@ use katana_primitives::utils::transaction::compute_l1_to_l2_message_hash;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct L1ToL2Message {
+    /// The address of the L1 contract sending the message
+    pub from_address: EthAddress,
+    /// The target L2 address the message is sent to
+    pub to_address: ContractAddress,
+    /// The selector of the l1_handler in invoke in the target contract
+    pub entry_point_selector: EntryPointSelector,
+    /// The payload of the message
+    pub payload: Vec<Felt>,
+
+    pub nonce: Felt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct L2ToL1Message {
+    pub from_address: ContractAddress,
+    pub to_address: Felt,
+    pub payload: Vec<Felt>,
+}
+
 /// Message from L1.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MsgFromL1 {

@@ -72,6 +72,7 @@
 //!           prev_block_number, block_number, messages_commitment)`, which the
 //! mock prover computes ahead of time and embeds via this layout.
 
+use katana_primitives::block::BlockNumber;
 use starknet_types_core::felt::Felt;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 
@@ -101,8 +102,8 @@ pub fn compute_appchain_commitment(
         state_root,
         prev_block_hash,
         block_hash,
-        prev_block_number,
-        block_number,
+        prev_block_number.into(),
+        block_number.into(),
         messages_commitment,
     ])
 }
@@ -117,12 +118,7 @@ fn commitment_to_report_words(commitment: Felt) -> [Felt; 8] {
     let bytes = commitment.to_bytes_be();
     let mut words = [Felt::ZERO; 8];
     for i in 0..8 {
-        let chunk = [
-            bytes[i * 4],
-            bytes[i * 4 + 1],
-            bytes[i * 4 + 2],
-            bytes[i * 4 + 3],
-        ];
+        let chunk = [bytes[i * 4], bytes[i * 4 + 1], bytes[i * 4 + 2], bytes[i * 4 + 3]];
         let word = u32::from_le_bytes(chunk);
         words[i] = Felt::from(word);
     }
@@ -240,12 +236,7 @@ mod tests {
         for (i, word) in raw_report.iter().enumerate().take(20) {
             assert_eq!(*word, Felt::ZERO, "word {i} should be zero");
         }
-        for (i, word) in raw_report
-            .iter()
-            .enumerate()
-            .take(ATTESTATION_REPORT_WORDS)
-            .skip(28)
-        {
+        for (i, word) in raw_report.iter().enumerate().take(ATTESTATION_REPORT_WORDS).skip(28) {
             assert_eq!(*word, Felt::ZERO, "word {i} should be zero");
         }
     }

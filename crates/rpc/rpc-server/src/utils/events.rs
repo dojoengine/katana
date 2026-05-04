@@ -13,7 +13,7 @@ use katana_provider::api::transaction::ReceiptProvider;
 use katana_provider::api::ProviderError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::event::EmittedEvent;
-use katana_rpc_types::PreConfirmedBlockWithReceipts;
+use katana_rpc_types::{PreConfirmedBlockWithReceipts, RawEvent};
 
 pub type EventQueryResult<T> = Result<T, Error>;
 
@@ -321,12 +321,11 @@ fn fetch_tx_events(
                 EmittedEvent {
                     block_hash,
                     block_number,
-                    keys: e.keys.clone(),
-                    data: e.data.clone(),
                     transaction_hash: tx_hash,
                     from_address: e.from_address,
                     transaction_index: tx_idx as u64,
                     event_index: event_idx as u64,
+                    event: RawEvent { keys: e.keys.clone(), data: e.data.clone() },
                 },
             )
         })

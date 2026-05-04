@@ -23,6 +23,9 @@ repository.workspace = true
 #
 # Build via:  cargo build --manifest-path bin/saya/Cargo.toml
 [dependencies]
+katana-tracing.workspace = true
+saya-core = { workspace = true, features = ["snos"] }
+
 anyhow = { version = "1.0.95", default-features = false }
 base64 = { version = "0.22.1" }
 bigdecimal = { version = "0.3.1", default-features = false }
@@ -52,8 +55,6 @@ clap = { version = "4.5.23", default-features = false, features = [
     "env",
     "std",
 ] }
-saya-core = { path = "../../crates/saya/core", features = ["snos"] }
-saya-tracing = { path = "../../crates/saya/tracing" }
 tracing = { version = "0.1.40", default-features = false, features = ["std", "attributes"] }
 starknet = "0.17.0"
 starknet_api = { git = "https://github.com/karnotxyz/sequencer", rev = "e04617e0581d5ec93a035ec0e15419b4c201b629" }

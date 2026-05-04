@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
+use katana_primitives::eth::{self};
+use katana_primitives::hash::{Poseidon, StarkHash};
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::Tx;
 use katana_primitives::Felt;
@@ -11,11 +13,10 @@ use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, Header
 use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
 use katana_provider::ProviderFactory;
 use katana_rpc_api::error::tee::TeeApiError;
-use katana_rpc_api::tee::{
-    EventProofResponse, TeeApiServer, TeeL1ToL2Message, TeeL2ToL1Message, TeeQuoteResponse,
-};
+use katana_rpc_api::tee::TeeApiServer;
+use katana_rpc_types::tee::{BlockAttestation, EventProofResponse};
+use katana_rpc_types::{L1ToL2Message, L2ToL1Message};
 use katana_tee::Attester;
-use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, info};
 
 /// TEE API implementation.
@@ -69,7 +70,7 @@ where
         &self,
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
-    ) -> RpcResult<TeeQuoteResponse> {
+    ) -> RpcResult<BlockAttestation> {
         debug!(
             target: "rpc::tee",
             ?prev_block,
@@ -144,7 +145,7 @@ where
                 "Generated TEE attestation quote"
             );
 
-            Ok(TeeQuoteResponse {
+            Ok(BlockAttestation {
                 quote: format!("0x{}", hex::encode(&quote)),
                 prev_state_root,
                 state_root,
@@ -162,8 +163,8 @@ where
             // Gather all L1<->L2 messages from prev_block+1 to block_id (inclusive)
             let start_block = prev_block.map(|n| n + 1).unwrap_or(0);
 
-            let mut l2_to_l1_messages: Vec<TeeL2ToL1Message> = Vec::new();
-            let mut l1_to_l2_messages: Vec<TeeL1ToL2Message> = Vec::new();
+            let mut l2_to_l1_messages: Vec<L2ToL1Message> = Vec::new();
+            let mut l1_to_l2_messages: Vec<L1ToL2Message> = Vec::new();
 
             let mut l2_to_l1_msg_hashes: Vec<Felt> = Vec::new();
             let mut l1_to_l2_msg_hashes: Vec<Felt> = Vec::new();
@@ -196,7 +197,7 @@ where
                             payload_hash,
                         ]);
                         l2_to_l1_msg_hashes.push(msg_hash);
-                        l2_to_l1_messages.push(TeeL2ToL1Message {
+                        l2_to_l1_messages.push(L2ToL1Message {
                             from_address: msg.from_address.into(),
                             to_address: msg.to_address,
                             payload: msg.payload.clone(),
@@ -214,14 +215,21 @@ where
                 for tx in &txs {
                     if let Tx::L1Handler(l1h) = &tx.transaction {
                         // calldata[0] is always the Ethereum sender address as a Felt
-                        let from_address = l1h.calldata.first().copied().unwrap_or(Felt::ZERO);
+                        let from_address = l1h
+                            .calldata
+                            .first()
+                            .copied()
+                            .expect("qed; missing message sender address");
+
+                        let from_address = eth::Address::from_slice(&from_address.to_bytes_be());
+
                         let payload = l1h.calldata.get(1..).unwrap_or_default().to_vec();
-                        l1_to_l2_messages.push(TeeL1ToL2Message {
-                            from_address,
-                            to_address: l1h.contract_address.into(),
-                            selector: l1h.entry_point_selector,
+                        l1_to_l2_messages.push(L1ToL2Message {
                             payload,
+                            from_address,
                             nonce: l1h.nonce,
+                            to_address: l1h.contract_address.into(),
+                            entry_point_selector: l1h.entry_point_selector,
                         });
                     }
                 }
@@ -260,7 +268,7 @@ where
                 "Generated TEE attestation quote"
             );
 
-            Ok(TeeQuoteResponse {
+            Ok(BlockAttestation {
                 quote: format!("0x{}", hex::encode(&quote)),
                 prev_state_root,
                 state_root,
