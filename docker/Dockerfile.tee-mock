@@ -1,0 +1,92 @@
+# Builds a katana binary with `--features tee-mock` compiled in.
+#
+# The binary serves `tee_generateQuote` RPC backed by a software-only mock
+# provider (no AMD SEV-SNP hardware required). Intended for dev use alongside
+# `docker/tee-mock.compose.yml` — not for production.
+#
+# For the default (real SEV-SNP) binary, use `ghcr.io/dojoengine/katana` — the
+# published image already has `--tee.provider=sev-snp` available.
+
+FROM rust:1.89.0-slim-bookworm AS builder
+
+# Fail any RUN step on pipe failures (e.g. `curl missing | sh` masking errors).
+SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        ca-certificates \
+        curl \
+        g++ \
+        git \
+        libclang-dev \
+        libprotobuf-dev \
+        libssl-dev \
+        libzstd-dev \
+        make \
+        pkg-config \
+        protobuf-compiler \
+        tar \
+        unzip \
+        wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install asdf + scarb. `katana-contracts/build.rs` invokes `asdf exec scarb
+# build` to (re)compile the embedded contracts (Piltover, OpenZeppelin
+# preset, etc.) from their pinned source. If asdf isn't on PATH, build.rs
+# silently skips the compile and the binary embeds whatever stale artifacts
+# happen to be in `crates/contracts/build/` from a prior host build, which
+# in turn produces a class-hash mismatch with the deployed contracts at
+# runtime. Installing the four scarb versions here mirrors the canonical
+# `.github/Dockerfile`.
+ARG TARGETPLATFORM
+RUN ARCH_SUFFIX="$(uname -m)"; \
+    case "$ARCH_SUFFIX" in \
+        x86_64) ASDF_ARCH=amd64 ;; \
+        aarch64) ASDF_ARCH=arm64 ;; \
+        *) echo "unsupported arch: $ARCH_SUFFIX"; exit 1 ;; \
+    esac; \
+    wget -qO /tmp/asdf.tar.gz "https://github.com/asdf-vm/asdf/releases/download/v0.18.0/asdf-v0.18.0-linux-${ASDF_ARCH}.tar.gz" \
+    && tar -xzf /tmp/asdf.tar.gz -C /usr/local/bin asdf \
+    && rm /tmp/asdf.tar.gz \
+    && asdf --version
+ENV ASDF_DATA_DIR=/root/.asdf
+ENV PATH="${ASDF_DATA_DIR}/shims:${PATH}"
+RUN mkdir -p "$ASDF_DATA_DIR" \
+    && asdf plugin add scarb \
+    && asdf install scarb 2.8.2 \
+    && asdf install scarb 2.11.4 \
+    && asdf install scarb 2.12.2 \
+    && asdf install scarb 2.13.1 \
+    && asdf install scarb 2.15.0 \
+    && asdf set --home scarb 2.8.2
+
+# katana-contracts/build.rs invokes `asdf exec scarb --version` with CWD set
+# to crates/contracts/. asdf resolves the version by walking up looking for
+# `.tool-versions`; the first hit walking up from there is the repo root's
+# `.tool-versions` which pins scarb 2.15.0. Without that version installed,
+# the check returns non-zero and build.rs silently skips contract
+# compilation, producing a binary that embeds whatever stale artifacts are
+# in `crates/contracts/build/` from the build context. The 2.15.0 line
+# above keeps the repo-root pin satisfiable so the rebuild actually runs.
+
+WORKDIR /build
+COPY . .
+
+# Build with `tee-mock` on top of the binary's default features (which
+# already include cli/default → tee-snp). The resulting binary supports
+# both --tee.provider=sev-snp (real SEV-SNP attestation) and
+# --tee.provider=mock (software-only stub used by this dev bundle).
+RUN cargo build -p katana --bin katana --release --features tee-mock
+
+FROM ubuntu:24.04
+
+# `wget` is used by the compose healthcheck (docker/tee-mock.compose.yml) to
+# ping the katana RPC. `ca-certificates` + `tini` are the usual runtime bits.
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        ca-certificates \
+        tini \
+        wget \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/katana /usr/local/bin/katana
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/katana"]
