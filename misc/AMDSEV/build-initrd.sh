@@ -533,26 +533,30 @@ fi
 # ------------------------------------------------------------------------------
 # Required by cryptsetup for LUKS2 open/format. Load order at runtime is
 # dm-mod first, then dm-crypt and dm-integrity (both depend on dm-mod).
+#
+# Hard-fail when sealed-storage build is enabled but any of the three modules
+# is missing. The init's unseal_and_mount path needs all three; producing an
+# initrd without them would silently fatal_boot at runtime instead of
+# surfacing a build-time configuration problem.
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     log_info "Installing device-mapper kernel modules"
     DM_MODULES_DIR="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic/kernel/drivers/md"
 
-    if [[ -d "$DM_MODULES_DIR" ]]; then
-        for mod in dm-mod dm-crypt dm-integrity; do
-            if [[ -f "$DM_MODULES_DIR/${mod}.ko.zst" ]]; then
-                zstd -dq "$DM_MODULES_DIR/${mod}.ko.zst" -o "lib/modules/${mod}.ko"
-                log_ok "${mod}.ko installed (decompressed)"
-            elif [[ -f "$DM_MODULES_DIR/${mod}.ko" ]]; then
-                cp "$DM_MODULES_DIR/${mod}.ko" "lib/modules/${mod}.ko"
-                log_ok "${mod}.ko installed"
-            else
-                log_warn "${mod}.ko not found at $DM_MODULES_DIR/${mod}.ko(.zst)"
-            fi
-        done
-    else
-        log_warn "Device-mapper modules directory not found: $DM_MODULES_DIR"
-        log_warn "Sealed storage will not be available"
+    if [[ ! -d "$DM_MODULES_DIR" ]]; then
+        die "device-mapper modules directory not found at $DM_MODULES_DIR (sealed-storage build requires dm-mod / dm-crypt / dm-integrity)"
     fi
+
+    for mod in dm-mod dm-crypt dm-integrity; do
+        if [[ -f "$DM_MODULES_DIR/${mod}.ko.zst" ]]; then
+            zstd -dq "$DM_MODULES_DIR/${mod}.ko.zst" -o "lib/modules/${mod}.ko"
+            log_ok "${mod}.ko installed (decompressed)"
+        elif [[ -f "$DM_MODULES_DIR/${mod}.ko" ]]; then
+            cp "$DM_MODULES_DIR/${mod}.ko" "lib/modules/${mod}.ko"
+            log_ok "${mod}.ko installed"
+        else
+            die "${mod}.ko not found at $DM_MODULES_DIR/${mod}.ko(.zst) (sealed-storage build requires it)"
+        fi
+    done
 fi
 
 # ------------------------------------------------------------------------------
