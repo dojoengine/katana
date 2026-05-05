@@ -4,9 +4,14 @@ edition.workspace = true
 name = "katana-tee"
 version.workspace = true
 
+[[bin]]
+name = "kds-client"
+path = "src/bin/kds.rs"
+
 [dependencies]
 katana-primitives.workspace = true
 
+anyhow.workspace = true
 bincode = { workspace = true, optional = true }
 clap = { workspace = true, default-features = false, features = [ "derive" ] }
 serde.workspace = true
@@ -33,7 +38,6 @@ tokio.workspace = true
 sha2 = "0.10"
 
 [dev-dependencies]
-anyhow.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
 

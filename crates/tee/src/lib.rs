@@ -20,6 +20,8 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+// Used by the `kds-client` binary; silence the lib-only `unused_crate_dependencies` lint.
+use anyhow as _;
 use std::fmt::Debug;
 
 mod error;
