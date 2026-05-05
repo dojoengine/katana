@@ -1219,6 +1219,10 @@ log_info "Normalizing file modes"
 find . -type d -exec chmod 0755 {} +
 find . -type f -exec chmod 0644 {} +
 chmod 0755 bin/busybox bin/katana init
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    chmod 0755 bin/cryptsetup bin/mkfs.ext2
+    [[ -n "$SNP_DERIVEKEY_BINARY" ]] && chmod 0755 bin/snp-derivekey
+fi
 chmod 1777 tmp
 
 log_info "Setting timestamps to SOURCE_DATE_EPOCH (${SOURCE_DATE_EPOCH})"
