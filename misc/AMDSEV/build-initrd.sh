@@ -56,6 +56,9 @@ usage() {
     echo "  KERNEL_MODULES_EXTRA_PKG_SHA256  SHA256 checksum of the linux-modules-extra .deb"
     echo "  CRYPTSETUP_VERSION               Exact cryptsetup source release (e.g., 2.7.5)"
     echo "  CRYPTSETUP_SHA256                SHA256 checksum of the cryptsetup source tarball"
+    echo "  LVM2_VERSION                     Exact LVM2 source release (e.g., 2.03.23)"
+    echo "                                   used to build static libdevmapper.a"
+    echo "  LVM2_SHA256                      SHA256 checksum of the LVM2 source tarball"
     echo "  CRYPTSETUP_BUILDER_IMAGE         Pinned container image digest used to build"
     echo "                                   cryptsetup statically (e.g., alpine@sha256:...)"
     echo ""
@@ -166,6 +169,7 @@ echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
 echo "  linux-modules:         ${KERNEL_MODULES_PKG_VERSION:-<not set>}"
 echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
 echo "  cryptsetup (source):   ${CRYPTSETUP_VERSION:-<not set>}"
+echo "  LVM2 (source):         ${LVM2_VERSION:-<not set>}"
 echo "  cryptsetup builder:    ${CRYPTSETUP_BUILDER_IMAGE:-<not set>}"
 
 if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
@@ -212,6 +216,8 @@ else
     : "${CRYPTSETUP_BUILDER_IMAGE:?canonical sealed build requires CRYPTSETUP_BUILDER_IMAGE}"
     : "${KERNEL_MODULES_PKG_VERSION:?canonical sealed build requires KERNEL_MODULES_PKG_VERSION}"
     : "${KERNEL_MODULES_PKG_SHA256:?canonical sealed build requires KERNEL_MODULES_PKG_SHA256}"
+    : "${LVM2_VERSION:?canonical sealed build requires LVM2_VERSION}"
+    : "${LVM2_SHA256:?canonical sealed build requires LVM2_SHA256}"
 fi
 
 # Static cryptsetup is built inside a pinned container. Verify the chosen
@@ -370,38 +376,83 @@ if [[ "$ACTUAL_SHA256" != "$CRYPTSETUP_SHA256" ]]; then
 fi
 log_ok "cryptsetup source checksum verified"
 
-log_info "Extracting source"
+log_info "Extracting cryptsetup source"
 tar -xf "$CRYPTSETUP_TARBALL"
 
+LVM2_TARBALL="LVM2.${LVM2_VERSION}.tgz"
+LVM2_URL="https://mirrors.kernel.org/sourceware/lvm2/${LVM2_TARBALL}"
+log_info "Downloading $LVM2_URL"
+curl -fLsS -o "$LVM2_TARBALL" "$LVM2_URL"
+
+log_info "Verifying LVM2 source checksum"
+ACTUAL_SHA256="$(sha256sum "$LVM2_TARBALL" | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$LVM2_SHA256" ]]; then
+    die "LVM2 source checksum mismatch (expected $LVM2_SHA256, got $ACTUAL_SHA256)"
+fi
+log_ok "LVM2 source checksum verified"
+
+log_info "Extracting LVM2 source"
+tar -xzf "$LVM2_TARBALL"
+
 log_info "Building statically inside $CRYPTSETUP_BUILDER_IMAGE"
+# Two-stage build inside the container:
+#
+#   Stage 1: build libdevmapper.a from LVM2 source. Alpine 3.20 ships only a
+#   shared libdevmapper.so; cryptsetup needs the static .a to link with
+#   `-all-static`. We build LVM2's device-mapper subset and install
+#   /usr/lib/libdevmapper.a + /usr/include/libdevmapper.h.
+#
+#   Stage 2: cryptsetup configure + make against that newly-installed .a.
+#   Output binary is at the source root (cryptsetup 2.x layout, NOT src/).
+#
 # The container runs as root (apk add requires it). Once the build is done,
 # chown the output binary to the invoking host user so subsequent host-side
 # steps — including the trap's rm -rf "$WORK_DIR" — don't trip over root-
 # owned files. SOURCE_DATE_EPOCH is forwarded so any timestamps embedded in
 # the binary match the host's reproducibility anchor.
+#
+# `bash` is required because cryptsetup's tests/generate-symbols-list (run
+# during `make all`) has a `#!/bin/bash` shebang and Alpine's busybox sh is
+# not bash.
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 "$CRYPTSETUP_BUILDER" run --rm \
     -v "$CRYPTSETUP_DIR:/build" \
-    -w "/build/cryptsetup-${CRYPTSETUP_VERSION}" \
+    -w "/build" \
     -e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" \
     -e "HOST_UID=${HOST_UID}" \
     -e "HOST_GID=${HOST_GID}" \
+    -e "CRYPTSETUP_VERSION=${CRYPTSETUP_VERSION}" \
+    -e "LVM2_VERSION=${LVM2_VERSION}" \
     "$CRYPTSETUP_BUILDER_IMAGE" \
     sh -euc '
         # libblkid.a / libuuid.a are part of util-linux-static (verified
         # against the pinned alpine@sha256:1e42bbe… image — those .a files
         # live at /usr/lib/libblkid.a, /usr/lib/libuuid.a, owned by
         # util-linux-static-2.40.1-r1). There are no separate
-        # libblkid-static / libuuid-static packages in Alpine 3.20.
+        # libblkid-static / libuuid-static packages in Alpine.
         apk add --no-cache \
+            bash \
             build-base linux-headers pkgconf \
             openssl-dev openssl-libs-static \
             popt-dev popt-static \
             json-c-dev \
             util-linux-dev util-linux-static \
-            lvm2-dev lvm2-static \
             argon2-dev argon2-static
+
+        # Stage 1: static libdevmapper.a from LVM2.
+        cd "/build/LVM2.${LVM2_VERSION}"
+        ./configure \
+            --enable-static_link \
+            --disable-selinux --disable-readline \
+            --disable-udev_sync --disable-udev_rules \
+            --disable-blkid_wiping
+        make -j"$(nproc)" device-mapper
+        cp libdm/ioctl/libdevmapper.a /usr/lib/libdevmapper.a
+        cp libdm/libdevmapper.h /usr/include/libdevmapper.h
+
+        # Stage 2: cryptsetup, statically linked.
+        cd "/build/cryptsetup-${CRYPTSETUP_VERSION}"
         ./configure \
             --disable-shared \
             --enable-static \
@@ -411,8 +462,9 @@ HOST_GID="$(id -g)"
             --disable-external-tokens \
             --disable-nls
         make -j"$(nproc)" LDFLAGS="-all-static"
-        strip src/cryptsetup
-        cp src/cryptsetup /build/cryptsetup-static
+        # cryptsetup 2.x lays the binary at the source-tree root, not in src/.
+        strip ./cryptsetup
+        cp ./cryptsetup /build/cryptsetup-static
         chown "${HOST_UID}:${HOST_GID}" /build/cryptsetup-static
         # Intermediate build artefacts stay root-owned inside /build. The host
         # owns $CRYPTSETUP_DIR itself, so the trap'"'"'s rm -rf can still unlink
