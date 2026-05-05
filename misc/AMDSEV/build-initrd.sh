@@ -648,36 +648,93 @@ fi
 # ------------------------------------------------------------------------------
 # Install Device-Mapper + dm-integrity transitive deps (sealed-storage only)
 # ------------------------------------------------------------------------------
-# `dm-integrity` depends (per `depmod` against linux-modules-6.8.0-90 amd64)
-# on `async_xor`, `async_tx`, `dm-bufio`, and `xor` — all loadable modules
-# that live in the linux-modules deb. `dm-crypt` only needs dm-mod, which is
-# kernel-builtin in the Ubuntu 6.8 kernel.
+# Each module ships in `linux-modules-$KVER-generic` from Ubuntu noble. The
+# minimal initrd has no kmod / udev / depmod / module-autoloader, so every
+# module the LUKS2 + dm-integrity unseal path touches must be (a) present in
+# /lib/modules/ and (b) insmod'd by the init script in dependency order.
 #
-# Without these deps installed and loaded in dependency order, dm-integrity
-# `insmod` fails with `Unknown symbol dm_bufio_*` / `Unknown symbol async_xor`
-# and the unseal flow blocks indefinitely on the cryptsetup FIFO.
+# Module-by-module justification — keep this in sync with the `for mod in …`
+# loop in `load_dm_modules` inside the init heredoc:
 #
-# Hard-fail at build time if any are missing.
+#   xor               Generic XOR primitive. Leaf dependency of async_xor —
+#                     async ops use XOR for parity. Self-registers an
+#                     optimal checksum implementation at insmod time
+#                     ("xor: automatically using best checksumming
+#                     function avx" in dmesg).
+#
+#   async_tx          Async crypto / xfer API. Leaf dependency of async_xor;
+#                     prints "async_tx: api initialized" at insmod.
+#
+#   async_xor         Pulled in by dm-integrity (per depmod against
+#                     linux-modules-6.8.0-90 amd64). dm-integrity uses it
+#                     for parity-style operations on the integrity tag area.
+#                     Without it, `insmod dm-integrity.ko` fails with
+#                     `Unknown symbol async_xor`.
+#
+#   cryptd            Crypto daemon. Lets crypto algorithms run on a kernel
+#                     workqueue when the SIMD context isn't available
+#                     (interrupts, etc.). Leaf dependency of crypto_simd
+#                     and aesni-intel.
+#
+#   crypto_simd       SIMD glue layer. Wraps SIMD-using algorithms so they
+#                     fall back to cryptd when SIMD is unsafe. Required by
+#                     aesni-intel.
+#
+#   aesni-intel       Hardware AES (AES-NI). cryptsetup with
+#                     `--cipher aes-xts-plain64` makes dm-crypt request
+#                     `aes-xts-plain64` from the kernel crypto API. The
+#                     kernel-builtin `aes_generic` does NOT satisfy this
+#                     when wrapped under authenc() for an AEAD chain — the
+#                     authenc compose only matches AES providers that
+#                     don't allocate memory in their hot path. AES-NI does;
+#                     aes_generic doesn't. Without aesni-intel loaded, the
+#                     dm-crypt table-load fails with:
+#                         crypt: Error allocating crypto tfm (-ENOENT)
+#                     AMD EPYC (the only CPUs that run SEV-SNP) always
+#                     have AES-NI, so this module always loads.
+#
+#   sha256-ssse3      Hardware-accelerated SHA-256. Same rationale as
+#                     aesni-intel for the `hmac(sha256)` half of the
+#                     dm-integrity AEAD chain. AMD EPYC always has SSSE3.
+#
+#   authenc           AEAD-composer template. cryptsetup with
+#                     `--integrity hmac-sha256` builds the cipher chain
+#                         authenc(hmac(sha256), aes-xts-plain64)
+#                     and dm-crypt asks the kernel crypto API for that
+#                     compose. The `authenc` template lives in a separate
+#                     loadable module (NOT builtin, NOT a transitive dep
+#                     of anything else we ship), so without it dm-crypt's
+#                     crypto_alloc_* returns -ENOENT even after every
+#                     primitive above is loaded. `aead.ko` itself is
+#                     already builtin — only the wrapper template needs
+#                     shipping.
+#
+#   dm-bufio          Generic dm buffer cache. Leaf dependency of
+#                     dm-integrity (which uses it to manage tag I/O).
+#                     Without it, `insmod dm-integrity.ko` fails with
+#                     `Unknown symbol dm_bufio_*`.
+#
+#   dm-crypt          The actual LUKS open/format target.
+#
+#   dm-integrity      Sector-level HMAC authentication layered under
+#                     dm-crypt. Catches offline ciphertext tampering.
+#
+# `dm-mod` is NOT in this list: it's compiled into the Ubuntu 6.8 kernel
+# (modules.builtin shows `kernel/drivers/md/dm-mod.ko` — that path means
+# "would be a module if =m, but is =y"). It auto-initialises at boot.
+#
+# Updating this list when bumping the Ubuntu kernel pin: re-run depmod
+# against the new linux-modules-$KVER-generic deb to verify the dm-bufio
+# / async_xor chain hasn't shifted, and re-check `aead`/`authenc`/`xts`
+# against modules.builtin in case Ubuntu flips one to =y.
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
-    log_info "Installing device-mapper + transitive deps for dm-integrity"
+    log_info "Installing device-mapper + dm-integrity transitive deps + crypto SIMD modules"
     KVER_ROOT="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic"
 
     if [[ ! -d "$KVER_ROOT" ]]; then
         die "kernel modules root not found at $KVER_ROOT (sealed-storage build requires the linux-modules deb)"
     fi
 
-    # Order here is the order the init script will insmod them. Matches the
-    # depmod-resolved chain: leaf deps first, dm-integrity last.
-    #
-    # The crypto modules (cryptd / crypto_simd / aesni-intel / sha256-ssse3)
-    # are required because dm-crypt allocates its skcipher with
-    # CRYPTO_ALG_ALLOCATES_MEMORY, which excludes the kernel-builtin
-    # `aes_generic` (it allocates memory in the hot path). Without an
-    # AESNI-backed `xts(aes)`, dm-crypt fails with `Error allocating crypto
-    # tfm (-ENOENT)` at the first luksFormat. Same constraint applies to
-    # `hmac(sha256)` for dm-integrity; sha256-ssse3 covers it. AMD EPYC
-    # hosts (the only ones that run SEV-SNP) always have AESNI + SSSE3, so
-    # these modules always load successfully.
     DM_MODULES=(
         "kernel/crypto/xor.ko"
         "kernel/crypto/async_tx/async_tx.ko"
@@ -848,11 +905,20 @@ parse_cmdline_vars() {
 # branch — an unsealed initrd doesn't ship these modules and never reaches
 # this function.
 load_dm_modules() {
-    # Order matches the build-initrd module-install list. cryptd /
-    # crypto_simd / aesni-intel must come before dm-crypt because the
-    # AESNI-backed xts(aes) is the only `aes` impl that satisfies
-    # dm-crypt's CRYPTO_ALG_ALLOCATES_MEMORY constraint. sha256-ssse3
-    # covers the same constraint for dm-integrity's hmac(sha256).
+    # Order MUST match the DM_MODULES list in build-initrd.sh's "Install
+    # Device-Mapper + dm-integrity transitive deps" section — that's where
+    # the per-module justification lives. Briefly:
+    #
+    #   xor / async_tx / async_xor   leaf deps of dm-integrity
+    #   cryptd / crypto_simd          leaf deps of aesni-intel
+    #   aesni-intel                  required AES provider for dm-crypt
+    #   sha256-ssse3                 required SHA256 provider for dm-integrity
+    #   authenc                      required template for the AEAD chain
+    #                                authenc(hmac(sha256), aes-xts-plain64)
+    #   dm-bufio                     leaf dep of dm-integrity
+    #   dm-crypt / dm-integrity      LUKS + integrity targets
+    #
+    # dm-mod is kernel-builtin in the Ubuntu 6.8 kernel and not insmod'd here.
     for mod in xor async_tx async_xor cryptd crypto_simd aesni-intel sha256-ssse3 authenc dm-bufio dm-crypt dm-integrity; do
         if [ ! -f "/lib/modules/${mod}.ko" ]; then
             teardown_and_halt "load_dm_modules: /lib/modules/${mod}.ko missing"
