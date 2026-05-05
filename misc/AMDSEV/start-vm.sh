@@ -240,7 +240,14 @@ send_control_command() {
     local cmd="$1"
     local response
 
-    response="$(printf '%s\n' "$cmd" | socat -t 2 -T 2 - UNIX-CONNECT:"$CONTROL_SOCKET" 2>/dev/null | head -n1 || true)"
+    # Keep stdin open for a window after the command. socat closes the write
+    # side of the unix socket as soon as stdin EOFs, and QEMU treats that as
+    # a full chardev disconnect — the guest's reply written to the virtio-
+    # serial port is then dropped before it can flow back. The delay gives
+    # the guest's read → handle → respond round-trip time to land before
+    # socat tears the connection down. 2s comfortably covers `start`, where
+    # the handler exec's /bin/katana in the background before responding.
+    response="$( { printf '%s\n' "$cmd"; sleep 2; } | socat -t 2 -T 4 - UNIX-CONNECT:"$CONTROL_SOCKET" 2>/dev/null | head -n1 || true)"
     [[ -n "$response" ]] || return 1
     echo "$response"
 }
