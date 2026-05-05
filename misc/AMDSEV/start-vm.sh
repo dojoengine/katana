@@ -425,6 +425,35 @@ if [[ "$AUTO_START_KATANA" -eq 1 ]]; then
     done
     echo "Control socket ready"
 
+    # The host-side socket appears the moment QEMU starts, but the GUEST
+    # control loop is only ready after firmware → kernel → initrd boot.
+    # Probe with `status` until the guest answers (any non-empty response
+    # qualifies — `stopped exit=never` is the expected pre-start reply),
+    # then send `start`. Without this loop, the start command would race
+    # the boot and almost always lose, especially with sealed-mode first
+    # boot adding luksFormat on top of OVMF DEBUG verbosity.
+    echo ""
+    echo "Waiting for guest control loop..."
+    waited=0
+    while true; do
+        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "Error: QEMU process died before guest control loop was ready"
+            show_serial_tail
+            exit 1
+        fi
+        if [[ -n "$(send_control_command "status" || true)" ]]; then
+            echo "  Guest control loop is responding"
+            break
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        if [[ "$waited" -ge "$CONTROL_TIMEOUT" ]]; then
+            echo "Error: Timeout waiting for guest control loop"
+            show_serial_tail
+            exit 1
+        fi
+    done
+
     echo ""
     echo "Sending async Katana start command..."
     START_RESPONSE="$(send_control_command "start $KATANA_ARGS_CSV" || true)"
