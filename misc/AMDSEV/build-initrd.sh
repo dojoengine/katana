@@ -389,6 +389,11 @@ HOST_GID="$(id -g)"
     -e "HOST_GID=${HOST_GID}" \
     "$CRYPTSETUP_BUILDER_IMAGE" \
     sh -euc '
+        # libblkid.a / libuuid.a are part of util-linux-static (verified
+        # against the pinned alpine@sha256:1e42bbe… image — those .a files
+        # live at /usr/lib/libblkid.a, /usr/lib/libuuid.a, owned by
+        # util-linux-static-2.40.1-r1). There are no separate
+        # libblkid-static / libuuid-static packages in Alpine 3.20.
         apk add --no-cache \
             build-base linux-headers pkgconf \
             openssl-dev openssl-libs-static \
@@ -396,8 +401,7 @@ HOST_GID="$(id -g)"
             json-c-dev \
             util-linux-dev util-linux-static \
             lvm2-dev lvm2-static \
-            argon2-dev argon2-static \
-            libblkid-static libuuid-static
+            argon2-dev argon2-static
         ./configure \
             --disable-shared \
             --enable-static \
