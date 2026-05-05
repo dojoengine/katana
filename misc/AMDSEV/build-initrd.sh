@@ -767,6 +767,14 @@ teardown_and_halt() {
     fi
     SHUTTING_DOWN=1
 
+    # Log the cause if a caller passed one. Without this, the failing
+    # subsystem's stderr line (e.g. cryptsetup's "No key available with this
+    # passphrase.") is the last thing in the log before the teardown starts,
+    # losing the operator-facing diagnostic that names the actual condition.
+    if [ "$#" -gt 0 ]; then
+        log "FATAL: $*"
+    fi
+
     log "Teardown: stopping katana (if running)..."
     if [ -n "${KATANA_PID:-}" ] && kill -0 "$KATANA_PID" 2>/dev/null; then
         kill -TERM "$KATANA_PID" 2>/dev/null || true
