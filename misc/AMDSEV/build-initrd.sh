@@ -556,7 +556,7 @@ fi  # SEALED_STORAGE_BUILD
 
 log_section "Build Initrd Structure"
 INITRD_DIR="$WORK_DIR/initrd"
-mkdir -p "$INITRD_DIR"/{bin,dev,proc,sys,tmp,etc,lib/modules,mnt}
+mkdir -p "$INITRD_DIR"/{bin,dev,proc,sys,tmp,etc,lib/modules,mnt,run/cryptsetup}
 
 cd "$INITRD_DIR"
 
@@ -919,6 +919,11 @@ _unseal_wait_key_writer() {
 unseal_and_mount() {
     [ -c /dev/sev-guest ] || teardown_and_halt "sealed mode requires /dev/sev-guest"
     [ -b "$LUKS_DEVICE" ] || teardown_and_halt "sealed mode: $LUKS_DEVICE not found"
+
+    # cryptsetup needs /run/cryptsetup for its lock file. The initrd build
+    # creates this directory, but `mkdir -p` defensively in case we ever boot
+    # an older initrd (or someone reuses unseal_and_mount in another context).
+    mkdir -p /run/cryptsetup
 
     HAS_LUKS_HEADER=0
     if /bin/cryptsetup isLuks "$LUKS_DEVICE" 2>/dev/null; then
