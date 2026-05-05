@@ -27,6 +27,8 @@
 # ==============================================================================
 
 set -euo pipefail
+# File modes are part of the cpio archive and therefore the SEV-SNP launch measurement.
+umask 022
 
 REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync \
                    tr grep rm blkid mkfifo mkfs.ext2)
@@ -1076,6 +1078,12 @@ echo ""
 echo "Total size before compression:"
 du -sh .
 echo ""
+
+log_info "Normalizing file modes"
+find . -type d -exec chmod 0755 {} +
+find . -type f -exec chmod 0644 {} +
+chmod 0755 bin/busybox bin/katana init
+chmod 1777 tmp
 
 log_info "Setting timestamps to SOURCE_DATE_EPOCH (${SOURCE_DATE_EPOCH})"
 find . -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
