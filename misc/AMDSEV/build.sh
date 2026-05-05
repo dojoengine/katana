@@ -78,7 +78,10 @@ while [ -n "$1" ]; do
 		;;
 	--snp-derivekey)
 		[ -z "$2" ] && usage
-		SNP_DERIVEKEY_BINARY="$2"
+		# Must export so build-initrd.sh (a child process) sees the path.
+		# The auto-build branch below already exports; this is for the
+		# `--snp-derivekey PATH` short-circuit case.
+		export SNP_DERIVEKEY_BINARY="$2"
 		shift; shift
 		;;
 	-h|--help)
