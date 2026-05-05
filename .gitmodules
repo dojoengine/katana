@@ -21,3 +21,7 @@
 [submodule "crates/contracts/contracts/openzeppelin"]
 	path = crates/contracts/contracts/openzeppelin
 	url = https://github.com/OpenZeppelin/cairo-contracts.git
+[submodule "crates/contracts/contracts/piltover"]
+	path = crates/contracts/contracts/piltover
+	url = https://github.com/cartridge-gg/piltover
+	branch = feat/tee-persistent

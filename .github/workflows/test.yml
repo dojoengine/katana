@@ -100,7 +100,7 @@ jobs:
                       tests/fixtures/db/1_6_0
                       tests/fixtures/db/snos
                   key: |
-                      test-fixtures-${{ hashFiles('Makefile', 'crates/contracts/build.rs', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/openzeppelin/**', 'crates/contracts/contracts/Scarb.toml', 'tests/vrf/contracts/**', 'tests/fixtures/db/*.tar.gz') }}
+                      test-fixtures-${{ hashFiles('Makefile', 'crates/contracts/build.rs', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/openzeppelin/**', 'crates/contracts/contracts/piltover/**', 'crates/contracts/contracts/Scarb.toml', 'tests/vrf/contracts/**', 'tests/fixtures/db/*.tar.gz') }}
 
             - name: Generate test fixtures
               if: steps.cache.outputs.cache-hit != 'true'
@@ -286,7 +286,15 @@ jobs:
               run: ./scripts/clippy.sh
 
     test:
-        needs: [detect-changes, fmt, clippy, generate-test-artifacts, build-katana-binary-ubuntu, build-katana-binary-macos]
+        needs:
+            [
+                detect-changes,
+                fmt,
+                clippy,
+                generate-test-artifacts,
+                build-katana-binary-ubuntu,
+                build-katana-binary-macos,
+            ]
         runs-on: ${{ matrix.runner }}
         timeout-minutes: ${{ matrix.os == 'macos' && 60 || 30 }}
         strategy:
@@ -608,7 +616,6 @@ jobs:
     saya-tee-e2e:
         needs: [detect-changes, fmt, clippy, generate-test-artifacts]
         runs-on: ubuntu-latest-32-cores
-        timeout-minutes: 45
         if: |
             needs.detect-changes.outputs.broader-rust == 'true' &&
             (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
@@ -637,7 +644,7 @@ jobs:
             - name: Clone Saya repository
               run: |
                   git clone https://github.com/dojoengine/saya /tmp/saya
-                  git -C /tmp/saya checkout 5a3b8c9
+                  git -C /tmp/saya checkout 17c0ee0
 
             - uses: software-mansion/setup-scarb@v1
               with:

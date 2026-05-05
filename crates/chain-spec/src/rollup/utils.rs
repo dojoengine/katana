@@ -428,6 +428,7 @@ mod tests {
             id: ChainId::default(),
             core_contract: Default::default(),
             rpc_url: Url::parse("http://localhost:5050").unwrap(),
+            proof_kind: Default::default(),
         };
 
         ChainSpec { id, genesis, settlement, fee_contracts }

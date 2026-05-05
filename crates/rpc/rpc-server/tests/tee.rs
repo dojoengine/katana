@@ -13,6 +13,15 @@
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::HttpClientBuilder;
+use jsonrpsee::rpc_params;
+use jsonrpsee::server::ServerBuilder;
+use katana_chain_spec::tee::{
+    compute_katana_tee_config_hash, KATANA_TEE_APPCHAIN_MODE, KATANA_TEE_REPORT_VERSION,
+    KATANA_TEE_SHARDING_MODE,
+};
+use katana_chain_spec::ChainSpec;
 use katana_primitives::block::{Block, BlockNumber, FinalityStatus, Header, SealedBlockWithStatus};
 use katana_primitives::fee::FeeInfo;
 use katana_primitives::hash::{Poseidon, StarkHash};
@@ -33,7 +42,8 @@ fn mock_api(
     factory: DbProviderFactory,
     fork_block_number: Option<u64>,
 ) -> TeeApi<DbProviderFactory> {
-    TeeApi::new(factory, Arc::new(MockProvider::new()), fork_block_number)
+    let chain_spec = sample_chain_spec();
+    TeeApi::new(factory, Arc::new(MockProvider::new()), fork_block_number, &chain_spec)
 }
 
 fn make_block(
@@ -67,16 +77,69 @@ fn extract_report_data(quote_hex: &str) -> [u8; 64] {
     out
 }
 
-fn appchain_report_data(fields: [Felt; 7]) -> [u8; 64] {
+fn appchain_report_data_v1(fields: [Felt; 7], katana_tee_config_hash: Felt) -> [u8; 64] {
+    let commitment = Poseidon::hash_array(&[
+        KATANA_TEE_REPORT_VERSION.into(),
+        KATANA_TEE_APPCHAIN_MODE.into(),
+        fields[0],
+        fields[1],
+        fields[2],
+        fields[3],
+        fields[4],
+        fields[5],
+        fields[6],
+        katana_tee_config_hash,
+    ]);
+
     let mut out = [0u8; 64];
-    out[..32].copy_from_slice(&Poseidon::hash_array(&fields).to_bytes_be());
+    out[..32].copy_from_slice(&commitment.to_bytes_be());
+    out[32..].copy_from_slice(&katana_tee_config_hash.to_bytes_be());
     out
 }
 
-fn sharding_report_data(fields: [Felt; 8]) -> [u8; 64] {
+fn sharding_report_data_v1(fields: [Felt; 8], katana_tee_config_hash: Felt) -> [u8; 64] {
+    let commitment = Poseidon::hash_array(&[
+        KATANA_TEE_REPORT_VERSION.into(),
+        KATANA_TEE_SHARDING_MODE.into(),
+        fields[0],
+        fields[1],
+        fields[2],
+        fields[3],
+        fields[4],
+        fields[5],
+        fields[6],
+        fields[7],
+        katana_tee_config_hash,
+    ]);
+
     let mut out = [0u8; 64];
-    out[..32].copy_from_slice(&Poseidon::hash_array(&fields).to_bytes_be());
+    out[..32].copy_from_slice(&commitment.to_bytes_be());
+    out[32..].copy_from_slice(&katana_tee_config_hash.to_bytes_be());
     out
+}
+
+/// Build a minimal `ChainSpec` for tests by cloning the dev default and
+/// overriding only the two fields `TeeApi::new` reads to derive the config
+/// hash (chain id + STRK fee token address).
+fn build_chain_spec(chain_id: Felt, fee_token: ContractAddress) -> ChainSpec {
+    let mut spec = katana_chain_spec::dev::DEV.clone();
+    spec.id = chain_id.into();
+    spec.fee_contracts.strk = fee_token;
+    ChainSpec::Dev(spec)
+}
+
+fn sample_chain_spec() -> ChainSpec {
+    build_chain_spec(
+        felt!("0x4b4154414e41"), // "KATANA"
+        felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d").into(),
+    )
+}
+
+fn sample_katana_tee_config_hash() -> Felt {
+    compute_katana_tee_config_hash(
+        felt!("0x4b4154414e41"),
+        felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"),
+    )
 }
 
 fn empty_messages_commitment() -> Felt {
@@ -138,9 +201,9 @@ fn l1_handler_tx(
 // ---------- tests ----------
 
 /// Genesis path: `prev_block = None` folds to the `(Felt::MAX, ZERO, ZERO)` sentinel
-/// and the appchain `report_data` formula is used. Asserts the full response shape and
-/// that the mock quote's embedded `report_data` matches the formula applied to the
-/// inserted block's hash/roots.
+/// and the v1 appchain `report_data` formula is used. Asserts the full response shape
+/// and that the mock quote's embedded `report_data` matches the formula applied to
+/// the inserted block's hash/roots.
 #[tokio::test]
 async fn generate_quote_genesis_appchain() {
     let factory = DbProviderFactory::new_in_memory();
@@ -169,23 +232,86 @@ async fn generate_quote_genesis_appchain() {
     assert!(resp.l1_to_l2_messages.is_empty());
     assert!(resp.l2_to_l1_messages.is_empty());
     assert_eq!(resp.messages_commitment, empty_messages_commitment());
+    assert_eq!(resp.katana_tee_config_hash, sample_katana_tee_config_hash());
 
-    let expected_report_data = appchain_report_data([
-        Felt::ZERO, // prev_state_root
-        state_root,
-        Felt::ZERO, // prev_block_hash
-        block_hash,
-        Felt::MAX,  // prev_block_id (genesis sentinel)
-        Felt::ZERO, // block
-        empty_messages_commitment(),
-    ]);
+    let expected_report_data = appchain_report_data_v1(
+        [
+            Felt::ZERO, // prev_state_root
+            state_root,
+            Felt::ZERO, // prev_block_hash
+            block_hash,
+            Felt::MAX,  // prev_block_id (genesis sentinel)
+            Felt::ZERO, // block
+            empty_messages_commitment(),
+        ],
+        sample_katana_tee_config_hash(),
+    );
     assert_eq!(extract_report_data(&resp.quote), expected_report_data);
 }
 
-/// Fork / sharding path: `fork_block_number = Some` selects the 8-field `report_data`
-/// that includes `events_commitment + fork_block_number`, *and* short-circuits message
-/// aggregation — even though block 1's receipt carries a `messages_sent` entry, the
-/// response has empty message vectors and `messages_commitment = Felt::ZERO`.
+/// `tee_generateQuote` accepts exactly two positional parameters over JSON-RPC
+/// (`prev_block_id`, `block_id`). The response always carries the node's
+/// precomputed `katana_tee_config_hash` regardless of caller input.
+#[tokio::test]
+async fn generate_quote_rpc_wire_shape() {
+    let factory = DbProviderFactory::new_in_memory();
+    insert(&factory, make_block(0, felt!("0xa0"), Felt::ZERO, Felt::ZERO, Vec::new()), Vec::new());
+
+    let server = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
+    let addr = server.local_addr().unwrap();
+    let handle = server.start(mock_api(factory, None).into_rpc());
+
+    let client = HttpClientBuilder::default().build(format!("http://{addr}")).unwrap();
+    let resp: katana_rpc_api::tee::TeeQuoteResponse = client
+        .request("tee_generateQuote", rpc_params!(Option::<BlockNumber>::None, 0u64))
+        .await
+        .expect("two-param request");
+
+    assert_eq!(resp.katana_tee_config_hash, sample_katana_tee_config_hash());
+    handle.stop().expect("stop server");
+}
+
+/// The v1 appchain `report_data` first half is domain/mode/transition/config-bound
+/// and the second half exposes the config hash directly.
+#[tokio::test]
+async fn generate_quote_appchain_non_zero_config_hash() {
+    let factory = DbProviderFactory::new_in_memory();
+
+    let block_hash = felt!("0xb10c");
+    let state_root = felt!("0x5747");
+    let events_commitment = felt!("0xe0");
+
+    insert(
+        &factory,
+        make_block(0, block_hash, state_root, events_commitment, Vec::new()),
+        Vec::new(),
+    );
+
+    let katana_tee_config_hash = sample_katana_tee_config_hash();
+    let api = mock_api(factory, None);
+    let resp = api.generate_quote(None, 0).await.expect("generate_quote");
+
+    assert_eq!(resp.katana_tee_config_hash, katana_tee_config_hash);
+
+    let expected_report_data = appchain_report_data_v1(
+        [
+            Felt::ZERO, // prev_state_root
+            state_root,
+            Felt::ZERO, // prev_block_hash
+            block_hash,
+            Felt::MAX,  // prev_block_id (genesis sentinel)
+            Felt::ZERO, // block
+            empty_messages_commitment(),
+        ],
+        katana_tee_config_hash,
+    );
+    assert_eq!(extract_report_data(&resp.quote), expected_report_data);
+}
+
+/// Fork / sharding path: `fork_block_number = Some` selects the v1 sharding
+/// `report_data` formula and short-circuits message aggregation — even though
+/// block 1's receipt carries a `messages_sent` entry, the response has empty
+/// message vectors and `messages_commitment = Felt::ZERO`.
 #[tokio::test]
 async fn generate_quote_fork_sharding_mode() {
     let factory = DbProviderFactory::new_in_memory();
@@ -227,17 +353,61 @@ async fn generate_quote_fork_sharding_mode() {
     assert!(resp.l1_to_l2_messages.is_empty());
     assert!(resp.l2_to_l1_messages.is_empty());
     assert_eq!(resp.messages_commitment, Felt::ZERO);
+    assert_eq!(resp.katana_tee_config_hash, sample_katana_tee_config_hash());
 
-    let expected_report_data = sharding_report_data([
-        sr0,
-        sr1,
-        h0,
-        h1,
-        Felt::ZERO, // prev_block_id = Felt::from(0)
-        Felt::ONE,  // block = 1
-        Felt::from(fork_block),
-        ec1,
-    ]);
+    let expected_report_data = sharding_report_data_v1(
+        [
+            sr0,
+            sr1,
+            h0,
+            h1,
+            Felt::ZERO, // prev_block_id = Felt::from(0)
+            Felt::ONE,  // block = 1
+            Felt::from(fork_block),
+            ec1,
+        ],
+        sample_katana_tee_config_hash(),
+    );
+    assert_eq!(extract_report_data(&resp.quote), expected_report_data);
+}
+
+/// Sharding mode round-trips the precomputed config hash into both halves of
+/// `report_data` while preserving the fork-mode behavior of suppressing message
+/// aggregation.
+#[tokio::test]
+async fn generate_quote_sharding_non_zero_config_hash() {
+    let factory = DbProviderFactory::new_in_memory();
+
+    let h0 = felt!("0xa0");
+    let sr0 = felt!("0xa1");
+    insert(&factory, make_block(0, h0, sr0, felt!("0xe0"), Vec::new()), Vec::new());
+
+    let h1 = felt!("0xb0");
+    let sr1 = felt!("0xb1");
+    let ec1 = felt!("0xe1");
+    insert(&factory, make_block(1, h1, sr1, ec1, Vec::new()), Vec::new());
+
+    let fork_block = 42u64;
+    let katana_tee_config_hash = sample_katana_tee_config_hash();
+    let api = mock_api(factory, Some(fork_block));
+    let resp = api.generate_quote(Some(0), 1).await.expect("generate_quote");
+
+    assert_eq!(resp.katana_tee_config_hash, katana_tee_config_hash);
+    assert_eq!(resp.messages_commitment, Felt::ZERO);
+
+    let expected_report_data = sharding_report_data_v1(
+        [
+            sr0,
+            sr1,
+            h0,
+            h1,
+            Felt::ZERO, // prev_block_id = Felt::from(0)
+            Felt::ONE,  // block = 1
+            Felt::from(fork_block),
+            ec1,
+        ],
+        katana_tee_config_hash,
+    );
     assert_eq!(extract_report_data(&resp.quote), expected_report_data);
 }
 
@@ -309,15 +479,18 @@ async fn generate_quote_l2_to_l1_message_aggregation() {
     assert_eq!(resp.state_root, sr2);
     assert_eq!(resp.events_commitment, ec2);
 
-    let expected_report_data = appchain_report_data([
-        sr0,
-        sr2,
-        h0,
-        h2,
-        Felt::ZERO, // prev_block_id = Felt::from(0)
-        Felt::from(2u64),
-        expected_commitment,
-    ]);
+    let expected_report_data = appchain_report_data_v1(
+        [
+            sr0,
+            sr2,
+            h0,
+            h2,
+            Felt::ZERO, // prev_block_id = Felt::from(0)
+            Felt::from(2u64),
+            expected_commitment,
+        ],
+        sample_katana_tee_config_hash(),
+    );
     assert_eq!(extract_report_data(&resp.quote), expected_report_data);
 }
 
@@ -375,15 +548,18 @@ async fn generate_quote_l1_to_l2_message_aggregation() {
 
     // Verify the same commitment was bound into the report_data fed to the TEE provider —
     // guards against a bug where the response field and the attested value diverge.
-    let expected_report_data = appchain_report_data([
-        Felt::ZERO, // prev_state_root
-        sr0,
-        Felt::ZERO, // prev_block_hash
-        h0,
-        Felt::MAX,  // prev_block_id (genesis sentinel)
-        Felt::ZERO, // block
-        expected_commitment,
-    ]);
+    let expected_report_data = appchain_report_data_v1(
+        [
+            Felt::ZERO, // prev_state_root
+            sr0,
+            Felt::ZERO, // prev_block_hash
+            h0,
+            Felt::MAX,  // prev_block_id (genesis sentinel)
+            Felt::ZERO, // block
+            expected_commitment,
+        ],
+        sample_katana_tee_config_hash(),
+    );
     assert_eq!(extract_report_data(&resp.quote), expected_report_data);
 }
 
@@ -407,9 +583,9 @@ async fn generate_quote_missing_prev_block_errors() {
 }
 
 /// Wire-format contract for `prev_block_number`: custom serde maps `None ↔ Felt::MAX`
-/// (not `None ↔ null`) so the JSON is compatible with `katana_tee_client::TeeQuoteResponse`
-/// on the saya-tee side. Validates both branches *and* that round-trip restores the
-/// original `Option<BlockNumber>` value.
+/// (not `None ↔ null`) so the field can be hashed into the on-chain commitment as a
+/// `Felt` without a separate sentinel encoding step. Validates both branches *and*
+/// that round-trip restores the original `Option<BlockNumber>` value.
 #[tokio::test]
 async fn generate_quote_prev_block_number_wire_format() {
     let factory = DbProviderFactory::new_in_memory();
@@ -426,10 +602,7 @@ async fn generate_quote_prev_block_number_wire_format() {
         serde_json::to_value(Felt::MAX).unwrap(),
         "None must serialize to Felt::MAX, not null"
     );
-    assert!(
-        !json_none["prevBlockNumber"].is_null(),
-        "None must NOT serialize to JSON null (breaks saya-tee compatibility)"
-    );
+    assert!(!json_none["prevBlockNumber"].is_null(), "None must NOT serialize to JSON null");
     let round_trip_none: katana_rpc_api::tee::TeeQuoteResponse =
         serde_json::from_value(json_none).expect("deserialize");
     assert_matches!(round_trip_none.prev_block_number, None);
@@ -446,4 +619,53 @@ async fn generate_quote_prev_block_number_wire_format() {
     let round_trip_some: katana_rpc_api::tee::TeeQuoteResponse =
         serde_json::from_value(json_some).expect("deserialize");
     assert_eq!(round_trip_some.prev_block_number, Some(0));
+}
+
+/// `TeeApi::new` derives the config hash from chain spec inputs (`chain_id`,
+/// `fee_token_address`) and binds it into both halves of `report_data` and
+/// the response. Guards against a refactor regressing the derivation or any
+/// of the bind sites.
+#[tokio::test]
+async fn generate_quote_precomputed_config_hash_binding() {
+    let factory = DbProviderFactory::new_in_memory();
+    insert(
+        &factory,
+        make_block(0, felt!("0xa0"), felt!("0xa1"), Felt::ZERO, Vec::new()),
+        Vec::new(),
+    );
+
+    // Use distinct chain-spec inputs from `sample_chain_spec` to prove the
+    // hash tracks construction-time values, not a hard-coded constant.
+    let chain_id = felt!("0x534e5f5345504f4c4941"); // "SN_SEPOLIA"
+    let fee_token: ContractAddress =
+        felt!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d").into();
+    let expected_hash = compute_katana_tee_config_hash(chain_id, fee_token.into());
+    let chain_spec = build_chain_spec(chain_id, fee_token);
+
+    let api = TeeApi::new(factory, Arc::new(MockProvider::new()), None, &chain_spec);
+    let resp = api.generate_quote(None, 0).await.expect("generate_quote");
+
+    // 1. Response carries the derived hash.
+    assert_eq!(resp.katana_tee_config_hash, expected_hash);
+
+    // 2. Second half of report_data decodes back to the same Felt.
+    let report_data = extract_report_data(&resp.quote);
+    let mut second_half = [0u8; 32];
+    second_half.copy_from_slice(&report_data[32..]);
+    assert_eq!(Felt::from_bytes_be(&second_half), expected_hash);
+
+    // 3. First half is the v1 commitment that includes the same hash as a Poseidon input.
+    let expected = appchain_report_data_v1(
+        [
+            Felt::ZERO,
+            felt!("0xa1"),
+            Felt::ZERO,
+            felt!("0xa0"),
+            Felt::MAX,
+            Felt::ZERO,
+            empty_messages_commitment(),
+        ],
+        expected_hash,
+    );
+    assert_eq!(report_data, expected);
 }

@@ -10,6 +10,7 @@ version.workspace = true
 katana-bootstrap.workspace = true
 katana-chain-spec.workspace = true
 katana-cli.workspace = true
+katana-contracts.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-genesis.workspace = true
 katana-primitives.workspace = true
@@ -23,7 +24,6 @@ ratatui = "0.29"
 
 cairo-lang-starknet-classes.workspace = true
 anyhow.workspace = true
-async-trait.workspace = true
 byte-unit = "5.1.4"
 cainome.workspace = true
 clap.workspace = true

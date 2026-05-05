@@ -8,6 +8,8 @@ use url::Url;
 pub mod dev;
 pub mod full_node;
 pub mod rollup;
+pub mod settlement_check;
+pub mod tee;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChainSpec {
@@ -125,12 +127,30 @@ pub enum SettlementLayer {
 
         // the block at which the core contract was deployed
         block: BlockNumber,
+
+        /// The proof system the core contract was initialized for. Determines which fields of
+        /// Piltover's `program_info` are meaningful and validated at startup.
+        #[serde(default)]
+        proof_kind: SettlementProofKind,
     },
 
     Sovereign {
         // Once Katana can sync from data availability layer, we can add the details of the data
         // availability layer to the chain spec for Katana to sync from it.
     },
+}
+
+/// The proof system a Starknet settlement contract was initialized for.
+///
+/// Validity-proof chains have meaningful program hashes (SNOS, layout-bridge, bootloader) on the
+/// core contract. TEE chains do not — only the SNOS config hash is validated against the chain's
+/// own id and fee token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SettlementProofKind {
+    #[default]
+    ValidityProof,
+    Tee,
 }
 
 /// Tokens that can be used for transaction fee payments in the chain. As

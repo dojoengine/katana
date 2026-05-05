@@ -28,6 +28,7 @@ AMDSEV_DIR := misc/AMDSEV
 VRF_DIR := $(CONTRACTS_DIR)/vrf
 AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
 OPENZEPPELIN_DIR := $(CONTRACTS_DIR)/openzeppelin
+PILTOVER_DIR := $(CONTRACTS_DIR)/piltover
 VRF_TEST_DIR := tests/vrf/contracts
 
 # The scarb version required by the AVNU contracts (no .tool-versions in that directory)
@@ -41,6 +42,9 @@ SCARB_VERSION := $(shell awk '$$1 == "scarb" { print $$2 }' $(CONTRACTS_DIR)/.to
 # The scarb version required by VRF contracts, if specified in its .tool-versions.
 VRF_SCARB_VERSION := $(shell if [ -f $(VRF_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_DIR)/.tool-versions; fi)
 
+# The scarb version required by the piltover submodule, if its .tool-versions exists.
+PILTOVER_SCARB_VERSION := $(shell if [ -f $(PILTOVER_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(PILTOVER_DIR)/.tool-versions; fi)
+
 # The scarb version required by the test VRF contracts.
 VRF_TEST_SCARB_VERSION := $(shell if [ -f $(VRF_TEST_DIR)/.tool-versions ]; then awk '$$1 == "scarb" { print $$2 }' $(VRF_TEST_DIR)/.tool-versions; fi)
 # `make contracts` only compiles the VRF test contracts, and that succeeds with the
@@ -49,7 +53,7 @@ VRF_TEST_SCARB_VERSION := $(shell if [ -f $(VRF_TEST_DIR)/.tool-versions ]; then
 VRF_TEST_BUILD_SCARB_VERSION := $(VRF_SCARB_VERSION)
 
 # All scarb versions needed for `make contracts`.
-SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZEPPELIN_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_BUILD_SCARB_VERSION))
+SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZEPPELIN_SCARB_VERSION) $(VRF_SCARB_VERSION) $(VRF_TEST_BUILD_SCARB_VERSION) $(PILTOVER_SCARB_VERSION))
 
 .DEFAULT_GOAL := all
 .SILENT: clean
@@ -125,6 +129,12 @@ contracts: install-scarb
 	fi
 	@cd $(OPENZEPPELIN_DIR) && ASDF_SCARB_VERSION=$(OPENZEPPELIN_SCARB_VERSION) asdf exec scarb build -p openzeppelin_presets || { echo "OpenZeppelin account preset build failed!"; exit 1; }
 	@cp $(OPENZEPPELIN_DIR)/target/dev/openzeppelin_presets_AccountUpgradeable.contract_class.json $(CONTRACTS_BUILD_DIR) || { echo "OpenZeppelin account preset artifact copy failed!"; exit 1; }
+	@echo "Building Piltover contracts..."
+	@if [ ! -f $(PILTOVER_DIR)/Scarb.toml ]; then \
+		git submodule update --init --recursive --force $(PILTOVER_DIR) || { echo "Piltover submodule init failed!"; exit 1; }; \
+	fi
+	@cd $(PILTOVER_DIR) && asdf exec scarb build || { echo "Piltover contracts build failed!"; exit 1; }
+	@find $(PILTOVER_DIR)/target/dev -maxdepth 1 -type f -exec cp {} $(CONTRACTS_BUILD_DIR) \;
 	@echo "Building test VRF contracts..."
 	@cd $(VRF_TEST_DIR) && ASDF_SCARB_VERSION=$(VRF_TEST_BUILD_SCARB_VERSION) asdf exec scarb build || { echo "Test VRF contracts build failed!"; exit 1; }
 	@mkdir -p tests/vrf/build
