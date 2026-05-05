@@ -239,14 +239,18 @@ if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
         || die "Container runtime '$CRYPTSETUP_BUILDER' not found. Install docker/podman or set CRYPTSETUP_BUILDER."
 fi
 
-# Optional: path to a pre-built static snp-derivekey binary. When present and
-# sealed-storage build is enabled, it ends up at /bin/snp-derivekey in the
-# initrd. Build with:
+# Path to a pre-built static snp-derivekey binary. The init's unseal flow
+# spawns this helper to read 32 bytes of SNP-derived key into the LUKS
+# keyfile FIFO; without it the cryptsetup call blocks indefinitely.
+# Required for sealed builds. Build with:
 #   cargo build -p katana-tee --features snp --bin snp-derivekey \
-#       --release --target x86_64-unknown-linux-musl
+#       --profile performance --target x86_64-unknown-linux-musl
 SNP_DERIVEKEY_BINARY="${SNP_DERIVEKEY_BINARY:-}"
-if [[ -n "$SNP_DERIVEKEY_BINARY" && ! -x "$SNP_DERIVEKEY_BINARY" ]]; then
-    die "SNP_DERIVEKEY_BINARY set but not executable: $SNP_DERIVEKEY_BINARY"
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    [[ -n "$SNP_DERIVEKEY_BINARY" ]] \
+        || die "SEALED_STORAGE_BUILD=1 but SNP_DERIVEKEY_BINARY is unset (build via build.sh which auto-builds it, or pass the path explicitly)"
+    [[ -x "$SNP_DERIVEKEY_BINARY" ]] \
+        || die "SNP_DERIVEKEY_BINARY=$SNP_DERIVEKEY_BINARY does not exist or is not executable"
 fi
 
 log_ok "Preflight validation complete (sealed-storage build: $([ "$SEALED_STORAGE_BUILD" -eq 1 ] && echo yes || echo no))"
@@ -614,15 +618,10 @@ if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# Install snp-derivekey (sealed-storage build only, if binary provided)
+# Install snp-derivekey (sealed-storage build only)
 # ------------------------------------------------------------------------------
-# Built out-of-band with:
-#   cargo build -p katana-tee --features snp --bin snp-derivekey \
-#       --release --target x86_64-unknown-linux-musl
-# and passed in via the $SNP_DERIVEKEY_BINARY env var. Required at runtime
-# by unseal_and_mount; if absent, the init script's sealed-mode path
-# fatal_boots at the first cryptsetup call.
-if [[ "$SEALED_STORAGE_BUILD" -eq 1 && -n "$SNP_DERIVEKEY_BINARY" ]]; then
+# The preflight already hard-failed if the binary was missing; install it.
+if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     log_info "Installing snp-derivekey"
     cp "$SNP_DERIVEKEY_BINARY" bin/snp-derivekey
     chmod +x bin/snp-derivekey
@@ -643,34 +642,50 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# Install Device-Mapper Kernel Modules (sealed-storage build only)
+# Install Device-Mapper + dm-integrity transitive deps (sealed-storage only)
 # ------------------------------------------------------------------------------
-# Required by cryptsetup for LUKS2 open/format. dm-mod itself is built into
-# the Ubuntu 6.8 kernel (see modules.builtin), so we only need to load
-# dm-crypt and dm-integrity at runtime — both depend on dm-mod and find it
-# already present.
+# `dm-integrity` depends (per `depmod` against linux-modules-6.8.0-90 amd64)
+# on `async_xor`, `async_tx`, `dm-bufio`, and `xor` — all loadable modules
+# that live in the linux-modules deb. `dm-crypt` only needs dm-mod, which is
+# kernel-builtin in the Ubuntu 6.8 kernel.
 #
-# Hard-fail when sealed-storage build is enabled but either module is missing.
-# The init's unseal_and_mount path needs both; producing an initrd without
-# them would silently fatal_boot at runtime instead of surfacing a build-time
-# configuration problem.
+# Without these deps installed and loaded in dependency order, dm-integrity
+# `insmod` fails with `Unknown symbol dm_bufio_*` / `Unknown symbol async_xor`
+# and the unseal flow blocks indefinitely on the cryptsetup FIFO.
+#
+# Hard-fail at build time if any are missing.
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
-    log_info "Installing device-mapper kernel modules"
-    DM_MODULES_DIR="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic/kernel/drivers/md"
+    log_info "Installing device-mapper + transitive deps for dm-integrity"
+    KVER_ROOT="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic"
 
-    if [[ ! -d "$DM_MODULES_DIR" ]]; then
-        die "device-mapper modules directory not found at $DM_MODULES_DIR (sealed-storage build requires dm-crypt / dm-integrity)"
+    if [[ ! -d "$KVER_ROOT" ]]; then
+        die "kernel modules root not found at $KVER_ROOT (sealed-storage build requires the linux-modules deb)"
     fi
 
-    for mod in dm-crypt dm-integrity; do
-        if [[ -f "$DM_MODULES_DIR/${mod}.ko.zst" ]]; then
-            zstd -dq "$DM_MODULES_DIR/${mod}.ko.zst" -o "lib/modules/${mod}.ko"
-            log_ok "${mod}.ko installed (decompressed)"
-        elif [[ -f "$DM_MODULES_DIR/${mod}.ko" ]]; then
-            cp "$DM_MODULES_DIR/${mod}.ko" "lib/modules/${mod}.ko"
-            log_ok "${mod}.ko installed"
+    # Order here is the order the init script will insmod them. Matches the
+    # depmod-resolved chain: leaf deps first, then dm-integrity last.
+    DM_MODULES=(
+        "kernel/crypto/xor.ko"
+        "kernel/crypto/async_tx/async_tx.ko"
+        "kernel/crypto/async_tx/async_xor.ko"
+        "kernel/drivers/md/dm-bufio.ko"
+        "kernel/drivers/md/dm-crypt.ko"
+        "kernel/drivers/md/dm-integrity.ko"
+    )
+
+    for rel in "${DM_MODULES[@]}"; do
+        name="$(basename "${rel%.ko}")"
+        dest="lib/modules/${name}.ko"
+        src_zst="$KVER_ROOT/${rel}.zst"
+        src_raw="$KVER_ROOT/$rel"
+        if [[ -f "$src_zst" ]]; then
+            zstd -dq "$src_zst" -o "$dest"
+            log_ok "${name}.ko installed (decompressed)"
+        elif [[ -f "$src_raw" ]]; then
+            cp "$src_raw" "$dest"
+            log_ok "${name}.ko installed"
         else
-            die "${mod}.ko not found at $DM_MODULES_DIR/${mod}.ko(.zst) (sealed-storage build requires it)"
+            die "${name}.ko not found in linux-modules (searched $src_raw and ${src_raw}.zst)"
         fi
     done
 fi
@@ -795,18 +810,25 @@ parse_cmdline_vars() {
     fi
 }
 
-# Load device-mapper modules. dm-mod is built into the Ubuntu 6.8 kernel
-# (see modules.builtin), so only dm-crypt and dm-integrity need insmod;
-# both find dm-mod already present and register against it.
+# Load device-mapper + dm-integrity transitive deps in dependency order.
+# `dm-mod` is built into the Ubuntu 6.8 kernel (see modules.builtin); the
+# rest are loadable modules shipped in the initrd. Order matters:
+#
+#   xor, async_tx → async_xor → dm-bufio → dm-crypt → dm-integrity
+#
+# Hard-fails on any insmod error so a misconfigured initrd surfaces here
+# rather than wedging cryptsetup later. Only invoked from the sealed-mode
+# branch — an unsealed initrd doesn't ship these modules and never reaches
+# this function.
 load_dm_modules() {
-    for mod in dm-crypt dm-integrity; do
-        if [ -f "/lib/modules/${mod}.ko" ]; then
-            /bin/insmod "/lib/modules/${mod}.ko" 2>/dev/null \
-                && log "Loaded ${mod}.ko" \
-                || log "WARNING: insmod ${mod}.ko failed (may be builtin)"
-        else
-            log "WARNING: /lib/modules/${mod}.ko missing"
+    for mod in xor async_tx async_xor dm-bufio dm-crypt dm-integrity; do
+        if [ ! -f "/lib/modules/${mod}.ko" ]; then
+            teardown_and_halt "load_dm_modules: /lib/modules/${mod}.ko missing"
         fi
+        if ! /bin/insmod "/lib/modules/${mod}.ko"; then
+            teardown_and_halt "load_dm_modules: insmod ${mod}.ko failed"
+        fi
+        log "Loaded ${mod}.ko"
     done
 }
 
@@ -1137,10 +1159,6 @@ fi
 # Parse sealed-storage vars out of the measured kernel cmdline.
 parse_cmdline_vars
 
-# Load dm-crypt / dm-integrity (dm-mod is kernel-builtin). Needed for sealed
-# mode; harmless otherwise — the modules just idle if no LUKS device opens.
-load_dm_modules
-
 # Attach /dev/sda — either through LUKS (sealed) or directly (legacy).
 if [ ! -b /dev/sda ]; then
     fatal_boot "required storage device /dev/sda not found"
@@ -1149,6 +1167,10 @@ log "Found storage device /dev/sda"
 mkdir -p /mnt/data
 
 if [ "$SEALED_MODE" -eq 1 ]; then
+    # dm-crypt / dm-integrity and the async_xor / dm-bufio chain are only
+    # shipped in sealed-mode initrds, so load them only when sealed-mode is
+    # active. An unsealed-only initrd never reaches load_dm_modules.
+    load_dm_modules
     unseal_and_mount
 else
     # Legacy path: plain ext4 on /dev/sda. Kept for backward compat with

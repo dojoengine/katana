@@ -139,6 +139,37 @@ if [ $BUILD_INITRD -eq 1 ] && [ -z "$KATANA_BINARY" ]; then
 	echo "Using built katana: $KATANA_BINARY"
 fi
 
+# Build snp-derivekey for the canonical sealed initrd unless the operator
+# opted out (KATANA_UNSEALED_BUILD=1) or pre-supplied a binary path. Mirrors
+# the auto-katana flow above; reuses the workspace's musl target so it ships
+# with no runtime libc dependency.
+if [ $BUILD_INITRD -eq 1 ] \
+   && [ "${KATANA_UNSEALED_BUILD:-0}" -ne 1 ] \
+   && [ -z "${SNP_DERIVEKEY_BINARY:-}" ]; then
+	PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+	SNP_DERIVEKEY_BINARY="${PROJECT_ROOT}/target/x86_64-unknown-linux-musl/performance/snp-derivekey"
+	if [ ! -x "$SNP_DERIVEKEY_BINARY" ]; then
+		echo ""
+		echo "Building snp-derivekey with musl (sealed-storage helper)..."
+		( cd "$PROJECT_ROOT" && \
+		  cargo build \
+		    --locked \
+		    --target x86_64-unknown-linux-musl \
+		    --profile performance \
+		    -p katana-tee --features snp \
+		    --bin snp-derivekey ) || {
+			echo "snp-derivekey build failed"
+			exit 1
+		}
+	fi
+	if [ ! -x "$SNP_DERIVEKEY_BINARY" ]; then
+		echo "ERROR: snp-derivekey binary missing at $SNP_DERIVEKEY_BINARY"
+		exit 1
+	fi
+	export SNP_DERIVEKEY_BINARY
+	echo "Using snp-derivekey: $SNP_DERIVEKEY_BINARY"
+fi
+
 mkdir -p $INSTALL_DIR
 IDIR=$INSTALL_DIR
 INSTALL_DIR=$(readlink -e $INSTALL_DIR)
