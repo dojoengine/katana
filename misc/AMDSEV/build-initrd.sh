@@ -31,9 +31,13 @@ set -euo pipefail
 umask 022
 
 REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync \
-                   tr grep rm blkid mkfifo mkfs.ext2)
+                   tr grep rm mkfifo)
 SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync \
-                  tr grep rm blkid mkfifo mkfs.ext2)
+                  tr grep rm mkfifo)
+# `mkfs.ext2` is not a busybox-static applet on Ubuntu, so a static binary is
+# built from e2fsprogs source inside the cryptsetup builder container and
+# installed as `/bin/mkfs.ext2`. `blkid` is similarly absent from busybox-
+# static; the init avoids it via a try-mount-then-mkfs fallback.
 
 usage() {
     echo "Usage: $0 KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]"
@@ -59,6 +63,9 @@ usage() {
     echo "  LVM2_VERSION                     Exact LVM2 source release (e.g., 2.03.23)"
     echo "                                   used to build static libdevmapper.a"
     echo "  LVM2_SHA256                      SHA256 checksum of the LVM2 source tarball"
+    echo "  E2FSPROGS_VERSION                Exact e2fsprogs source release (e.g., 1.47.0)"
+    echo "                                   used to build static mkfs.ext2"
+    echo "  E2FSPROGS_SHA256                 SHA256 checksum of the e2fsprogs source tarball"
     echo "  CRYPTSETUP_BUILDER_IMAGE         Pinned container image digest used to build"
     echo "                                   cryptsetup statically (e.g., alpine@sha256:...)"
     echo ""
@@ -218,6 +225,8 @@ else
     : "${KERNEL_MODULES_PKG_SHA256:?canonical sealed build requires KERNEL_MODULES_PKG_SHA256}"
     : "${LVM2_VERSION:?canonical sealed build requires LVM2_VERSION}"
     : "${LVM2_SHA256:?canonical sealed build requires LVM2_SHA256}"
+    : "${E2FSPROGS_VERSION:?canonical sealed build requires E2FSPROGS_VERSION}"
+    : "${E2FSPROGS_SHA256:?canonical sealed build requires E2FSPROGS_SHA256}"
 fi
 
 # Static cryptsetup is built inside a pinned container. Verify the chosen
@@ -394,8 +403,24 @@ log_ok "LVM2 source checksum verified"
 log_info "Extracting LVM2 source"
 tar -xzf "$LVM2_TARBALL"
 
+E2FSPROGS_TARBALL="e2fsprogs-${E2FSPROGS_VERSION}.tar.xz"
+E2FSPROGS_MAJOR_MINOR="$(printf '%s' "$E2FSPROGS_VERSION" | awk -F. '{print $1"."$2}')"
+E2FSPROGS_URL="https://mirrors.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v${E2FSPROGS_VERSION}/${E2FSPROGS_TARBALL}"
+log_info "Downloading $E2FSPROGS_URL"
+curl -fLsS -o "$E2FSPROGS_TARBALL" "$E2FSPROGS_URL"
+
+log_info "Verifying e2fsprogs source checksum"
+ACTUAL_SHA256="$(sha256sum "$E2FSPROGS_TARBALL" | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$E2FSPROGS_SHA256" ]]; then
+    die "e2fsprogs source checksum mismatch (expected $E2FSPROGS_SHA256, got $ACTUAL_SHA256)"
+fi
+log_ok "e2fsprogs source checksum verified"
+
+log_info "Extracting e2fsprogs source"
+tar -xf "$E2FSPROGS_TARBALL"
+
 log_info "Building statically inside $CRYPTSETUP_BUILDER_IMAGE"
-# Two-stage build inside the container:
+# Three-stage build inside the container:
 #
 #   Stage 1: build libdevmapper.a from LVM2 source. Alpine 3.20 ships only a
 #   shared libdevmapper.so; cryptsetup needs the static .a to link with
@@ -405,8 +430,13 @@ log_info "Building statically inside $CRYPTSETUP_BUILDER_IMAGE"
 #   Stage 2: cryptsetup configure + make against that newly-installed .a.
 #   Output binary is at the source root (cryptsetup 2.x layout, NOT src/).
 #
+#   Stage 3: build static mke2fs from e2fsprogs source. Ubuntu's busybox-
+#   static does not include `mkfs.ext2`, and Alpine's e2fsprogs-static
+#   ships only static libraries (no binaries). The init's unseal flow
+#   needs mkfs.ext2 to format the decrypted mapper on first boot.
+#
 # The container runs as root (apk add requires it). Once the build is done,
-# chown the output binary to the invoking host user so subsequent host-side
+# chown the output binaries to the invoking host user so subsequent host-side
 # steps — including the trap's rm -rf "$WORK_DIR" — don't trip over root-
 # owned files. SOURCE_DATE_EPOCH is forwarded so any timestamps embedded in
 # the binary match the host's reproducibility anchor.
@@ -424,6 +454,7 @@ HOST_GID="$(id -g)"
     -e "HOST_GID=${HOST_GID}" \
     -e "CRYPTSETUP_VERSION=${CRYPTSETUP_VERSION}" \
     -e "LVM2_VERSION=${LVM2_VERSION}" \
+    -e "E2FSPROGS_VERSION=${E2FSPROGS_VERSION}" \
     "$CRYPTSETUP_BUILDER_IMAGE" \
     sh -euc '
         # libblkid.a / libuuid.a are part of util-linux-static (verified
@@ -465,7 +496,19 @@ HOST_GID="$(id -g)"
         # cryptsetup 2.x lays the binary at the source-tree root, not in src/.
         strip ./cryptsetup
         cp ./cryptsetup /build/cryptsetup-static
-        chown "${HOST_UID}:${HOST_GID}" /build/cryptsetup-static
+
+        # Stage 3: static mkfs.ext2 from e2fsprogs.
+        cd "/build/e2fsprogs-${E2FSPROGS_VERSION}"
+        ./configure \
+            --enable-static --disable-shared \
+            --disable-elf-shlibs --disable-nls --disable-rpath \
+            --disable-tdb \
+            LDFLAGS="-static"
+        make -j"$(nproc)"
+        strip ./misc/mke2fs
+        cp ./misc/mke2fs /build/mkfs.ext2-static
+
+        chown "${HOST_UID}:${HOST_GID}" /build/cryptsetup-static /build/mkfs.ext2-static
         # Intermediate build artefacts stay root-owned inside /build. The host
         # owns $CRYPTSETUP_DIR itself, so the trap'"'"'s rm -rf can still unlink
         # them; but make the leaf directories writable by the host user so any
@@ -473,22 +516,27 @@ HOST_GID="$(id -g)"
         chown -R "${HOST_UID}:${HOST_GID}" /build
     '
 
-if [[ ! -x "$CRYPTSETUP_DIR/cryptsetup-static" ]]; then
-    die "cryptsetup static build did not produce a binary at $CRYPTSETUP_DIR/cryptsetup-static"
-fi
+for out in cryptsetup-static mkfs.ext2-static; do
+    [[ -x "$CRYPTSETUP_DIR/$out" ]] \
+        || die "$out static build did not produce a binary at $CRYPTSETUP_DIR/$out"
+done
 
-log_info "Verifying cryptsetup is statically linked"
-LDD_OUT="$(ldd "$CRYPTSETUP_DIR/cryptsetup-static" 2>&1 || true)"
-if echo "$LDD_OUT" | grep -qE "not a dynamic executable|statically linked"; then
-    log_ok "cryptsetup is statically linked"
-else
-    log_warn "cryptsetup may not be fully static:"
-    echo "$LDD_OUT" | sed 's/^/    /'
-    die "cryptsetup must be statically linked to run in the initrd"
-fi
+log_info "Verifying static linkage"
+for out in cryptsetup-static mkfs.ext2-static; do
+    LDD_OUT="$(ldd "$CRYPTSETUP_DIR/$out" 2>&1 || true)"
+    if echo "$LDD_OUT" | grep -qE "not a dynamic executable|statically linked"; then
+        log_ok "$out is statically linked"
+    else
+        log_warn "$out may not be fully static:"
+        echo "$LDD_OUT" | sed 's/^/    /'
+        die "$out must be statically linked to run in the initrd"
+    fi
+done
 
-log_info "Normalising timestamp for reproducibility"
-touch -d "@${SOURCE_DATE_EPOCH}" "$CRYPTSETUP_DIR/cryptsetup-static"
+log_info "Normalising timestamps for reproducibility"
+touch -d "@${SOURCE_DATE_EPOCH}" \
+    "$CRYPTSETUP_DIR/cryptsetup-static" \
+    "$CRYPTSETUP_DIR/mkfs.ext2-static"
 
 popd >/dev/null
 fi  # SEALED_STORAGE_BUILD
@@ -539,22 +587,29 @@ done
 log_ok "Busybox installed and applets validated"
 
 # ------------------------------------------------------------------------------
-# Install Static cryptsetup (sealed-storage build only)
+# Install Static cryptsetup + mkfs.ext2 (sealed-storage build only)
 # ------------------------------------------------------------------------------
-# Built in SECTION 3 via a pinned Alpine container. Binary is fully static,
-# so no .so files need to be vendored alongside it.
+# Built in SECTION 3 via a pinned Alpine container. Both binaries are fully
+# static, so no .so files need to be vendored alongside them. cryptsetup
+# unlocks the LUKS volume; mkfs.ext2 formats the decrypted mapper on first
+# boot (Ubuntu's busybox-static does not include the mkfs.ext2 applet).
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     log_info "Installing static cryptsetup"
     [[ -x "$CRYPTSETUP_DIR/cryptsetup-static" ]] \
         || die "cryptsetup-static not found at $CRYPTSETUP_DIR/cryptsetup-static (SECTION 3 did not run?)"
-
     cp "$CRYPTSETUP_DIR/cryptsetup-static" bin/cryptsetup
     chmod +x bin/cryptsetup
-
     if ! bin/cryptsetup --version >/dev/null 2>&1; then
         die "Installed cryptsetup binary is not functional"
     fi
     log_ok "cryptsetup installed"
+
+    log_info "Installing static mkfs.ext2"
+    [[ -x "$CRYPTSETUP_DIR/mkfs.ext2-static" ]] \
+        || die "mkfs.ext2-static not found at $CRYPTSETUP_DIR/mkfs.ext2-static (SECTION 3 did not run?)"
+    cp "$CRYPTSETUP_DIR/mkfs.ext2-static" bin/mkfs.ext2
+    chmod +x bin/mkfs.ext2
+    log_ok "mkfs.ext2 installed"
 fi
 
 # ------------------------------------------------------------------------------
@@ -878,17 +933,17 @@ unseal_and_mount() {
     _unseal_wait_key_writer
     LUKS_OPENED=1
 
-    # Filesystem on the decrypted mapper. A missing filesystem only happens
-    # on a fresh luksFormat (step 2 above) or if a prior boot failed between
-    # format and mkfs — both are fine to (re-)format.
-    if ! /bin/blkid "$LUKS_MAPPER_DEV" >/dev/null 2>&1; then
-        log "Creating ext2 filesystem on $LUKS_MAPPER_DEV"
-        /bin/mkfs.ext2 "$LUKS_MAPPER_DEV" >/dev/null 2>&1 \
+    # Filesystem on the decrypted mapper. Try-mount first; if that fails the
+    # mapper is empty (fresh luksFormat above, or a prior boot crashed before
+    # mkfs ran) — format and re-try. Avoids a dependency on `blkid`, which is
+    # not in Ubuntu's busybox-static.
+    if ! /bin/mount -t ext2 "$LUKS_MAPPER_DEV" /mnt/data 2>/dev/null; then
+        log "Mount failed; assuming empty mapper. Creating ext2 filesystem on $LUKS_MAPPER_DEV"
+        /bin/mkfs.ext2 -F "$LUKS_MAPPER_DEV" >/dev/null 2>&1 \
             || teardown_and_halt "mkfs on decrypted volume failed"
+        /bin/mount -t ext2 "$LUKS_MAPPER_DEV" /mnt/data \
+            || teardown_and_halt "failed to mount $LUKS_MAPPER_DEV after mkfs"
     fi
-
-    /bin/mount -t ext2 "$LUKS_MAPPER_DEV" /mnt/data \
-        || teardown_and_halt "failed to mount $LUKS_MAPPER_DEV"
     log "Sealed storage mounted at /mnt/data"
 }
 
