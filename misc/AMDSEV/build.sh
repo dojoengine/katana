@@ -43,13 +43,17 @@ function usage()
 	echo ""
 	echo "OPTIONS:"
 	echo "  --install PATH          Installation path (default: ${SCRIPT_DIR}/output/qemu)"
-	echo "  --katana PATH           Path to katana binary (optional, will build if not provided)"
+	echo "  --katana PATH           Path to katana binary (optional; auto-built if not provided)"
+	echo "  --snp-derivekey PATH    Path to snp-derivekey binary (optional; auto-built if not"
+	echo "                          provided). Required for sealed-mode initrd unless"
+	echo "                          KATANA_UNSEALED_BUILD=1 is set."
 	echo "  -h|--help               Usage information"
 	echo ""
 	echo "COMPONENTS (if none specified, builds all):"
 	echo "  ovmf                    Build OVMF firmware"
 	echo "  kernel                  Build kernel"
-	echo "  initrd                  Build initrd (builds katana if --katana not provided)"
+	echo "  initrd                  Build initrd (auto-builds katana + snp-derivekey if their"
+	echo "                          --... flags / SNP_DERIVEKEY_BINARY are not set)"
 
 	exit 1
 }
@@ -70,6 +74,11 @@ while [ -n "$1" ]; do
 	--katana)
 		[ -z "$2" ] && usage
 		KATANA_BINARY="$2"
+		shift; shift
+		;;
+	--snp-derivekey)
+		[ -z "$2" ] && usage
+		SNP_DERIVEKEY_BINARY="$2"
 		shift; shift
 		;;
 	-h|--help)
@@ -149,6 +158,22 @@ if [ $BUILD_INITRD -eq 1 ] \
 	PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 	SNP_DERIVEKEY_BINARY="${PROJECT_ROOT}/target/x86_64-unknown-linux-musl/performance/snp-derivekey"
 	if [ ! -x "$SNP_DERIVEKEY_BINARY" ]; then
+		if ! command -v cargo >/dev/null 2>&1; then
+			echo ""
+			echo "ERROR: snp-derivekey not found at $SNP_DERIVEKEY_BINARY and cargo is not on PATH."
+			echo ""
+			echo "If you are running build.sh under sudo, cargo is likely installed under your"
+			echo "regular user (\$HOME/.cargo/bin) but not in root's PATH. Two options:"
+			echo ""
+			echo "  1. Pre-build snp-derivekey as your normal user, then pass the path:"
+			echo "       cargo build --target x86_64-unknown-linux-musl --profile performance \\"
+			echo "         -p katana-tee --features snp --bin snp-derivekey"
+			echo "       sudo $0 --katana <path> --snp-derivekey \\"
+			echo "         $SNP_DERIVEKEY_BINARY ..."
+			echo ""
+			echo "  2. Run build.sh with sudo -E to inherit your PATH (assumes cargo on it)."
+			exit 1
+		fi
 		echo ""
 		echo "Building snp-derivekey with musl (sealed-storage helper)..."
 		( cd "$PROJECT_ROOT" && \
