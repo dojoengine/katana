@@ -6,7 +6,7 @@ version.workspace = true
 
 [[bin]]
 name = "kds-client"
-path = "src/bin/kds.rs"
+path = "bin/kds.rs"
 
 [dependencies]
 katana-primitives.workspace = true
