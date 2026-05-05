@@ -29,9 +29,6 @@ hex.workspace = true
 url.workspace = true
 tokio.workspace = true
 
-# Garaga for Starknet calldata generation
-garaga_rs = { git = "https://github.com/keep-starknet-strange/garaga.git", rev = "191ce19" }
-
 # Cryptographic hashing
 sha2 = "0.10"
 

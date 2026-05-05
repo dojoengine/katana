@@ -3,18 +3,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use cainome::cairo_serde::ContractAddress as CainomeContractAddress;
 use cainome::rs::abigen;
-use katana_primitives::ContractAddress;
+use garaga_rs::definitions::CurveID;
+use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::{L1ToL2Message, L2ToL1Message};
-use katana_tee::amd::{OnchainProof, StarknetCalldata};
+use katana_tee::amd::OnchainProof;
 use saya_core::prover::TeeProof;
 use saya_core::service::{Daemon, FinishHandle, ShutdownHandle};
 use saya_core::settlement::{SettlementBackend, SettlementCursor, TeeSettlementBackendBuilder};
 use sha3::{Digest, Keccak256};
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
-use starknet::core::types::{BlockId, BlockTag, Felt, FunctionCall, TransactionReceipt};
+use starknet::core::types::{BlockId, BlockTag, FunctionCall, TransactionReceipt};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider};
@@ -203,12 +204,8 @@ fn build_piltover_tee_input(proof: &TeeProof, mock_prove: bool) -> Result<Piltov
         crate::mock_proof::bytes_to_felts(&proof.data)
             .ok_or_else(|| anyhow::anyhow!("mock proof data length is not a multiple of 32"))?
     } else {
-        let onchain_proof = OnchainProof::decode_json(&proof.data)?;
-        StarknetCalldata::from_proof(&onchain_proof)?
-            .to_felts()?
-            .iter()
-            .map(|f| Felt::from_bytes_be(&f.to_bytes_be()))
-            .collect()
+        let proof = OnchainProof::decode_json(&proof.data)?;
+        onchain_proof_to_calldata(&proof)?
     };
 
     let l1_to_l2_msg_hashes: Vec<Felt> =
@@ -452,4 +449,38 @@ impl Daemon for TeePiltoverSettlementBackend {
     fn start(self) {
         tokio::spawn(self.run());
     }
+}
+
+pub fn onchain_proof_to_calldata(proof: &OnchainProof) -> Result<Vec<Felt>> {
+    use garaga_rs::calldata::full_proof_with_hints::groth16::{
+        get_groth16_calldata, get_sp1_vk, Groth16Proof,
+    };
+
+    // Check for mock/empty proof
+    if proof.onchain_proof.is_empty() {
+        return Err(anyhow!("Cannot generate calldata from empty proof (mock mode?)"));
+    }
+
+    // Extract components from proof:
+    // - vkey: The verification key (program ID)
+    // - public_values: From raw_proof.journal
+    // - proof_bytes: The onchain_proof bytes (includes 4-byte selector)
+
+    // The verifier_id is the SP1 program vkey as bytes
+    let vkey_bytes = proof.program_id.verifier_id.as_slice().to_vec();
+    // The public values are in the raw_proof journal
+    let public_values = proof.raw_proof.journal.to_vec();
+    // The onchain_proof contains the groth16 proof with selector
+    let proof_bytes = proof.onchain_proof.to_vec();
+    // Create Garaga Groth16 proof structure
+    // from_sp1 expects: (vkey, public_values, proof_with_selector)
+    let groth16_proof = Groth16Proof::from_sp1(vkey_bytes, public_values, proof_bytes);
+    // Get the universal SP1 Groth16 verification key from Garaga
+    let sp1_vk = get_sp1_vk();
+
+    let calldata = get_groth16_calldata(&groth16_proof, &sp1_vk, CurveID::BN254)
+        .map_err(|e| anyhow!("failed to generate calldata: {e}"))?;
+    let calldata = calldata.into_iter().map(Felt::from).collect();
+
+    Ok(calldata)
 }

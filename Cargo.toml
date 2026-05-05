@@ -309,6 +309,7 @@ amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-se
 amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
 x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
 
+garaga_rs = { git = "https://github.com/keep-starknet-strange/garaga.git", rev = "191ce19" }
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>

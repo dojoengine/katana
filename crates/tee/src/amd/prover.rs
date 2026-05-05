@@ -68,6 +68,19 @@ use crate::amd::report::AttestationReportBytes;
 use crate::amd::starknet::StarknetRegistryClient;
 use crate::amd::Error;
 
+/// Trait for SP1 proof generation.
+///
+/// This trait enables mocking the SP1 prover in tests.
+pub trait Sp1Backend: Send + Sync {
+    /// Generate an SP1 Groth16 proof from attestation report bytes.
+    fn prove(
+        &self,
+        report_bytes: &[u8],
+        timestamp: u64,
+        config: &ProverConfig,
+    ) -> Result<OnchainProof, Error>;
+}
+
 /// Optional storage proof data for ZK circuit. When set, the circuit verifies:
 /// 1. global_state_root = hash("STARKNET_STATE_V0", contracts_tree_root, classes_tree_root)
 /// 2. Contract with storage_root is in contracts_tree at contract_address
@@ -118,19 +131,6 @@ pub struct ProofWithCacheInfo {
     pub cert_digests: Vec<[u8; 32]>,
 }
 
-/// Trait for SP1 proof generation.
-///
-/// This trait enables mocking the SP1 prover in tests.
-pub trait Sp1Backend: Send + Sync {
-    /// Generate an SP1 Groth16 proof from attestation report bytes.
-    fn prove(
-        &self,
-        report_bytes: &[u8],
-        timestamp: u64,
-        config: &ProverConfig,
-    ) -> Result<OnchainProof, Error>;
-}
-
 /// Default SP1 backend using the real SP1 SDK.
 #[derive(Debug, Clone, Default)]
 pub struct Sp1NetworkBackend;
@@ -151,11 +151,11 @@ impl Sp1Backend for Sp1NetworkBackend {
             rpc_url: config.rpc_url.clone(),
             prover_mode: None,
         };
+
         let mut sdk_config = SdkProverConfig::sp1_with(sp1_config);
         sdk_config.skip_time_validity_check = config.skip_time_validity_check;
 
-        let prover = AmdSevSnpProver::new(sdk_config, None);
-        prover
+        AmdSevSnpProver::new(sdk_config, None)
             .prove_attestation_report(timestamp, Bytes::from(report_bytes.to_vec()), None)
             .map_err(|e| Error::Prover(format!("Proof generation failed: {}", e)))
     }
@@ -406,6 +406,7 @@ pub fn prepare_verifier_input_with_storage(
         eventMerkleProof: vec![],
         endBlockNumber: 0,
     };
+
     if let Some(s) = storage {
         input.globalStateRoot = s.global_state_root;
         input.contractsTreeRoot = s.contracts_tree_root;
@@ -421,6 +422,7 @@ pub fn prepare_verifier_input_with_storage(
         input.nonce = s.nonce;
         input.forkBlockNumber = s.fork_block_number;
     }
+
     if let Some(e) = event_proof {
         input.eventsCommitment = e.events_commitment;
         input.eventHash = e.event_hash;
@@ -429,6 +431,7 @@ pub fn prepare_verifier_input_with_storage(
         input.eventMerkleProof = e.event_merkle_proof;
         input.endBlockNumber = e.end_block_number;
     }
+
     input
 }
 

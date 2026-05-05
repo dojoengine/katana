@@ -70,6 +70,7 @@ fn encode_check_trusted_intermediate_certs(
 ) -> Result<Vec<Felt>, Error> {
     let mut calldata: Vec<Felt> = vec![
         // processor_models: Span<ProcessorType>
+        // (Cairo enum at crates/tee/contracts/amd_tee_registry/src/tee_types.cairo)
         Felt::from(1u64),
         Felt::from(processor_model as u64),
         // report_certs: Span<Span<u256>>

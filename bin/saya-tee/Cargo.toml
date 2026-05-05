@@ -16,6 +16,7 @@ saya-core.workspace = true
 amd-sev-snp-attestation-prover = { workspace = true, features = ["sp1"] }
 amd-sev-snp-attestation-verifier.workspace = true
 x509-verifier-rust-crypto.workspace = true
+garaga_rs.workspace = true
 
 piltover = { package = "piltover", git = "https://github.com/cartridge-gg/piltover.git", rev = "dc86b13de0713c172153c4833fd7b3d14a855351" }
 cainome.workspace = true

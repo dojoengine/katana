@@ -35,7 +35,6 @@
 //! - `SKIP_TIME_VALIDITY_CHECK`: Skip certificate time validation
 
 pub mod cairo_fixtures;
-pub mod calldata;
 pub mod config;
 pub mod error;
 pub mod kds;
@@ -44,12 +43,9 @@ pub mod report;
 pub mod starknet;
 
 pub use cairo_fixtures::generate_cairo_fixtures;
-pub use calldata::StarknetCalldata;
 pub use config::ProverConfig;
 pub use error::Error;
-pub use kds::{parse_processor_type, KdsClient, KdsFetcher, RootCertInfo};
-// Re-export BigUint for users who need raw calldata values
-pub use num_bigint::BigUint;
+pub use kds::{KdsClient, RootCertFetcher, RootCertInfo};
 pub use prover::{
     prepare_verifier_input_with_storage, AmdAttestationProver, EventProofParams, OnchainProof,
     ProofWithCacheInfo, Sp1Backend, Sp1NetworkBackend, StorageProofParams,

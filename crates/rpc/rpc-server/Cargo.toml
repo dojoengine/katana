@@ -48,7 +48,6 @@ hex.workspace = true
 katana-tee.workspace = true
 katana-trie.workspace = true
 regex.workspace = true
-starknet-types-core.workspace = true
 
 [dev-dependencies]
 katana-chain-spec.workspace = true

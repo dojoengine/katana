@@ -195,12 +195,14 @@ pub fn bytes_to_felts(bytes: &[u8]) -> Option<Vec<Felt>> {
     if !bytes.len().is_multiple_of(32) {
         return None;
     }
+
     let mut felts = Vec::with_capacity(bytes.len() / 32);
     for chunk in bytes.chunks_exact(32) {
         let mut buf = [0u8; 32];
         buf.copy_from_slice(chunk);
         felts.push(Felt::from_bytes_be(&buf));
     }
+
     Some(felts)
 }
 
