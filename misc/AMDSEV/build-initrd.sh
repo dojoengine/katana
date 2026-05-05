@@ -8,8 +8,9 @@
 #
 # Dependencies downloaded:
 #   - busybox-static: Provides shell and basic utilities
-#   - linux-modules:       Contains device-mapper modules (dm-mod.ko, dm-crypt.ko,
-#                          dm-integrity.ko) for LUKS-based sealed storage
+#   - linux-modules:       Contains dm-crypt.ko and dm-integrity.ko for LUKS-based
+#                          sealed storage. (dm-mod is built into the Ubuntu 6.8
+#                          kernel — see modules.builtin — so we don't ship it.)
 #   - linux-modules-extra: Contains SEV-SNP kernel modules (tsm.ko, sev-guest.ko)
 #   - cryptsetup (source): Built statically inside a pinned Alpine container
 #                          for LUKS2 sealed-storage unlock in the measured initrd
@@ -644,22 +645,24 @@ fi
 # ------------------------------------------------------------------------------
 # Install Device-Mapper Kernel Modules (sealed-storage build only)
 # ------------------------------------------------------------------------------
-# Required by cryptsetup for LUKS2 open/format. Load order at runtime is
-# dm-mod first, then dm-crypt and dm-integrity (both depend on dm-mod).
+# Required by cryptsetup for LUKS2 open/format. dm-mod itself is built into
+# the Ubuntu 6.8 kernel (see modules.builtin), so we only need to load
+# dm-crypt and dm-integrity at runtime — both depend on dm-mod and find it
+# already present.
 #
-# Hard-fail when sealed-storage build is enabled but any of the three modules
-# is missing. The init's unseal_and_mount path needs all three; producing an
-# initrd without them would silently fatal_boot at runtime instead of
-# surfacing a build-time configuration problem.
+# Hard-fail when sealed-storage build is enabled but either module is missing.
+# The init's unseal_and_mount path needs both; producing an initrd without
+# them would silently fatal_boot at runtime instead of surfacing a build-time
+# configuration problem.
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     log_info "Installing device-mapper kernel modules"
     DM_MODULES_DIR="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic/kernel/drivers/md"
 
     if [[ ! -d "$DM_MODULES_DIR" ]]; then
-        die "device-mapper modules directory not found at $DM_MODULES_DIR (sealed-storage build requires dm-mod / dm-crypt / dm-integrity)"
+        die "device-mapper modules directory not found at $DM_MODULES_DIR (sealed-storage build requires dm-crypt / dm-integrity)"
     fi
 
-    for mod in dm-mod dm-crypt dm-integrity; do
+    for mod in dm-crypt dm-integrity; do
         if [[ -f "$DM_MODULES_DIR/${mod}.ko.zst" ]]; then
             zstd -dq "$DM_MODULES_DIR/${mod}.ko.zst" -o "lib/modules/${mod}.ko"
             log_ok "${mod}.ko installed (decompressed)"
@@ -792,10 +795,11 @@ parse_cmdline_vars() {
     fi
 }
 
-# Load device-mapper modules in dependency order. dm_mod must be loaded first
-# because dm_crypt and dm_integrity register themselves against it.
+# Load device-mapper modules. dm-mod is built into the Ubuntu 6.8 kernel
+# (see modules.builtin), so only dm-crypt and dm-integrity need insmod;
+# both find dm-mod already present and register against it.
 load_dm_modules() {
-    for mod in dm-mod dm-crypt dm-integrity; do
+    for mod in dm-crypt dm-integrity; do
         if [ -f "/lib/modules/${mod}.ko" ]; then
             /bin/insmod "/lib/modules/${mod}.ko" 2>/dev/null \
                 && log "Loaded ${mod}.ko" \
@@ -1133,8 +1137,8 @@ fi
 # Parse sealed-storage vars out of the measured kernel cmdline.
 parse_cmdline_vars
 
-# Load dm-mod / dm-crypt / dm-integrity. Needed for sealed mode; harmless
-# otherwise (modules just idle).
+# Load dm-crypt / dm-integrity (dm-mod is kernel-builtin). Needed for sealed
+# mode; harmless otherwise — the modules just idle if no LUKS device opens.
 load_dm_modules
 
 # Attach /dev/sda — either through LUKS (sealed) or directly (legacy).
