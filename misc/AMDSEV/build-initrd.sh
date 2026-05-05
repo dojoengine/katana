@@ -119,6 +119,22 @@ die() {
     exit 1
 }
 
+install_sev_module() {
+    local module_name="$1"
+    local source_path="$2"
+    local destination_path="$3"
+
+    if [[ -f "${source_path}.zst" ]]; then
+        zstd -dq "${source_path}.zst" -o "$destination_path"
+        log_ok "$module_name installed (decompressed)"
+    elif [[ -f "$source_path" ]]; then
+        cp "$source_path" "$destination_path"
+        log_ok "$module_name installed"
+    else
+        die "$module_name not found in linux-modules-extra package"
+    fi
+}
+
 # Show help if requested or insufficient arguments
 if [[ $# -lt 2 ]] || [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
     usage
@@ -508,28 +524,10 @@ log_info "Installing SEV-SNP kernel modules"
 MODULES_DIR="$EXTRACTED_DIR/lib/modules/$KERNEL_VERSION-generic/kernel/drivers/virt/coco"
 
 if [[ -d "$MODULES_DIR" ]]; then
-    if [[ -f "$MODULES_DIR/tsm.ko.zst" ]]; then
-        zstd -dq "$MODULES_DIR/tsm.ko.zst" -o lib/modules/tsm.ko
-        log_ok "tsm.ko installed (decompressed)"
-    elif [[ -f "$MODULES_DIR/tsm.ko" ]]; then
-        cp "$MODULES_DIR/tsm.ko" lib/modules/tsm.ko
-        log_ok "tsm.ko installed"
-    else
-        log_warn "tsm.ko not found"
-    fi
-
-    if [[ -f "$MODULES_DIR/sev-guest/sev-guest.ko.zst" ]]; then
-        zstd -dq "$MODULES_DIR/sev-guest/sev-guest.ko.zst" -o lib/modules/sev-guest.ko
-        log_ok "sev-guest.ko installed (decompressed)"
-    elif [[ -f "$MODULES_DIR/sev-guest/sev-guest.ko" ]]; then
-        cp "$MODULES_DIR/sev-guest/sev-guest.ko" lib/modules/sev-guest.ko
-        log_ok "sev-guest.ko installed"
-    else
-        log_warn "sev-guest.ko not found"
-    fi
+    install_sev_module "tsm.ko" "$MODULES_DIR/tsm.ko" "lib/modules/tsm.ko"
+    install_sev_module "sev-guest.ko" "$MODULES_DIR/sev-guest/sev-guest.ko" "lib/modules/sev-guest.ko"
 else
-    log_warn "Modules directory not found: $MODULES_DIR"
-    log_warn "SEV-SNP attestation may not be available"
+    die "Modules directory not found: $MODULES_DIR"
 fi
 
 # ------------------------------------------------------------------------------
@@ -838,6 +836,29 @@ unseal_and_mount() {
     log "Sealed storage mounted at /mnt/data"
 }
 
+load_sev_module() {
+    MODULE_PATH="$1"
+    MODULE_NAME="${MODULE_PATH##*/}"
+
+    if [ ! -f "$MODULE_PATH" ]; then
+        log "WARNING: SEV-SNP module not included in initrd: $MODULE_PATH"
+        return 1
+    fi
+
+    if MODULE_ERROR="$(/bin/insmod "$MODULE_PATH" 2>&1)"; then
+        log "Loaded $MODULE_NAME"
+        return 0
+    fi
+
+    log "WARNING: failed to load $MODULE_NAME"
+    if [ -n "$MODULE_ERROR" ]; then
+        printf '%s\n' "$MODULE_ERROR" | while IFS= read -r line; do
+            [ -n "$line" ] && log "insmod $MODULE_NAME: $line"
+        done
+    fi
+    return 1
+}
+
 refresh_katana_state() {
     if [ -n "$KATANA_PID" ] && ! kill -0 "$KATANA_PID" 2>/dev/null; then
         if wait "$KATANA_PID"; then
@@ -957,8 +978,8 @@ exec 2>/dev/console
 
 # Load SEV-SNP kernel modules
 log "Loading SEV-SNP kernel modules..."
-[ -f /lib/modules/tsm.ko ] && /bin/insmod /lib/modules/tsm.ko && log "Loaded tsm.ko" || true
-[ -f /lib/modules/sev-guest.ko ] && /bin/insmod /lib/modules/sev-guest.ko && log "Loaded sev-guest.ko" || true
+load_sev_module /lib/modules/tsm.ko || true
+load_sev_module /lib/modules/sev-guest.ko || true
 sleep 1
 
 # Check for TEE attestation interfaces
