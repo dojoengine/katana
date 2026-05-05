@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777918070494,
+  "lastUpdate": 1778018875611,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -24827,6 +24827,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 191,
             "range": "± 13",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42eb10d99c1ffd094f5c3b7b6c3f96fafb9ccfa7",
+          "message": "feat(amdsev): sealed persistent storage in SEV-SNP VMs (#554)\n\nWraps `/dev/sda` inside the SEV-SNP guest in LUKS2 + dm-integrity. The\nunlock secret is derived from the chip via `SNP_GET_DERIVED_KEY` (VMPL=1,\nroot=VCEK, guest-field-select = MEASUREMENT | GUEST_POLICY), piped\nthrough a 0600 FIFO into cryptsetup, and the disk's LUKS UUID is checked\nagainst the value baked into the measured kernel cmdline before mounting\nat `/mnt/data`. First boot — and any boot that finds an absent or wiped\nheader — auto-formats under the current measurement, so subsequent boots\nre-derive the same key and open cleanly.\n\nCloses the gap that prior `tee_generateQuote` quotes had no defense\nagainst operators substituting a hand-crafted MDBX database between VM\nrestarts: the launch measurement covered OVMF + kernel + initrd + cmdline\nbut not persistent storage, so the chip would sign over whatever roots\nfell out.\n\n## User-facing\n\n`misc/AMDSEV/start-vm.sh` now defaults to sealed mode with a host-local\nauto-generated UUID at `~/.katana/luks-uuid`. `--unsealed` opts back into\nthe legacy plain-ext4 path. CI uses `KATANA_UNSEALED_BUILD=1` on hosts\nwithout Docker.\n\n`misc/AMDSEV/build.sh` auto-builds the three sealed-mode artefacts when\ntheir flags / env vars aren't supplied: katana (musl), `snp-derivekey`\n(`cargo build -p katana-tee --features snp`), and `cryptsetup` +\n`mkfs.ext2` via the new `build-cryptsetup.sh` (pinned Alpine container).\nCargo-not-on-PATH (the common `sudo` case) emits a hint pointing at\n`--katana` / `--snp-derivekey` pre-builds or `sudo -E`.\n\n## Architectural decisions\n\n- **Self-sealing, not attested KMS release.** The hyperscaler pattern\n  (Azure CVM, Constellation) routes the disk key through a remote KMS\n  that releases on quote verification; that reintroduces the trusted\n  third party operators run Katana inside a TEE to avoid. Self-sealing\n  has production precedent in DFINITY's GuestOS. Attested KMS stays a\n  non-breaking future addition.\n- **Bind to MEASUREMENT | GUEST_POLICY only.** Mixing GUEST_SVN or\n  TCB_VERSION into the field-select rotates the key on every microcode\n  update and silently bricks the sealed disk. Two bits give\n  \"different image or policy → different key\" without that trap.\n- **LUKS2 + `--integrity hmac-sha256`, not bare AES-XTS.** XTS is\n  confidentiality only; per-sector HMAC tags catch an operator who\n  overwrites ciphertext without the master key. Whole-disk snapshot\n  rollback (same header, same tags, same ciphertext) opens cleanly and\n  remains a verifier-side concern.\n- **Single sealed measurement.** An earlier draft introduced a\n  `KATANA_ALLOW_FORMAT=1` cmdline token for \"provisioning\" boots, but\n  because the cmdline is measured and the key is bound to measurement,\n  a provisioning-formatted disk would never open in normal mode. First\n  boot auto-formats under the same measurement; a hostile header wipe is\n  downgraded to a fresh-start DoS, equivalent to the rollback case\n  already documented.\n- **Strip `--data-dir` / `--db-*` from the virtio-serial control\n  channel.** The control channel is operator-controlled and not\n  measured. Without filtering, `start --db-dir=/tmp/elsewhere` sidesteps\n  the sealed mount. `strip_db_args` in the measured initrd drops both\n  `--flag value` and `--flag=value` shapes.\n- **`snp-derivekey` as a separate ~80-line binary.** Runs before katana,\n  handles raw key bytes; `zeroize` discipline + abort-on-panic are\n  trivially auditable in isolation.\n- **ext2 inside the decrypted mapper.** Busybox ships `mkfs.ext2` but\n  not `mkfs.ext4`, and MDBX is indifferent to journaling and extents.\n\n## Out of scope (verifier responsibilities; see docs/amdsev.md)\n\n- **Genesis substitution.** A fresh sealed VM produces a valid quote for\n  block 0 with any genesis state. Verifiers must pin the expected anchor\n  out of band.\n- **Whole-disk rollback within the same VM identity.** Needs an external\n  monotonic commitment (e.g. to L1).\n- **Measurement-upgrade data continuity.** Any kernel / initrd / katana\n  bump rotates the derived key and renders the prior sealed disk\n  unreadable. Current policy is resync from peers; an attested re-seal\n  handshake is a future improvement.\n\n## New files\n\n- `crates/tee/src/bin/derivekey.rs` — `snp-derivekey` helper (`snp` feature)\n- `misc/AMDSEV/build-cryptsetup.sh` — static cryptsetup + mkfs.ext2 build\n- `misc/AMDSEV/build-config` — pinned versions for sealed-mode deps\n- `docs/amdsev.md` — architecture + trust model reference\n\n`misc/AMDSEV/build-initrd.sh` and `start-vm.sh` are heavily extended with\nthe sealed-mode init heredoc (dm-crypt + dm-integrity + transitive\ncrypto-SIMD modules loaded in dependency order, every module justified\ninline) and the persistent-disk QEMU plumbing.\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-05T16:34:06-05:00",
+          "tree_id": "e32f6e78b6ab14f05fc83f7ccb9d267249e9d394",
+          "url": "https://github.com/dojoengine/katana/commit/42eb10d99c1ffd094f5c3b7b6c3f96fafb9ccfa7"
+        },
+        "date": 1778018874211,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2663646,
+            "range": "± 12188",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2935732,
+            "range": "± 17143",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 35,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 25,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 35,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 25,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 634,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 824,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 77,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 36,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 157,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 145,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 157,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 247,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 209,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 251,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 164,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 308,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 134,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 102,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 82,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 59,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 82,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 58,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 82,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 58,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 82,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 58,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 82,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 58,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 28,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 47,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 25,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 12,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 18411,
+            "range": "± 286",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3670,
+            "range": "± 90",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 394,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 828,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 148,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 138,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1584,
+            "range": "± 76",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2228,
+            "range": "± 373",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 665,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 894,
+            "range": "± 152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 29387,
+            "range": "± 2217",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6027,
+            "range": "± 431",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 163,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 221,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 291,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 262,
+            "range": "± 11",
             "unit": "ns/iter"
           }
         ]
