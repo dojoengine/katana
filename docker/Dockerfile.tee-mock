@@ -1,11 +1,13 @@
-# Builds a katana binary with `--features tee-mock` compiled in.
+# Builds a katana binary with TEE support.
 #
-# The binary serves `tee_generateQuote` RPC backed by a software-only mock
-# provider (no AMD SEV-SNP hardware required). Intended for dev use alongside
-# `docker/tee-mock.compose.yml` — not for production.
+# By default the resulting binary supports real AMD SEV-SNP attestation
+# (`--tee sev-snp`), matching what `ghcr.io/dojoengine/katana` ships.
 #
-# For the default (real SEV-SNP) binary, use `ghcr.io/dojoengine/katana` — the
-# published image already has `--tee.provider=sev-snp` available.
+# Pass `--build-arg TEE_MOCK=1` to additionally enable the software-only
+# mock provider (`--tee mock`, no SEV-SNP hardware required). The dev
+# bundle in `docker/tee-mock.compose.yml` sets this so its image accepts
+# `--tee mock`. Don't ship a `TEE_MOCK=1` image to production — the mock
+# provider produces non-attesting quotes.
 
 FROM rust:1.89.0-slim-bookworm AS builder
 
@@ -71,11 +73,14 @@ RUN mkdir -p "$ASDF_DATA_DIR" \
 WORKDIR /build
 COPY . .
 
-# Build with `tee-mock` on top of the binary's default features (which
-# already include cli/default → tee-snp). The resulting binary supports
-# both --tee.provider=sev-snp (real SEV-SNP attestation) and
-# --tee.provider=mock (software-only stub used by this dev bundle).
-RUN cargo build -p katana --bin katana --release --features tee-mock
+# Default features already include cli/default → tee-snp (real SEV-SNP).
+# When TEE_MOCK=1, layer `tee-mock` on top so `--tee mock` is also accepted.
+ARG TEE_MOCK=0
+RUN if [ "$TEE_MOCK" = "1" ]; then \
+        cargo build -p katana --bin katana --release --features tee-mock; \
+    else \
+        cargo build -p katana --bin katana --release; \
+    fi
 
 FROM ubuntu:24.04
 

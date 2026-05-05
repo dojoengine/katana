@@ -26,6 +26,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.tee-mock
+      args:
+        TEE_MOCK: "1"
     entrypoint: ["/bin/sh", "/scripts/init-chain.sh"]
     environment:
       SETTLEMENT_RPC_URL: ${SETTLEMENT_RPC_URL:?SETTLEMENT_RPC_URL is required}
@@ -46,6 +48,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.tee-mock
+      args:
+        TEE_MOCK: "1"
     command:
       - "--chain"
       - "${CHAIN_ID:-katana_tee_mock}"
