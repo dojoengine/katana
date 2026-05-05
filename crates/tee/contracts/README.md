@@ -194,7 +194,7 @@ This means only **two unique root certificates** need to be fetched and stored:
 - **Milan** - for Milan processors
 - **Genoa** - for Genoa, Bergamo, and Siena processors
 
-The `tests/fixtures/root_certs.json` file contains only these two root certificate
+The `amd_root_certs.json` file contains only these two root certificate
 hashes, which is correct and complete for all supported processor types.
 
 ### Certificate Cache Flow

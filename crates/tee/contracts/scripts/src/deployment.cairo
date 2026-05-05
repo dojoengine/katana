@@ -26,7 +26,7 @@ struct RootCerts {
 #[executable]
 fn main() {
     // Load root certs from fixture
-    let file = FileTrait::new("../../tests/fixtures/root_certs.json");
+    let file = FileTrait::new("../amd_root_certs.json");
     let certs: RootCerts = FileParser::<RootCerts>::parse_json(@file)
         .expect('Failed to load root_certs.json');
 

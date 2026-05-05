@@ -9,7 +9,7 @@ pub struct RootCerts {
 }
 
 pub fn load_root_certs() -> RootCerts {
-    let file = FileTrait::new("../../tests/fixtures/root_certs.json");
+    let file = FileTrait::new("../amd_root_certs.json");
     FileParser::<RootCerts>::parse_json(@file).expect('Failed to parse root_certs.json')
 }
 
