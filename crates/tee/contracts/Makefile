@@ -1,6 +1,18 @@
-# =============================================================================
-# Katana TEE Contracts
-# =============================================================================
+usage help:
+	@echo "Katana TEE Contracts - Available Commands"
+	@echo ""
+	@echo "Build:"
+	@echo "  make build          - Build Cairo contracts (scarb build)"
+	@echo ""
+	@echo "Tests:"
+	@echo "  make test           - Run all Cairo tests (snforge test --workspace)"
+	@echo "  make test-fork      - Include fork-based tests (needs MAINNET/SEPOLIA RPC URL)"
+	@echo ""
+	@echo "Devnet & Deployment:"
+	@echo "  make devnet-mainnet - Start Katana forking mainnet"
+	@echo "  make deploy-devnet  - Deploy contracts to devnet via sncast"
+
+.PHONY: build test test-fork devnet-mainnet deploy-devnet help
 
 # =============================================================================
 # Build
@@ -36,23 +48,3 @@ devnet-mainnet:
 deploy-devnet:
 	@set -a && . ./.env && set +a && \
 	sncast --account "$$STARKNET_ACCOUNT" script run deployment --network devnet --package deployment --no-state-file
-
-# =============================================================================
-# Help
-# =============================================================================
-
-help:
-	@echo "Katana TEE Contracts - Available Commands"
-	@echo ""
-	@echo "Build:"
-	@echo "  make build          - Build Cairo contracts (scarb build)"
-	@echo ""
-	@echo "Tests:"
-	@echo "  make test           - Run all Cairo tests (snforge test --workspace)"
-	@echo "  make test-fork      - Include fork-based tests (needs MAINNET/SEPOLIA RPC URL)"
-	@echo ""
-	@echo "Devnet & Deployment:"
-	@echo "  make devnet-mainnet - Start Katana forking mainnet"
-	@echo "  make deploy-devnet  - Deploy contracts to devnet via sncast"
-
-.PHONY: build test test-fork devnet-mainnet deploy-devnet help
