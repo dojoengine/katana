@@ -1,4 +1,4 @@
-# Builds saya-ops + saya-tee from dojoengine/saya at a pinned rev.
+# Builds saya-tee from dojoengine/saya at a pinned rev.
 #
 # Pinned at saya `main` HEAD because the latest tag (v0.3.2) predates two
 # changes our bundle depends on:
@@ -31,31 +31,12 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
         protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Install scarb 2.13.1 — saya-ops's build.rs rebuilds the piltover mock
-# contracts at build time via `scarb build`, version pinned by
-# saya's piltover/.tool-versions.
-#
-# The installer drops a wrapper at $HOME/.local/bin/scarb that exec's the
-# real binary at $HOME/.local/share/scarb-install/<version>/bin/scarb.
-# Adding $HOME/.local/bin to PATH at the ENV layer makes it visible to every
-# later RUN step, including cargo invocations.
-#
-# The installer exits 1 when it can't detect which shell rc file to patch
-# (always the case in docker build). `|| [ $? -eq 1 ]` lets that pass; the
-# next line verifies scarb actually got installed.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v 2.13.1 || [ $? -eq 1 ]
-ENV PATH="/root/.local/bin:${PATH}"
-RUN scarb --version
-
 ARG SAYA_REV
 WORKDIR /src
 RUN git clone https://github.com/dojoengine/saya.git . \
     && git checkout "${SAYA_REV}" \
     && git submodule update --init --recursive
 
-# Each bin has its own workspace, so build them independently (matches
-# saya's release.yml).
-RUN cd bin/ops && cargo build --release
 # sp1-recursion-core's build.rs panics with "AlreadyExists" when it runs
 # concurrently as both a build-dep and a normal dep (it hard-links into a
 # shared path without checking for existence). CARGO_BUILD_JOBS=1 serializes
@@ -64,16 +45,11 @@ RUN cd bin/persistent-tee && CARGO_BUILD_JOBS=1 cargo build --release
 
 FROM ubuntu:24.04
 
-# `jq` is used by docker/scripts/deploy-contracts.sh to parse
-# `saya-ops --output json` stdout. `tini` + `ca-certificates` are the
-# standard runtime bits.
 RUN apt-get update && apt-get install --no-install-recommends -y \
         ca-certificates \
-        jq \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /src/bin/ops/target/release/saya-ops /usr/local/bin/saya-ops
 COPY --from=builder /src/bin/persistent-tee/target/release/saya-tee /usr/local/bin/saya-tee
 
 ENTRYPOINT ["/usr/bin/tini", "--"]

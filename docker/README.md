@@ -1,8 +1,8 @@
 # Katana TEE mock-prove dev stack
 
-One-command Docker compose bundle that spins up an L3 katana rollup with mock
-TEE attestation, deploys the piltover core contract on your L2, and runs
-saya-tee to settle L3 blocks onto the L2 via piltover.
+Docker compose bundle that spins up an L3 katana rollup with mock TEE
+attestation, deploys the piltover core contract on your L2, and runs saya-tee
+to settle L3 blocks onto the L2 via piltover.
 
 No AMD SEV-SNP hardware required. Proofs are stubbed (`--mock-prove`) and
 the TEE registry mock doubles as the fact registry, so piltover's on-chain
@@ -26,11 +26,22 @@ hardware attestation guarantees.
 - An L2 settlement layer you can write to. Two easy paths:
   - **Local `katana --dev`** — fastest, no external accounts, nothing to fund. See [Quickstart](#quickstart-local-katana-l2) below.
   - **Starknet Sepolia** — more realistic. Fund a Starknet account with a bit of STRK from the [faucet](https://starknet-faucet.vercel.app/). Use `SETTLEMENT_RPC_URL=https://starknet-sepolia.public.blastapi.io/rpc/v0_9`.
+- An `IAMDTeeRegistry` mock already deployed on that L2. Production katana
+  consumes a pre-existing TEE registry too (deployed once per chain, shared
+  across rollups), so this stack matches that shape — you deploy it, you
+  paste the address into `.env`. The `saya-ops` CLI ships a one-liner:
+
+  ```bash
+  saya-ops core-contract declare-and-deploy-tee-registry-mock --salt 0x7ee
+  ```
+
+  Any other tool that puts an `IAMDTeeRegistry`-compatible contract on chain
+  works just as well.
 
 ## Quickstart (local katana L2)
 
-This is the recommended first run. Zero external dependencies, zero
-network calls, fully reproducible.
+This is the recommended first run. Zero network dependencies, fully
+reproducible.
 
 ```bash
 # --- Terminal 1: start local L2 katana ---
@@ -39,54 +50,60 @@ katana --dev --http.addr 0.0.0.0 --http.port 5051
 # Watch the startup log. Copy one of the PREFUNDED ACCOUNTS entries —
 # you need the `Account address` and `Private key` fields.
 
-# --- Terminal 2: prep the compose bundle ---
+# --- Terminal 2: deploy the mock TEE registry on that L2 ---
+# Any tool works; saya-ops has a one-liner:
+saya-ops core-contract declare-and-deploy-tee-registry-mock --salt 0x7ee
+# Copy the printed `contract_address`.
+
+# --- Prep the compose bundle ---
 cp docker/tee-mock.env.example .env
 # Edit .env:
 #   SETTLEMENT_RPC_URL=http://host.docker.internal:5051
 #   SETTLEMENT_ACCOUNT_ADDRESS=<from Terminal 1>
 #   SETTLEMENT_ACCOUNT_PRIVATE_KEY=<from Terminal 1>
-#   SETTLEMENT_CHAIN_ID=SN_SEPOLIA
+#   TEE_REGISTRY_ADDRESS=<from saya-ops output>
 
 # --- Build the katana-tee-mock image. First run takes a few minutes. ---
 docker compose -f docker/tee-mock.compose.yml --env-file .env build
 
 # --- Bring the stack up. Watch the logs for:
-#     deploy-contracts: "tee_registry_address=0x..."
-#     init-chain:       Piltover declared/deployed by `katana init`, chain spec written
-#     katana:           "RPC server started at 0.0.0.0:5050"
-#     saya-tee:         "Chain advanced" / "TEE proving completed" / "Settled block ..."
+#     init-chain:  Piltover declared/deployed by `katana init`, chain spec written
+#     katana:      "RPC server started at 0.0.0.0:5050"
+#     saya-tee:    "Chain advanced to new block" with L2 tx hashes
 docker compose -f docker/tee-mock.compose.yml --env-file .env up
 
 # --- Terminal 3: drive the L3, watch it settle on the L2 ---
-# Chain id should come back:
 curl -s http://localhost:5050 \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"starknet_chainId","params":[]}'
-# The L3 rollup only advances when transactions arrive (provable mode never
-# emits empty blocks). Submit any tx to make it tick.
+# The L3 only mines blocks when transactions arrive — submit any tx to make
+# it tick.
 ```
 
-Expected end state: in Terminal 1, the L2 katana shows piltover + TEE registry
-deployed (two class declares + two contract deploys). In Terminal 2, saya-tee
-settles blocks onto piltover; in Terminal 1 you'll see piltover's
-`update_state` invocations land.
+Expected end state: in Terminal 1, the L2 katana shows piltover deployed
+(one class declare + one contract deploy from this stack, plus the TEE
+registry deploy you did out-of-band). saya-tee settles each L3 block onto
+piltover; you'll see `update_state` invocations land on the L2.
 
 ## What each service does
 
 | Service | Runs | Purpose |
 |---------|------|---------|
-| `deploy-contracts` | once, exits | Deploys the mock TEE registry on your L2 via `saya-ops`. Writes its address to a shared volume. |
-| `init-chain`       | once, exits | Runs `katana init rollup --tee --tee-registry-address <addr>`, which declares + deploys the Piltover core contract on your L2, wires it for TEE proofs (`set_program_info` + `set_facts_registry`), and writes the L3 chain spec locally. |
-| `katana`           | long-running | L3 rollup node, mock TEE provider, RPC on `:5050`. |
-| `saya-tee`         | long-running | Polls L3 via the compose network, builds settlement txs, submits `update_state` to piltover on your L2. |
+| `init-chain` | once, exits | Runs `katana init rollup --tee --tee-registry-address <addr>`, which declares + deploys the Piltover core contract on your L2, wires it for TEE proofs (`set_program_info` + `set_facts_registry`), and writes the L3 chain spec to a shared volume. |
+| `katana`     | long-running | L3 rollup node, mock TEE provider, RPC on `:5050`. |
+| `saya-tee`   | long-running | Polls L3, reads the deployed Piltover address out of the chain spec, builds settlement txs, submits `update_state` to piltover on your L2. |
 
 ## Resetting
 
 - **Keep settled state, restart services:** `docker compose -f docker/tee-mock.compose.yml restart`
-- **Throw away L3 chain + saya-tee cursor, keep deployed contracts:**
+- **Throw away L3 chain + saya-tee cursor, keep deployed Piltover:**
   `docker compose -f docker/tee-mock.compose.yml down`
-- **Fresh slate (re-deploy everything):**
+- **Fresh slate (re-deploy Piltover):**
   `docker compose -f docker/tee-mock.compose.yml down -v`
+  Note: this redeploys Piltover but does *not* redeploy the TEE registry —
+  that lives outside this compose. If you want a fresh registry too,
+  re-run the `saya-ops core-contract declare-and-deploy-tee-registry-mock`
+  step with a different salt and update `TEE_REGISTRY_ADDRESS` in `.env`.
 
 ## Image pins
 
@@ -94,9 +111,9 @@ settles blocks onto piltover; in Terminal 1 you'll see piltover's
   tagged `ghcr.io/dojoengine/katana-tee-mock:dev`. Once that image is
   published to ghcr, the `build:` directive becomes cosmetic and `docker
   compose pull` works.
-- `ghcr.io/dojoengine/saya:latest` is pulled for `saya-ops` and `saya-tee`.
-  If behavior drifts from what this compose expects, pin to a specific
-  saya release tag.
+- saya-tee is built from source via `docker/Dockerfile.saya` at a pinned
+  saya rev. Replace with `ghcr.io/dojoengine/saya:vX.Y.Z` once a release
+  including saya #73 + #74 is cut.
 
 ## Known gaps
 
