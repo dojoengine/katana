@@ -1163,8 +1163,14 @@ handle_control_command() {
             fi
 
             log "Starting katana asynchronously..."
+            # Close FD 3 (the control-channel virtio-serial port) in the
+            # backgrounded child. Otherwise katana inherits it and pins the
+            # underlying /dev/virtio-ports/* device, so when the outer loop
+            # tries to re-open FD 3 after the host disconnects it fails with
+            # EBUSY — and a failed `exec` redirect under POSIX `set -e`
+            # terminates init, panicking the kernel.
             # shellcheck disable=SC2086
-            /bin/katana --db-dir="$KATANA_DB_DIR" $KATANA_ARGS &
+            /bin/katana --db-dir="$KATANA_DB_DIR" $KATANA_ARGS 3<&- 3>&- &
             KATANA_PID=$!
             KATANA_EXIT_CODE="running"
             respond_control "ok started pid=$KATANA_PID"
