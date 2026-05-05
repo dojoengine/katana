@@ -686,6 +686,7 @@ if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
         "kernel/crypto/crypto_simd.ko"
         "kernel/arch/x86/crypto/aesni-intel.ko"
         "kernel/arch/x86/crypto/sha256-ssse3.ko"
+        "kernel/crypto/authenc.ko"
         "kernel/drivers/md/dm-bufio.ko"
         "kernel/drivers/md/dm-crypt.ko"
         "kernel/drivers/md/dm-integrity.ko"
@@ -852,7 +853,7 @@ load_dm_modules() {
     # AESNI-backed xts(aes) is the only `aes` impl that satisfies
     # dm-crypt's CRYPTO_ALG_ALLOCATES_MEMORY constraint. sha256-ssse3
     # covers the same constraint for dm-integrity's hmac(sha256).
-    for mod in xor async_tx async_xor cryptd crypto_simd aesni-intel sha256-ssse3 dm-bufio dm-crypt dm-integrity; do
+    for mod in xor async_tx async_xor cryptd crypto_simd aesni-intel sha256-ssse3 authenc dm-bufio dm-crypt dm-integrity; do
         if [ ! -f "/lib/modules/${mod}.ko" ]; then
             teardown_and_halt "load_dm_modules: /lib/modules/${mod}.ko missing"
         fi
