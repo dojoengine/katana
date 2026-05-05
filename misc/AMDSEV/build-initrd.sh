@@ -12,8 +12,14 @@
 #                          sealed storage. (dm-mod is built into the Ubuntu 6.8
 #                          kernel — see modules.builtin — so we don't ship it.)
 #   - linux-modules-extra: Contains SEV-SNP kernel modules (tsm.ko, sev-guest.ko)
-#   - cryptsetup (source): Built statically inside a pinned Alpine container
-#                          for LUKS2 sealed-storage unlock in the measured initrd
+#
+# Sealed-storage builds also consume two pre-built static binaries —
+# `cryptsetup` and `mkfs.ext2` — supplied via the CRYPTSETUP_BINARY and
+# MKFS_EXT2_BINARY env vars. Building them is the job of
+# `misc/AMDSEV/build-cryptsetup.sh`; `misc/AMDSEV/build.sh` calls that script
+# automatically when the operator did not pass `--cryptsetup`/`--mkfs-ext2`
+# paths. Decoupling the source build from this script means an unsealed-only
+# initrd run never needs Docker on the host.
 #
 # Usage:
 #   ./build-initrd.sh KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]
@@ -35,10 +41,11 @@ REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod powero
                    tr grep rm mkfifo)
 SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync \
                   tr grep rm mkfifo)
-# `mkfs.ext2` is not a busybox-static applet on Ubuntu, so a static binary is
-# built from e2fsprogs source inside the cryptsetup builder container and
-# installed as `/bin/mkfs.ext2`. `blkid` is similarly absent from busybox-
-# static; the init avoids it via a try-mount-then-mkfs fallback.
+# `mkfs.ext2` is not a busybox-static applet on Ubuntu, so a static binary
+# (built by build-cryptsetup.sh from e2fsprogs source) is supplied via
+# MKFS_EXT2_BINARY and installed as `/bin/mkfs.ext2`. `blkid` is similarly
+# absent from busybox-static; the init avoids it via a try-mount-then-mkfs
+# fallback.
 
 usage() {
     echo "Usage: $0 KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]"
@@ -59,19 +66,20 @@ usage() {
     echo "  KERNEL_MODULES_PKG_SHA256        SHA256 checksum of the linux-modules .deb"
     echo "  KERNEL_MODULES_EXTRA_PKG_VERSION Exact apt package version for linux-modules-extra"
     echo "  KERNEL_MODULES_EXTRA_PKG_SHA256  SHA256 checksum of the linux-modules-extra .deb"
-    echo "  CRYPTSETUP_VERSION               Exact cryptsetup source release (e.g., 2.7.5)"
-    echo "  CRYPTSETUP_SHA256                SHA256 checksum of the cryptsetup source tarball"
-    echo "  LVM2_VERSION                     Exact LVM2 source release (e.g., 2.03.23)"
-    echo "                                   used to build static libdevmapper.a"
-    echo "  LVM2_SHA256                      SHA256 checksum of the LVM2 source tarball"
-    echo "  E2FSPROGS_VERSION                Exact e2fsprogs source release (e.g., 1.47.0)"
-    echo "                                   used to build static mkfs.ext2"
-    echo "  E2FSPROGS_SHA256                 SHA256 checksum of the e2fsprogs source tarball"
-    echo "  CRYPTSETUP_BUILDER_IMAGE         Pinned container image digest used to build"
-    echo "                                   cryptsetup statically (e.g., alpine@sha256:...)"
+    echo "  CRYPTSETUP_BINARY                Path to a pre-built static cryptsetup binary"
+    echo "                                   (build via misc/AMDSEV/build-cryptsetup.sh)"
+    echo "  MKFS_EXT2_BINARY                 Path to a pre-built static mkfs.ext2 binary"
+    echo "                                   (built by the same script)"
+    echo "  SNP_DERIVEKEY_BINARY             Path to a pre-built static snp-derivekey"
+    echo "                                   binary (required for sealed boot to work at"
+    echo "                                   runtime). Build with:"
+    echo "                                     cargo build -p katana-tee --features snp \\"
+    echo "                                                 --bin snp-derivekey --release \\"
+    echo "                                                 --target x86_64-unknown-linux-musl"
     echo ""
-    echo "All of these have canonical defaults in misc/AMDSEV/build-config; the"
-    echo "expected invocation is to source that file and run this script."
+    echo "All of these have canonical defaults / auto-build paths via"
+    echo "misc/AMDSEV/build.sh; the expected invocation is to source"
+    echo "misc/AMDSEV/build-config and run build.sh, not this script directly."
     echo ""
     echo "OPTIONAL ENVIRONMENT VARIABLES:"
     echo "  KATANA_UNSEALED_BUILD            Set to 1 to opt OUT of the sealed build."
@@ -80,16 +88,6 @@ usage() {
     echo "                                   dm-* modules, no snp-derivekey. Used by CI"
     echo "                                   on hosts without Docker and for cheap dev"
     echo "                                   iteration."
-    echo "  CRYPTSETUP_BUILDER               Container runtime to use (default: docker;"
-    echo "                                   can be set to podman or another compatible CLI)"
-    echo "  SNP_DERIVEKEY_BINARY             Path to a pre-built static snp-derivekey"
-    echo "                                   binary. Required for sealed-mode boot to work"
-    echo "                                   at runtime; if absent, the initrd builds but"
-    echo "                                   sealed boot will fatal_boot at first cryptsetup"
-    echo "                                   call. Build with:"
-    echo "                                     cargo build -p katana-tee --features snp \\"
-    echo "                                                 --bin snp-derivekey --release \\"
-    echo "                                                 --target x86_64-unknown-linux-musl"
     echo ""
     echo "EXAMPLES:"
     echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
@@ -99,9 +97,9 @@ usage() {
     echo "  export KERNEL_MODULES_PKG_SHA256='aaa111...'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_VERSION='6.8.0-90.99'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_SHA256='def456...'"
-    echo "  export CRYPTSETUP_VERSION='2.7.5'"
-    echo "  export CRYPTSETUP_SHA256='ghi789...'"
-    echo "  export CRYPTSETUP_BUILDER_IMAGE='alpine@sha256:jkl012...'"
+    echo "  export CRYPTSETUP_BINARY=./target/cryptsetup-static/cryptsetup"
+    echo "  export MKFS_EXT2_BINARY=./target/cryptsetup-static/mkfs.ext2"
+    echo "  export SNP_DERIVEKEY_BINARY=./target/.../snp-derivekey"
     echo "  $0 ./katana ./initrd.img 6.8.0-90"
     exit 1
 }
@@ -176,9 +174,10 @@ echo "Package versions:"
 echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
 echo "  linux-modules:         ${KERNEL_MODULES_PKG_VERSION:-<not set>}"
 echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
-echo "  cryptsetup (source):   ${CRYPTSETUP_VERSION:-<not set>}"
-echo "  LVM2 (source):         ${LVM2_VERSION:-<not set>}"
-echo "  cryptsetup builder:    ${CRYPTSETUP_BUILDER_IMAGE:-<not set>}"
+echo "Static binaries (sealed-mode only):"
+echo "  cryptsetup binary:     ${CRYPTSETUP_BINARY:-<not set>}"
+echo "  mkfs.ext2 binary:      ${MKFS_EXT2_BINARY:-<not set>}"
+echo "  snp-derivekey binary:  ${SNP_DERIVEKEY_BINARY:-<not set>}"
 
 if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
     die "SOURCE_DATE_EPOCH must be set for reproducible builds"
@@ -198,14 +197,17 @@ if [[ ! -w "$OUTPUT_DIR" ]]; then
     die "Output directory is not writable: $OUTPUT_DIR"
 fi
 
-REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr curl tar)
+REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr)
 for tool in "${REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
 done
 
-# Sealed-storage is the canonical build. The pinned env vars come from
-# `misc/AMDSEV/build-config`; sourcing that file is the standard way to invoke
-# this script (see `.github/workflows/amdsev-initrd-test.yml`).
+# Sealed-storage is the canonical build. Required env vars come from
+# `misc/AMDSEV/build-config` (kernel module pins) plus three pre-built static
+# binary paths produced by `misc/AMDSEV/build-cryptsetup.sh` and
+# `cargo build -p katana-tee --features snp` respectively. Both source builds
+# are wired up by `misc/AMDSEV/build.sh`; sourcing build-config and running
+# build.sh is the standard invocation (see `.github/workflows/amdsev-initrd-test.yml`).
 #
 # Opt out by setting `KATANA_UNSEALED_BUILD=1` in the environment. Used by
 # CI on hosts without Docker and for cheap dev-iteration builds. The result
@@ -219,40 +221,41 @@ if [[ "${KATANA_UNSEALED_BUILD:-0}" -eq 1 ]]; then
     SEALED_STORAGE_BUILD=0
 else
     SEALED_STORAGE_BUILD=1
-    : "${CRYPTSETUP_VERSION:?canonical sealed build requires CRYPTSETUP_VERSION (source build-config or set KATANA_UNSEALED_BUILD=1 to opt out)}"
-    : "${CRYPTSETUP_SHA256:?canonical sealed build requires CRYPTSETUP_SHA256}"
-    : "${CRYPTSETUP_BUILDER_IMAGE:?canonical sealed build requires CRYPTSETUP_BUILDER_IMAGE}"
-    : "${KERNEL_MODULES_PKG_VERSION:?canonical sealed build requires KERNEL_MODULES_PKG_VERSION}"
+    : "${KERNEL_MODULES_PKG_VERSION:?canonical sealed build requires KERNEL_MODULES_PKG_VERSION (source build-config or set KATANA_UNSEALED_BUILD=1 to opt out)}"
     : "${KERNEL_MODULES_PKG_SHA256:?canonical sealed build requires KERNEL_MODULES_PKG_SHA256}"
-    : "${LVM2_VERSION:?canonical sealed build requires LVM2_VERSION}"
-    : "${LVM2_SHA256:?canonical sealed build requires LVM2_SHA256}"
-    : "${E2FSPROGS_VERSION:?canonical sealed build requires E2FSPROGS_VERSION}"
-    : "${E2FSPROGS_SHA256:?canonical sealed build requires E2FSPROGS_SHA256}"
 fi
 
-# Static cryptsetup is built inside a pinned container. Verify the chosen
-# runtime is installed now so we fail fast, not after an hour of downloading.
-# Only required when sealed-storage build is requested.
-if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
-    CRYPTSETUP_BUILDER="${CRYPTSETUP_BUILDER:-docker}"
-    command -v "$CRYPTSETUP_BUILDER" >/dev/null 2>&1 \
-        || die "Container runtime '$CRYPTSETUP_BUILDER' not found. Install docker/podman or set CRYPTSETUP_BUILDER."
-fi
-
-# Path to a pre-built static snp-derivekey binary. The init's unseal flow
-# spawns this helper to read 32 bytes of SNP-derived key into the LUKS
-# keyfile FIFO; without it the cryptsetup call blocks indefinitely.
-# Required for sealed builds. Build with:
-#   cargo build -p katana-tee --features snp --bin snp-derivekey \
-#       --profile performance --target x86_64-unknown-linux-musl
+# Pre-built static binary paths. The install step below runs after
+# `cd "$INITRD_DIR"` and a relative path would no longer reach the host
+# binary from there, so resolve to absolute up front (same treatment as
+# KATANA_BINARY above).
+#
+#   CRYPTSETUP_BINARY / MKFS_EXT2_BINARY  — produced by build-cryptsetup.sh
+#   SNP_DERIVEKEY_BINARY                  — produced by `cargo build -p katana-tee
+#                                           --features snp --bin snp-derivekey`
+#
+# All three are required for sealed builds. The init's unseal flow spawns
+# snp-derivekey to read 32 bytes of SNP-derived key into the LUKS keyfile
+# FIFO; without it the cryptsetup call blocks indefinitely.
+CRYPTSETUP_BINARY="${CRYPTSETUP_BINARY:-}"
+MKFS_EXT2_BINARY="${MKFS_EXT2_BINARY:-}"
 SNP_DERIVEKEY_BINARY="${SNP_DERIVEKEY_BINARY:-}"
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
+    [[ -n "$CRYPTSETUP_BINARY" ]] \
+        || die "SEALED_STORAGE_BUILD=1 but CRYPTSETUP_BINARY is unset (build via build.sh which auto-builds it, or pass --cryptsetup PATH)"
+    [[ -n "$MKFS_EXT2_BINARY" ]] \
+        || die "SEALED_STORAGE_BUILD=1 but MKFS_EXT2_BINARY is unset (build via build.sh which auto-builds it, or pass --mkfs-ext2 PATH)"
     [[ -n "$SNP_DERIVEKEY_BINARY" ]] \
-        || die "SEALED_STORAGE_BUILD=1 but SNP_DERIVEKEY_BINARY is unset (build via build.sh which auto-builds it, or pass the path explicitly)"
-    # Resolve relative paths up front: the install step runs after
-    # `cd "$INITRD_DIR"` and a relative path would no longer reach the host
-    # binary from there. Same treatment as KATANA_BINARY above.
+        || die "SEALED_STORAGE_BUILD=1 but SNP_DERIVEKEY_BINARY is unset (build via build.sh which auto-builds it, or pass --snp-derivekey PATH)"
+
+    CRYPTSETUP_BINARY="$(to_abs_path "$CRYPTSETUP_BINARY")"
+    MKFS_EXT2_BINARY="$(to_abs_path "$MKFS_EXT2_BINARY")"
     SNP_DERIVEKEY_BINARY="$(to_abs_path "$SNP_DERIVEKEY_BINARY")"
+
+    [[ -x "$CRYPTSETUP_BINARY" ]] \
+        || die "CRYPTSETUP_BINARY=$CRYPTSETUP_BINARY does not exist or is not executable"
+    [[ -x "$MKFS_EXT2_BINARY" ]] \
+        || die "MKFS_EXT2_BINARY=$MKFS_EXT2_BINARY does not exist or is not executable"
     [[ -x "$SNP_DERIVEKEY_BINARY" ]] \
         || die "SNP_DERIVEKEY_BINARY=$SNP_DERIVEKEY_BINARY does not exist or is not executable"
 fi
@@ -351,207 +354,7 @@ dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
 log_ok "Packages extracted"
 
 # ==============================================================================
-# SECTION 3: Build Static cryptsetup
-# ==============================================================================
-# Build a statically-linked cryptsetup binary inside a pinned Alpine
-# container. Alpine's musl + `*-static` packages yield a single binary with
-# no runtime library dependencies, which is what we need inside the initrd.
-#
-# The container image is pinned by sha256 digest — same reproducibility bar
-# as the apt packages above. The cryptsetup source tarball is pinned by
-# version + SHA256.
-#
-# Crypto backend: OpenSSL (openssl-libs-static). LUKS2 argon2id KDF uses
-# libargon2 (also static). Optional features (asciidoc docs, ssh token
-# plugin, external tokens, i18n) are disabled — not needed for our narrow
-# open/format/close use in the initrd.
-#
-# The output binary ends up at $WORK_DIR/cryptsetup/cryptsetup-static and is
-# copied into the initrd by the "Install Static cryptsetup" subsection in
-# the Initrd Structure step below.
-
-if [[ "$SEALED_STORAGE_BUILD" -ne 1 ]]; then
-    log_section "Build Static cryptsetup (SKIPPED — unsealed-only build)"
-else
-log_section "Build Static cryptsetup"
-
-CRYPTSETUP_DIR="$WORK_DIR/cryptsetup"
-mkdir -p "$CRYPTSETUP_DIR"
-pushd "$CRYPTSETUP_DIR" >/dev/null
-
-# kernel.org tarball URLs are organised under major.minor (e.g. v2.7).
-CRYPTSETUP_MAJOR_MINOR="$(printf '%s' "$CRYPTSETUP_VERSION" | awk -F. '{print $1"."$2}')"
-CRYPTSETUP_URL="https://www.kernel.org/pub/linux/utils/cryptsetup/v${CRYPTSETUP_MAJOR_MINOR}/cryptsetup-${CRYPTSETUP_VERSION}.tar.xz"
-CRYPTSETUP_TARBALL="cryptsetup-${CRYPTSETUP_VERSION}.tar.xz"
-
-log_info "Downloading $CRYPTSETUP_URL"
-curl -fLsS -o "$CRYPTSETUP_TARBALL" "$CRYPTSETUP_URL"
-
-log_info "Verifying cryptsetup source checksum"
-ACTUAL_SHA256="$(sha256sum "$CRYPTSETUP_TARBALL" | awk '{print $1}')"
-if [[ "$ACTUAL_SHA256" != "$CRYPTSETUP_SHA256" ]]; then
-    die "cryptsetup source checksum mismatch (expected $CRYPTSETUP_SHA256, got $ACTUAL_SHA256)"
-fi
-log_ok "cryptsetup source checksum verified"
-
-log_info "Extracting cryptsetup source"
-tar -xf "$CRYPTSETUP_TARBALL"
-
-LVM2_TARBALL="LVM2.${LVM2_VERSION}.tgz"
-LVM2_URL="https://mirrors.kernel.org/sourceware/lvm2/${LVM2_TARBALL}"
-log_info "Downloading $LVM2_URL"
-curl -fLsS -o "$LVM2_TARBALL" "$LVM2_URL"
-
-log_info "Verifying LVM2 source checksum"
-ACTUAL_SHA256="$(sha256sum "$LVM2_TARBALL" | awk '{print $1}')"
-if [[ "$ACTUAL_SHA256" != "$LVM2_SHA256" ]]; then
-    die "LVM2 source checksum mismatch (expected $LVM2_SHA256, got $ACTUAL_SHA256)"
-fi
-log_ok "LVM2 source checksum verified"
-
-log_info "Extracting LVM2 source"
-tar -xzf "$LVM2_TARBALL"
-
-E2FSPROGS_TARBALL="e2fsprogs-${E2FSPROGS_VERSION}.tar.xz"
-E2FSPROGS_MAJOR_MINOR="$(printf '%s' "$E2FSPROGS_VERSION" | awk -F. '{print $1"."$2}')"
-E2FSPROGS_URL="https://mirrors.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v${E2FSPROGS_VERSION}/${E2FSPROGS_TARBALL}"
-log_info "Downloading $E2FSPROGS_URL"
-curl -fLsS -o "$E2FSPROGS_TARBALL" "$E2FSPROGS_URL"
-
-log_info "Verifying e2fsprogs source checksum"
-ACTUAL_SHA256="$(sha256sum "$E2FSPROGS_TARBALL" | awk '{print $1}')"
-if [[ "$ACTUAL_SHA256" != "$E2FSPROGS_SHA256" ]]; then
-    die "e2fsprogs source checksum mismatch (expected $E2FSPROGS_SHA256, got $ACTUAL_SHA256)"
-fi
-log_ok "e2fsprogs source checksum verified"
-
-log_info "Extracting e2fsprogs source"
-tar -xf "$E2FSPROGS_TARBALL"
-
-log_info "Building statically inside $CRYPTSETUP_BUILDER_IMAGE"
-# Three-stage build inside the container:
-#
-#   Stage 1: build libdevmapper.a from LVM2 source. Alpine 3.20 ships only a
-#   shared libdevmapper.so; cryptsetup needs the static .a to link with
-#   `-all-static`. We build LVM2's device-mapper subset and install
-#   /usr/lib/libdevmapper.a + /usr/include/libdevmapper.h.
-#
-#   Stage 2: cryptsetup configure + make against that newly-installed .a.
-#   Output binary is at the source root (cryptsetup 2.x layout, NOT src/).
-#
-#   Stage 3: build static mke2fs from e2fsprogs source. Ubuntu's busybox-
-#   static does not include `mkfs.ext2`, and Alpine's e2fsprogs-static
-#   ships only static libraries (no binaries). The init's unseal flow
-#   needs mkfs.ext2 to format the decrypted mapper on first boot.
-#
-# The container runs as root (apk add requires it). Once the build is done,
-# chown the output binaries to the invoking host user so subsequent host-side
-# steps — including the trap's rm -rf "$WORK_DIR" — don't trip over root-
-# owned files. SOURCE_DATE_EPOCH is forwarded so any timestamps embedded in
-# the binary match the host's reproducibility anchor.
-#
-# `bash` is required because cryptsetup's tests/generate-symbols-list (run
-# during `make all`) has a `#!/bin/bash` shebang and Alpine's busybox sh is
-# not bash.
-HOST_UID="$(id -u)"
-HOST_GID="$(id -g)"
-"$CRYPTSETUP_BUILDER" run --rm \
-    -v "$CRYPTSETUP_DIR:/build" \
-    -w "/build" \
-    -e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" \
-    -e "HOST_UID=${HOST_UID}" \
-    -e "HOST_GID=${HOST_GID}" \
-    -e "CRYPTSETUP_VERSION=${CRYPTSETUP_VERSION}" \
-    -e "LVM2_VERSION=${LVM2_VERSION}" \
-    -e "E2FSPROGS_VERSION=${E2FSPROGS_VERSION}" \
-    "$CRYPTSETUP_BUILDER_IMAGE" \
-    sh -euc '
-        # libblkid.a / libuuid.a are part of util-linux-static (verified
-        # against the pinned alpine@sha256:1e42bbe… image — those .a files
-        # live at /usr/lib/libblkid.a, /usr/lib/libuuid.a, owned by
-        # util-linux-static-2.40.1-r1). There are no separate
-        # libblkid-static / libuuid-static packages in Alpine.
-        apk add --no-cache \
-            bash \
-            build-base linux-headers pkgconf \
-            openssl-dev openssl-libs-static \
-            popt-dev popt-static \
-            json-c-dev \
-            util-linux-dev util-linux-static \
-            argon2-dev argon2-static
-
-        # Stage 1: static libdevmapper.a from LVM2.
-        cd "/build/LVM2.${LVM2_VERSION}"
-        ./configure \
-            --enable-static_link \
-            --disable-selinux --disable-readline \
-            --disable-udev_sync --disable-udev_rules \
-            --disable-blkid_wiping
-        make -j"$(nproc)" device-mapper
-        cp libdm/ioctl/libdevmapper.a /usr/lib/libdevmapper.a
-        cp libdm/libdevmapper.h /usr/include/libdevmapper.h
-
-        # Stage 2: cryptsetup, statically linked.
-        cd "/build/cryptsetup-${CRYPTSETUP_VERSION}"
-        ./configure \
-            --disable-shared \
-            --enable-static \
-            --with-crypto_backend=openssl \
-            --disable-asciidoc \
-            --disable-ssh-token \
-            --disable-external-tokens \
-            --disable-nls
-        make -j"$(nproc)" LDFLAGS="-all-static"
-        # cryptsetup 2.x lays the binary at the source-tree root, not in src/.
-        strip ./cryptsetup
-        cp ./cryptsetup /build/cryptsetup-static
-
-        # Stage 3: static mkfs.ext2 from e2fsprogs.
-        cd "/build/e2fsprogs-${E2FSPROGS_VERSION}"
-        ./configure \
-            --enable-static --disable-shared \
-            --disable-elf-shlibs --disable-nls --disable-rpath \
-            --disable-tdb \
-            LDFLAGS="-static"
-        make -j"$(nproc)"
-        strip ./misc/mke2fs
-        cp ./misc/mke2fs /build/mkfs.ext2-static
-
-        chown "${HOST_UID}:${HOST_GID}" /build/cryptsetup-static /build/mkfs.ext2-static
-        # Intermediate build artefacts stay root-owned inside /build. The host
-        # owns $CRYPTSETUP_DIR itself, so the trap'"'"'s rm -rf can still unlink
-        # them; but make the leaf directories writable by the host user so any
-        # follow-up inspection (find, ls) does not hit permission errors.
-        chown -R "${HOST_UID}:${HOST_GID}" /build
-    '
-
-for out in cryptsetup-static mkfs.ext2-static; do
-    [[ -x "$CRYPTSETUP_DIR/$out" ]] \
-        || die "$out static build did not produce a binary at $CRYPTSETUP_DIR/$out"
-done
-
-log_info "Verifying static linkage"
-for out in cryptsetup-static mkfs.ext2-static; do
-    LDD_OUT="$(ldd "$CRYPTSETUP_DIR/$out" 2>&1 || true)"
-    if echo "$LDD_OUT" | grep -qE "not a dynamic executable|statically linked"; then
-        log_ok "$out is statically linked"
-    else
-        log_warn "$out may not be fully static:"
-        echo "$LDD_OUT" | sed 's/^/    /'
-        die "$out must be statically linked to run in the initrd"
-    fi
-done
-
-log_info "Normalising timestamps for reproducibility"
-touch -d "@${SOURCE_DATE_EPOCH}" \
-    "$CRYPTSETUP_DIR/cryptsetup-static" \
-    "$CRYPTSETUP_DIR/mkfs.ext2-static"
-
-popd >/dev/null
-fi  # SEALED_STORAGE_BUILD
-
-# ==============================================================================
-# SECTION 4: Build Initrd Structure
+# SECTION 3: Build Initrd Structure
 # ==============================================================================
 
 log_section "Build Initrd Structure"
@@ -598,25 +401,22 @@ log_ok "Busybox installed and applets validated"
 # ------------------------------------------------------------------------------
 # Install Static cryptsetup + mkfs.ext2 (sealed-storage build only)
 # ------------------------------------------------------------------------------
-# Built in SECTION 3 via a pinned Alpine container. Both binaries are fully
-# static, so no .so files need to be vendored alongside them. cryptsetup
-# unlocks the LUKS volume; mkfs.ext2 formats the decrypted mapper on first
-# boot (Ubuntu's busybox-static does not include the mkfs.ext2 applet).
+# Both binaries are pre-built (by misc/AMDSEV/build-cryptsetup.sh) and
+# supplied via $CRYPTSETUP_BINARY / $MKFS_EXT2_BINARY. They're fully static,
+# so no .so files need to be vendored alongside them. cryptsetup unlocks the
+# LUKS volume; mkfs.ext2 formats the decrypted mapper on first boot (Ubuntu's
+# busybox-static does not include the mkfs.ext2 applet).
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
-    log_info "Installing static cryptsetup"
-    [[ -x "$CRYPTSETUP_DIR/cryptsetup-static" ]] \
-        || die "cryptsetup-static not found at $CRYPTSETUP_DIR/cryptsetup-static (SECTION 3 did not run?)"
-    cp "$CRYPTSETUP_DIR/cryptsetup-static" bin/cryptsetup
+    log_info "Installing static cryptsetup from $CRYPTSETUP_BINARY"
+    cp "$CRYPTSETUP_BINARY" bin/cryptsetup
     chmod +x bin/cryptsetup
     if ! bin/cryptsetup --version >/dev/null 2>&1; then
         die "Installed cryptsetup binary is not functional"
     fi
     log_ok "cryptsetup installed"
 
-    log_info "Installing static mkfs.ext2"
-    [[ -x "$CRYPTSETUP_DIR/mkfs.ext2-static" ]] \
-        || die "mkfs.ext2-static not found at $CRYPTSETUP_DIR/mkfs.ext2-static (SECTION 3 did not run?)"
-    cp "$CRYPTSETUP_DIR/mkfs.ext2-static" bin/mkfs.ext2
+    log_info "Installing static mkfs.ext2 from $MKFS_EXT2_BINARY"
+    cp "$MKFS_EXT2_BINARY" bin/mkfs.ext2
     chmod +x bin/mkfs.ext2
     log_ok "mkfs.ext2 installed"
 fi
@@ -1335,7 +1135,7 @@ echo "root:x:0:" > etc/group
 log_ok "/etc files created"
 
 # ==============================================================================
-# SECTION 5: Create CPIO Archive
+# SECTION 4: Create CPIO Archive
 # ==============================================================================
 
 log_section "Create CPIO Archive"
@@ -1371,7 +1171,7 @@ find . -print0 | LC_ALL=C sort -z | cpio "${CPIO_FLAGS[@]}" | gzip -n > "$OUTPUT
 touch -d "@${SOURCE_DATE_EPOCH}" "$OUTPUT_INITRD"
 
 # ==============================================================================
-# SECTION 6: Final Validation
+# SECTION 5: Final Validation
 # ==============================================================================
 
 log_section "Final Validation"

@@ -16,8 +16,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export OVMF_GIT_URL OVMF_BRANCH OVMF_COMMIT KERNEL_VERSION
 export KERNEL_PKG_SHA256 BUSYBOX_PKG_SHA256 KERNEL_MODULES_EXTRA_PKG_SHA256
 export BUSYBOX_PKG_VERSION KERNEL_MODULES_EXTRA_PKG_VERSION
-# Sealed-storage build pins (canonical build path; build-initrd.sh requires
-# all of these unless KATANA_UNSEALED_BUILD=1 is set in the environment).
+# Sealed-storage build pins. KERNEL_MODULES_* is consumed by build-initrd.sh;
+# CRYPTSETUP_*, LVM2_*, E2FSPROGS_*, CRYPTSETUP_BUILDER_IMAGE are consumed by
+# build-cryptsetup.sh (auto-invoked below when CRYPTSETUP_BINARY/MKFS_EXT2_BINARY
+# aren't already supplied). All required unless KATANA_UNSEALED_BUILD=1.
 export KERNEL_MODULES_PKG_VERSION KERNEL_MODULES_PKG_SHA256
 export CRYPTSETUP_VERSION CRYPTSETUP_SHA256 CRYPTSETUP_BUILDER_IMAGE
 export LVM2_VERSION LVM2_SHA256
@@ -47,13 +49,20 @@ function usage()
 	echo "  --snp-derivekey PATH    Path to snp-derivekey binary (optional; auto-built if not"
 	echo "                          provided). Required for sealed-mode initrd unless"
 	echo "                          KATANA_UNSEALED_BUILD=1 is set."
+	echo "  --cryptsetup PATH       Path to a static cryptsetup binary (optional; auto-built"
+	echo "                          via build-cryptsetup.sh if not provided). Required for"
+	echo "                          sealed-mode initrd."
+	echo "  --mkfs-ext2 PATH        Path to a static mkfs.ext2 binary (optional; auto-built"
+	echo "                          via build-cryptsetup.sh if not provided). Required for"
+	echo "                          sealed-mode initrd."
 	echo "  -h|--help               Usage information"
 	echo ""
 	echo "COMPONENTS (if none specified, builds all):"
 	echo "  ovmf                    Build OVMF firmware"
 	echo "  kernel                  Build kernel"
-	echo "  initrd                  Build initrd (auto-builds katana + snp-derivekey if their"
-	echo "                          --... flags / SNP_DERIVEKEY_BINARY are not set)"
+	echo "  initrd                  Build initrd (auto-builds katana, snp-derivekey, and"
+	echo "                          cryptsetup + mkfs.ext2 if their --... flags / *_BINARY"
+	echo "                          env vars are not set)"
 
 	exit 1
 }
@@ -82,6 +91,18 @@ while [ -n "$1" ]; do
 		# The auto-build branch below already exports; this is for the
 		# `--snp-derivekey PATH` short-circuit case.
 		export SNP_DERIVEKEY_BINARY="$2"
+		shift; shift
+		;;
+	--cryptsetup)
+		[ -z "$2" ] && usage
+		# Same export rationale as --snp-derivekey: build-initrd.sh runs
+		# as a child process and reads CRYPTSETUP_BINARY from the env.
+		export CRYPTSETUP_BINARY="$2"
+		shift; shift
+		;;
+	--mkfs-ext2)
+		[ -z "$2" ] && usage
+		export MKFS_EXT2_BINARY="$2"
 		shift; shift
 		;;
 	-h|--help)
@@ -196,6 +217,41 @@ if [ $BUILD_INITRD -eq 1 ] \
 	fi
 	export SNP_DERIVEKEY_BINARY
 	echo "Using snp-derivekey: $SNP_DERIVEKEY_BINARY"
+fi
+
+# Build static cryptsetup + mkfs.ext2 for the canonical sealed initrd unless
+# the operator opted out (KATANA_UNSEALED_BUILD=1) or pre-supplied both
+# binary paths. The container build is non-trivial (~2-3 minutes the first
+# time apk-add fetches its mirror), so we cache outputs under
+# $PROJECT_ROOT/target/cryptsetup-static and skip when both binaries are
+# already present.
+if [ $BUILD_INITRD -eq 1 ] \
+   && [ "${KATANA_UNSEALED_BUILD:-0}" -ne 1 ] \
+   && { [ -z "${CRYPTSETUP_BINARY:-}" ] || [ -z "${MKFS_EXT2_BINARY:-}" ]; }; then
+	PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+	CRYPTSETUP_OUT_DIR="${PROJECT_ROOT}/target/cryptsetup-static"
+	CRYPTSETUP_BINARY="${CRYPTSETUP_BINARY:-${CRYPTSETUP_OUT_DIR}/cryptsetup}"
+	MKFS_EXT2_BINARY="${MKFS_EXT2_BINARY:-${CRYPTSETUP_OUT_DIR}/mkfs.ext2}"
+
+	if [ ! -x "$CRYPTSETUP_BINARY" ] || [ ! -x "$MKFS_EXT2_BINARY" ]; then
+		echo ""
+		echo "Building static cryptsetup + mkfs.ext2 (sealed-storage helpers)..."
+		"${SCRIPT_DIR}/build-cryptsetup.sh" "$CRYPTSETUP_OUT_DIR" || {
+			echo "build-cryptsetup.sh failed"
+			exit 1
+		}
+	fi
+	if [ ! -x "$CRYPTSETUP_BINARY" ]; then
+		echo "ERROR: cryptsetup binary missing at $CRYPTSETUP_BINARY"
+		exit 1
+	fi
+	if [ ! -x "$MKFS_EXT2_BINARY" ]; then
+		echo "ERROR: mkfs.ext2 binary missing at $MKFS_EXT2_BINARY"
+		exit 1
+	fi
+	export CRYPTSETUP_BINARY MKFS_EXT2_BINARY
+	echo "Using cryptsetup: $CRYPTSETUP_BINARY"
+	echo "Using mkfs.ext2:  $MKFS_EXT2_BINARY"
 fi
 
 mkdir -p $INSTALL_DIR
