@@ -16,6 +16,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export OVMF_GIT_URL OVMF_BRANCH OVMF_COMMIT KERNEL_VERSION
 export KERNEL_PKG_SHA256 BUSYBOX_PKG_SHA256 KERNEL_MODULES_EXTRA_PKG_SHA256
 export BUSYBOX_PKG_VERSION KERNEL_MODULES_EXTRA_PKG_VERSION
+# Sealed-storage build pins (canonical build path; build-initrd.sh requires
+# all five unless KATANA_UNSEALED_BUILD=1 is set in the environment).
+export KERNEL_MODULES_PKG_VERSION KERNEL_MODULES_PKG_SHA256
+export CRYPTSETUP_VERSION CRYPTSETUP_SHA256 CRYPTSETUP_BUILDER_IMAGE
 
 # Set SOURCE_DATE_EPOCH if not already set (for reproducible builds)
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(date +%s)}"
