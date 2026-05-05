@@ -249,6 +249,10 @@ SNP_DERIVEKEY_BINARY="${SNP_DERIVEKEY_BINARY:-}"
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     [[ -n "$SNP_DERIVEKEY_BINARY" ]] \
         || die "SEALED_STORAGE_BUILD=1 but SNP_DERIVEKEY_BINARY is unset (build via build.sh which auto-builds it, or pass the path explicitly)"
+    # Resolve relative paths up front: the install step runs after
+    # `cd "$INITRD_DIR"` and a relative path would no longer reach the host
+    # binary from there. Same treatment as KATANA_BINARY above.
+    SNP_DERIVEKEY_BINARY="$(to_abs_path "$SNP_DERIVEKEY_BINARY")"
     [[ -x "$SNP_DERIVEKEY_BINARY" ]] \
         || die "SNP_DERIVEKEY_BINARY=$SNP_DERIVEKEY_BINARY does not exist or is not executable"
 fi
