@@ -159,6 +159,23 @@ if [ $BUILD_INITRD -eq 1 ] && [ -z "$KATANA_BINARY" ]; then
 	esac
 
 	PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+	if ! command -v cargo >/dev/null 2>&1; then
+		echo ""
+		echo "ERROR: cargo is not on PATH."
+		echo ""
+		echo "If you are running build.sh under sudo, cargo is likely installed under your"
+		echo "regular user (\$HOME/.cargo/bin) but not in root's PATH. Two options:"
+		echo ""
+		echo "  1. Pre-build katana as your normal user, then pass the path:"
+		echo "       ${PROJECT_ROOT}/scripts/build-musl.sh"
+		echo "       sudo $0 --katana \\"
+		echo "         ${PROJECT_ROOT}/target/x86_64-unknown-linux-musl/performance/katana ..."
+		echo ""
+		echo "  2. Run build.sh with sudo -E to inherit your PATH (assumes cargo on it)."
+		echo ""
+		echo "If cargo is genuinely not installed, set it up via rustup: https://rustup.rs"
+		exit 1
+	fi
 	"${PROJECT_ROOT}/scripts/build-musl.sh"
 	if [ $? -ne 0 ]; then
 		echo "Katana build failed"
