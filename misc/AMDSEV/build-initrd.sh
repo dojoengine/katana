@@ -667,11 +667,25 @@ if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     fi
 
     # Order here is the order the init script will insmod them. Matches the
-    # depmod-resolved chain: leaf deps first, then dm-integrity last.
+    # depmod-resolved chain: leaf deps first, dm-integrity last.
+    #
+    # The crypto modules (cryptd / crypto_simd / aesni-intel / sha256-ssse3)
+    # are required because dm-crypt allocates its skcipher with
+    # CRYPTO_ALG_ALLOCATES_MEMORY, which excludes the kernel-builtin
+    # `aes_generic` (it allocates memory in the hot path). Without an
+    # AESNI-backed `xts(aes)`, dm-crypt fails with `Error allocating crypto
+    # tfm (-ENOENT)` at the first luksFormat. Same constraint applies to
+    # `hmac(sha256)` for dm-integrity; sha256-ssse3 covers it. AMD EPYC
+    # hosts (the only ones that run SEV-SNP) always have AESNI + SSSE3, so
+    # these modules always load successfully.
     DM_MODULES=(
         "kernel/crypto/xor.ko"
         "kernel/crypto/async_tx/async_tx.ko"
         "kernel/crypto/async_tx/async_xor.ko"
+        "kernel/crypto/cryptd.ko"
+        "kernel/crypto/crypto_simd.ko"
+        "kernel/arch/x86/crypto/aesni-intel.ko"
+        "kernel/arch/x86/crypto/sha256-ssse3.ko"
         "kernel/drivers/md/dm-bufio.ko"
         "kernel/drivers/md/dm-crypt.ko"
         "kernel/drivers/md/dm-integrity.ko"
@@ -825,7 +839,12 @@ parse_cmdline_vars() {
 # branch — an unsealed initrd doesn't ship these modules and never reaches
 # this function.
 load_dm_modules() {
-    for mod in xor async_tx async_xor dm-bufio dm-crypt dm-integrity; do
+    # Order matches the build-initrd module-install list. cryptd /
+    # crypto_simd / aesni-intel must come before dm-crypt because the
+    # AESNI-backed xts(aes) is the only `aes` impl that satisfies
+    # dm-crypt's CRYPTO_ALG_ALLOCATES_MEMORY constraint. sha256-ssse3
+    # covers the same constraint for dm-integrity's hmac(sha256).
+    for mod in xor async_tx async_xor cryptd crypto_simd aesni-intel sha256-ssse3 dm-bufio dm-crypt dm-integrity; do
         if [ ! -f "/lib/modules/${mod}.ko" ]; then
             teardown_and_halt "load_dm_modules: /lib/modules/${mod}.ko missing"
         fi
