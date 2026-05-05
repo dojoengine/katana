@@ -178,8 +178,9 @@ done
 # this script (see `.github/workflows/amdsev-initrd-test.yml`).
 #
 # Opt out by setting `KATANA_UNSEALED_BUILD=1` in the environment. Used by
-# CI on hosts without Docker and for cheap dev-iteration builds. The result is
-# the pre-H5 unsealed-only initrd shape.
+# CI on hosts without Docker and for cheap dev-iteration builds. The result
+# is an unsealed-only initrd: no cryptsetup, no dm-* modules, no
+# snp-derivekey. The init mounts /dev/sda as plain ext4.
 #
 # Setting some but not all sealed env vars is an error — almost certainly a
 # misconfiguration of the operator's build environment rather than an
@@ -1013,8 +1014,11 @@ if [ "$SEALED_MODE" -eq 1 ]; then
     unseal_and_mount
 else
     # Legacy path: plain ext4 on /dev/sda. Kept for backward compat with
-    # non-sealed boot flows (CI, dev). Producing a quote under this path
-    # is equivalent to the pre-H5 attestation model.
+    # non-sealed boot flows (CI, dev). A quote produced from this path is
+    # signed over state read from an unencrypted disk — the launch
+    # measurement is honest, but the operator could have substituted the
+    # database between restarts. Verifiers should pin the sealed-mode
+    # measurement and reject quotes from this one for production use.
     if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
         fatal_boot "failed to mount /dev/sda (unsealed)"
     fi
