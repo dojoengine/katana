@@ -207,7 +207,13 @@ HOST_RPC_PORT=15051
 # Katana control channel
 CONTROL_PORT_NAME="org.katana.control.0"
 CONTROL_SOCKET="/tmp/katana-tee-vm-control.$$.sock"
-CONTROL_TIMEOUT=60
+# How long to wait for both (a) the guest's virtio-serial control port to be
+# ready and (b) Katana to report `running` after `start`. AMD's OVMF SEV fork
+# is built with DEBUG verbosity, and the serial-to-file backend serialises
+# every log line — clearing OVMF alone can take 60-90s on a cold boot before
+# the kernel even loads. First-boot sealed mode adds luksFormat on top.
+# Override via $KATANA_CONTROL_TIMEOUT for slow hosts or the rare hang.
+CONTROL_TIMEOUT="${KATANA_CONTROL_TIMEOUT:-300}"
 
 # VM data disk (required by init script). Persistent on host; NOT cleaned up
 # on exit. Sealed-mode guests treat the disk as LUKS-encrypted; unsealed
