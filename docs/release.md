@@ -159,6 +159,22 @@ The manual `workflow_dispatch` path on `release.yml` is the escape hatch for **p
 
 `<platform>` is one of `linux`, `darwin`, `win32`. `<arch>` is `amd64` or `arm64`.
 
+## Pinned inputs
+
+What's pinned, where, and the current value. Bumping any of these is intentional and changes the resulting binary hash; chase the file in the "Where pinned" column to update.
+
+| Input | Where pinned | Current value |
+|-------|--------------|---------------|
+| Rust toolchain | `RUST_VERSION` env in [`release.yml`](../.github/workflows/release.yml) | `1.89.0` |
+| Reproducible-build base image | `RUST_IMAGE` arg in [`reproducible.Dockerfile`](../reproducible.Dockerfile) | `rust:1.89.0-bookworm@sha256:948f9b08…` (digest-pinned) |
+| glibc runtime (reproducible build) | transitively from the base image | `2.36-9+deb12u13` (Debian 12 / bookworm) |
+| Cairo build environment | container ref in [`release.yml`](../.github/workflows/release.yml) `build-contracts` and `create-draft-release` jobs | `ghcr.io/dojoengine/katana-dev:latest` *(tag-only, not digest-pinned — see [Known gaps](#known-gaps))* |
+| Rust dependency versions | [`Cargo.lock`](../Cargo.lock) | per crate; `cargo update` rolls them. |
+| Cairo / Solidity submodule contents | submodule SHAs in `.gitmodules` + `git ls-tree` | per submodule (`controller`, `openzeppelin`, `piltover`, `vrf`, `avnu`, `forge-std`, `snos`, `explorer`). |
+| Sidecar binaries | [`sidecar-versions.toml`](../sidecar-versions.toml) | `paymaster-service` @ `d89b5d2`; `vrf-server` @ `65d6ff0`. Bumping requires a one-line PR to that file. |
+
+For any specific build, the authoritative record is the `build-info.txt` shipped in the reproducible-build artifact (and surfaced in the workflow run summary).
+
 ## Reproducibility
 
 Reproducible bytes apply to the `release-reproducible-linux-amd64` job only. The matrix builds use host toolchains and free-floating timestamps; they are *signed* by GitHub-managed runners but not byte-reproducible.
@@ -186,6 +202,7 @@ The current pipeline is reproducible *given an intact upstream supply chain*. It
 - **`crates.io` registry.** `Cargo.lock` pins versions but the build still fetches crate tarballs at build time. Reproducibility depends on the registry serving the same bytes for each `(name, version)` pair (which crates.io guarantees for published versions, but is an external dependency on its availability and policy).
 - **Git submodules.** Pinned by commit SHA in the parent repo, but the actual contents are fetched from third-party Git hosts (`github.com/cartridge-gg/*`, `github.com/avnu-labs/*`, etc.) during `git submodule update`. A force-push or repo deletion at the upstream invalidates reproducibility for that tag.
 - **APT packages inside `reproducible.Dockerfile`.** Build-tool versions are recorded in `build-info.txt` after the fact (via `dpkg-query`) but are not pinned by SHA at install time; the `apt-get install` command resolves whatever the image's package indices currently expose. The base image digest pin keeps this stable in practice (the indices baked into `rust:1.89.0-bookworm@sha256:…` don't change), but a rebuild that bumps `RUST_IMAGE` re-rolls these.
+- **`katana-dev` container image.** Referenced as `:latest` in the `build-contracts` and `create-draft-release` jobs (see [Pinned inputs](#pinned-inputs)). A push to that tag — even between two runs of the same release commit — can change the Scarb / asdf versions used to compile contracts, which then changes the contract artifacts the Rust build canonicalizes against. Pinning by digest closes this.
 
 Closing these gaps means: `cargo vendor` checked in (or stored in a content-addressed cache), submodule contents mirrored to a controlled location, and `apt` package downloads pinned by `${Package}=${Version}` with SHA verification (the pattern used in [`misc/AMDSEV/build-config`](../misc/AMDSEV/build-config) for the TEE initrd build). Worth flagging when a downstream consumer needs verifiable supply-chain reproducibility, not just deterministic-output reproducibility.
 
