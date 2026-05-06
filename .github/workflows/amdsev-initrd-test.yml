@@ -8,6 +8,7 @@ on:
             - "misc/AMDSEV/**"
             - "scripts/build-musl.sh"
             - ".github/workflows/amdsev-initrd-test.yml"
+            - "!**/README.md"
 
     pull_request:
         types: [opened, synchronize, ready_for_review]
@@ -15,6 +16,7 @@ on:
             - "misc/AMDSEV/**"
             - "scripts/build-musl.sh"
             - ".github/workflows/amdsev-initrd-test.yml"
+            - "!**/README.md"
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
