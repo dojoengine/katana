@@ -17,6 +17,10 @@ KERNEL_PKG_SHA256="19efb319503d92ecfc92a5e8c9ec5546461d88273b375203c3d4ebbd7ae1d
 BUSYBOX_PKG_VERSION="1:1.36.1-6ubuntu3.1"
 BUSYBOX_PKG_SHA256="944b2728f53ceb3916cec2c962873c9951e612408099601751db2a0a5d81e0ed"
 
+# glibc runtime packages (Ubuntu packages, for dynamically linked katana)
+GLIBC_RUNTIME_PACKAGES="libc6=2.39-0ubuntu8.7 libgcc-s1=14.2.0-4ubuntu2~24.04.1 libstdc++6=14.2.0-4ubuntu2~24.04.1 zlib1g=1:1.3.dfsg-3.1ubuntu2 liblzma5=5.6.1+really5.4.5-1ubuntu0.2"
+GLIBC_RUNTIME_PACKAGE_SHA256S="libc6=955644e8bc2930a9bf8eea5e4c2237c8a118c1e2ac2845b993b6f7f35eefd293 libgcc-s1=aa7fadbe33b78bcf99885318040601c550c208929565b179891d9a3cc2aa68cd libstdc++6=a51f8de7829211db961a31f02158058ad1a95f92ac6d0a5dff6350e2821c54c0 zlib1g=0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1 liblzma5=4c31cc76391ca47dbb4585edc740728f43fe7b6b090f5b3947fc8072db698aca"
+
 # Kernel modules extra (Ubuntu package, for initrd SEV-SNP support)
 KERNEL_MODULES_EXTRA_PKG_VERSION="6.8.0-90.91"
 KERNEL_MODULES_EXTRA_PKG_SHA256="c17bd76779ce68a076dc1ef9b1669947f35f1868f6736dbd0a8a7ccacf7571f3"

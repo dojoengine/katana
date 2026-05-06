@@ -68,7 +68,7 @@ usage help:
 	@echo "    snos-deps:                 Install SNOS test dependencies (pyenv, Python 3.9.15)."
 	@echo "    build-explorer:            Build the explorer."
 	@echo "    contracts:                 Build the contracts."
-	@echo "    tee-sev-snp:               Build AMD SEV-SNP TEE VM components (prompts y/N to build katana unless KATANA_BINARY is set)."
+	@echo "    tee-sev-snp:               Build AMD SEV-SNP TEE VM components (prompts y/N to build glibc katana unless KATANA_BINARY is set)."
 	@echo "    fixtures:            	  Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."

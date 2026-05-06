@@ -24,6 +24,7 @@ export KERNEL_MODULES_PKG_VERSION KERNEL_MODULES_PKG_SHA256
 export CRYPTSETUP_VERSION CRYPTSETUP_SHA256 CRYPTSETUP_BUILDER_IMAGE
 export LVM2_VERSION LVM2_SHA256
 export E2FSPROGS_VERSION E2FSPROGS_SHA256
+export GLIBC_RUNTIME_PACKAGES GLIBC_RUNTIME_PACKAGE_SHA256S
 
 # Set SOURCE_DATE_EPOCH if not already set (for reproducible builds)
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(date +%s)}"
@@ -60,7 +61,7 @@ function usage()
 	echo "COMPONENTS (if none specified, builds all):"
 	echo "  ovmf                    Build OVMF firmware"
 	echo "  kernel                  Build kernel"
-	echo "  initrd                  Build initrd (auto-builds katana, snp-derivekey, and"
+	echo "  initrd                  Build initrd (auto-builds glibc katana, snp-derivekey, and"
 	echo "                          cryptsetup + mkfs.ext2 if their --... flags / *_BINARY"
 	echo "                          env vars are not set)"
 
@@ -147,10 +148,10 @@ if [ $BUILD_INITRD -eq 1 ] && [ -z "$KATANA_BINARY" ]; then
 		exit 1
 	fi
 
-	read -r -p "Build katana from source with musl now? [y/N] " CONFIRM_BUILD_KATANA
+	read -r -p "Build katana from source with glibc now? [y/N] " CONFIRM_BUILD_KATANA
 	case "$CONFIRM_BUILD_KATANA" in
 		[yY]|[yY][eE][sS])
-			echo "Building katana with musl..."
+			echo "Building katana with glibc..."
 			;;
 		*)
 			echo "Aborting. Provide --katana /path/to/katana to use a pre-built binary."
@@ -167,21 +168,21 @@ if [ $BUILD_INITRD -eq 1 ] && [ -z "$KATANA_BINARY" ]; then
 		echo "regular user (\$HOME/.cargo/bin) but not in root's PATH. Two options:"
 		echo ""
 		echo "  1. Pre-build katana as your normal user, then pass the path:"
-		echo "       ${PROJECT_ROOT}/scripts/build-musl.sh"
+		echo "       ${PROJECT_ROOT}/scripts/build-gnu.sh"
 		echo "       sudo $0 --katana \\"
-		echo "         ${PROJECT_ROOT}/target/x86_64-unknown-linux-musl/performance/katana ..."
+		echo "         ${PROJECT_ROOT}/target/x86_64-unknown-linux-gnu/performance/katana ..."
 		echo ""
 		echo "  2. Run build.sh with sudo -E to inherit your PATH (assumes cargo on it)."
 		echo ""
 		echo "If cargo is genuinely not installed, set it up via rustup: https://rustup.rs"
 		exit 1
 	fi
-	"${PROJECT_ROOT}/scripts/build-musl.sh"
+	"${PROJECT_ROOT}/scripts/build-gnu.sh"
 	if [ $? -ne 0 ]; then
 		echo "Katana build failed"
 		exit 1
 	fi
-	KATANA_BINARY="${PROJECT_ROOT}/target/x86_64-unknown-linux-musl/performance/katana"
+	KATANA_BINARY="${PROJECT_ROOT}/target/x86_64-unknown-linux-gnu/performance/katana"
 	if [ ! -f "$KATANA_BINARY" ]; then
 		echo "ERROR: Katana binary not found at $KATANA_BINARY"
 		exit 1
@@ -318,6 +319,8 @@ INFO_OVMF_COMMIT=""
 INFO_KERNEL_VERSION=""
 INFO_KERNEL_PKG_SHA256=""
 INFO_BUSYBOX_PKG_SHA256=""
+INFO_GLIBC_RUNTIME_PACKAGES=""
+INFO_GLIBC_RUNTIME_PACKAGE_SHA256S=""
 INFO_KERNEL_MODULES_EXTRA_PKG_SHA256=""
 INFO_KATANA_BINARY_SHA256=""
 INFO_OVMF_SHA256=""
@@ -336,6 +339,8 @@ if [ -f "$BUILD_INFO" ]; then
 			KERNEL_VERSION) INFO_KERNEL_VERSION="$value" ;;
 			KERNEL_PKG_SHA256) INFO_KERNEL_PKG_SHA256="$value" ;;
 			BUSYBOX_PKG_SHA256) INFO_BUSYBOX_PKG_SHA256="$value" ;;
+			GLIBC_RUNTIME_PACKAGES) INFO_GLIBC_RUNTIME_PACKAGES="$value" ;;
+			GLIBC_RUNTIME_PACKAGE_SHA256S) INFO_GLIBC_RUNTIME_PACKAGE_SHA256S="$value" ;;
 			KERNEL_MODULES_EXTRA_PKG_SHA256) INFO_KERNEL_MODULES_EXTRA_PKG_SHA256="$value" ;;
 			KATANA_BINARY_SHA256) INFO_KATANA_BINARY_SHA256="$value" ;;
 			OVMF_SHA256) INFO_OVMF_SHA256="$value" ;;
@@ -362,6 +367,8 @@ fi
 if [ $BUILD_INITRD -eq 1 ]; then
 	INFO_BUSYBOX_PKG_SHA256="$BUSYBOX_PKG_SHA256"
 	INFO_KERNEL_MODULES_EXTRA_PKG_SHA256="$KERNEL_MODULES_EXTRA_PKG_SHA256"
+	INFO_GLIBC_RUNTIME_PACKAGES="$GLIBC_RUNTIME_PACKAGES"
+	INFO_GLIBC_RUNTIME_PACKAGE_SHA256S="$GLIBC_RUNTIME_PACKAGE_SHA256S"
 	[ -n "$KATANA_BINARY" ] && [ -f "$KATANA_BINARY" ] && INFO_KATANA_BINARY_SHA256="$(sha256sum "$KATANA_BINARY" | awk '{print $1}')"
 	[ -f "$INSTALL_DIR/initrd.img" ] && INFO_INITRD_SHA256="$(sha256sum "$INSTALL_DIR/initrd.img" | awk '{print $1}')"
 fi
@@ -381,6 +388,8 @@ fi
 	[ -n "$INFO_KERNEL_VERSION" ] && echo "KERNEL_VERSION=$INFO_KERNEL_VERSION"
 	[ -n "$INFO_KERNEL_PKG_SHA256" ] && echo "KERNEL_PKG_SHA256=$INFO_KERNEL_PKG_SHA256"
 	[ -n "$INFO_BUSYBOX_PKG_SHA256" ] && echo "BUSYBOX_PKG_SHA256=$INFO_BUSYBOX_PKG_SHA256"
+	[ -n "$INFO_GLIBC_RUNTIME_PACKAGES" ] && echo "GLIBC_RUNTIME_PACKAGES=$INFO_GLIBC_RUNTIME_PACKAGES"
+	[ -n "$INFO_GLIBC_RUNTIME_PACKAGE_SHA256S" ] && echo "GLIBC_RUNTIME_PACKAGE_SHA256S=$INFO_GLIBC_RUNTIME_PACKAGE_SHA256S"
 	[ -n "$INFO_KERNEL_MODULES_EXTRA_PKG_SHA256" ] && echo "KERNEL_MODULES_EXTRA_PKG_SHA256=$INFO_KERNEL_MODULES_EXTRA_PKG_SHA256"
 	[ -n "$INFO_KATANA_BINARY_SHA256" ] && echo "KATANA_BINARY_SHA256=$INFO_KATANA_BINARY_SHA256"
 	echo ""

@@ -7,11 +7,12 @@
 # for running Katana inside AMD SEV-SNP confidential VMs.
 #
 # Dependencies downloaded:
-#   - busybox-static: Provides shell and basic utilities
-#   - linux-modules:       Contains dm-crypt.ko and dm-integrity.ko for LUKS-based
-#                          sealed storage. (dm-mod is built into the Ubuntu 6.8
-#                          kernel — see modules.builtin — so we don't ship it.)
-#   - linux-modules-extra: Contains SEV-SNP kernel modules (tsm.ko, sev-guest.ko)
+#   - busybox-static:         Provides shell and basic utilities
+#   - linux-modules:          Contains dm-crypt.ko and dm-integrity.ko for LUKS-based
+#                             sealed storage. (dm-mod is built into the Ubuntu 6.8
+#                             kernel — see modules.builtin — so we don't ship it.)
+#   - glibc runtime packages: Provides dynamic linker and shared libraries
+#   - linux-modules-extra:    Contains SEV-SNP kernel modules (tsm.ko, sev-guest.ko)
 #
 # Sealed-storage builds also consume two pre-built static binaries —
 # `cryptsetup` and `mkfs.ext2` — supplied via the CRYPTSETUP_BINARY and
@@ -28,6 +29,8 @@
 #   SOURCE_DATE_EPOCH                REQUIRED. Unix timestamp for reproducible builds.
 #   BUSYBOX_PKG_VERSION              REQUIRED. Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1).
 #   BUSYBOX_PKG_SHA256               REQUIRED. SHA256 checksum of the busybox .deb package.
+#   GLIBC_RUNTIME_PACKAGES           REQUIRED for dynamic Katana. Space-separated apt package specs.
+#   GLIBC_RUNTIME_PACKAGE_SHA256S    REQUIRED for dynamic Katana. Space-separated package=sha256 entries.
 #   KERNEL_MODULES_EXTRA_PKG_VERSION REQUIRED. Exact apt package version.
 #   KERNEL_MODULES_EXTRA_PKG_SHA256  REQUIRED. SHA256 checksum of the modules .deb package.
 #
@@ -41,6 +44,7 @@ REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod powero
                    tr grep rm mkfifo)
 SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync \
                   tr grep rm mkfifo)
+OPTIONAL_RUNTIME_LIBS=(libnss_dns.so.2 libnss_files.so.2 libresolv.so.2)
 # `mkfs.ext2` is not a busybox-static applet on Ubuntu, so a static binary
 # (built by build-cryptsetup.sh from e2fsprogs source) is supplied via
 # MKFS_EXT2_BINARY and installed as `/bin/mkfs.ext2`. `blkid` is similarly
@@ -51,10 +55,10 @@ usage() {
     echo "Usage: $0 KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]"
     echo ""
     echo "Self-contained initrd builder for Katana TEE VM with AMD SEV-SNP support."
-    echo "Downloads all required dependencies (busybox, kernel modules) automatically."
+    echo "Downloads all required dependencies (busybox, glibc runtime, kernel modules) automatically."
     echo ""
     echo "ARGUMENTS:"
-    echo "  KATANA_BINARY    Path to the katana binary (statically linked recommended)"
+    echo "  KATANA_BINARY    Path to the katana binary (glibc dynamic or static)"
     echo "  OUTPUT_INITRD    Output path for the generated initrd.img"
     echo "  KERNEL_VERSION   Kernel version for module lookup (or set KERNEL_VERSION env var)"
     echo ""
@@ -62,6 +66,8 @@ usage() {
     echo "  SOURCE_DATE_EPOCH                Unix timestamp for reproducible builds"
     echo "  BUSYBOX_PKG_VERSION              Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1)"
     echo "  BUSYBOX_PKG_SHA256               SHA256 checksum of the busybox .deb package"
+    echo "  GLIBC_RUNTIME_PACKAGES           Space-separated apt package specs for dynamic Katana"
+    echo "  GLIBC_RUNTIME_PACKAGE_SHA256S    Space-separated package=sha256 entries"
     echo "  KERNEL_MODULES_PKG_VERSION       Exact apt package version for linux-modules"
     echo "  KERNEL_MODULES_PKG_SHA256        SHA256 checksum of the linux-modules .deb"
     echo "  KERNEL_MODULES_EXTRA_PKG_VERSION Exact apt package version for linux-modules-extra"
@@ -93,6 +99,8 @@ usage() {
     echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
     echo "  export BUSYBOX_PKG_VERSION='1:1.36.1-6ubuntu3.1'"
     echo "  export BUSYBOX_PKG_SHA256='abc123...'"
+    echo "  export GLIBC_RUNTIME_PACKAGES='libc6=2.39-0ubuntu8.7 libgcc-s1=14.2.0-4ubuntu2~24.04.1'"
+    echo "  export GLIBC_RUNTIME_PACKAGE_SHA256S='libc6=abc123... libgcc-s1=def456...'"
     echo "  export KERNEL_MODULES_PKG_VERSION='6.8.0-90.99'"
     echo "  export KERNEL_MODULES_PKG_SHA256='aaa111...'"
     echo "  export KERNEL_MODULES_EXTRA_PKG_VERSION='6.8.0-90.99'"
@@ -173,6 +181,7 @@ echo ""
 echo "Package versions:"
 echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
 echo "  linux-modules:         ${KERNEL_MODULES_PKG_VERSION:-<not set>}"
+echo "  glibc runtime:         ${GLIBC_RUNTIME_PACKAGES:-<not set>}"
 echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
 echo "Static binaries (sealed-mode only):"
 echo "  cryptsetup binary:     ${CRYPTSETUP_BINARY:-<not set>}"
@@ -197,7 +206,7 @@ if [[ ! -w "$OUTPUT_DIR" ]]; then
     die "Output directory is not writable: $OUTPUT_DIR"
 fi
 
-REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr)
+REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr readelf readlink)
 for tool in "${REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
 done
@@ -262,6 +271,18 @@ fi
 
 log_ok "Preflight validation complete (sealed-storage build: $([ "$SEALED_STORAGE_BUILD" -eq 1 ] && echo yes || echo no))"
 
+elf_interpreter() {
+    readelf -l "$1" 2>/dev/null |
+        awk -F': ' '/Requesting program interpreter/ { gsub(/\]/, "", $2); print $2; exit }'
+}
+
+KATANA_INTERPRETER="$(elf_interpreter "$KATANA_BINARY" || true)"
+if [[ -n "$KATANA_INTERPRETER" ]]; then
+    log_info "Katana is dynamically linked (interpreter: $KATANA_INTERPRETER)"
+else
+    log_warn "Katana has no ELF interpreter; treating it as statically linked"
+fi
+
 WORK_DIR="$(mktemp -d)"
 cleanup() {
     local exit_code=$?
@@ -273,6 +294,49 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 log_info "Working directory: $WORK_DIR"
+
+find_downloaded_deb() {
+    local package="$1"
+    local matches=()
+
+    while IFS= read -r deb; do
+        matches+=("$deb")
+    done < <(find "$PACKAGES_DIR" -maxdepth 1 -type f -name "${package}_*.deb" -print | LC_ALL=C sort)
+
+    if [[ ${#matches[@]} -ne 1 ]]; then
+        die "expected exactly one downloaded .deb for ${package}, found ${#matches[@]}"
+    fi
+
+    printf '%s\n' "${matches[0]}"
+}
+
+expected_runtime_sha256() {
+    local package="$1"
+    local entry
+
+    for entry in ${GLIBC_RUNTIME_PACKAGE_SHA256S:-}; do
+        if [[ "${entry%%=*}" == "$package" ]]; then
+            printf '%s\n' "${entry#*=}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+verify_package_sha256() {
+    local package="$1"
+    local expected="$2"
+    local deb
+    local actual
+
+    deb="$(find_downloaded_deb "$package")"
+    actual="$(sha256sum "$deb" | awk '{print $1}')"
+    if [[ "$actual" != "$expected" ]]; then
+        die "${package} checksum mismatch (expected $expected, got $actual)"
+    fi
+    log_ok "${package} checksum verified"
+}
 
 # ==============================================================================
 # SECTION 1: Download Required Packages
@@ -286,6 +350,10 @@ pushd "$PACKAGES_DIR" >/dev/null
 
 : "${BUSYBOX_PKG_VERSION:?BUSYBOX_PKG_VERSION not set - required for reproducible builds}"
 : "${KERNEL_MODULES_EXTRA_PKG_VERSION:?KERNEL_MODULES_EXTRA_PKG_VERSION not set - required for reproducible builds}"
+if [[ -n "$KATANA_INTERPRETER" ]]; then
+    : "${GLIBC_RUNTIME_PACKAGES:?GLIBC_RUNTIME_PACKAGES not set - required for reproducible dynamic Katana builds}"
+    : "${GLIBC_RUNTIME_PACKAGE_SHA256S:?GLIBC_RUNTIME_PACKAGE_SHA256S not set - required for reproducible dynamic Katana builds}"
+fi
 
 log_info "Downloading busybox-static=${BUSYBOX_PKG_VERSION}"
 apt-get download "busybox-static=${BUSYBOX_PKG_VERSION}"
@@ -298,6 +366,16 @@ fi
 log_info "Downloading linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 
+if [[ -n "$KATANA_INTERPRETER" ]]; then
+    for package_spec in $GLIBC_RUNTIME_PACKAGES; do
+        package_name="${package_spec%%=*}"
+        [[ "$package_name" != "$package_spec" ]] || die "invalid GLIBC_RUNTIME_PACKAGES entry: $package_spec"
+
+        log_info "Downloading ${package_spec}"
+        apt-get download "$package_spec"
+    done
+fi
+
 echo ""
 echo "Downloaded packages:"
 ls -lh *.deb
@@ -306,11 +384,7 @@ ls -lh *.deb
 : "${KERNEL_MODULES_EXTRA_PKG_SHA256:?KERNEL_MODULES_EXTRA_PKG_SHA256 not set - required for reproducible builds}"
 
 log_info "Verifying busybox-static checksum"
-ACTUAL_SHA256="$(sha256sum busybox-static_*.deb | awk '{print $1}')"
-if [[ "$ACTUAL_SHA256" != "$BUSYBOX_PKG_SHA256" ]]; then
-    die "busybox-static checksum mismatch (expected $BUSYBOX_PKG_SHA256, got $ACTUAL_SHA256)"
-fi
-log_ok "busybox-static checksum verified"
+verify_package_sha256 "busybox-static" "$BUSYBOX_PKG_SHA256"
 
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     # linux-modules-*.deb and linux-modules-extra-*.deb share the `linux-modules-*`
@@ -325,11 +399,18 @@ if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
 fi
 
 log_info "Verifying linux-modules-extra checksum"
-ACTUAL_SHA256="$(sha256sum linux-modules-extra-*.deb | awk '{print $1}')"
-if [[ "$ACTUAL_SHA256" != "$KERNEL_MODULES_EXTRA_PKG_SHA256" ]]; then
-    die "linux-modules-extra checksum mismatch (expected $KERNEL_MODULES_EXTRA_PKG_SHA256, got $ACTUAL_SHA256)"
+verify_package_sha256 "linux-modules-extra-${KERNEL_VERSION}-generic" "$KERNEL_MODULES_EXTRA_PKG_SHA256"
+
+if [[ -n "$KATANA_INTERPRETER" ]]; then
+    for package_spec in $GLIBC_RUNTIME_PACKAGES; do
+        package_name="${package_spec%%=*}"
+        expected_sha="$(expected_runtime_sha256 "$package_name" || true)"
+        [[ -n "$expected_sha" ]] || die "missing checksum for ${package_name} in GLIBC_RUNTIME_PACKAGE_SHA256S"
+
+        log_info "Verifying ${package_name} checksum"
+        verify_package_sha256 "$package_name" "$expected_sha"
+    done
 fi
-log_ok "linux-modules-extra checksum verified"
 
 popd >/dev/null
 
@@ -351,6 +432,15 @@ fi
 
 log_info "Extracting linux-modules-extra"
 dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
+
+if [[ -n "$KATANA_INTERPRETER" ]]; then
+    for package_spec in $GLIBC_RUNTIME_PACKAGES; do
+        package_name="${package_spec%%=*}"
+        package_deb="$(find_downloaded_deb "$package_name")"
+        log_info "Extracting ${package_name}"
+        dpkg-deb -x "$package_deb" "$EXTRACTED_DIR"
+    done
+fi
 log_ok "Packages extracted"
 
 # ==============================================================================
@@ -359,7 +449,7 @@ log_ok "Packages extracted"
 
 log_section "Build Initrd Structure"
 INITRD_DIR="$WORK_DIR/initrd"
-mkdir -p "$INITRD_DIR"/{bin,dev,proc,sys,tmp,etc,lib/modules,mnt,run/cryptsetup}
+mkdir -p "$INITRD_DIR"/{bin,dev,proc,sys,tmp,etc,lib/modules,lib64,usr/lib,mnt,run/cryptsetup}
 
 cd "$INITRD_DIR"
 
@@ -567,12 +657,159 @@ if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
 fi
 
 # ------------------------------------------------------------------------------
+# Runtime library helpers
+# ------------------------------------------------------------------------------
+elf_needed() {
+    readelf -d "$1" 2>/dev/null |
+        awk '/\(NEEDED\)/ { sub(/^.*Shared library: \[/, ""); sub(/\].*$/, ""); print }' || true
+}
+
+resolve_extracted_path() {
+    local path="$1"
+    local target
+    local depth=0
+
+    while [[ -L "$path" ]]; do
+        if [[ $depth -ge 20 ]]; then
+            die "too many symlink indirections while resolving $1"
+        fi
+
+        target="$(readlink "$path")"
+        if [[ "$target" = /* ]]; then
+            path="$EXTRACTED_DIR$target"
+        else
+            path="$(dirname "$path")/$target"
+        fi
+        depth=$((depth + 1))
+    done
+
+    [[ -e "$path" ]] || die "resolved package path does not exist: $path"
+    printf '%s\n' "$path"
+}
+
+resolve_runtime_library() {
+    local soname="$1"
+    local roots=()
+    local root
+    local match=""
+
+    for root in "$EXTRACTED_DIR/lib" "$EXTRACTED_DIR/usr/lib" "$EXTRACTED_DIR/lib64"; do
+        [[ -d "$root" ]] && roots+=("$root")
+    done
+    [[ ${#roots[@]} -gt 0 ]] || return 1
+
+    while IFS= read -r candidate; do
+        if [[ -z "$match" ]]; then
+            match="$candidate"
+        elif [[ "$candidate" != "$match" ]]; then
+            log_warn "Multiple runtime libraries named ${soname}; using ${match}"
+            break
+        fi
+    done < <(find "${roots[@]}" \( -type f -o -type l \) -name "$soname" -print | LC_ALL=C sort)
+
+    [[ -n "$match" ]] || return 1
+    printf '%s\n' "$match"
+}
+
+install_dynamic_runtime() {
+    local interpreter="$1"
+    local interpreter_source=""
+    local runtime_source=""
+    local resolved_source=""
+    local dest_rel=""
+    local dest=""
+    local queue_index=0
+    local elf=""
+    local needed=""
+    local optional_lib=""
+
+    declare -A copied_runtime=()
+    local elf_queue=("$INITRD_DIR/bin/katana")
+
+    install_runtime_elf() {
+        runtime_source="$1"
+        dest_rel="$2"
+
+        if [[ -n "${copied_runtime[$dest_rel]:-}" ]]; then
+            return 0
+        fi
+
+        resolved_source="$(resolve_extracted_path "$runtime_source")"
+        dest="$INITRD_DIR/$dest_rel"
+        mkdir -p "$(dirname "$dest")"
+        cp "$resolved_source" "$dest"
+        chmod 0755 "$dest"
+
+        copied_runtime["$dest_rel"]=1
+        elf_queue+=("$dest")
+        log_info "Installed runtime ELF /${dest_rel}"
+    }
+
+    install_runtime_library() {
+        needed="$1"
+        required="$2"
+
+        runtime_source="$(resolve_runtime_library "$needed" || true)"
+        if [[ -z "$runtime_source" ]]; then
+            if [[ "$required" -eq 1 ]]; then
+                die "runtime library not found in pinned packages: $needed"
+            fi
+
+            log_warn "Optional runtime library not found in pinned packages: $needed"
+            return 0
+        fi
+
+        dest_rel="${runtime_source#"$EXTRACTED_DIR"/}"
+        install_runtime_elf "$runtime_source" "$dest_rel"
+    }
+
+    log_info "Installing dynamic runtime"
+    if [[ -e "$EXTRACTED_DIR$interpreter" ]]; then
+        interpreter_source="$EXTRACTED_DIR$interpreter"
+    else
+        interpreter_source="$(resolve_runtime_library "$(basename "$interpreter")" || true)"
+    fi
+    [[ -n "$interpreter_source" ]] || die "ELF interpreter not found in pinned packages: $interpreter"
+    install_runtime_elf "$interpreter_source" "${interpreter#/}"
+
+    while [[ $queue_index -lt ${#elf_queue[@]} ]]; do
+        elf="${elf_queue[$queue_index]}"
+        queue_index=$((queue_index + 1))
+
+        while IFS= read -r needed; do
+            [[ -n "$needed" ]] || continue
+            install_runtime_library "$needed" 1
+        done < <(elf_needed "$elf")
+    done
+
+    for optional_lib in "${OPTIONAL_RUNTIME_LIBS[@]}"; do
+        install_runtime_library "$optional_lib" 0
+    done
+
+    while [[ $queue_index -lt ${#elf_queue[@]} ]]; do
+        elf="${elf_queue[$queue_index]}"
+        queue_index=$((queue_index + 1))
+
+        while IFS= read -r needed; do
+            [[ -n "$needed" ]] || continue
+            install_runtime_library "$needed" 1
+        done < <(elf_needed "$elf")
+    done
+
+    log_ok "Dynamic runtime installed"
+}
+
+# ------------------------------------------------------------------------------
 # Install Katana Binary
 # ------------------------------------------------------------------------------
 log_info "Installing Katana binary"
 cp "$KATANA_BINARY" bin/katana
 chmod +x bin/katana
 log_ok "Katana installed"
+
+if [[ -n "$KATANA_INTERPRETER" ]]; then
+    install_dynamic_runtime "$KATANA_INTERPRETER"
+fi
 
 # ------------------------------------------------------------------------------
 # Create Init Script
@@ -584,6 +821,7 @@ cat > init <<'INIT_EOF'
 
 set -eu
 export PATH=/bin
+export LD_LIBRARY_PATH=/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/lib:/usr/lib
 
 # log writes to stderr so command substitution like `$(strip_db_args ...)`
 # captures only the function's real output. Both stdout and stderr are
@@ -1132,6 +1370,21 @@ log_ok "Init script created"
 log_info "Creating /etc files"
 echo "root:x:0:0:root:/:/bin/sh" > etc/passwd
 echo "root:x:0:" > etc/group
+cat > etc/hosts <<'HOSTS_EOF'
+127.0.0.1 localhost
+::1 localhost
+HOSTS_EOF
+cat > etc/nsswitch.conf <<'NSS_EOF'
+passwd: files
+group: files
+shadow: files
+hosts: files dns
+networks: files
+protocols: files
+services: files
+ethers: files
+rpc: files
+NSS_EOF
 log_ok "/etc files created"
 
 # ==============================================================================
