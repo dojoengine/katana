@@ -268,6 +268,10 @@ jobs:
     name: x86_64-unknown-linux-gnu (ubuntu-latest-8-cores, reproducible)
     needs: [prepare, build-contracts]
     runs-on: ubuntu-latest-8-cores
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - uses: actions/checkout@v4
@@ -300,6 +304,13 @@ jobs:
 
           source dist/reproducible-katana/manifest.env
           echo "file_name=dist/reproducible-katana/${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ./dist/reproducible-katana/katana
+            ./dist/reproducible-katana/*.tar.gz
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
