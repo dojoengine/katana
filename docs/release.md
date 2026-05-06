@@ -92,7 +92,7 @@ Each variant produces a single archive: `katana_<tag>_<platform>_<arch>[_native]
 Replaces the non-native linux/amd64 entry from the matrix with a deterministic Docker-pinned build.
 
 1. Runs [`build-reproducible-katana.sh`](../scripts/build-reproducible-katana.sh), which builds [`reproducible.Dockerfile`](../reproducible.Dockerfile) **twice from a clean cache** and `cmp`s the two output binaries.
-2. Records `BINARY_SHA256`, `BINARY_SHA384`, and a manifest of build inputs (`rustc --version --verbose`, all build-tool `dpkg-query` versions, `GLIBC_BUILD_VERSION`, `GLIBC_MIN_REQUIRED`) to `dist/reproducible-katana/build-info.txt` and `manifest.env`.
+2. Records `BINARY_SHA256`, `BINARY_SHA384`, and a manifest of build inputs (`rustc --version --verbose`, all build-tool `dpkg-query` versions, `GLIBC_BUILD_VERSION`, `GLIBC_MIN_REQUIRED`) to `dist/reproducible-katana/build-info.txt` and `manifest.env`. The base image (`rust:1.89.0-bookworm`, Debian 12) ships **glibc 2.36** today, so the published binary requires glibc ≥ 2.36 at runtime; bumping `RUST_IMAGE` in the Dockerfile re-rolls this. The authoritative value for any specific build is the `GLIBC_BUILD_VERSION` line in `build-info.txt` (also surfaced in the workflow run summary).
 3. Calls `actions/attest-build-provenance@v2` with the binary and the archive as subjects. The job carries the narrow `id-token: write` + `attestations: write` permissions Sigstore requires; nothing else in the workflow does.
 4. Writes a Markdown summary to `$GITHUB_STEP_SUMMARY` with the version, hashes, and glibc info — surfaced on the workflow run page so consumers can verify compatibility without unpacking the archive.
 
