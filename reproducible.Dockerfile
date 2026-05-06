@@ -41,8 +41,11 @@ RUN cp target/x86_64-unknown-linux-gnu/performance/katana /katana && \
     chmod 0755 /katana && \
     sha256sum /katana > /katana.sha256 && \
     sha384sum /katana > /katana.sha384 && \
+    GLIBC_MIN_REQUIRED="$(objdump -T /katana | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' | sed 's/GLIBC_//' | sort -uV | tail -1)" && \
     { \
         echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"; \
+        echo "GLIBC_BUILD_VERSION=$(dpkg-query -W -f='${Version}' libc6)"; \
+        echo "GLIBC_MIN_REQUIRED=${GLIBC_MIN_REQUIRED}"; \
         rustc --version --verbose; \
         cargo --version; \
         dpkg-query -W -f='${Package}=${Version}\n' \
@@ -53,6 +56,7 @@ RUN cp target/x86_64-unknown-linux-gnu/performance/katana /katana && \
             file \
             gcc \
             git \
+            libc6 \
             libclang-dev \
             make \
             pkg-config \

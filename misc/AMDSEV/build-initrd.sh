@@ -809,6 +809,26 @@ log_ok "Katana installed"
 
 if [[ -n "$KATANA_INTERPRETER" ]]; then
     install_dynamic_runtime "$KATANA_INTERPRETER"
+
+    # Record the actual glibc version from the installed libc.so.6. The package
+    # version (e.g. 2.39-0ubuntu8.7) sits in GLIBC_RUNTIME_PACKAGES already; this
+    # is the upstream glibc release the runtime exposes (e.g. 2.39).
+    libc_so=""
+    for candidate in "$INITRD_DIR"/usr/lib/*/libc.so.6 "$INITRD_DIR"/lib/*/libc.so.6 "$INITRD_DIR"/lib64/libc.so.6; do
+        if [[ -f "$candidate" ]]; then
+            libc_so="$candidate"
+            break
+        fi
+    done
+    if [[ -n "$libc_so" ]]; then
+        glibc_version="$("$libc_so" 2>/dev/null | sed -n '1{s/.*release version \([0-9.]*\)\.$/\1/p;}' || true)"
+        if [[ -n "$glibc_version" ]]; then
+            log_info "Detected glibc version: $glibc_version"
+            printf '%s\n' "$glibc_version" > "$OUTPUT_DIR/glibc-version.txt"
+        else
+            log_warn "Could not parse glibc version from $libc_so"
+        fi
+    fi
 fi
 
 # ------------------------------------------------------------------------------
