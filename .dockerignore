@@ -8,6 +8,7 @@ AGENT.md
 target/
 build/
 !crates/contracts/build/
+!crates/contracts/build/**
 monitoring/
 
 # CI/CD files (except the Dockerfile being built)
@@ -34,5 +35,6 @@ tests/fixtures/*
 
 # Other
 .config/
-scripts/
+scripts/*
+!scripts/build-gnu.sh
 Makefile
