@@ -25,6 +25,7 @@ use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 #[cfg(feature = "grpc")]
 use katana_grpc::{GrpcServer, GrpcServerHandle};
+use katana_messaging::server::{MessagingHandle, MessagingServer};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -34,8 +35,10 @@ use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::Felt;
+use katana_provider::api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
 use katana_provider::{
-    DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
+    DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
+    ProviderRW,
 };
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
@@ -538,6 +541,7 @@ where
             task_manager,
         })
     }
+
 }
 
 impl Node<DbProviderFactory> {
@@ -665,7 +669,7 @@ impl<P> Node<P>
 where
     P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
+    <P as ProviderFactory>::ProviderMut: ProviderRW + MessagingCheckpointProvider + MutableProvider,
 {
     /// Start the node.
     ///
@@ -708,17 +712,14 @@ where
         };
 
         let pool = self.pool.clone();
-        let backend = self.backend.clone();
         let block_producer = self.block_producer.clone();
 
         // --- build and run sequencing task
 
         let sequencing = Sequencing::new(
             pool.clone(),
-            backend.clone(),
             self.task_manager.task_spawner(),
             block_producer.clone(),
-            self.config.messaging.clone(),
         );
 
         self.task_manager
@@ -770,6 +771,15 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
+        // --- build and start the messaging server
+
+        let messaging_handle = Self::build_and_start_messaging(
+            &self.config,
+            &self.backend,
+            &self.pool,
+            self.provider.clone(),
+        )?;
+
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
@@ -777,9 +787,74 @@ where
             #[cfg(feature = "grpc")]
             grpc: grpc_handle,
             metrics: metrics_handle,
+            messaging: messaging_handle,
         })
     }
 
+    fn build_and_start_messaging(
+        config: &Config,
+        backend: &Arc<Backend<P>>,
+        pool: &TxPool,
+        provider_factory: P,
+    ) -> Result<MessagingHandle> {
+        const CHECKPOINT_ID: &str = "messaging";
+
+        // Prefer the persisted checkpoint over the config. On restart we resume from the
+        // message after the last successfully processed one: same block, tx_index + 1.
+        // If no checkpoint exists, start fresh at (config.from_block, 0).
+        let (from_block, from_tx_index) = if let Some(ref msg_config) = config.messaging {
+            let tx = provider_factory.provider_mut();
+            let cp = tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
+            MutableProvider::commit(tx).context("commit checkpoint read tx")?;
+            match cp {
+                Some(c) => (c.block, c.tx_index + 1),
+                None => (msg_config.from_block, 0),
+            }
+        } else {
+            (0, 0)
+        };
+
+        let messenger = katana_messaging::build_messenger(
+            config.messaging.as_ref(),
+            backend.chain_spec.id(),
+            from_block,
+            from_tx_index,
+        )?;
+
+        // Persist every successful gather so a restart resumes from where we left off.
+        let on_gather_provider = provider_factory.clone();
+        let on_gather: katana_messaging::server::OnGatherCallback =
+            Box::new(move |cp: katana_messaging::server::Checkpoint| {
+                let tx = on_gather_provider.provider_mut();
+                let result = tx.set_messaging_checkpoint(
+                    CHECKPOINT_ID,
+                    &MessagingCheckpoint { block: cp.block, tx_index: cp.tx_index },
+                );
+                match result.and_then(|_| MutableProvider::commit(tx).map_err(Into::into)) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            target: "messaging",
+                            error = %e,
+                            block = cp.block,
+                            tx_index = cp.tx_index,
+                            "Failed to persist messaging checkpoint.",
+                        );
+                    }
+                }
+            });
+
+        let server = MessagingServer::new(messenger).pool(pool.clone()).on_gather(on_gather);
+        Ok(server.start())
+    }
+}
+
+impl<P> Node<P>
+where
+    P: ProviderFactory + Clone,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
     /// Returns a reference to the node's database environment (if any).
     pub fn provider(&self) -> &P {
         &self.provider
@@ -833,6 +908,8 @@ where
     grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
+    /// Handle to the messaging server.
+    messaging: MessagingHandle,
 }
 
 impl<P> LaunchedNode<P>
@@ -870,7 +947,7 @@ where
     /// Stops the node.
     ///
     /// This will instruct the node to stop and wait until it has actually stop.
-    pub async fn stop(self) -> Result<()> {
+    pub async fn stop(mut self) -> Result<()> {
         // TODO: wait for the rpc server to stop instead of just stopping it.
         self.rpc.stop()?;
 
@@ -889,6 +966,11 @@ where
         if let Some(mut handle) = self.metrics {
             handle.stop()?;
         }
+
+        // Stop messaging server. Signal and then await so the final checkpoint
+        // write completes before we tear down the provider.
+        self.messaging.stop();
+        self.messaging.stopped().await;
 
         self.node.task_manager.shutdown().await;
         Ok(())

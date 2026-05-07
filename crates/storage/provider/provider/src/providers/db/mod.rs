@@ -36,6 +36,7 @@ use katana_provider_api::block::{
     BlockWriter, HeaderProvider,
 };
 use katana_provider_api::env::BlockEnvProvider;
+use katana_provider_api::messaging::{self, MessagingCheckpointProvider};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
@@ -918,6 +919,32 @@ impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
         let key = id.to_string();
         let value = PruningCheckpoint { block: block_number };
         self.0.put::<tables::StagePruningCheckpoints>(key, value)?;
+        Ok(())
+    }
+}
+
+impl<Tx: DbTxMut> MessagingCheckpointProvider for DbProvider<Tx> {
+    fn messaging_checkpoint(
+        &self,
+        id: &str,
+    ) -> ProviderResult<Option<messaging::MessagingCheckpoint>> {
+        let result = self.0.get::<tables::MessagingCheckpoints>(id.to_string())?;
+        Ok(result.map(|c| messaging::MessagingCheckpoint {
+            block: c.block,
+            tx_index: c.tx_index,
+        }))
+    }
+
+    fn set_messaging_checkpoint(
+        &self,
+        id: &str,
+        checkpoint: &messaging::MessagingCheckpoint,
+    ) -> ProviderResult<()> {
+        let value = katana_db::models::stage::MessagingCheckpoint {
+            block: checkpoint.block,
+            tx_index: checkpoint.tx_index,
+        };
+        self.0.put::<tables::MessagingCheckpoints>(id.to_string(), value)?;
         Ok(())
     }
 }
