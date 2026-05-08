@@ -30,6 +30,12 @@ pub struct PositionedMessage {
     /// it is the position of the event among `MessageSent` events scoped to the
     /// block (Starknet events don't carry a native tx index).
     pub tx_index: u64,
+    /// The settlement chain transaction hash that emitted the originating event/log.
+    ///
+    /// For Ethereum, this is the L1 transaction hash that called `sendMessageToL2`.
+    /// For Starknet (L2 -> L3), this is the L2 transaction hash that emitted the
+    /// `MessageSent` event. Both are 32-byte hashes; this is the raw bytes.
+    pub l1_tx_hash: [u8; 32],
     /// The L1Handler transaction converted from the settlement chain event.
     pub tx: L1HandlerTx,
 }

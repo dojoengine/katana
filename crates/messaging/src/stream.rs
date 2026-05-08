@@ -105,10 +105,9 @@ where
                     match this.trigger.poll_next_unpin(cx) {
                         Poll::Ready(Some(())) => {
                             let collector = this.collector.clone();
-                            this.phase =
-                                Phase::CheckingBlock(Box::pin(async move {
-                                    collector.latest_block().await
-                                }));
+                            this.phase = Phase::CheckingBlock(Box::pin(async move {
+                                collector.latest_block().await
+                            }));
                         }
                         Poll::Ready(None) => return Poll::Ready(None),
                         Poll::Pending => return Poll::Pending,

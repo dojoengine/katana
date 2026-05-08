@@ -35,7 +35,10 @@ use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::Felt;
-use katana_provider::api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
+use katana_provider::api::messaging::{
+    MessagingCheckpoint, MessagingCheckpointProvider, MessagingL1ToL2IndexProvider,
+    MessagingL1ToL2IndexWriter,
+};
 use katana_provider::{
     DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
     ProviderRW,
@@ -113,7 +116,7 @@ where
 impl<P> Node<P>
 where
     P: ProviderFactory + Clone,
-    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::Provider: ProviderRO + MessagingL1ToL2IndexProvider,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Build the node components from the given [`Config`].
@@ -541,7 +544,6 @@ where
             task_manager,
         })
     }
-
 }
 
 impl Node<DbProviderFactory> {
@@ -669,7 +671,8 @@ impl<P> Node<P>
 where
     P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW + MessagingCheckpointProvider + MutableProvider,
+    <P as ProviderFactory>::ProviderMut:
+        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
 {
     /// Start the node.
     ///
@@ -716,11 +719,8 @@ where
 
         // --- build and run sequencing task
 
-        let sequencing = Sequencing::new(
-            pool.clone(),
-            self.task_manager.task_spawner(),
-            block_producer.clone(),
-        );
+        let sequencing =
+            Sequencing::new(pool.clone(), self.task_manager.task_spawner(), block_producer.clone());
 
         self.task_manager
             .task_spawner()
@@ -844,7 +844,31 @@ where
                 }
             });
 
-        let server = MessagingServer::new(messenger).pool(pool.clone()).on_gather(on_gather);
+        // Record every L1 -> L2 mapping so `starknet_getMessagesStatus` can resolve
+        // L2 statuses by the originating settlement chain transaction hash.
+        let on_message_provider = provider_factory.clone();
+        let on_message: katana_messaging::server::OnMessageCallback =
+            Box::new(move |rec: katana_messaging::server::L1ToL2Record| {
+                let tx = on_message_provider.provider_mut();
+                let result = tx.record_l1_to_l2(&rec.l1_tx_hash, rec.l2_tx_hash);
+                match result.and_then(|_| MutableProvider::commit(tx).map_err(Into::into)) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            target: "messaging",
+                            error = %e,
+                            l1_tx_hash = ?rec.l1_tx_hash,
+                            l2_tx_hash = %format!("{:#x}", rec.l2_tx_hash),
+                            "Failed to persist L1->L2 message mapping.",
+                        );
+                    }
+                }
+            });
+
+        let server = MessagingServer::new(messenger)
+            .pool(pool.clone())
+            .on_gather(on_gather)
+            .on_message(on_message);
         Ok(server.start())
     }
 }

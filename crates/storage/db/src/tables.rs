@@ -59,7 +59,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 38;
+pub const NUM_TABLES: usize = 39;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -197,7 +197,8 @@ define_tables_enum! {[
     (ContractsTrieChangeSet, TableType::Table),
     (StoragesTrieChangeSet, TableType::Table),
     (MigrationCheckpoints, TableType::Table),
-    (MessagingCheckpoints, TableType::Table)
+    (MessagingCheckpoints, TableType::Table),
+    (MessagingL1ToL2, TableType::DupSort)
 ]}
 
 tables! {
@@ -290,7 +291,11 @@ tables! {
 
     /// Messaging service checkpoints keyed by messenger identifier.
     /// Stores the last successfully processed settlement chain block and transaction index.
-    MessagingCheckpoints: (String) => MessagingCheckpoint
+    MessagingCheckpoints: (String) => MessagingCheckpoint,
+
+    /// Index from settlement chain L1 transaction hash to spawned L2 L1Handler tx hashes.
+    /// One L1 transaction can call sendMessageToL2 multiple times, hence DupSort.
+    MessagingL1ToL2: ([u8; 32], TxHash) => TxHash
 }
 
 impl Trie for ClassesTrie {
@@ -354,6 +359,7 @@ mod tests {
         assert_eq!(Tables::ALL[35].name(), StoragesTrieChangeSet::NAME);
         assert_eq!(Tables::ALL[36].name(), MigrationCheckpoints::NAME);
         assert_eq!(Tables::ALL[37].name(), MessagingCheckpoints::NAME);
+        assert_eq!(Tables::ALL[38].name(), MessagingL1ToL2::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockStateUpdates.table_type(), TableType::Table);
@@ -393,6 +399,7 @@ mod tests {
         assert_eq!(Tables::StoragesTrieChangeSet.table_type(), TableType::Table);
         assert_eq!(Tables::MigrationCheckpoints.table_type(), TableType::Table);
         assert_eq!(Tables::MessagingCheckpoints.table_type(), TableType::Table);
+        assert_eq!(Tables::MessagingL1ToL2.table_type(), TableType::DupSort);
     }
 
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};

@@ -4,10 +4,10 @@
 //!
 //! The messaging component is decomposed into two orthogonal concerns:
 //!
-//! - **Collector** ([`collector::MessageCollector`]): knows *how* to fetch messages from a
-//!   specific settlement chain (Ethereum logs, Starknet events, etc).
-//! - **Trigger** ([`trigger::MessageTrigger`]): knows *when* to check for new messages
-//!   (fixed interval, block subscription, etc).
+//! - **Collector** ([`collector::MessageCollector`]): knows *how* to fetch messages from a specific
+//!   settlement chain (Ethereum logs, Starknet events, etc).
+//! - **Trigger** ([`trigger::MessageTrigger`]): knows *when* to check for new messages (fixed
+//!   interval, block subscription, etc).
 //!
 //! These are composed by [`stream::MessageStream`] into a [`Stream`] that yields
 //! [`MessagingOutcome`] items. The stream is consumed by [`server::MessagingServer`]
@@ -113,15 +113,9 @@ pub struct MessagingConfig {
 #[serde(tag = "chain")]
 pub enum SettlementChainConfig {
     #[serde(rename = "ethereum")]
-    Ethereum {
-        rpc_url: String,
-        contract_address: String,
-    },
+    Ethereum { rpc_url: String, contract_address: String },
     #[serde(rename = "starknet")]
-    Starknet {
-        rpc_url: String,
-        contract_address: String,
-    },
+    Starknet { rpc_url: String, contract_address: String },
 }
 
 impl MessagingConfig {

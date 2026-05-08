@@ -29,9 +29,9 @@ pub struct StarknetCollector {
 
 impl StarknetCollector {
     pub fn new(rpc_url: &str, contract_address: &str) -> Result<Self> {
-        let provider = Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(
-            HttpTransport::new(Url::parse(rpc_url)?),
-        )));
+        let provider = Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(HttpTransport::new(
+            Url::parse(rpc_url)?,
+        ))));
         let messaging_contract_address = Felt::from_hex(contract_address)?;
         Ok(Self { provider, messaging_contract_address })
     }
@@ -119,7 +119,12 @@ impl MessageCollector for StarknetCollector {
                 debug!(target: LOG_TARGET, block, tx_index, "Converting event into L1HandlerTx.");
 
                 if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
-                    messages.push(PositionedMessage { block, tx_index, tx });
+                    messages.push(PositionedMessage {
+                        block,
+                        tx_index,
+                        l1_tx_hash: e.transaction_hash.to_bytes_be(),
+                        tx,
+                    });
                 }
             }
 

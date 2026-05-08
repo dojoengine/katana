@@ -30,11 +30,7 @@ where
     <PF as ProviderFactory>::Provider: ProviderRO + Debug,
     <PF as ProviderFactory>::ProviderMut: ProviderRW + Debug,
 {
-    pub fn new(
-        pool: TxPool,
-        task_spawner: TaskSpawner,
-        block_producer: BlockProducer<PF>,
-    ) -> Self {
+    pub fn new(pool: TxPool, task_spawner: TaskSpawner, block_producer: BlockProducer<PF>) -> Self {
         Self { pool, task_spawner, block_producer }
     }
 

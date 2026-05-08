@@ -109,13 +109,18 @@ impl MessageCollector for EthereumCollector {
         Box::pin(async move {
             let mut messages = vec![];
 
-            let logs =
-                Self::fetch_logs(&self.provider, self.messaging_contract_address, from_block, to_block)
-                    .await?;
+            let logs = Self::fetch_logs(
+                &self.provider,
+                self.messaging_contract_address,
+                from_block,
+                to_block,
+            )
+            .await?;
 
             for log in &logs {
                 let Some(block) = log.block_number else { continue };
                 let Some(tx_index) = log.transaction_index else { continue };
+                let Some(l1_tx_hash) = log.transaction_hash else { continue };
 
                 // Skip messages already processed on a previous run.
                 if block == from_block && tx_index < from_tx_index {
@@ -125,7 +130,12 @@ impl MessageCollector for EthereumCollector {
                 debug!(target: LOG_TARGET, block, tx_index, "Converting log into L1HandlerTx.");
 
                 if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {
-                    messages.push(PositionedMessage { block, tx_index, tx });
+                    messages.push(PositionedMessage {
+                        block,
+                        tx_index,
+                        l1_tx_hash: l1_tx_hash.0,
+                        tx,
+                    });
                 }
             }
 
