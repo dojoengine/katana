@@ -368,10 +368,14 @@ where
         Ok(self.transaction_status(transaction_hash).await?)
     }
 
-    async fn get_messages_status(&self, transaction_hash: Felt) -> RpcResult<Vec<MessageStatus>> {
+    async fn get_messages_status(
+        &self,
+        transaction_hash: katana_primitives::B256,
+    ) -> RpcResult<Vec<MessageStatus>> {
         // The index is keyed by raw 32-byte hash so the same machinery serves both
-        // Ethereum (B256) and Starknet (Felt) settlement chains.
-        let l1_hash: [u8; 32] = transaction_hash.to_bytes_be();
+        // Ethereum and Starknet settlement chains. We accept B256 (not Felt) because
+        // Ethereum L1 hashes can exceed STARK_PRIME.
+        let l1_hash: [u8; 32] = transaction_hash.0;
         let l2_txs =
             self.storage().provider().l2_txs_for_l1(&l1_hash).map_err(StarknetApiError::from)?;
 

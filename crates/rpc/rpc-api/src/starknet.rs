@@ -93,8 +93,15 @@ pub trait StarknetApi {
     /// settlement chain (L1) transaction. Returns an empty list if the L1 transaction
     /// is unknown to this node, either because it hasn't been ingested yet or because
     /// it never emitted any `MessageSent`/`LogMessageToL2` events.
+    ///
+    /// `transaction_hash` is the raw 32-byte L1 transaction hash. We use `B256` (not
+    /// `Felt`) because Ethereum L1 hashes can exceed STARK_PRIME and modular reduction
+    /// would corrupt the lookup key.
     #[method(name = "getMessagesStatus")]
-    async fn get_messages_status(&self, transaction_hash: Felt) -> RpcResult<Vec<MessageStatus>>;
+    async fn get_messages_status(
+        &self,
+        transaction_hash: katana_primitives::B256,
+    ) -> RpcResult<Vec<MessageStatus>>;
 
     /// Get the details and status of a submitted transaction.
     #[method(name = "getTransactionByHash")]
