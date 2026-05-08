@@ -124,7 +124,11 @@ where
                                 "No new blocks on settlement chain."
                             );
                             this.phase = Phase::Idle;
-                            return Poll::Pending;
+                            // Loop back to Idle so the trigger gets re-polled and registers
+                            // a waker for the next tick. Returning Pending without re-polling
+                            // the trigger would leave the task with no waker, deadlocking
+                            // the stream.
+                            continue;
                         }
 
                         let to_block = Self::to_block(this.from_block, latest_block);
@@ -148,7 +152,8 @@ where
                     Poll::Ready(Err(e)) => {
                         error!(target: LOG_TARGET, error = %e, "Failed to fetch latest block number.");
                         this.phase = Phase::Idle;
-                        return Poll::Pending;
+                        // Same reason as above: re-poll the trigger so a waker is registered.
+                        continue;
                     }
                     Poll::Pending => return Poll::Pending,
                 },
@@ -176,7 +181,8 @@ where
                             "Gathering messages for block."
                         );
                         this.phase = Phase::Idle;
-                        return Poll::Pending;
+                        // Re-poll the trigger so a waker is registered for the next tick.
+                        continue;
                     }
                     Poll::Pending => return Poll::Pending,
                 },
