@@ -211,6 +211,7 @@ where
             executor_factory,
             block_context_generator,
             chain_spec: config.chain.clone(),
+            no_state_trie: config.sequencing.no_state_trie,
         });
 
         let skip_dev_genesis =

@@ -20,6 +20,13 @@ pub struct SequencingConfig {
     ///
     /// See <https://docs.starknet.io/chain-info/#current_limits>.
     pub block_cairo_steps_limit: Option<u64>,
+
+    /// Disable state trie computation during block production.
+    ///
+    /// When true, block headers carry `state_root = Felt::ZERO` and no
+    /// class/contract/storage trie writes are performed. Block hashes
+    /// will differ from a normal run and storage proofs become unavailable.
+    pub no_state_trie: bool,
 }
 
 impl SequencingConfig {

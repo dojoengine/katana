@@ -68,6 +68,14 @@ pub struct SequencerNodeArgs {
     #[arg(value_name = "TOTAL")]
     pub block_cairo_steps_limit: Option<u64>,
 
+    /// Disable state trie computation during block production.
+    ///
+    /// When set, block headers carry `state_root = 0` and no trie data is
+    /// written to the database. This skips a significant amount of work but
+    /// breaks state proofs (`pathfinder_getProof`) and changes block hashes.
+    #[arg(long)]
+    pub no_state_trie: bool,
+
     /// Configuration file
     #[arg(long)]
     pub config: Option<PathBuf>,
@@ -391,6 +399,7 @@ impl SequencerNodeArgs {
             block_time: self.block_time,
             no_mining: self.no_mining,
             block_cairo_steps_limit: self.block_cairo_steps_limit,
+            no_state_trie: self.no_state_trie,
         }
     }
 
@@ -731,6 +740,10 @@ impl SequencerNodeArgs {
 
         if !self.no_mining {
             self.no_mining = config.no_mining.unwrap_or_default();
+        }
+
+        if !self.no_state_trie {
+            self.no_state_trie = config.no_state_trie.unwrap_or_default();
         }
 
         if self.block_time.is_none() {

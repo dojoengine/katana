@@ -13,6 +13,7 @@ pub struct NodeArgsConfig {
     pub no_mining: Option<bool>,
     pub block_time: Option<u64>,
     pub block_cairo_steps_limit: Option<u64>,
+    pub no_state_trie: Option<bool>,
     #[serde(flatten)]
     pub db: Option<DbOptions>,
     pub messaging: Option<MessagingConfig>,
@@ -52,6 +53,7 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
             no_mining: if args.no_mining { Some(true) } else { None },
             block_time: args.block_time,
             block_cairo_steps_limit: args.block_cairo_steps_limit,
+            no_state_trie: if args.no_state_trie { Some(true) } else { None },
             db: (!args.db.is_default()).then_some(args.db),
             messaging: args.messaging,
             ..Default::default()

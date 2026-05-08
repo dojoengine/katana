@@ -15,7 +15,7 @@ fn test_backend() -> Arc<Backend<DbProviderFactory>> {
         Arc::new(NoopExecutorFactory::new());
     let storage = DbProviderFactory::new_in_memory();
     let gas_oracle = GasPriceOracle::create_for_testing();
-    let backend = Arc::new(Backend::new(chain_spec, storage, gas_oracle, executor_factory));
+    let backend = Arc::new(Backend::new(chain_spec, storage, gas_oracle, executor_factory, false));
     backend.init_genesis(false).expect("failed to initialize genesis");
     backend
 }

@@ -46,6 +46,7 @@ fn backend_with_db(
         provider,
         GasPriceOracle::create_for_testing(),
         executor(chain_spec),
+        false,
     )
 }
 
