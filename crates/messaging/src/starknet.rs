@@ -27,6 +27,14 @@ pub struct StarknetCollector {
     messaging_contract_address: Felt,
 }
 
+impl std::fmt::Debug for StarknetCollector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StarknetCollector")
+            .field("messaging_contract_address", &self.messaging_contract_address)
+            .finish_non_exhaustive()
+    }
+}
+
 impl StarknetCollector {
     pub fn new(rpc_url: &str, contract_address: &str) -> Result<Self> {
         let provider = Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(HttpTransport::new(

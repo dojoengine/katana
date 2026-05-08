@@ -21,6 +21,12 @@ pub struct IntervalTrigger {
     interval: Interval,
 }
 
+impl std::fmt::Debug for IntervalTrigger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IntervalTrigger").finish_non_exhaustive()
+    }
+}
+
 impl IntervalTrigger {
     pub fn new(secs: u64) -> Self {
         let duration = Duration::from_secs(secs);

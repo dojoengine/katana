@@ -830,7 +830,7 @@ where
                     CHECKPOINT_ID,
                     &MessagingCheckpoint { block: cp.block, tx_index: cp.tx_index },
                 );
-                match result.and_then(|_| MutableProvider::commit(tx).map_err(Into::into)) {
+                match result.and_then(|_| MutableProvider::commit(tx)) {
                     Ok(_) => {}
                     Err(e) => {
                         tracing::error!(
@@ -851,7 +851,7 @@ where
             Box::new(move |rec: katana_messaging::server::L1ToL2Record| {
                 let tx = on_message_provider.provider_mut();
                 let result = tx.record_l1_to_l2(&rec.l1_tx_hash, rec.l2_tx_hash);
-                match result.and_then(|_| MutableProvider::commit(tx).map_err(Into::into)) {
+                match result.and_then(|_| MutableProvider::commit(tx)) {
                     Ok(_) => {}
                     Err(e) => {
                         tracing::error!(

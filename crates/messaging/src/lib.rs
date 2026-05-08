@@ -84,6 +84,7 @@ impl<T> Messenger for T where T: Stream<Item = MessagingOutcome> + Send + Unpin 
 
 /// A no-op messenger that never yields any messages.
 /// Used when messaging is disabled.
+#[derive(Debug)]
 pub struct NoopMessenger;
 
 impl Stream for NoopMessenger {
