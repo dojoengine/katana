@@ -20,6 +20,9 @@ pub mod starknet;
 pub mod stream;
 pub mod trigger;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
 use std::pin::Pin;
 use std::task::{Context, Poll};
 

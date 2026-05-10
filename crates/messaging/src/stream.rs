@@ -221,3 +221,299 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use futures::StreamExt;
+    use katana_primitives::chain::ChainId;
+    use katana_primitives::transaction::L1HandlerTx;
+    use katana_primitives::Felt;
+
+    use super::*;
+    use crate::collector::PositionedMessage;
+    use crate::testing::{ManualTrigger, MockCollector};
+
+    const SHORT: Duration = Duration::from_millis(50);
+
+    /// Builds a stub `L1HandlerTx` whose internals don't matter for state machine
+    /// tests — we only care that `MessageStream` plumbs values through correctly.
+    fn stub_tx() -> L1HandlerTx {
+        L1HandlerTx {
+            calldata: vec![],
+            chain_id: ChainId::default(),
+            message_hash: Default::default(),
+            paid_fee_on_l1: 0,
+            nonce: Felt::ZERO,
+            entry_point_selector: Felt::ZERO,
+            version: Felt::ZERO,
+            contract_address: Default::default(),
+        }
+    }
+
+    fn msg(block: u64, tx_index: u64) -> PositionedMessage {
+        PositionedMessage { block, tx_index, l1_tx_hash: [0u8; 32], tx: stub_tx() }
+    }
+
+    /// Build a stream wired to a fresh `MockCollector` + `ManualTrigger`.
+    /// Returns the boxed stream alongside handles for queueing mock responses
+    /// and firing trigger ticks.
+    fn build(
+        from_block: u64,
+        from_tx_index: u64,
+        confirmation_depth: u64,
+    ) -> (
+        Pin<Box<MessageStream<Arc<MockCollector>, ManualTrigger>>>,
+        Arc<MockCollector>,
+        crate::testing::ManualTriggerHandle,
+    ) {
+        let collector = Arc::new(MockCollector::new());
+        let (trigger, handle) = ManualTrigger::new();
+        let stream = Box::pin(MessageStream::with_cursor(
+            collector.clone(),
+            trigger,
+            ChainId::default(),
+            from_block,
+            from_tx_index,
+            confirmation_depth,
+        ));
+        (stream, collector, handle)
+    }
+
+    /// Drive the stream and assert it does NOT yield within `SHORT`.
+    /// Used to verify "no new blocks" / "before confirmation depth" paths.
+    async fn assert_no_yield<S: futures::Stream + Unpin>(stream: &mut S) {
+        let res = tokio::time::timeout(SHORT, stream.next()).await;
+        assert!(res.is_err(), "stream yielded when it shouldn't have");
+    }
+
+    // -------------------------------------------------------------------------
+    // Happy path
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn yields_outcome_on_successful_gather() {
+        let (mut stream, collector, trigger) = build(0, 0, 0);
+        collector.push_latest_block(Ok(5));
+        collector.push_gather(Ok(GatherResult { to_block: 5, messages: vec![msg(3, 0)] }));
+
+        trigger.fire();
+        let outcome = stream.next().await.expect("stream yielded");
+
+        assert_eq!(outcome.settlement_block, 5);
+        assert_eq!(outcome.messages.len(), 1);
+        assert_eq!(outcome.messages[0].block, 3);
+    }
+
+    #[tokio::test]
+    async fn empty_gather_still_yields_outcome() {
+        // The server expects to see every gather (for logging / counters); empty
+        // outcomes are fine but mustn't be swallowed.
+        let (mut stream, collector, trigger) = build(0, 0, 0);
+        collector.push_latest_block(Ok(2));
+        collector.push_gather(Ok(GatherResult { to_block: 2, messages: vec![] }));
+
+        trigger.fire();
+        let outcome = stream.next().await.expect("stream yielded");
+
+        assert_eq!(outcome.settlement_block, 2);
+        assert!(outcome.messages.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Cursor advance
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn cursor_advances_past_to_block_after_gather() {
+        let (mut stream, collector, trigger) = build(10, 7, 0);
+        collector.push_latest_block(Ok(20));
+        collector.push_gather(Ok(GatherResult { to_block: 20, messages: vec![] }));
+
+        trigger.fire();
+        let _ = stream.next().await.expect("stream yielded");
+
+        // Next tick should ask the collector with from_block = 21, from_tx_index = 0.
+        collector.push_latest_block(Ok(21));
+        collector.push_gather(Ok(GatherResult { to_block: 21, messages: vec![] }));
+        trigger.fire();
+        let _ = stream.next().await.expect("stream yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1].from_block, 21);
+        assert_eq!(calls[1].from_tx_index, 0, "tx_index should reset to 0 after gather");
+    }
+
+    #[tokio::test]
+    async fn with_cursor_passes_from_tx_index_to_collector() {
+        // Restart-from-checkpoint scenario: same-block resume.
+        let (mut stream, collector, trigger) = build(50, 7, 0);
+        collector.push_latest_block(Ok(50));
+        collector.push_gather(Ok(GatherResult { to_block: 50, messages: vec![] }));
+
+        trigger.fire();
+        let _ = stream.next().await.expect("stream yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from_block, 50);
+        assert_eq!(calls[0].from_tx_index, 7);
+        assert_eq!(calls[0].to_block, 50);
+    }
+
+    // -------------------------------------------------------------------------
+    // No new blocks / waker regression
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn no_new_blocks_does_not_yield_but_resumes_on_next_tick() {
+        // Regression for the waker bug: previously after seeing "no new blocks"
+        // the stream returned Pending without re-polling the trigger, so the
+        // next tick never woke the task.
+        let (mut stream, collector, trigger) = build(10, 0, 0);
+
+        // Tick 1: latest_block == 9, below from_block. No gather, no yield.
+        collector.push_latest_block(Ok(9));
+        trigger.fire();
+        assert_no_yield(&mut stream).await;
+        assert_eq!(collector.latest_block_calls(), 1);
+        assert!(collector.gather_calls().is_empty());
+
+        // Tick 2: latest_block == 11. Must wake and gather.
+        collector.push_latest_block(Ok(11));
+        collector.push_gather(Ok(GatherResult { to_block: 11, messages: vec![] }));
+        trigger.fire();
+        let outcome =
+            tokio::time::timeout(SHORT, stream.next()).await.expect("woke up").expect("yielded");
+        assert_eq!(outcome.settlement_block, 11);
+    }
+
+    // -------------------------------------------------------------------------
+    // Confirmation depth (reorg protection)
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn confirmation_depth_caps_to_block() {
+        // latest = 100, depth = 6 → safe_head = 94. Gather should be capped at 94.
+        let (mut stream, collector, trigger) = build(0, 0, 6);
+        collector.push_latest_block(Ok(100));
+        collector.push_gather(Ok(GatherResult { to_block: 94, messages: vec![] }));
+
+        trigger.fire();
+        let outcome = stream.next().await.expect("yielded");
+        assert_eq!(outcome.settlement_block, 94);
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to_block, 94, "to_block must respect confirmation_depth");
+    }
+
+    #[tokio::test]
+    async fn no_gather_before_confirmation_depth_reached() {
+        // latest_block < confirmation_depth: safe_head is None, no gather.
+        let (mut stream, collector, trigger) = build(0, 0, 100);
+        collector.push_latest_block(Ok(5));
+        trigger.fire();
+        assert_no_yield(&mut stream).await;
+        assert!(collector.gather_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_gather_when_safe_head_below_from_block() {
+        // latest = 10, depth = 6 → safe_head = 4. from_block = 5 → 4 < 5, no gather.
+        let (mut stream, collector, trigger) = build(5, 0, 6);
+        collector.push_latest_block(Ok(10));
+        trigger.fire();
+        assert_no_yield(&mut stream).await;
+        assert!(collector.gather_calls().is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // MAX_BLOCKS_PER_GATHER cap
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn to_block_capped_at_max_blocks_per_gather() {
+        // from_block = 0, latest = 1000, depth = 0. Cap at 0 + MAX_BLOCKS_PER_GATHER.
+        let (mut stream, collector, trigger) = build(0, 0, 0);
+        collector.push_latest_block(Ok(1000));
+        collector.push_gather(Ok(GatherResult {
+            to_block: MAX_BLOCKS_PER_GATHER,
+            messages: vec![],
+        }));
+        trigger.fire();
+        let _ = stream.next().await.expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to_block, MAX_BLOCKS_PER_GATHER);
+    }
+
+    // -------------------------------------------------------------------------
+    // Error recovery — both paths must re-poll the trigger
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn latest_block_error_does_not_advance_cursor_and_recovers() {
+        let (mut stream, collector, trigger) = build(5, 0, 0);
+
+        // Tick 1: latest_block errors. No gather. No yield. Cursor unchanged.
+        collector.push_latest_block(Err(Error::GatherError));
+        trigger.fire();
+        assert_no_yield(&mut stream).await;
+        assert!(collector.gather_calls().is_empty());
+
+        // Tick 2: latest_block recovers. Gather called with original from_block.
+        collector.push_latest_block(Ok(8));
+        collector.push_gather(Ok(GatherResult { to_block: 8, messages: vec![] }));
+        trigger.fire();
+        let _ = tokio::time::timeout(SHORT, stream.next())
+            .await
+            .expect("woke after recovery")
+            .expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from_block, 5, "cursor must not advance on latest_block error");
+    }
+
+    #[tokio::test]
+    async fn gather_error_does_not_advance_cursor_and_recovers() {
+        let (mut stream, collector, trigger) = build(5, 0, 0);
+
+        // Tick 1: gather errors. No yield. Cursor unchanged.
+        collector.push_latest_block(Ok(8));
+        collector.push_gather(Err(Error::GatherError));
+        trigger.fire();
+        assert_no_yield(&mut stream).await;
+
+        // Tick 2: gather recovers from the same from_block.
+        collector.push_latest_block(Ok(8));
+        collector.push_gather(Ok(GatherResult { to_block: 8, messages: vec![] }));
+        trigger.fire();
+        let _ = tokio::time::timeout(SHORT, stream.next())
+            .await
+            .expect("woke after recovery")
+            .expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].from_block, 5);
+        assert_eq!(calls[1].from_block, 5, "cursor must not advance on gather error");
+    }
+
+    // -------------------------------------------------------------------------
+    // End-of-stream
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn stream_ends_when_trigger_closes() {
+        let (mut stream, _collector, trigger) = build(0, 0, 0);
+        drop(trigger); // closes the underlying channel
+        let res = tokio::time::timeout(SHORT, stream.next()).await.expect("ready promptly");
+        assert!(res.is_none(), "stream should terminate when trigger ends");
+    }
+}
+

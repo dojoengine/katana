@@ -12,7 +12,7 @@ use starknet::core::types::{BlockId, EmittedEvent, EventFilter};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{AnyProvider, JsonRpcClient, Provider};
-use tracing::{debug, error, trace};
+use tracing::{debug, trace};
 use url::Url;
 
 use crate::collector::{GatherResult, MessageCollector, PositionedMessage};

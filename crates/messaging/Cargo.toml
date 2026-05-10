@@ -5,6 +5,13 @@ name = "katana-messaging"
 repository.workspace = true
 version.workspace = true
 
+[features]
+# Exposes `crate::testing::{MockCollector, ManualTrigger, ...}` so downstream
+# crates can drive `MessageStream`/`MessagingServer` in tests without spinning
+# up a real settlement chain. The same module is unconditionally available
+# inside the crate's own tests.
+testing = []
+
 [dependencies]
 katana-chain-spec.workspace = true
 katana-pool.workspace = true
