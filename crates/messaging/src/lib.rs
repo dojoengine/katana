@@ -45,6 +45,11 @@ pub enum Error {
     UnsupportedChain,
     #[error("Failed to gather messages from settlement chain")]
     GatherError,
+    /// A settlement chain log/event was found whose shape didn't match the expected
+    /// schema. Surfaces the specific reason so operators can diagnose contract
+    /// upgrades, RPC bugs, or chain-id mismatches without a stack trace.
+    #[error("Malformed settlement chain message: {0}")]
+    MalformedMessage(String),
     #[error(transparent)]
     Provider(ProviderError),
 }

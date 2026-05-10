@@ -147,13 +147,16 @@ impl MessageCollector for EthereumCollector {
 // --- Conversion functions ---
 
 fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> Result<L1HandlerTx, Error> {
-    let log = LogMessageToL2::decode_log(log.as_ref()).unwrap();
+    let log = LogMessageToL2::decode_log(log.as_ref())
+        .map_err(|e| Error::MalformedMessage(format!("decode LogMessageToL2 log: {e}")))?;
 
     let from_address = log.from_address;
     let contract_address = ContractAddress::from(log.to_address);
     let entry_point_selector = felt_from_u256(log.selector);
     let nonce = felt_from_u256(log.nonce);
-    let paid_fee_on_l1: u128 = log.fee.try_into().expect("Fee does not fit into u128.");
+    let paid_fee_on_l1: u128 = log.fee.try_into().map_err(|_| {
+        Error::MalformedMessage(format!("L1->L2 fee {} does not fit into u128", log.fee))
+    })?;
     let payload = log.payload.clone().into_iter().map(felt_from_u256).collect::<Vec<_>>();
 
     let message = L1ToL2Message {

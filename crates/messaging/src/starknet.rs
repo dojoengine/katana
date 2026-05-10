@@ -144,17 +144,31 @@ impl MessageCollector for StarknetCollector {
 // --- Conversion functions ---
 
 fn l1_handler_tx_from_event(event: &EmittedEvent, chain_id: ChainId) -> Result<L1HandlerTx> {
-    if event.keys[0] != MESSAGE_SENT_EVENT_KEY {
-        error!(
-            target: LOG_TARGET,
-            event_key = ?event.keys[0],
-            "Event can't be converted into L1HandlerTx."
-        );
-        return Err(Error::GatherError.into());
+    // Validate event shape before any indexing — the `MessageSent` schema requires
+    // exactly 4 keys (event_key, random_hash, from_address, to_address) and at least
+    // 3 data entries (selector, nonce, payload_length, ...payload).
+    if event.keys.len() != 4 {
+        return Err(Error::MalformedMessage(format!(
+            "MessageSent event expected 4 keys, got {}",
+            event.keys.len()
+        ))
+        .into());
+    }
+    if event.data.len() < 3 {
+        return Err(Error::MalformedMessage(format!(
+            "MessageSent event expected at least 3 data entries (selector, nonce, \
+             payload_length), got {}",
+            event.data.len()
+        ))
+        .into());
     }
 
-    if event.keys.len() != 4 || event.data.len() < 2 {
-        error!(target: LOG_TARGET, "Event MessageSentToAppchain is not well formatted.");
+    if event.keys[0] != MESSAGE_SENT_EVENT_KEY {
+        return Err(Error::MalformedMessage(format!(
+            "MessageSent event key mismatch: expected {MESSAGE_SENT_EVENT_KEY:#x}, got {:#x}",
+            event.keys[0]
+        ))
+        .into());
     }
 
     let from_address = event.keys[2];
@@ -265,7 +279,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn l1_handler_tx_from_event_parse_bad_selector() {
         let from_address = selector!("from_address");
         let to_address = selector!("to_address");
@@ -290,17 +303,14 @@ mod tests {
             transaction_hash,
         };
 
-        let _tx = l1_handler_tx_from_event(&event, ChainId::default()).unwrap();
+        let err = l1_handler_tx_from_event(&event, ChainId::default()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("event key mismatch"), "unexpected error: {msg}");
     }
 
     #[test]
-    #[should_panic]
     fn l1_handler_tx_from_event_parse_missing_key_data() {
         let from_address = selector!("from_address");
-        let _to_address = selector!("to_address");
-        let _selector = selector!("selector");
-        let _nonce = Felt::ONE;
-        let _calldata = [from_address, Felt::THREE];
         let transaction_hash = Felt::ZERO;
 
         let event = EmittedEvent {
@@ -314,6 +324,8 @@ mod tests {
             transaction_hash,
         };
 
-        let _tx = l1_handler_tx_from_event(&event, ChainId::default()).unwrap();
+        let err = l1_handler_tx_from_event(&event, ChainId::default()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("expected 4 keys"), "unexpected error: {msg}");
     }
 }
