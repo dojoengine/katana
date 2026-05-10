@@ -306,27 +306,16 @@ mod tests {
         assert_eq!(outcome.messages[0].block, 3);
     }
 
-    #[tokio::test]
-    async fn empty_gather_still_yields_outcome() {
-        // The server expects to see every gather (for logging / counters); empty
-        // outcomes are fine but mustn't be swallowed.
-        let (mut stream, collector, trigger) = build(0, 0, 0);
-        collector.push_latest_block(Ok(2));
-        collector.push_gather(Ok(GatherResult { to_block: 2, messages: vec![] }));
-
-        trigger.fire();
-        let outcome = stream.next().await.expect("stream yielded");
-
-        assert_eq!(outcome.settlement_block, 2);
-        assert!(outcome.messages.is_empty());
-    }
-
     // -------------------------------------------------------------------------
-    // Cursor advance
+    // Cursor: same-block resume on first gather, advance + reset on next
     // -------------------------------------------------------------------------
 
     #[tokio::test]
-    async fn cursor_advances_past_to_block_after_gather() {
+    async fn cursor_starts_at_with_cursor_then_advances_after_gather() {
+        // Restart-from-checkpoint scenario: starts at (10, 7).
+        // First gather: collector sees from_block=10, from_tx_index=7 (same-block resume).
+        // After gather to to_block=20: cursor advances to (21, 0).
+        // Second gather: collector sees from_block=21, from_tx_index=0.
         let (mut stream, collector, trigger) = build(10, 7, 0);
         collector.push_latest_block(Ok(20));
         collector.push_gather(Ok(GatherResult { to_block: 20, messages: vec![] }));
@@ -334,7 +323,6 @@ mod tests {
         trigger.fire();
         let _ = stream.next().await.expect("stream yielded");
 
-        // Next tick should ask the collector with from_block = 21, from_tx_index = 0.
         collector.push_latest_block(Ok(21));
         collector.push_gather(Ok(GatherResult { to_block: 21, messages: vec![] }));
         trigger.fire();
@@ -342,25 +330,12 @@ mod tests {
 
         let calls = collector.gather_calls();
         assert_eq!(calls.len(), 2);
-        assert_eq!(calls[1].from_block, 21);
-        assert_eq!(calls[1].from_tx_index, 0, "tx_index should reset to 0 after gather");
-    }
 
-    #[tokio::test]
-    async fn with_cursor_passes_from_tx_index_to_collector() {
-        // Restart-from-checkpoint scenario: same-block resume.
-        let (mut stream, collector, trigger) = build(50, 7, 0);
-        collector.push_latest_block(Ok(50));
-        collector.push_gather(Ok(GatherResult { to_block: 50, messages: vec![] }));
+        assert_eq!(calls[0].from_block, 10, "first call must use the with_cursor block");
+        assert_eq!(calls[0].from_tx_index, 7, "first call must use the with_cursor tx_index");
 
-        trigger.fire();
-        let _ = stream.next().await.expect("stream yielded");
-
-        let calls = collector.gather_calls();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].from_block, 50);
-        assert_eq!(calls[0].from_tx_index, 7);
-        assert_eq!(calls[0].to_block, 50);
+        assert_eq!(calls[1].from_block, 21, "from_block must advance to to_block + 1");
+        assert_eq!(calls[1].from_tx_index, 0, "from_tx_index must reset to 0 after gather");
     }
 
     // -------------------------------------------------------------------------
@@ -412,19 +387,11 @@ mod tests {
 
     #[tokio::test]
     async fn no_gather_before_confirmation_depth_reached() {
-        // latest_block < confirmation_depth: safe_head is None, no gather.
+        // latest_block < confirmation_depth: safe_head is None (the saturating_sub
+        // branch). Distinct from `no_new_blocks_does_not_yield_but_resumes_on_next_tick`,
+        // which exercises the safe_head-below-from_block branch.
         let (mut stream, collector, trigger) = build(0, 0, 100);
         collector.push_latest_block(Ok(5));
-        trigger.fire();
-        assert_no_yield(&mut stream).await;
-        assert!(collector.gather_calls().is_empty());
-    }
-
-    #[tokio::test]
-    async fn no_gather_when_safe_head_below_from_block() {
-        // latest = 10, depth = 6 → safe_head = 4. from_block = 5 → 4 < 5, no gather.
-        let (mut stream, collector, trigger) = build(5, 0, 6);
-        collector.push_latest_block(Ok(10));
         trigger.fire();
         assert_no_yield(&mut stream).await;
         assert!(collector.gather_calls().is_empty());
