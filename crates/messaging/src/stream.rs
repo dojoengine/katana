@@ -45,6 +45,10 @@ pub struct MessageStream<C, T> {
     chain_id: ChainId,
     from_block: u64,
     from_tx_index: u64,
+    /// Number of confirmations required before a settlement block is considered safe to
+    /// gather from. The "safe head" is `latest_block - confirmation_depth`; gathers
+    /// never cross past it. `0` disables the protection.
+    confirmation_depth: u64,
     phase: Phase,
 }
 
@@ -53,12 +57,13 @@ where
     C: MessageCollector,
     T: MessageTrigger,
 {
-    /// Create a new stream starting at `(from_block, 0)`.
+    /// Create a new stream starting at `(from_block, 0)` with no confirmation depth.
     pub fn new(collector: C, trigger: T, chain_id: ChainId, from_block: u64) -> Self {
-        Self::with_cursor(collector, trigger, chain_id, from_block, 0)
+        Self::with_cursor(collector, trigger, chain_id, from_block, 0, 0)
     }
 
-    /// Create a new stream starting at a specific `(from_block, from_tx_index)` cursor.
+    /// Create a new stream starting at a specific `(from_block, from_tx_index)` cursor
+    /// and a configurable confirmation depth.
     ///
     /// Used on restart when resuming from a persisted checkpoint that points mid-block.
     pub fn with_cursor(
@@ -67,6 +72,7 @@ where
         chain_id: ChainId,
         from_block: u64,
         from_tx_index: u64,
+        confirmation_depth: u64,
     ) -> Self {
         Self {
             collector: Arc::new(collector),
@@ -74,16 +80,24 @@ where
             chain_id,
             from_block,
             from_tx_index,
+            confirmation_depth,
             phase: Phase::Idle,
         }
     }
 
+    /// Returns the "safe head" — the highest settlement block that has accumulated
+    /// enough confirmations to be considered immune to reorgs. Returns `None` if no
+    /// block has yet reached that depth (i.e. `latest_block < confirmation_depth`).
+    fn safe_head(&self, latest_block: u64) -> Option<u64> {
+        latest_block.checked_sub(self.confirmation_depth)
+    }
+
     /// Returns the capped `to_block` for a gather.
-    fn to_block(from_block: u64, latest_block: u64) -> u64 {
-        if from_block + MAX_BLOCKS_PER_GATHER + 1 < latest_block {
+    fn to_block(from_block: u64, safe_head: u64) -> u64 {
+        if from_block + MAX_BLOCKS_PER_GATHER + 1 < safe_head {
             from_block + MAX_BLOCKS_PER_GATHER
         } else {
-            latest_block
+            safe_head
         }
     }
 }
@@ -116,12 +130,28 @@ where
 
                 Phase::CheckingBlock(fut) => match fut.poll_unpin(cx) {
                     Poll::Ready(Ok(latest_block)) => {
-                        if latest_block < this.from_block {
+                        // Apply confirmation depth: only gather up to the safe head to
+                        // avoid pulling messages from blocks that may still be reorg'd
+                        // off the canonical chain.
+                        let Some(safe_head) = this.safe_head(latest_block) else {
                             trace!(
                                 target: LOG_TARGET,
                                 from_block = this.from_block,
                                 latest_block,
-                                "No new blocks on settlement chain."
+                                confirmation_depth = this.confirmation_depth,
+                                "Settlement chain hasn't reached confirmation depth yet."
+                            );
+                            this.phase = Phase::Idle;
+                            continue;
+                        };
+
+                        if safe_head < this.from_block {
+                            trace!(
+                                target: LOG_TARGET,
+                                from_block = this.from_block,
+                                latest_block,
+                                safe_head,
+                                "No new confirmed blocks on settlement chain."
                             );
                             this.phase = Phase::Idle;
                             // Loop back to Idle so the trigger gets re-polled and registers
@@ -131,13 +161,14 @@ where
                             continue;
                         }
 
-                        let to_block = Self::to_block(this.from_block, latest_block);
+                        let to_block = Self::to_block(this.from_block, safe_head);
                         trace!(
                             target: LOG_TARGET,
                             from_block = this.from_block,
                             from_tx_index = this.from_tx_index,
                             to_block,
                             latest_block,
+                            safe_head,
                             "New blocks detected, gathering messages."
                         );
 

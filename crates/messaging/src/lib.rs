@@ -105,8 +105,18 @@ pub struct MessagingConfig {
     /// new blocks on the settlement chain.
     pub interval: u64,
     /// The block on settlement chain from where Katana will start fetching messages.
-    /// Used only if no checkpoint exists in the database.
+    /// Used only on first start. On restart, the persisted checkpoint takes precedence.
     pub from_block: u64,
+    /// Number of confirmations to wait before considering a settlement chain block safe
+    /// to gather messages from. The messenger only inspects blocks at or below
+    /// `latest_block - confirmation_depth`.
+    ///
+    /// This protects against reorgs: a message gathered from a block that later gets
+    /// reorg'd off the canonical chain would otherwise leave the L2 with a tx that has
+    /// no L1 origin. Recommended values: ~6-12 for Ethereum L1, 1 for Starknet (single
+    /// block finality). Defaults to 0 (no protection — appropriate for dev/test only).
+    #[serde(default)]
+    pub confirmation_depth: u64,
 }
 
 /// Settlement chain configuration with typed variants.
@@ -142,6 +152,7 @@ impl MessagingConfig {
                 },
                 from_block: *block,
                 interval: 2,
+                confirmation_depth: 0,
             },
             katana_chain_spec::SettlementLayer::Starknet {
                 rpc_url, core_contract, block, ..
@@ -152,6 +163,7 @@ impl MessagingConfig {
                 },
                 from_block: *block,
                 interval: 2,
+                confirmation_depth: 0,
             },
             katana_chain_spec::SettlementLayer::Sovereign { .. } => {
                 panic!("Sovereign chains are not supported for messaging.")
@@ -181,6 +193,7 @@ pub fn build_messenger(
     };
 
     let trigger = IntervalTrigger::new(config.interval);
+    let confirmation_depth = config.confirmation_depth;
 
     let stream: Box<dyn Messenger> = match &config.settlement {
         SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
@@ -191,6 +204,7 @@ pub fn build_messenger(
                 chain_id,
                 from_block,
                 from_tx_index,
+                confirmation_depth,
             ))
         }
         SettlementChainConfig::Starknet { rpc_url, contract_address } => {
@@ -201,6 +215,7 @@ pub fn build_messenger(
                 chain_id,
                 from_block,
                 from_tx_index,
+                confirmation_depth,
             ))
         }
     };

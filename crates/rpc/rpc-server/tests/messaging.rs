@@ -63,6 +63,7 @@ async fn test_messaging() {
         },
         interval: 2,
         from_block: 0,
+        confirmation_depth: 0,
     };
 
     let mut config = katana_utils::node::test_config();
