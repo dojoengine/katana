@@ -821,54 +821,31 @@ where
             from_tx_index,
         )?;
 
-        // Persist every successful gather so a restart resumes from where we left off.
-        let on_gather_provider = provider_factory.clone();
-        let on_gather: katana_messaging::server::OnGatherCallback =
-            Box::new(move |cp: katana_messaging::server::Checkpoint| {
-                let tx = on_gather_provider.provider_mut();
-                let result = tx.set_messaging_checkpoint(
+        // Atomic per-message commit: index entry + checkpoint in one DB transaction.
+        // If either write or the commit fails, NEITHER is persisted — restart will
+        // re-gather and re-attempt. Splitting them previously meant a failed index
+        // write paired with a successful checkpoint write would silently drop the
+        // L1->L2 mapping forever.
+        let commit_provider = provider_factory.clone();
+        let on_commit: katana_messaging::server::OnCommitCallback = std::sync::Arc::new(
+            move |c: katana_messaging::server::MessageCommit| -> anyhow::Result<()> {
+                let tx = commit_provider.provider_mut();
+                tx.record_l1_to_l2(&c.record.l1_tx_hash, c.record.l2_tx_hash)
+                    .context("record L1->L2 mapping")?;
+                tx.set_messaging_checkpoint(
                     CHECKPOINT_ID,
-                    &MessagingCheckpoint { block: cp.block, tx_index: cp.tx_index },
-                );
-                match result.and_then(|_| MutableProvider::commit(tx)) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::error!(
-                            target: "messaging",
-                            error = %e,
-                            block = cp.block,
-                            tx_index = cp.tx_index,
-                            "Failed to persist messaging checkpoint.",
-                        );
-                    }
-                }
-            });
+                    &MessagingCheckpoint {
+                        block: c.checkpoint.block,
+                        tx_index: c.checkpoint.tx_index,
+                    },
+                )
+                .context("set messaging checkpoint")?;
+                MutableProvider::commit(tx).context("commit messaging state")?;
+                Ok(())
+            },
+        );
 
-        // Record every L1 -> L2 mapping so `starknet_getMessagesStatus` can resolve
-        // L2 statuses by the originating settlement chain transaction hash.
-        let on_message_provider = provider_factory.clone();
-        let on_message: katana_messaging::server::OnMessageCallback =
-            Box::new(move |rec: katana_messaging::server::L1ToL2Record| {
-                let tx = on_message_provider.provider_mut();
-                let result = tx.record_l1_to_l2(&rec.l1_tx_hash, rec.l2_tx_hash);
-                match result.and_then(|_| MutableProvider::commit(tx)) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::error!(
-                            target: "messaging",
-                            error = %e,
-                            l1_tx_hash = ?rec.l1_tx_hash,
-                            l2_tx_hash = %format!("{:#x}", rec.l2_tx_hash),
-                            "Failed to persist L1->L2 message mapping.",
-                        );
-                    }
-                }
-            });
-
-        let server = MessagingServer::new(messenger)
-            .pool(pool.clone())
-            .on_gather(on_gather)
-            .on_message(on_message);
+        let server = MessagingServer::new(messenger).pool(pool.clone()).on_commit(on_commit);
         Ok(server.start())
     }
 }

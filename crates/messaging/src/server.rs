@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use futures::StreamExt;
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
@@ -14,10 +16,10 @@ impl std::fmt::Debug for MessagingServer {
     }
 }
 
-/// Checkpoint data passed to the on_gather callback.
+/// Checkpoint data persisted after each successfully processed message.
 ///
 /// Identifies the last fully processed message so a restart can resume from the next
-/// position. The callback is invoked once per successfully pool-inserted message.
+/// position.
 #[derive(Debug, Clone)]
 pub struct Checkpoint {
     /// The settlement chain block the message was emitted in.
@@ -26,13 +28,9 @@ pub struct Checkpoint {
     pub tx_index: u64,
 }
 
-/// Callback invoked by the server after each successful pool insert to persist
-/// progress. Caller is responsible for any durability guarantees (e.g., a DB commit).
-pub type OnGatherCallback = Box<dyn Fn(Checkpoint) + Send + Sync>;
-
 /// A record of a settlement chain L1 transaction successfully spawning an L2
-/// L1Handler transaction. Used by the on_message callback to populate the
-/// L1->L2 index that powers `starknet_getMessagesStatus`.
+/// L1Handler transaction. Used to populate the L1->L2 index that powers
+/// `starknet_getMessagesStatus`.
 #[derive(Debug, Clone)]
 pub struct L1ToL2Record {
     /// Settlement chain transaction hash that emitted the originating event/log.
@@ -41,24 +39,44 @@ pub struct L1ToL2Record {
     pub l2_tx_hash: TxHash,
 }
 
-/// Callback invoked by the server after each successful pool insert with the
-/// `(l1_tx_hash, l2_tx_hash)` mapping. Caller is responsible for any durability
-/// guarantees (e.g., a DB commit).
-pub type OnMessageCallback = Box<dyn Fn(L1ToL2Record) + Send + Sync>;
+/// Combined record passed to [`OnCommitCallback`] after a successful pool insert.
+///
+/// The callback must persist both fields **atomically** (i.e. in a single
+/// storage transaction) so the index entry and the checkpoint advance together.
+/// If they could fail independently, an index write that succeeds but a checkpoint
+/// that fails (or vice-versa) would let restart skip the message while losing the
+/// L1->L2 mapping forever, breaking `starknet_getMessagesStatus`.
+#[derive(Debug, Clone)]
+pub struct MessageCommit {
+    /// L1->L2 mapping for the `starknet_getMessagesStatus` index.
+    pub record: L1ToL2Record,
+    /// Checkpoint to advance to after this message is fully processed.
+    pub checkpoint: Checkpoint,
+}
+
+/// Callback invoked by the server after each successful pool insert. The callback
+/// receives both the L1->L2 mapping and the new checkpoint, and is expected to
+/// persist them atomically.
+///
+/// If the callback returns `Err`, the server logs the failure and stops processing
+/// the current batch. The in-memory stream cursor has already advanced past the
+/// gather range, so on restart the messenger will re-gather and re-attempt; the
+/// pool's hash-level dedup prevents duplicate L1Handler txs.
+pub type OnCommitCallback =
+    Arc<dyn Fn(MessageCommit) -> Result<(), anyhow::Error> + Send + Sync>;
 
 /// The messaging server drains a [`Messenger`] stream, adds gathered transactions
-/// to the transaction pool, and persists checkpoints.
+/// to the transaction pool, and persists checkpoints + L1->L2 index entries.
 pub struct MessagingServer {
     messenger: Box<dyn Messenger>,
     pool: Option<TxPool>,
-    on_gather: Option<OnGatherCallback>,
-    on_message: Option<OnMessageCallback>,
+    on_commit: Option<OnCommitCallback>,
 }
 
 impl MessagingServer {
     /// Create a new messaging server wrapping the given messenger.
     pub fn new(messenger: Box<dyn Messenger>) -> Self {
-        Self { messenger, pool: None, on_gather: None, on_message: None }
+        Self { messenger, pool: None, on_commit: None }
     }
 
     /// Set the transaction pool where gathered L1Handler transactions will be added.
@@ -67,21 +85,12 @@ impl MessagingServer {
         self
     }
 
-    /// Set a callback invoked after each successful pool insert with the checkpoint
-    /// of the just-processed message.
-    pub fn on_gather(mut self, callback: OnGatherCallback) -> Self {
-        self.on_gather = Some(callback);
-        self
-    }
-
-    /// Set a callback invoked after each successful pool insert with the
-    /// `(l1_tx_hash, l2_tx_hash)` mapping. Used to populate the L1->L2 index
-    /// that powers `starknet_getMessagesStatus`.
-    ///
-    /// Fired BEFORE [`on_gather`] so the index is durable before the checkpoint
-    /// advances past the message.
-    pub fn on_message(mut self, callback: OnMessageCallback) -> Self {
-        self.on_message = Some(callback);
+    /// Set the per-message commit callback. The callback fires after each successful
+    /// pool insert and is responsible for atomically persisting:
+    /// - The L1->L2 index entry for `starknet_getMessagesStatus`
+    /// - The checkpoint, so a restart resumes from the next position
+    pub fn on_commit(mut self, callback: OnCommitCallback) -> Self {
+        self.on_commit = Some(callback);
         self
     }
 
@@ -90,15 +99,15 @@ impl MessagingServer {
     /// The server runs a background task that:
     /// 1. Drains the messenger stream for positioned messages
     /// 2. Adds each message to the pool individually
-    /// 3. On each successful insert, invokes `on_gather` with the message's checkpoint — enabling
-    ///    fine-grained resume after a crash
+    /// 3. On each successful insert, invokes `on_commit` to atomically persist the
+    ///    L1->L2 index entry and the checkpoint — enabling fine-grained resume after
+    ///    a crash without losing index entries
     pub fn start(self) -> MessagingHandle {
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         let pool = self.pool.expect("pool must be set before starting");
         let mut messenger = self.messenger;
-        let on_gather = self.on_gather;
-        let on_message = self.on_message;
+        let on_commit = self.on_commit;
 
         let task_handle = tokio::spawn(async move {
             tokio::pin!(let shutdown = shutdown_rx;);
@@ -125,19 +134,32 @@ impl MessagingServer {
                                     match insert_result {
                                         Ok(_) => {
                                             inserted += 1;
-                                            // Index update first: must be durable before the
-                                            // checkpoint advances past this message.
-                                            if let Some(ref cb) = on_message {
-                                                cb(L1ToL2Record {
-                                                    l1_tx_hash: msg.l1_tx_hash,
-                                                    l2_tx_hash: hash,
-                                                });
-                                            }
-                                            // Checkpoint AFTER a successful insert only.
-                                            // On pool failure we do not advance, so the next
-                                            // gather re-attempts this message.
-                                            if let Some(ref cb) = on_gather {
-                                                cb(Checkpoint { block: msg.block, tx_index: msg.tx_index });
+                                            // Persist the index entry and the checkpoint
+                                            // atomically. If the commit fails, abort the rest
+                                            // of the batch — the cursor has already advanced,
+                                            // so on restart we'll re-gather and re-attempt.
+                                            if let Some(ref cb) = on_commit {
+                                                let commit = MessageCommit {
+                                                    record: L1ToL2Record {
+                                                        l1_tx_hash: msg.l1_tx_hash,
+                                                        l2_tx_hash: hash,
+                                                    },
+                                                    checkpoint: Checkpoint {
+                                                        block: msg.block,
+                                                        tx_index: msg.tx_index,
+                                                    },
+                                                };
+                                                if let Err(e) = cb(commit) {
+                                                    warn!(
+                                                        target: LOG_TARGET,
+                                                        error = %e,
+                                                        block = msg.block,
+                                                        tx_index = msg.tx_index,
+                                                        tx_hash = %format!("{hash:#x}"),
+                                                        "Failed to commit messaging state; aborting batch, will retry on next gather.",
+                                                    );
+                                                    break;
+                                                }
                                             }
                                         }
                                         Err(e) => {
