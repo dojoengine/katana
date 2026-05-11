@@ -6727,6 +6727,7 @@ dependencies = [
  "katana-pool",
  "katana-primitives",
  "katana-provider",
+ "parking_lot",
  "serde",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",

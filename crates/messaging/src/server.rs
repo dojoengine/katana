@@ -66,7 +66,7 @@ where
             return Ok(None);
         };
 
-        let (from_block, from_tx_index) = self.resume_cursor(config)?;
+        let (from_block, from_tx_index) = resume_cursor(&self.provider, config)?;
         let mut messenger = build_messenger(config, self.chain_id, from_block, from_tx_index)?;
 
         let pool = self.pool.clone();
@@ -164,23 +164,25 @@ where
 
         Ok(Some(MessagingHandle { shutdown_tx: Some(shutdown_tx), task_handle }))
     }
+}
 
-    /// Determine `(from_block, from_tx_index)` for the next gather.
-    ///
-    /// If a persisted checkpoint exists, resume from the message immediately after
-    /// it. Otherwise fall back to `config.from_block`.
-    fn resume_cursor(&self, config: &MessagingConfig) -> Result<(u64, u64), anyhow::Error> {
-        let db_tx = self.provider.provider_mut();
-        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
-        db_tx.commit().context("commit checkpoint read tx")?;
+/// Determine `(from_block, from_tx_index)` for the next gather.
+///
+/// If a persisted checkpoint exists, resume from the message immediately after it
+/// (same block, next `tx_index`). Otherwise fall back to `config.from_block`.
+fn resume_cursor<P>(provider: &P, config: &MessagingConfig) -> Result<(u64, u64), anyhow::Error>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: MessagingCheckpointProvider + MutableProvider,
+{
+    let db_tx = provider.provider_mut();
+    let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
+    db_tx.commit().context("commit checkpoint read tx")?;
 
-        let checkpoint = match cp {
-            Some(c) => (c.block, c.tx_index + 1),
-            None => (config.from_block, 0),
-        };
-
-        Ok(checkpoint)
-    }
+    Ok(match cp {
+        Some(c) => (c.block, c.tx_index + 1),
+        None => (config.from_block, 0),
+    })
 }
 
 impl<P> std::fmt::Debug for MessagingServer<P> {
@@ -244,5 +246,146 @@ impl MessagingHandle {
     /// Wait until the messaging server has fully stopped.
     pub async fn stopped(self) {
         let _ = self.task_handle.await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use katana_primitives::Felt;
+    use katana_provider::api::messaging::MessagingL1ToL2IndexProvider;
+    use katana_provider::DbProviderFactory;
+
+    use super::*;
+    use crate::SettlementChainConfig;
+
+    fn test_config(from_block: u64) -> MessagingConfig {
+        MessagingConfig {
+            settlement: SettlementChainConfig::Ethereum {
+                rpc_url: "http://localhost:8545".parse().unwrap(),
+                contract_address: Default::default(),
+            },
+            interval: 1,
+            from_block,
+            confirmation_depth: 0,
+        }
+    }
+
+    #[test]
+    fn resume_cursor_falls_back_to_config_from_block_when_no_checkpoint_persisted() {
+        let provider = DbProviderFactory::new_in_memory();
+        let config = test_config(42);
+
+        let (from_block, from_tx_index) = resume_cursor(&provider, &config).unwrap();
+
+        assert_eq!(from_block, 42, "should use config.from_block on fresh start");
+        assert_eq!(from_tx_index, 0, "should start from the first tx in the block");
+    }
+
+    #[test]
+    fn resume_cursor_resumes_on_same_block_at_next_tx_index_after_a_persisted_checkpoint() {
+        let provider = DbProviderFactory::new_in_memory();
+
+        // Persist a checkpoint marking message at (block=100, tx_index=5) as fully processed.
+        let db_tx = provider.provider_mut();
+        db_tx
+            .set_messaging_checkpoint(
+                CHECKPOINT_ID,
+                &MessagingCheckpoint { block: 100, tx_index: 5 },
+            )
+            .unwrap();
+        db_tx.commit().unwrap();
+
+        // config.from_block is intentionally far below the persisted checkpoint —
+        // the persisted state must take precedence to avoid re-processing on restart.
+        let config = test_config(0);
+        let (from_block, from_tx_index) = resume_cursor(&provider, &config).unwrap();
+
+        assert_eq!(from_block, 100, "should resume on the same block as the checkpoint");
+        assert_eq!(
+            from_tx_index, 6,
+            "should resume at tx_index + 1 (the message after the last processed one)"
+        );
+    }
+
+    /// One pool insert advances both the L1->L2 index AND the checkpoint in a single
+    /// DB transaction. Asserting on both after one call to `commit_message` ensures
+    /// the atomicity contract is preserved.
+    #[test]
+    fn commit_message_persists_both_index_entry_and_checkpoint() {
+        let provider = DbProviderFactory::new_in_memory();
+        let l1 = [7u8; 32];
+        let l2 = Felt::from(0xdead_beef_u64);
+
+        commit_message(&provider, &l1, l2, 10, 3).unwrap();
+
+        let db_tx = provider.provider_mut();
+        let mapped = db_tx.l2_txs_for_l1(&l1).unwrap();
+        let cp =
+            db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap().expect("checkpoint should exist");
+        db_tx.commit().unwrap();
+
+        assert_eq!(mapped, vec![l2], "L1->L2 index entry should be written");
+        assert_eq!(cp.block, 10);
+        assert_eq!(cp.tx_index, 3);
+    }
+
+    /// A single L1 transaction can emit multiple `LogMessageToL2` events, each spawning
+    /// its own L2 L1Handler. The DupSort table must hold all of them under the same key.
+    #[test]
+    fn commit_message_records_multiple_l2_txs_for_the_same_l1_tx() {
+        let provider = DbProviderFactory::new_in_memory();
+        let l1 = [9u8; 32];
+        let l2_a = Felt::from(1u64);
+        let l2_b = Felt::from(2u64);
+
+        commit_message(&provider, &l1, l2_a, 0, 0).unwrap();
+        commit_message(&provider, &l1, l2_b, 0, 1).unwrap();
+
+        let db_tx = provider.provider_mut();
+        let mapped = db_tx.l2_txs_for_l1(&l1).unwrap();
+        db_tx.commit().unwrap();
+
+        assert_eq!(mapped.len(), 2, "both L1->L2 entries should be present");
+        assert!(mapped.contains(&l2_a));
+        assert!(mapped.contains(&l2_b));
+    }
+
+    /// DupSort put on the same `(key, value)` pair is a silent no-op — required for
+    /// the re-gather-and-retry recovery path (after a pool insert succeeds but a
+    /// subsequent message in the batch fails) to be idempotent.
+    #[test]
+    fn commit_message_is_idempotent_for_the_same_l1_l2_pair() {
+        let provider = DbProviderFactory::new_in_memory();
+        let l1 = [1u8; 32];
+        let l2 = Felt::from(42u64);
+
+        commit_message(&provider, &l1, l2, 0, 0).unwrap();
+        commit_message(&provider, &l1, l2, 1, 1).unwrap();
+
+        let db_tx = provider.provider_mut();
+        let mapped = db_tx.l2_txs_for_l1(&l1).unwrap();
+        db_tx.commit().unwrap();
+
+        assert_eq!(mapped.len(), 1, "same (l1, l2) pair should not duplicate");
+    }
+
+    /// Successive commits monotonically advance the checkpoint to the latest message.
+    /// This is what enables fine-grained per-message resume.
+    #[test]
+    fn commit_message_advances_checkpoint_monotonically() {
+        let provider = DbProviderFactory::new_in_memory();
+        let l1 = [3u8; 32];
+        let l2 = Felt::from(99u64);
+
+        commit_message(&provider, &l1, l2, 5, 0).unwrap();
+        commit_message(&provider, &l1, l2, 5, 7).unwrap();
+        commit_message(&provider, &l1, l2, 10, 2).unwrap();
+
+        let db_tx = provider.provider_mut();
+        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap().expect("checkpoint");
+        db_tx.commit().unwrap();
+
+        assert_eq!(cp.block, 10, "checkpoint should reflect the latest committed message");
+        assert_eq!(cp.tx_index, 2);
     }
 }

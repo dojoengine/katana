@@ -36,3 +36,6 @@ alloy-network = { workspace = true, default-features = false }
 alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
 alloy-rpc-types-eth = { workspace = true, default-features = false }
 alloy-transport = { workspace = true, default-features = false }
+
+[dev-dependencies]
+parking_lot.workspace = true

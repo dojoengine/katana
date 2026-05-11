@@ -230,18 +230,150 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::task::{Context, Poll};
     use std::time::Duration;
 
-    use futures::StreamExt;
+    use futures::{Stream, StreamExt};
     use katana_primitives::chain::ChainId;
     use katana_primitives::transaction::L1HandlerTx;
     use katana_primitives::Felt;
+    use parking_lot::Mutex;
+    use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
     use super::collector::OrderedMessage;
     use super::*;
-    use crate::testing::{ManualTrigger, MockCollector};
+    use crate::stream::collector::{GatherResult, MessageCollector};
+    use crate::Error;
 
     const SHORT: Duration = Duration::from_millis(50);
+
+    /// One recorded call to [`MockCollector::gather`].
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct GatherCall {
+        pub from_block: u64,
+        pub from_tx_index: u64,
+        pub to_block: u64,
+        pub chain_id: ChainId,
+    }
+
+    /// A [`MessageCollector`] backed by canned response queues.
+    ///
+    /// Each test pushes responses in expected order via [`push_latest_block`] and
+    /// [`push_gather`]. The collector pops them on each call. If a queue is empty,
+    /// the method returns [`Error::GatherError`] so tests fail loudly when they
+    /// haven't enqueued enough responses.
+    ///
+    /// All calls are recorded for assertions via [`latest_block_calls`] and
+    /// [`gather_calls`].
+    #[derive(Default)]
+    pub struct MockCollector {
+        latest_block_responses: Mutex<VecDeque<Result<u64, Error>>>,
+        gather_responses: Mutex<VecDeque<Result<GatherResult, Error>>>,
+        latest_block_call_count: AtomicU64,
+        gather_calls: Mutex<Vec<GatherCall>>,
+    }
+
+    impl MockCollector {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Push a `latest_block` response onto the queue. Called in FIFO order.
+        pub fn push_latest_block(&self, response: Result<u64, Error>) {
+            self.latest_block_responses.lock().push_back(response);
+        }
+
+        /// Push a `gather` response onto the queue. Called in FIFO order.
+        pub fn push_gather(&self, response: Result<GatherResult, Error>) {
+            self.gather_responses.lock().push_back(response);
+        }
+
+        /// Number of times `latest_block` has been called so far.
+        pub fn latest_block_calls(&self) -> u64 {
+            self.latest_block_call_count.load(Ordering::SeqCst)
+        }
+
+        /// Snapshot of every `gather` call recorded so far.
+        pub fn gather_calls(&self) -> Vec<GatherCall> {
+            self.gather_calls.lock().clone()
+        }
+    }
+
+    impl MessageCollector for MockCollector {
+        fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + '_>> {
+            self.latest_block_call_count.fetch_add(1, Ordering::SeqCst);
+            let response =
+                self.latest_block_responses.lock().pop_front().unwrap_or(Err(Error::GatherError));
+            Box::pin(async move { response })
+        }
+
+        fn gather(
+            &self,
+            from_block: u64,
+            from_tx_index: u64,
+            to_block: u64,
+            chain_id: ChainId,
+        ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
+            self.gather_calls.lock().push(GatherCall {
+                from_block,
+                from_tx_index,
+                to_block,
+                chain_id,
+            });
+            let response =
+                self.gather_responses.lock().pop_front().unwrap_or(Err(Error::GatherError));
+            Box::pin(async move { response })
+        }
+    }
+
+    /// A [`MessageTrigger`] that fires only when [`ManualTriggerHandle::fire`] is called.
+    ///
+    /// Backed by an unbounded mpsc channel; the receiver side implements `Stream<Item=()>`.
+    /// Dropping the handle ends the trigger stream, which lets tests observe how the
+    /// messenger handles end-of-stream.
+    pub struct ManualTrigger {
+        rx: UnboundedReceiver<()>,
+    }
+
+    impl std::fmt::Debug for ManualTrigger {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("ManualTrigger").finish_non_exhaustive()
+        }
+    }
+
+    /// Handle to fire ticks into a [`ManualTrigger`].
+    #[derive(Debug, Clone)]
+    pub struct ManualTriggerHandle {
+        tx: UnboundedSender<()>,
+    }
+
+    impl ManualTrigger {
+        pub fn new() -> (Self, ManualTriggerHandle) {
+            let (tx, rx) = mpsc::unbounded_channel();
+            (Self { rx }, ManualTriggerHandle { tx })
+        }
+    }
+
+    impl ManualTriggerHandle {
+        /// Fire a single tick. Returns `Ok(())` even after the trigger is dropped —
+        /// tests rarely care about the difference; the messenger will see no further
+        /// ticks either way.
+        pub fn fire(&self) {
+            let _ = self.tx.send(());
+        }
+    }
+
+    impl Stream for ManualTrigger {
+        type Item = ();
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.get_mut().rx.poll_recv(cx)
+        }
+    }
 
     /// Builds a stub `L1HandlerTx` whose internals don't matter for state machine
     /// tests — we only care that `MessageStream` plumbs values through correctly.
@@ -272,7 +404,7 @@ mod tests {
     ) -> (
         Pin<Box<MessageStream<Arc<MockCollector>, ManualTrigger>>>,
         Arc<MockCollector>,
-        crate::testing::ManualTriggerHandle,
+        ManualTriggerHandle,
     ) {
         let collector = Arc::new(MockCollector::new());
         let (trigger, handle) = ManualTrigger::new();
@@ -284,6 +416,7 @@ mod tests {
             from_tx_index,
             confirmation_depth,
         ));
+
         (stream, collector, handle)
     }
 
@@ -350,14 +483,12 @@ mod tests {
 
     #[tokio::test]
     async fn no_new_blocks_does_not_yield_but_resumes_on_next_tick() {
-        // Regression for the waker bug: previously after seeing "no new blocks"
-        // the stream returned Pending without re-polling the trigger, so the
-        // next tick never woke the task.
         let (mut stream, collector, trigger) = build(10, 0, 0);
 
         // Tick 1: latest_block == 9, below from_block. No gather, no yield.
         collector.push_latest_block(Ok(9));
         trigger.fire();
+
         assert_no_yield(&mut stream).await;
         assert_eq!(collector.latest_block_calls(), 1);
         assert!(collector.gather_calls().is_empty());
@@ -366,6 +497,7 @@ mod tests {
         collector.push_latest_block(Ok(11));
         collector.push_gather(Ok(GatherResult { to_block: 11, messages: vec![] }));
         trigger.fire();
+
         let outcome =
             tokio::time::timeout(SHORT, stream.next()).await.expect("woke up").expect("yielded");
         assert_eq!(outcome.settlement_block, 11);

@@ -16,9 +16,6 @@
 pub mod server;
 pub mod stream;
 
-#[cfg(any(test, feature = "testing"))]
-pub mod testing;
-
 use ::starknet::providers::ProviderError as StarknetProviderError;
 use alloy_transport::TransportError;
 use futures::Stream;
