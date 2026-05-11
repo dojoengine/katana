@@ -10,7 +10,9 @@ use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::api::TransactionPool;
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
+use katana_primitives::block::{
+    BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices,
+};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::env::BlockEnv;
@@ -18,6 +20,7 @@ use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::Felt;
+use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::env::BlockEnvProvider;
@@ -36,7 +39,9 @@ use katana_rpc_types::block::{
     GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse, ResultPageRequest};
+use katana_rpc_types::event::{
+    EventFilter, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
+};
 use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
@@ -73,6 +78,22 @@ pub use pending::PendingBlockProvider;
 
 pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
+/// Decide the upstream continuation token to forward when forwarding an events
+/// query to the forked chain. Returns:
+/// - `Some(None)` — first page; ask upstream with no token.
+/// - `Some(Some(t))` — subsequent page; continue upstream pagination with `t`.
+/// - `None` — the caller already crossed into the local block range (the
+///   continuation token is a local cursor), so skip upstream entirely.
+fn forked_continuation_token(
+    continuation_token: &Option<MaybeForkedContinuationToken>,
+) -> Option<Option<String>> {
+    match continuation_token {
+        None => Some(None),
+        Some(MaybeForkedContinuationToken::Forked(t)) => Some(Some(t.to_string())),
+        Some(MaybeForkedContinuationToken::Token(_)) => None,
+    }
+}
+
 /// Handler for the Starknet JSON-RPC server.
 ///
 /// This struct implements [`katana_rpc_api::starknet::StarknetApi`], which combines the read,
@@ -104,6 +125,7 @@ where
     config: StarknetApiConfig,
     cache: RpcCache,
     class_cache: ClassCache,
+    forked_client: Option<(Arc<StarknetClient>, BlockNumber)>,
 }
 
 impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
@@ -129,6 +151,8 @@ where
             .unwrap_or(DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
         let estimate_fee_permit = Permits::new(total_permits);
 
+        let forked_client = storage.fork_handle();
+
         let inner = StarknetApiInner {
             chain_spec,
             pool,
@@ -140,6 +164,7 @@ where
             storage,
             cache,
             class_cache,
+            forked_client,
         };
 
         Self { inner: Arc::new(inner) }
@@ -969,7 +994,48 @@ where
 
         match (from, to) {
             (EventBlockId::Num(from), EventBlockId::Num(to)) => {
-                let from_after_forked_if_any = from;
+                let from_after_forked_if_any = if let Some((client, forked_block)) =
+                    &self.inner.forked_client
+                {
+                    let forked_block = *forked_block;
+                    if from <= forked_block {
+                        let upstream_to = std::cmp::min(to, forked_block);
+
+                        if let Some(token) = forked_continuation_token(&continuation_token) {
+                            let upstream_filter = EventFilter {
+                                from_block: Some(BlockIdOrTag::Number(from)),
+                                to_block: Some(BlockIdOrTag::Number(upstream_to)),
+                                address,
+                                keys: keys.clone(),
+                            };
+
+                            let upstream_result = futures::executor::block_on(
+                                client.get_events(upstream_filter, token, chunk_size),
+                            )
+                            .map_err(|e| StarknetApiError::unexpected(e.to_string()))?;
+
+                            events.extend(upstream_result.events);
+
+                            if let Some(t) = upstream_result.continuation_token {
+                                let wrapped = MaybeForkedContinuationToken::Forked(t);
+                                return Ok(GetEventsResponse {
+                                    events,
+                                    continuation_token: Some(wrapped.to_string()),
+                                });
+                            }
+                        }
+
+                        forked_block + 1
+                    } else {
+                        from
+                    }
+                } else {
+                    from
+                };
+
+                if from_after_forked_if_any > to {
+                    return Ok(GetEventsResponse { events, continuation_token: None });
+                }
 
                 let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
                 let block_range = from_after_forked_if_any..=to;
@@ -990,7 +1056,42 @@ where
             }
 
             (EventBlockId::Num(from), EventBlockId::Pending) => {
-                let from_after_forked_if_any = from;
+                let from_after_forked_if_any = if let Some((client, forked_block)) =
+                    &self.inner.forked_client
+                {
+                    let forked_block = *forked_block;
+                    if from <= forked_block {
+                        if let Some(token) = forked_continuation_token(&continuation_token) {
+                            let upstream_filter = EventFilter {
+                                from_block: Some(BlockIdOrTag::Number(from)),
+                                to_block: Some(BlockIdOrTag::Number(forked_block)),
+                                address,
+                                keys: keys.clone(),
+                            };
+
+                            let upstream_result = futures::executor::block_on(
+                                client.get_events(upstream_filter, token, chunk_size),
+                            )
+                            .map_err(|e| StarknetApiError::unexpected(e.to_string()))?;
+
+                            events.extend(upstream_result.events);
+
+                            if let Some(t) = upstream_result.continuation_token {
+                                let wrapped = MaybeForkedContinuationToken::Forked(t);
+                                return Ok(GetEventsResponse {
+                                    events,
+                                    continuation_token: Some(wrapped.to_string()),
+                                });
+                            }
+                        }
+
+                        forked_block + 1
+                    } else {
+                        from
+                    }
+                } else {
+                    from
+                };
 
                 let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
                 let latest = provider.latest_number()?;
@@ -1081,10 +1182,24 @@ where
                 EventBlockId::Num(num.ok_or(StarknetApiError::BlockNotFound)?)
             }
 
-            BlockIdOrTag::Hash(..) => {
+            BlockIdOrTag::Hash(_) => {
                 // Check first if the block hash belongs to a local block.
                 if let Some(num) = provider.convert_block_id(id)? {
                     EventBlockId::Num(num)
+                } else if let Some((client, forked_block)) = &self.inner.forked_client {
+                    // Fall back to the upstream chain for pre-fork block hashes only.
+                    // A hash that resolves to a block past the fork point is on a chain
+                    // that has since diverged from ours, so we reject it.
+                    let resp = futures::executor::block_on(client.get_block_with_tx_hashes(id))
+                        .map_err(|_| StarknetApiError::BlockNotFound)?;
+                    match resp {
+                        GetBlockWithTxHashesResponse::Block(b)
+                            if b.block_number <= *forked_block =>
+                        {
+                            EventBlockId::Num(b.block_number)
+                        }
+                        _ => return Err(StarknetApiError::BlockNotFound),
+                    }
                 } else {
                     return Err(StarknetApiError::BlockNotFound);
                 }

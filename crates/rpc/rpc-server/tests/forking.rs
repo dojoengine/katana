@@ -439,7 +439,7 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
     let forked_events = result.events;
 
     let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap())?;
-    assert_matches!(token, MaybeForkedContinuationToken::Token(_));
+    assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
 
     for (a, b) in events.iter().zip(forked_events) {
         assert_eq!(a.block_number, Some(FORK_BLOCK_NUMBER));
@@ -641,7 +641,7 @@ async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: B
     let katana_events = result.events;
 
     let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap()).unwrap();
-    assert_matches!(token, MaybeForkedContinuationToken::Token(_));
+    assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
     similar_asserts::assert_eq!(katana_events, forked_events);
 }
 
