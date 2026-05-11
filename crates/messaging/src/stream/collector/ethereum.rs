@@ -26,11 +26,10 @@ use crate::{Error, LOG_TARGET};
 sol! {
     #[sol(rpc, rename_all = "snakecase")]
     #[derive(serde::Serialize, serde::Deserialize)]
-    StarknetMessagingLocal,
-    "../../crates/contracts/contracts/messaging/solidity/IStarknetMessagingLocal_ABI.json"
-}
+    interface StarknetMessagingLocal {
+        function addMessageHashesFromL2(uint256[] msgHashes) external payable;
+    }
 
-sol! {
     #[derive(Debug, PartialEq)]
     event LogMessageToL2(
         address indexed from_address,
