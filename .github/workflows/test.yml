@@ -356,6 +356,8 @@ jobs:
             - name: Install Foundry (macOS)
               if: matrix.os == 'macos'
               uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: v1.7.1
 
             - name: Download test artifacts
               uses: actions/download-artifact@v5

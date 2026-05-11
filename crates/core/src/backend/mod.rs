@@ -45,6 +45,8 @@ pub struct Backend<PF> {
     pub block_context_generator: RwLock<BlockContextGenerator>,
     pub executor_factory: Arc<dyn ExecutorFactory>,
     pub gas_oracle: GasPriceOracle,
+    /// When true, skip state trie computation during block production.
+    pub no_state_trie: bool,
 }
 
 impl<PF> std::fmt::Debug for Backend<PF> {
@@ -65,12 +67,14 @@ impl<PF> Backend<PF> {
         storage: PF,
         gas_oracle: GasPriceOracle,
         executor_factory: Arc<dyn ExecutorFactory>,
+        no_state_trie: bool,
     ) -> Self {
         Self {
             storage,
             chain_spec,
             gas_oracle,
             executor_factory,
+            no_state_trie,
             block_context_generator: RwLock::new(BlockContextGenerator::default()),
         }
     }
@@ -180,6 +184,7 @@ where
             transactions,
             &receipts,
             &mut execution_output.states.state_updates,
+            self.no_state_trie,
         )?;
 
         let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
@@ -365,6 +370,7 @@ pub struct UncommittedBlock<'a, P: TrieWriter> {
     receipts: &'a [ReceiptWithTxHash],
     state_updates: &'a StateUpdates,
     provider: P,
+    no_state_trie: bool,
 }
 
 impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
@@ -374,8 +380,16 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
         receipts: &'a [ReceiptWithTxHash],
         state_updates: &'a StateUpdates,
         trie_provider: P,
+        no_state_trie: bool,
     ) -> Self {
-        Self { header, transactions, receipts, state_updates, provider: trie_provider }
+        Self {
+            header,
+            transactions,
+            receipts,
+            state_updates,
+            provider: trie_provider,
+            no_state_trie,
+        }
     }
 
     pub fn commit(self) -> SealedBlock {
@@ -527,6 +541,10 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
 
     // state_commitment = hPos("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
     fn compute_new_state_root(&self) -> Felt {
+        if self.no_state_trie {
+            return Felt::ZERO;
+        }
+
         let class_trie_root = self
             .provider
             .trie_insert_declared_classes(
@@ -601,10 +619,19 @@ fn commit_block<P: BlockHashProvider + TrieWriter>(
     transactions: Vec<TxWithHash>,
     receipts: &[ReceiptWithTxHash],
     state_updates: &mut StateUpdates,
+    no_state_trie: bool,
 ) -> Result<SealedBlock, BlockProductionError> {
     // Update special contract address 0x1
     update_block_hash_registry_contract(&provider, state_updates, header.number)?;
-    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider).commit())
+    Ok(UncommittedBlock::new(
+        header,
+        transactions,
+        receipts,
+        state_updates,
+        provider,
+        no_state_trie,
+    )
+    .commit())
 }
 
 fn commit_genesis_block(
@@ -614,7 +641,11 @@ fn commit_genesis_block(
     receipts: &[ReceiptWithTxHash],
     state_updates: &mut StateUpdates,
 ) -> Result<SealedBlock, BlockProductionError> {
-    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider).commit())
+    // Genesis always computes the state trie so the recomputed genesis hash
+    // matches the chain spec's stored hash; the runtime `no_state_trie` flag
+    // only applies to ongoing block production.
+    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider, false)
+        .commit())
 }
 
 #[derive(Debug)]

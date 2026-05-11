@@ -12,9 +12,10 @@ use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
-use katana_primitives::env::VersionedConstantsOverrides;
-use katana_primitives::felt;
-use katana_provider::DbProviderFactory;
+use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
+use katana_primitives::{felt, Felt};
+use katana_provider::api::block::HeaderProvider;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 use rstest::rstest;
 use url::Url;
 
@@ -41,11 +42,20 @@ fn backend_with_db(
     chain_spec: Arc<ChainSpec>,
     provider: DbProviderFactory,
 ) -> Backend<DbProviderFactory> {
+    backend_with_db_and_flag(chain_spec, provider, false)
+}
+
+fn backend_with_db_and_flag(
+    chain_spec: Arc<ChainSpec>,
+    provider: DbProviderFactory,
+    no_state_trie: bool,
+) -> Backend<DbProviderFactory> {
     Backend::new(
         chain_spec.clone(),
         provider,
         GasPriceOracle::create_for_testing(),
         executor(chain_spec),
+        no_state_trie,
     )
 }
 
@@ -114,4 +124,39 @@ fn reinitialize_with_different_rollup_chain_spec() {
     let backend2 = backend_with_db(chain2.into(), db);
     let err = backend2.init_genesis(false).unwrap_err().to_string();
     assert!(err.as_str().contains("Genesis block hash mismatch"));
+}
+
+#[rstest]
+#[case::trie_enabled(false)]
+#[case::trie_disabled(true)]
+fn no_state_trie_flag_controls_state_root(#[case] no_state_trie: bool) {
+    let chain_spec: Arc<ChainSpec> = ChainSpec::Dev(dev_chain_spec()).into();
+    let backend =
+        backend_with_db_and_flag(chain_spec, DbProviderFactory::new_in_memory(), no_state_trie);
+    backend.init_genesis(false).expect("failed to initialize genesis");
+
+    let mut block_env = BlockEnv::default();
+    backend.update_block_env(&mut block_env);
+    let outcome = backend.mine_empty_block(&block_env).expect("failed to mine empty block");
+
+    let header = backend
+        .storage
+        .provider()
+        .header(outcome.block_number.into())
+        .expect("failed to read header")
+        .expect("header missing");
+
+    if no_state_trie {
+        assert_eq!(
+            header.state_root,
+            Felt::ZERO,
+            "state_root must be zero when --no-state-trie is set",
+        );
+    } else {
+        assert_ne!(
+            header.state_root,
+            Felt::ZERO,
+            "state_root must reflect the genesis-populated trie when trie computation is enabled",
+        );
+    }
 }
