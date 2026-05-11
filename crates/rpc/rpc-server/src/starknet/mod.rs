@@ -20,7 +20,6 @@ use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::Felt;
-use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::env::BlockEnvProvider;
@@ -59,6 +58,7 @@ use katana_rpc_types::{
     TxStatus, TxTrace, TxTraceWithHash,
 };
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
+use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 
 use crate::permit::Permits;
@@ -82,8 +82,8 @@ pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// query to the forked chain. Returns:
 /// - `Some(None)` — first page; ask upstream with no token.
 /// - `Some(Some(t))` — subsequent page; continue upstream pagination with `t`.
-/// - `None` — the caller already crossed into the local block range (the
-///   continuation token is a local cursor), so skip upstream entirely.
+/// - `None` — the caller already crossed into the local block range (the continuation token is a
+///   local cursor), so skip upstream entirely.
 fn forked_continuation_token(
     continuation_token: &Option<MaybeForkedContinuationToken>,
 ) -> Option<Option<String>> {
@@ -994,44 +994,43 @@ where
 
         match (from, to) {
             (EventBlockId::Num(from), EventBlockId::Num(to)) => {
-                let from_after_forked_if_any = if let Some((client, forked_block)) =
-                    &self.inner.forked_client
-                {
-                    let forked_block = *forked_block;
-                    if from <= forked_block {
-                        let upstream_to = std::cmp::min(to, forked_block);
+                let from_after_forked_if_any =
+                    if let Some((client, forked_block)) = &self.inner.forked_client {
+                        let forked_block = *forked_block;
+                        if from <= forked_block {
+                            let upstream_to = std::cmp::min(to, forked_block);
 
-                        if let Some(token) = forked_continuation_token(&continuation_token) {
-                            let upstream_filter = EventFilter {
-                                from_block: Some(BlockIdOrTag::Number(from)),
-                                to_block: Some(BlockIdOrTag::Number(upstream_to)),
-                                address,
-                                keys: keys.clone(),
-                            };
+                            if let Some(token) = forked_continuation_token(&continuation_token) {
+                                let upstream_filter = EventFilter {
+                                    from_block: Some(BlockIdOrTag::Number(from)),
+                                    to_block: Some(BlockIdOrTag::Number(upstream_to)),
+                                    address,
+                                    keys: keys.clone(),
+                                };
 
-                            let upstream_result = futures::executor::block_on(
-                                client.get_events(upstream_filter, token, chunk_size),
-                            )
-                            .map_err(|e| StarknetApiError::unexpected(e.to_string()))?;
+                                let upstream_result = futures::executor::block_on(
+                                    client.get_events(upstream_filter, token, chunk_size),
+                                )
+                                .map_err(|e| StarknetApiError::unexpected(e.to_string()))?;
 
-                            events.extend(upstream_result.events);
+                                events.extend(upstream_result.events);
 
-                            if let Some(t) = upstream_result.continuation_token {
-                                let wrapped = MaybeForkedContinuationToken::Forked(t);
-                                return Ok(GetEventsResponse {
-                                    events,
-                                    continuation_token: Some(wrapped.to_string()),
-                                });
+                                if let Some(t) = upstream_result.continuation_token {
+                                    let wrapped = MaybeForkedContinuationToken::Forked(t);
+                                    return Ok(GetEventsResponse {
+                                        events,
+                                        continuation_token: Some(wrapped.to_string()),
+                                    });
+                                }
                             }
-                        }
 
-                        forked_block + 1
+                            forked_block + 1
+                        } else {
+                            from
+                        }
                     } else {
                         from
-                    }
-                } else {
-                    from
-                };
+                    };
 
                 if from_after_forked_if_any > to {
                     return Ok(GetEventsResponse { events, continuation_token: None });
@@ -1056,42 +1055,41 @@ where
             }
 
             (EventBlockId::Num(from), EventBlockId::Pending) => {
-                let from_after_forked_if_any = if let Some((client, forked_block)) =
-                    &self.inner.forked_client
-                {
-                    let forked_block = *forked_block;
-                    if from <= forked_block {
-                        if let Some(token) = forked_continuation_token(&continuation_token) {
-                            let upstream_filter = EventFilter {
-                                from_block: Some(BlockIdOrTag::Number(from)),
-                                to_block: Some(BlockIdOrTag::Number(forked_block)),
-                                address,
-                                keys: keys.clone(),
-                            };
+                let from_after_forked_if_any =
+                    if let Some((client, forked_block)) = &self.inner.forked_client {
+                        let forked_block = *forked_block;
+                        if from <= forked_block {
+                            if let Some(token) = forked_continuation_token(&continuation_token) {
+                                let upstream_filter = EventFilter {
+                                    from_block: Some(BlockIdOrTag::Number(from)),
+                                    to_block: Some(BlockIdOrTag::Number(forked_block)),
+                                    address,
+                                    keys: keys.clone(),
+                                };
 
-                            let upstream_result = futures::executor::block_on(
-                                client.get_events(upstream_filter, token, chunk_size),
-                            )
-                            .map_err(|e| StarknetApiError::unexpected(e.to_string()))?;
+                                let upstream_result = futures::executor::block_on(
+                                    client.get_events(upstream_filter, token, chunk_size),
+                                )
+                                .map_err(|e| StarknetApiError::unexpected(e.to_string()))?;
 
-                            events.extend(upstream_result.events);
+                                events.extend(upstream_result.events);
 
-                            if let Some(t) = upstream_result.continuation_token {
-                                let wrapped = MaybeForkedContinuationToken::Forked(t);
-                                return Ok(GetEventsResponse {
-                                    events,
-                                    continuation_token: Some(wrapped.to_string()),
-                                });
+                                if let Some(t) = upstream_result.continuation_token {
+                                    let wrapped = MaybeForkedContinuationToken::Forked(t);
+                                    return Ok(GetEventsResponse {
+                                        events,
+                                        continuation_token: Some(wrapped.to_string()),
+                                    });
+                                }
                             }
-                        }
 
-                        forked_block + 1
+                            forked_block + 1
+                        } else {
+                            from
+                        }
                     } else {
                         from
-                    }
-                } else {
-                    from
-                };
+                    };
 
                 let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
                 let latest = provider.latest_number()?;
