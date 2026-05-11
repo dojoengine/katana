@@ -13,12 +13,8 @@
 //! [`MessagingOutcome`] items. The stream is consumed by [`server::MessagingServer`]
 //! which adds transactions to the pool and persists checkpoints.
 
-pub mod collector;
-pub mod ethereum;
 pub mod server;
-pub mod starknet;
 pub mod stream;
-pub mod trigger;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
@@ -32,11 +28,11 @@ use futures::Stream;
 use katana_primitives::chain::ChainId;
 use serde::{Deserialize, Serialize};
 
-use crate::collector::PositionedMessage;
-use crate::ethereum::EthereumCollector;
-use crate::starknet::StarknetCollector;
+use crate::stream::collector::ethereum::EthereumCollector;
+use crate::stream::collector::starknet::StarknetCollector;
+use crate::stream::collector::OrderedMessage;
+use crate::stream::trigger::IntervalTrigger;
 use crate::stream::MessageStream;
-use crate::trigger::IntervalTrigger;
 
 pub(crate) const LOG_TARGET: &str = "messaging";
 
@@ -44,24 +40,29 @@ pub(crate) const LOG_TARGET: &str = "messaging";
 pub enum Error {
     #[error("Failed to initialize messaging")]
     InitError,
-    #[error("Unsupported settlement chain")]
+
+    #[error("unsupported settlement chain")]
     UnsupportedChain,
-    #[error("Failed to gather messages from settlement chain")]
+
+    #[error("failed to gather messages from settlement chain")]
     GatherError,
+
     /// A settlement chain log/event was found whose shape didn't match the expected
     /// schema. Surfaces the specific reason so operators can diagnose contract
     /// upgrades, RPC bugs, or chain-id mismatches without a stack trace.
-    #[error("Malformed settlement chain message: {0}")]
+    #[error("malformed settlement chain message: {0}")]
     MalformedMessage(String),
+
     #[error(transparent)]
     Provider(ProviderError),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
-    #[error("Ethereum provider error: {0}")]
+    #[error("ethereum provider error: {0}")]
     Ethereum(TransportError),
-    #[error("Starknet provider error: {0}")]
+
+    #[error("starknet provider error: {0}")]
     Starknet(StarknetProviderError),
 }
 
@@ -80,7 +81,7 @@ pub struct MessagingOutcome {
     /// Positioned messages gathered from the settlement chain, in ascending order.
     /// Each carries its `(block, tx_index)` so the server can write a fine-grained
     /// checkpoint after each successful pool insert.
-    pub messages: Vec<PositionedMessage>,
+    pub messages: Vec<OrderedMessage>,
 }
 
 /// A messenger is a stream that yields batches of L1Handler transactions
@@ -215,6 +216,7 @@ pub fn build_messenger(
                 confirmation_depth,
             ))
         }
+
         SettlementChainConfig::Starknet { rpc_url, contract_address } => {
             let collector = StarknetCollector::new(rpc_url, contract_address)?;
             Box::new(MessageStream::with_cursor(

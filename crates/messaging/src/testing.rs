@@ -2,10 +2,10 @@
 //!
 //! Available inside the crate (`cfg(test)`) and to downstream crates via the
 //! `testing` feature. Provides:
-//! - [`MockCollector`] — a [`MessageCollector`] that returns canned responses and
-//!   records its inputs, so tests can drive the state machine without an RPC.
-//! - [`ManualTrigger`] — a [`MessageTrigger`] whose ticks are produced explicitly
-//!   by a handle, so tests can control polling cadence deterministically.
+//! - [`MockCollector`] — a [`MessageCollector`] that returns canned responses and records its
+//!   inputs, so tests can drive the state machine without an RPC.
+//! - [`ManualTrigger`] — a [`MessageTrigger`] whose ticks are produced explicitly by a handle, so
+//!   tests can control polling cadence deterministically.
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -18,7 +18,7 @@ use futures::Stream;
 use katana_primitives::chain::ChainId;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::collector::{GatherResult, MessageCollector};
+use crate::stream::collector::{GatherResult, MessageCollector};
 use crate::Error;
 
 /// One recorded call to [`MockCollector::gather`].
@@ -98,12 +98,8 @@ impl MessageCollector for MockCollector {
             to_block,
             chain_id,
         });
-        let response = self
-            .gather_responses
-            .lock()
-            .unwrap()
-            .pop_front()
-            .unwrap_or(Err(Error::GatherError));
+        let response =
+            self.gather_responses.lock().unwrap().pop_front().unwrap_or(Err(Error::GatherError));
         Box::pin(async move { response })
     }
 }

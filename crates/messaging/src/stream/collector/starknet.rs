@@ -15,7 +15,7 @@ use starknet::providers::{AnyProvider, JsonRpcClient, Provider};
 use tracing::{debug, trace};
 use url::Url;
 
-use crate::collector::{GatherResult, MessageCollector, PositionedMessage};
+use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
 use crate::{Error, LOG_TARGET};
 
 /// TODO: This may come from the configuration.
@@ -98,7 +98,7 @@ impl MessageCollector for StarknetCollector {
         chain_id: ChainId,
     ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
         Box::pin(async move {
-            let mut messages: Vec<PositionedMessage> = vec![];
+            let mut messages: Vec<OrderedMessage> = vec![];
 
             let events = Self::fetch_events(
                 &self.provider,
@@ -127,7 +127,7 @@ impl MessageCollector for StarknetCollector {
                 debug!(target: LOG_TARGET, block, tx_index, "Converting event into L1HandlerTx.");
 
                 if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
-                    messages.push(PositionedMessage {
+                    messages.push(OrderedMessage {
                         block,
                         tx_index,
                         l1_tx_hash: e.transaction_hash.to_bytes_be(),

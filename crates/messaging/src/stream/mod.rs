@@ -5,11 +5,16 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::{Future, FutureExt, Stream, StreamExt};
+use katana_primitives::block::BlockNumber;
 use katana_primitives::chain::ChainId;
 use tracing::{error, trace};
 
-use crate::collector::{GatherResult, MessageCollector};
-use crate::trigger::MessageTrigger;
+pub mod collector;
+pub mod trigger;
+
+use collector::{GatherResult, MessageCollector};
+use trigger::MessageTrigger;
+
 use crate::{Error, MessagingOutcome, LOG_TARGET};
 
 /// Maximum number of blocks to fetch in a single gather call.
@@ -18,11 +23,11 @@ const MAX_BLOCKS_PER_GATHER: u64 = 200;
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 /// The phase of the stream's state machine.
-enum Phase {
+enum MessageStreamPhase {
     /// Waiting for the trigger to fire.
     Idle,
     /// Fetching the latest block number from the settlement chain.
-    CheckingBlock(BoxFuture<Result<u64, Error>>),
+    CheckingBlock(BoxFuture<Result<BlockNumber, Error>>),
     /// Fetching messages from a known block range.
     Gathering(BoxFuture<Result<GatherResult, Error>>),
 }
@@ -43,13 +48,13 @@ pub struct MessageStream<C, T> {
     collector: Arc<C>,
     trigger: T,
     chain_id: ChainId,
-    from_block: u64,
+    from_block: BlockNumber,
     from_tx_index: u64,
     /// Number of confirmations required before a settlement block is considered safe to
     /// gather from. The "safe head" is `latest_block - confirmation_depth`; gathers
     /// never cross past it. `0` disables the protection.
     confirmation_depth: u64,
-    phase: Phase,
+    phase: MessageStreamPhase,
 }
 
 impl<C, T> MessageStream<C, T>
@@ -81,7 +86,7 @@ where
             from_block,
             from_tx_index,
             confirmation_depth,
-            phase: Phase::Idle,
+            phase: MessageStreamPhase::Idle,
         }
     }
 
@@ -114,21 +119,22 @@ where
 
         loop {
             match &mut this.phase {
-                Phase::Idle => {
+                MessageStreamPhase::Idle => {
                     // Wait for the trigger to fire.
                     match this.trigger.poll_next_unpin(cx) {
+                        Poll::Pending => return Poll::Pending,
                         Poll::Ready(Some(())) => {
                             let collector = this.collector.clone();
-                            this.phase = Phase::CheckingBlock(Box::pin(async move {
+                            this.phase = MessageStreamPhase::CheckingBlock(Box::pin(async move {
                                 collector.latest_block().await
                             }));
                         }
                         Poll::Ready(None) => return Poll::Ready(None),
-                        Poll::Pending => return Poll::Pending,
                     }
                 }
 
-                Phase::CheckingBlock(fut) => match fut.poll_unpin(cx) {
+                MessageStreamPhase::CheckingBlock(fut) => match fut.poll_unpin(cx) {
+                    Poll::Pending => return Poll::Pending,
                     Poll::Ready(Ok(latest_block)) => {
                         // Apply confirmation depth: only gather up to the safe head to
                         // avoid pulling messages from blocks that may still be reorg'd
@@ -141,7 +147,8 @@ where
                                 confirmation_depth = this.confirmation_depth,
                                 "Settlement chain hasn't reached confirmation depth yet."
                             );
-                            this.phase = Phase::Idle;
+
+                            this.phase = MessageStreamPhase::Idle;
                             continue;
                         };
 
@@ -153,7 +160,7 @@ where
                                 safe_head,
                                 "No new confirmed blocks on settlement chain."
                             );
-                            this.phase = Phase::Idle;
+                            this.phase = MessageStreamPhase::Idle;
                             // Loop back to Idle so the trigger gets re-polled and registers
                             // a waker for the next tick. Returning Pending without re-polling
                             // the trigger would leave the task with no waker, deadlocking
@@ -176,20 +183,23 @@ where
                         let from_block = this.from_block;
                         let from_tx_index = this.from_tx_index;
                         let chain_id = this.chain_id;
-                        this.phase = Phase::Gathering(Box::pin(async move {
+
+                        this.phase = MessageStreamPhase::Gathering(Box::pin(async move {
                             collector.gather(from_block, from_tx_index, to_block, chain_id).await
                         }));
                     }
-                    Poll::Ready(Err(e)) => {
-                        error!(target: LOG_TARGET, error = %e, "Failed to fetch latest block number.");
-                        this.phase = Phase::Idle;
-                        // Same reason as above: re-poll the trigger so a waker is registered.
+
+                    Poll::Ready(Err(error)) => {
+                        error!(target: LOG_TARGET, %error, "Failed to fetch latest block number.");
+                        this.phase = MessageStreamPhase::Idle;
+                        // re-poll the trigger so a waker is registered.
                         continue;
                     }
-                    Poll::Pending => return Poll::Pending,
                 },
 
-                Phase::Gathering(fut) => match fut.poll_unpin(cx) {
+                MessageStreamPhase::Gathering(fut) => match fut.poll_unpin(cx) {
+                    Poll::Pending => return Poll::Pending,
+
                     Poll::Ready(Ok(result)) => {
                         // Advance cursor past the fully-inspected range. The server
                         // checkpoints per-message, so this bulk advance is safe: any
@@ -198,24 +208,20 @@ where
                         // processed messages via pool hash dedupe.
                         this.from_block = result.to_block + 1;
                         this.from_tx_index = 0;
-                        this.phase = Phase::Idle;
+                        this.phase = MessageStreamPhase::Idle;
+
                         return Poll::Ready(Some(MessagingOutcome {
                             settlement_block: result.to_block,
                             messages: result.messages,
                         }));
                     }
-                    Poll::Ready(Err(e)) => {
-                        error!(
-                            target: LOG_TARGET,
-                            block = %this.from_block,
-                            error = %e,
-                            "Gathering messages for block."
-                        );
-                        this.phase = Phase::Idle;
+
+                    Poll::Ready(Err(error)) => {
+                        error!(target: LOG_TARGET, block = %this.from_block, %error, "Gathering messages for block.");
+                        this.phase = MessageStreamPhase::Idle;
                         // Re-poll the trigger so a waker is registered for the next tick.
                         continue;
                     }
-                    Poll::Pending => return Poll::Pending,
                 },
             }
         }
@@ -231,8 +237,8 @@ mod tests {
     use katana_primitives::transaction::L1HandlerTx;
     use katana_primitives::Felt;
 
+    use super::collector::OrderedMessage;
     use super::*;
-    use crate::collector::PositionedMessage;
     use crate::testing::{ManualTrigger, MockCollector};
 
     const SHORT: Duration = Duration::from_millis(50);
@@ -252,8 +258,8 @@ mod tests {
         }
     }
 
-    fn msg(block: u64, tx_index: u64) -> PositionedMessage {
-        PositionedMessage { block, tx_index, l1_tx_hash: [0u8; 32], tx: stub_tx() }
+    fn msg(block: u64, tx_index: u64) -> OrderedMessage {
+        OrderedMessage { block, tx_index, l1_tx_hash: [0u8; 32], tx: stub_tx() }
     }
 
     /// Build a stream wired to a fresh `MockCollector` + `ManualTrigger`.
@@ -406,10 +412,8 @@ mod tests {
         // from_block = 0, latest = 1000, depth = 0. Cap at 0 + MAX_BLOCKS_PER_GATHER.
         let (mut stream, collector, trigger) = build(0, 0, 0);
         collector.push_latest_block(Ok(1000));
-        collector.push_gather(Ok(GatherResult {
-            to_block: MAX_BLOCKS_PER_GATHER,
-            messages: vec![],
-        }));
+        collector
+            .push_gather(Ok(GatherResult { to_block: MAX_BLOCKS_PER_GATHER, messages: vec![] }));
         trigger.fire();
         let _ = stream.next().await.expect("yielded");
 
@@ -483,4 +487,3 @@ mod tests {
         assert!(res.is_none(), "stream should terminate when trigger ends");
     }
 }
-

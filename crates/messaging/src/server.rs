@@ -62,8 +62,7 @@ pub struct MessageCommit {
 /// the current batch. The in-memory stream cursor has already advanced past the
 /// gather range, so on restart the messenger will re-gather and re-attempt; the
 /// pool's hash-level dedup prevents duplicate L1Handler txs.
-pub type OnCommitCallback =
-    Arc<dyn Fn(MessageCommit) -> Result<(), anyhow::Error> + Send + Sync>;
+pub type OnCommitCallback = Arc<dyn Fn(MessageCommit) -> Result<(), anyhow::Error> + Send + Sync>;
 
 /// The messaging server drains a [`Messenger`] stream, adds gathered transactions
 /// to the transaction pool, and persists checkpoints + L1->L2 index entries.
@@ -99,9 +98,9 @@ impl MessagingServer {
     /// The server runs a background task that:
     /// 1. Drains the messenger stream for positioned messages
     /// 2. Adds each message to the pool individually
-    /// 3. On each successful insert, invokes `on_commit` to atomically persist the
-    ///    L1->L2 index entry and the checkpoint — enabling fine-grained resume after
-    ///    a crash without losing index entries
+    /// 3. On each successful insert, invokes `on_commit` to atomically persist the L1->L2 index
+    ///    entry and the checkpoint — enabling fine-grained resume after a crash without losing
+    ///    index entries
     pub fn start(self) -> MessagingHandle {
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 

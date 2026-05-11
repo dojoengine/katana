@@ -13,18 +13,12 @@ use tokio::time::{interval_at, Instant, Interval};
 /// A trigger that fires when it's time to check for new messages.
 pub trait MessageTrigger: Stream<Item = ()> + Send + Unpin + 'static {}
 
-/// Blanket impl — any matching `Stream` is a `MessageTrigger`.
 impl<T> MessageTrigger for T where T: Stream<Item = ()> + Send + Unpin + 'static {}
 
 /// A trigger that fires on a fixed time interval.
+#[derive(Debug)]
 pub struct IntervalTrigger {
     interval: Interval,
-}
-
-impl std::fmt::Debug for IntervalTrigger {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IntervalTrigger").finish_non_exhaustive()
-    }
 }
 
 impl IntervalTrigger {

@@ -6721,6 +6721,7 @@ dependencies = [
  "alloy-sol-types",
  "alloy-transport",
  "anyhow",
+ "auto_impl",
  "futures",
  "katana-chain-spec",
  "katana-pool",

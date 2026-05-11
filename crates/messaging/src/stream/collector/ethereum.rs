@@ -20,7 +20,7 @@ use katana_primitives::utils::transaction::{
 use katana_primitives::{ContractAddress, Felt};
 use tracing::{debug, trace};
 
-use crate::collector::{GatherResult, MessageCollector, PositionedMessage};
+use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
 use crate::{Error, LOG_TARGET};
 
 sol! {
@@ -130,12 +130,7 @@ impl MessageCollector for EthereumCollector {
                 debug!(target: LOG_TARGET, block, tx_index, "Converting log into L1HandlerTx.");
 
                 if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {
-                    messages.push(PositionedMessage {
-                        block,
-                        tx_index,
-                        l1_tx_hash: l1_tx_hash.0,
-                        tx,
-                    });
+                    messages.push(OrderedMessage { block, tx_index, l1_tx_hash: l1_tx_hash.0, tx });
                 }
             }
 
