@@ -7,7 +7,7 @@ use futures::Future;
 use katana_primitives::chain::ChainId;
 use katana_primitives::hash::StarkHash;
 use katana_primitives::transaction::L1HandlerTx;
-use katana_primitives::{hash, Felt};
+use katana_primitives::{hash, ContractAddress, Felt};
 use starknet::core::types::{BlockId, EmittedEvent, EventFilter};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
@@ -24,7 +24,7 @@ pub const MESSAGE_SENT_EVENT_KEY: Felt = selector!("MessageSent");
 /// Starknet settlement chain message collector.
 pub struct StarknetCollector {
     provider: Arc<AnyProvider>,
-    messaging_contract_address: Felt,
+    messaging_contract_address: ContractAddress,
 }
 
 impl std::fmt::Debug for StarknetCollector {
@@ -36,17 +36,15 @@ impl std::fmt::Debug for StarknetCollector {
 }
 
 impl StarknetCollector {
-    pub fn new(rpc_url: &str, contract_address: &str) -> Result<Self> {
-        let provider = Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(HttpTransport::new(
-            Url::parse(rpc_url)?,
-        ))));
-        let messaging_contract_address = Felt::from_hex(contract_address)?;
+    pub fn new(rpc_url: Url, messaging_contract_address: ContractAddress) -> Result<Self> {
+        let provider =
+            Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(HttpTransport::new(rpc_url))));
         Ok(Self { provider, messaging_contract_address })
     }
 
     async fn fetch_events(
         provider: &AnyProvider,
-        contract_address: Felt,
+        contract_address: ContractAddress,
         from_block: BlockId,
         to_block: BlockId,
     ) -> Result<Vec<EmittedEvent>> {
@@ -57,7 +55,7 @@ impl StarknetCollector {
         let filter = EventFilter {
             from_block: Some(from_block),
             to_block: Some(to_block),
-            address: Some(contract_address),
+            address: Some(*contract_address),
             keys: Some(vec![vec![MESSAGE_SENT_EVENT_KEY]]),
         };
 

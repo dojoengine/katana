@@ -11,6 +11,7 @@ use alloy_sol_types::{sol, SolEvent};
 use anyhow::Result;
 use futures::Future;
 use katana_primitives::chain::ChainId;
+use katana_primitives::eth::Address as EthAddress;
 use katana_primitives::message::L1ToL2Message;
 use katana_primitives::receipt::MessageToL1;
 use katana_primitives::transaction::L1HandlerTx;
@@ -19,6 +20,7 @@ use katana_primitives::utils::transaction::{
 };
 use katana_primitives::{ContractAddress, Felt};
 use tracing::{debug, trace};
+use url::Url;
 
 use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
 use crate::{Error, LOG_TARGET};
@@ -49,9 +51,8 @@ pub struct EthereumCollector {
 }
 
 impl EthereumCollector {
-    pub fn new(rpc_url: &str, contract_address: &str) -> Result<Self> {
-        let provider = Arc::new(RootProvider::<Ethereum>::new_http(reqwest::Url::parse(rpc_url)?));
-        let messaging_contract_address = contract_address.parse::<Address>()?;
+    pub fn new(rpc_url: Url, messaging_contract_address: EthAddress) -> Result<Self> {
+        let provider = Arc::new(RootProvider::<Ethereum>::new_http(rpc_url));
         Ok(Self { provider, messaging_contract_address })
     }
 
@@ -71,11 +72,7 @@ impl EthereumCollector {
             },
             address: FilterSet::<Address>::from(contract_address),
             topics: [
-                Topic::from(
-                    "0xdb80dd488acf86d17c747445b0eabb5d57c541d3bd7b6b87af987858e5066b2b"
-                        .parse::<U256>()
-                        .unwrap(),
-                ),
+                Topic::from(LogMessageToL2::SIGNATURE_HASH),
                 Default::default(),
                 Default::default(),
                 Default::default(),

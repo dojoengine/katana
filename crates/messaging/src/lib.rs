@@ -26,7 +26,9 @@ use ::starknet::providers::ProviderError as StarknetProviderError;
 use alloy_transport::TransportError;
 use futures::Stream;
 use katana_primitives::chain::ChainId;
+use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 use crate::stream::collector::ethereum::EthereumCollector;
 use crate::stream::collector::starknet::StarknetCollector;
@@ -133,9 +135,9 @@ pub struct MessagingConfig {
 #[serde(tag = "chain")]
 pub enum SettlementChainConfig {
     #[serde(rename = "ethereum")]
-    Ethereum { rpc_url: String, contract_address: String },
+    Ethereum { rpc_url: Url, contract_address: katana_primitives::eth::Address },
     #[serde(rename = "starknet")]
-    Starknet { rpc_url: String, contract_address: String },
+    Starknet { rpc_url: Url, contract_address: ContractAddress },
 }
 
 impl MessagingConfig {
@@ -156,8 +158,8 @@ impl MessagingConfig {
                 rpc_url, core_contract, block, ..
             } => Self {
                 settlement: SettlementChainConfig::Ethereum {
-                    rpc_url: rpc_url.to_string(),
-                    contract_address: core_contract.to_string(),
+                    rpc_url: rpc_url.clone(),
+                    contract_address: core_contract.clone(),
                 },
                 from_block: *block,
                 interval: 2,
@@ -167,8 +169,8 @@ impl MessagingConfig {
                 rpc_url, core_contract, block, ..
             } => Self {
                 settlement: SettlementChainConfig::Starknet {
-                    rpc_url: rpc_url.to_string(),
-                    contract_address: core_contract.to_string(),
+                    rpc_url: rpc_url.clone(),
+                    contract_address: core_contract.clone(),
                 },
                 from_block: *block,
                 interval: 2,
@@ -206,7 +208,7 @@ pub fn build_messenger(
 
     let stream: Box<dyn Messenger> = match &config.settlement {
         SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
-            let collector = EthereumCollector::new(rpc_url, contract_address)?;
+            let collector = EthereumCollector::new(rpc_url.clone(), *contract_address)?;
             Box::new(MessageStream::with_cursor(
                 collector,
                 trigger,
@@ -218,7 +220,7 @@ pub fn build_messenger(
         }
 
         SettlementChainConfig::Starknet { rpc_url, contract_address } => {
-            let collector = StarknetCollector::new(rpc_url, contract_address)?;
+            let collector = StarknetCollector::new(rpc_url.clone(), *contract_address)?;
             Box::new(MessageStream::with_cursor(
                 collector,
                 trigger,

@@ -21,6 +21,7 @@ use starknet::core::types::{Hash256, ReceiptBlock, Transaction, TransactionRecei
 use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;
 use starknet::providers::Provider;
+use url::Url;
 
 mod common;
 
@@ -58,8 +59,8 @@ async fn test_messaging() {
 
     let messaging_config = MessagingConfig {
         settlement: katana_messaging::SettlementChainConfig::Ethereum {
-            rpc_url: format!("http://localhost:{}", port),
-            contract_address: core_contract.address().to_string(),
+            rpc_url: Url::parse(&format!("http://localhost:{}", port)).unwrap(),
+            contract_address: core_contract.address().clone(),
         },
         interval: 2,
         from_block: 0,
