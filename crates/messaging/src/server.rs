@@ -1,112 +1,77 @@
-use std::sync::Arc;
-
+use anyhow::Context;
 use futures::StreamExt;
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
-use katana_primitives::transaction::{ExecutableTxWithHash, L1HandlerTx, TxHash};
+use katana_primitives::chain::ChainId;
+use katana_primitives::transaction::{ExecutableTxWithHash, TxHash};
+use katana_provider::api::messaging::{
+    MessagingCheckpoint, MessagingCheckpointProvider, MessagingL1ToL2IndexWriter,
+};
+use katana_provider::{MutableProvider, ProviderFactory, ProviderRW};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use crate::{MessagingOutcome, Messenger, LOG_TARGET};
+use crate::{build_messenger, MessagingConfig, MessagingOutcome, LOG_TARGET};
 
-impl std::fmt::Debug for MessagingServer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MessagingServer").finish_non_exhaustive()
-    }
-}
+/// Identifier used to namespace the persisted messaging checkpoint within the
+/// shared `MessagingCheckpoints` table.
+const CHECKPOINT_ID: &str = "messaging";
 
-/// Checkpoint data persisted after each successfully processed message.
+/// The messaging server.
 ///
-/// Identifies the last fully processed message so a restart can resume from the next
-/// position.
-#[derive(Debug, Clone)]
-pub struct Checkpoint {
-    /// The settlement chain block the message was emitted in.
-    pub block: u64,
-    /// The transaction index of the message within `block`.
-    pub tx_index: u64,
-}
-
-/// A record of a settlement chain L1 transaction successfully spawning an L2
-/// L1Handler transaction. Used to populate the L1->L2 index that powers
-/// `starknet_getMessagesStatus`.
-#[derive(Debug, Clone)]
-pub struct L1ToL2Record {
-    /// Settlement chain transaction hash that emitted the originating event/log.
-    pub l1_tx_hash: [u8; 32],
-    /// L2 L1Handler transaction hash.
-    pub l2_tx_hash: TxHash,
-}
-
-/// Combined record passed to [`OnCommitCallback`] after a successful pool insert.
+/// A "static" node component held on `Node` whether or not messaging is enabled.
+/// [`Self::start`] is non-consuming and mirrors `RpcServer::start`. When `config`
+/// is `None` (messaging disabled), [`Self::start`] returns `Ok(None)` — no task is
+/// spawned. Otherwise it reads the resume checkpoint, builds the messenger, and
+/// spawns the drain loop.
 ///
-/// The callback must persist both fields **atomically** (i.e. in a single
-/// storage transaction) so the index entry and the checkpoint advance together.
-/// If they could fail independently, an index write that succeeds but a checkpoint
-/// that fails (or vice-versa) would let restart skip the message while losing the
-/// L1->L2 mapping forever, breaking `starknet_getMessagesStatus`.
-#[derive(Debug, Clone)]
-pub struct MessageCommit {
-    /// L1->L2 mapping for the `starknet_getMessagesStatus` index.
-    pub record: L1ToL2Record,
-    /// Checkpoint to advance to after this message is fully processed.
-    pub checkpoint: Checkpoint,
+/// The server depends directly on the provider factory `P` for both reading the
+/// resume checkpoint at boot and atomically persisting the L1->L2 index entry +
+/// checkpoint after each successful pool insert.
+pub struct MessagingServer<P> {
+    config: Option<MessagingConfig>,
+    chain_id: ChainId,
+    pool: TxPool,
+    provider: P,
 }
 
-/// Callback invoked by the server after each successful pool insert. The callback
-/// receives both the L1->L2 mapping and the new checkpoint, and is expected to
-/// persist them atomically.
-///
-/// If the callback returns `Err`, the server logs the failure and stops processing
-/// the current batch. The in-memory stream cursor has already advanced past the
-/// gather range, so on restart the messenger will re-gather and re-attempt; the
-/// pool's hash-level dedup prevents duplicate L1Handler txs.
-pub type OnCommitCallback = Arc<dyn Fn(MessageCommit) -> Result<(), anyhow::Error> + Send + Sync>;
-
-/// The messaging server drains a [`Messenger`] stream, adds gathered transactions
-/// to the transaction pool, and persists checkpoints + L1->L2 index entries.
-pub struct MessagingServer {
-    messenger: Box<dyn Messenger>,
-    pool: Option<TxPool>,
-    on_commit: Option<OnCommitCallback>,
-}
-
-impl MessagingServer {
-    /// Create a new messaging server wrapping the given messenger.
-    pub fn new(messenger: Box<dyn Messenger>) -> Self {
-        Self { messenger, pool: None, on_commit: None }
-    }
-
-    /// Set the transaction pool where gathered L1Handler transactions will be added.
-    pub fn pool(mut self, pool: TxPool) -> Self {
-        self.pool = Some(pool);
-        self
-    }
-
-    /// Set the per-message commit callback. The callback fires after each successful
-    /// pool insert and is responsible for atomically persisting:
-    /// - The L1->L2 index entry for `starknet_getMessagesStatus`
-    /// - The checkpoint, so a restart resumes from the next position
-    pub fn on_commit(mut self, callback: OnCommitCallback) -> Self {
-        self.on_commit = Some(callback);
-        self
-    }
-
-    /// Start the messaging server. Returns a handle for lifecycle control.
+impl<P> MessagingServer<P> {
+    /// Create a new messaging server.
     ///
-    /// The server runs a background task that:
-    /// 1. Drains the messenger stream for positioned messages
-    /// 2. Adds each message to the pool individually
-    /// 3. On each successful insert, invokes `on_commit` to atomically persist the L1->L2 index
-    ///    entry and the checkpoint — enabling fine-grained resume after a crash without losing
-    ///    index entries
-    pub fn start(self) -> MessagingHandle {
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    /// `config == None` makes [`Self::start`] a no-op (returns `Ok(None)`).
+    pub fn new(
+        config: Option<MessagingConfig>,
+        chain_id: ChainId,
+        pool: TxPool,
+        provider: P,
+    ) -> Self {
+        Self { config, chain_id, pool, provider }
+    }
+}
 
-        let pool = self.pool.expect("pool must be set before starting");
-        let mut messenger = self.messenger;
-        let on_commit = self.on_commit;
+impl<P> MessagingServer<P>
+where
+    P: ProviderFactory + Clone + Send + Sync + 'static,
+    <P as ProviderFactory>::ProviderMut:
+        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
+{
+    /// Start the messaging server.
+    ///
+    /// Returns `Ok(None)` when messaging is disabled (no config) — the component
+    /// exists but no task is spawned. Returns `Ok(Some(handle))` after successfully
+    /// reading the checkpoint, building the messenger, and spawning the drain loop.
+    pub fn start(&self) -> Result<Option<MessagingHandle>, anyhow::Error> {
+        let Some(config) = &self.config else {
+            return Ok(None);
+        };
+
+        let (from_block, from_tx_index) = self.resume_cursor(config)?;
+        let mut messenger = build_messenger(config, self.chain_id, from_block, from_tx_index)?;
+
+        let pool = self.pool.clone();
+        let provider = self.provider.clone();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         let task_handle = tokio::spawn(async move {
             tokio::pin!(let shutdown = shutdown_rx;);
@@ -115,50 +80,46 @@ impl MessagingServer {
                 tokio::select! {
                     outcome = messenger.next() => {
                         match outcome {
+                            None => break, // Stream ended
+
                             Some(MessagingOutcome { settlement_block, messages }) => {
-                                let total = messages.len();
+                                let total_messages = messages.len();
                                 let mut inserted: usize = 0;
 
                                 for msg in messages {
                                     let hash = msg.tx.calculate_hash();
-                                    trace_l1_handler_tx_exec(hash, &msg.tx);
+                                    info!(target: LOG_TARGET, tx_hash = %format!("{:#x}", hash), "L1Handler transaction added to the pool.");
 
-                                    let insert_result = pool
-                                        .add_transaction(ExecutableTxWithHash {
-                                            hash,
-                                            transaction: msg.tx.into(),
-                                        })
-                                        .await;
+                                    let pool_tx = ExecutableTxWithHash { hash, transaction: msg.tx.into() };
+                                    let insert_result = pool.add_transaction(pool_tx).await;
 
                                     match insert_result {
                                         Ok(_) => {
                                             inserted += 1;
-                                            // Persist the index entry and the checkpoint
-                                            // atomically. If the commit fails, abort the rest
-                                            // of the batch — the cursor has already advanced,
-                                            // so on restart we'll re-gather and re-attempt.
-                                            if let Some(ref cb) = on_commit {
-                                                let commit = MessageCommit {
-                                                    record: L1ToL2Record {
-                                                        l1_tx_hash: msg.l1_tx_hash,
-                                                        l2_tx_hash: hash,
-                                                    },
-                                                    checkpoint: Checkpoint {
-                                                        block: msg.block,
-                                                        tx_index: msg.tx_index,
-                                                    },
-                                                };
-                                                if let Err(e) = cb(commit) {
-                                                    warn!(
-                                                        target: LOG_TARGET,
-                                                        error = %e,
-                                                        block = msg.block,
-                                                        tx_index = msg.tx_index,
-                                                        tx_hash = %format!("{hash:#x}"),
-                                                        "Failed to commit messaging state; aborting batch, will retry on next gather.",
-                                                    );
-                                                    break;
-                                                }
+
+                                            // Atomically persist the L1->L2 index entry and the
+                                            // checkpoint in a single DB transaction. If either
+                                            // write or the commit fails, NEITHER is persisted —
+                                            // on restart we'll re-gather and re-attempt. Splitting
+                                            // these previously meant a failed index write paired
+                                            // with a successful checkpoint write would silently
+                                            // drop the L1->L2 mapping forever.
+                                            if let Err(e) = commit_message(
+                                                &provider,
+                                                &msg.l1_tx_hash,
+                                                hash,
+                                                msg.block,
+                                                msg.tx_index,
+                                            ) {
+                                                warn!(
+                                                    target: LOG_TARGET,
+                                                    error = %e,
+                                                    block = msg.block,
+                                                    tx_index = msg.tx_index,
+                                                    tx_hash = %format!("{hash:#x}"),
+                                                    "Failed to commit messaging state; aborting batch, will retry on next gather.",
+                                                );
+                                                break;
                                             }
                                         }
                                         Err(e) => {
@@ -170,6 +131,7 @@ impl MessagingServer {
                                                 tx_hash = %format!("{hash:#x}"),
                                                 "Failed to add L1Handler transaction to pool; will retry on next gather.",
                                             );
+
                                             // Stop processing this batch. The stream's cursor
                                             // was already advanced past the current gather range;
                                             // the retry for this message will rely on the pool's
@@ -184,18 +146,15 @@ impl MessagingServer {
                                     info!(
                                         target: LOG_TARGET,
                                         inserted,
-                                        total,
+                                        total_messages,
                                         %settlement_block,
                                         "Collected messages from settlement chain.",
                                     );
                                 }
                             }
-                            None => {
-                                // Stream ended
-                                break;
-                            }
                         }
                     }
+
                     _ = &mut shutdown => {
                         break;
                     }
@@ -203,8 +162,63 @@ impl MessagingServer {
             }
         });
 
-        MessagingHandle { shutdown_tx: Some(shutdown_tx), task_handle }
+        Ok(Some(MessagingHandle { shutdown_tx: Some(shutdown_tx), task_handle }))
     }
+
+    /// Determine `(from_block, from_tx_index)` for the next gather.
+    ///
+    /// If a persisted checkpoint exists, resume from the message immediately after
+    /// it. Otherwise fall back to `config.from_block`.
+    fn resume_cursor(&self, config: &MessagingConfig) -> Result<(u64, u64), anyhow::Error> {
+        let db_tx = self.provider.provider_mut();
+        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
+        db_tx.commit().context("commit checkpoint read tx")?;
+
+        let checkpoint = match cp {
+            Some(c) => (c.block, c.tx_index + 1),
+            None => (config.from_block, 0),
+        };
+
+        Ok(checkpoint)
+    }
+}
+
+impl<P> std::fmt::Debug for MessagingServer<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MessagingServer").finish_non_exhaustive()
+    }
+}
+
+impl<P: Clone> Clone for MessagingServer<P> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            chain_id: self.chain_id,
+            pool: self.pool.clone(),
+            provider: self.provider.clone(),
+        }
+    }
+}
+
+/// Atomically record the L1->L2 mapping and advance the checkpoint inside a single
+/// DB transaction. Returns an error if any of the staged writes or the commit fail.
+fn commit_message<P>(
+    provider: &P,
+    l1_tx_hash: &[u8; 32],
+    l2_tx_hash: TxHash,
+    block: u64,
+    tx_index: u64,
+) -> Result<(), anyhow::Error>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut:
+        MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
+{
+    let db_tx = provider.provider_mut();
+    db_tx.record_l1_to_l2(l1_tx_hash, l2_tx_hash)?;
+    db_tx.set_messaging_checkpoint(CHECKPOINT_ID, &MessagingCheckpoint { block, tx_index })?;
+    db_tx.commit()?;
+    Ok(())
 }
 
 /// Handle to a running messaging server, providing lifecycle control.
@@ -231,18 +245,4 @@ impl MessagingHandle {
     pub async fn stopped(self) {
         let _ = self.task_handle.await;
     }
-}
-
-fn trace_l1_handler_tx_exec(hash: TxHash, tx: &L1HandlerTx) {
-    let calldata_str: Vec<_> = tx.calldata.iter().map(|f| format!("{f:#x}")).collect();
-
-    #[rustfmt::skip]
-    info!(
-        target: LOG_TARGET,
-        tx_hash = %format!("{:#x}", hash),
-        contract_address = %tx.contract_address,
-        selector = %format!("{:#x}", tx.entry_point_selector),
-        calldata = %calldata_str.join(", "),
-        "L1Handler transaction added to the pool.",
-    );
 }

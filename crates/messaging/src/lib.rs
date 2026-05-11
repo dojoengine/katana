@@ -19,9 +19,6 @@ pub mod stream;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
 use ::starknet::providers::ProviderError as StarknetProviderError;
 use alloy_transport::TransportError;
 use futures::Stream;
@@ -93,19 +90,6 @@ pub struct MessagingOutcome {
 pub trait Messenger: Stream<Item = MessagingOutcome> + Send + Unpin {}
 impl<T> Messenger for T where T: Stream<Item = MessagingOutcome> + Send + Unpin {}
 
-/// A no-op messenger that never yields any messages.
-/// Used when messaging is disabled.
-#[derive(Debug)]
-pub struct NoopMessenger;
-
-impl Stream for NoopMessenger {
-    type Item = MessagingOutcome;
-
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Pending
-    }
-}
-
 /// The config used to initialize the messaging service.
 #[derive(Debug, Deserialize, Clone, Serialize, PartialEq, Eq)]
 pub struct MessagingConfig {
@@ -159,7 +143,7 @@ impl MessagingConfig {
             } => Self {
                 settlement: SettlementChainConfig::Ethereum {
                     rpc_url: rpc_url.clone(),
-                    contract_address: core_contract.clone(),
+                    contract_address: *core_contract,
                 },
                 from_block: *block,
                 interval: 2,
@@ -170,7 +154,7 @@ impl MessagingConfig {
             } => Self {
                 settlement: SettlementChainConfig::Starknet {
                     rpc_url: rpc_url.clone(),
-                    contract_address: core_contract.clone(),
+                    contract_address: *core_contract,
                 },
                 from_block: *block,
                 interval: 2,
@@ -186,23 +170,18 @@ impl MessagingConfig {
 /// Build a ready-to-drain messenger from a messaging config.
 ///
 /// Encapsulates settlement chain selection, collector construction, and trigger composition.
-/// If `config` is `None`, returns a [`NoopMessenger`] (messaging disabled). Otherwise builds
-/// the appropriate collector for the settlement chain, wraps it in a stream driven by an
-/// [`IntervalTrigger`], and returns it boxed for type erasure.
+/// Builds the appropriate collector for the settlement chain, wraps it in a stream driven by
+/// an [`IntervalTrigger`], and returns it boxed for type erasure.
 ///
 /// `from_block` / `from_tx_index` form the resume cursor. On a fresh start they come from
 /// `config.from_block` and `0`; on restart from a persisted checkpoint they come from the
 /// last processed message's position (with `from_tx_index` incremented to start after it).
 pub fn build_messenger(
-    config: Option<&MessagingConfig>,
+    config: &MessagingConfig,
     chain_id: ChainId,
     from_block: u64,
     from_tx_index: u64,
 ) -> anyhow::Result<Box<dyn Messenger>> {
-    let Some(config) = config else {
-        return Ok(Box::new(NoopMessenger));
-    };
-
     let trigger = IntervalTrigger::new(config.interval);
     let confirmation_depth = config.confirmation_depth;
 

@@ -36,8 +36,7 @@ use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::Felt;
 use katana_provider::api::messaging::{
-    MessagingCheckpoint, MessagingCheckpointProvider, MessagingL1ToL2IndexProvider,
-    MessagingL1ToL2IndexWriter,
+    MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
 };
 use katana_provider::{
     DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
@@ -111,13 +110,15 @@ where
     block_producer: BlockProducer<P>,
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
+    messaging_server: MessagingServer<P>,
 }
 
 impl<P> Node<P>
 where
-    P: ProviderFactory + Clone,
+    P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::Provider: ProviderRO + MessagingL1ToL2IndexProvider,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
+    <P as ProviderFactory>::ProviderMut:
+        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
 {
     /// Build the node components from the given [`Config`].
     ///
@@ -529,6 +530,15 @@ where
             None
         };
 
+        // --- build messaging server
+
+        let messaging_server = MessagingServer::new(
+            config.messaging.clone(),
+            backend.chain_spec.id(),
+            pool.clone(),
+            provider.clone(),
+        );
+
         Ok(Node {
             db,
             provider,
@@ -540,6 +550,7 @@ where
             gateway_server,
             block_producer,
             metrics_server,
+            messaging_server,
             config: Arc::new(config),
             task_manager,
         })
@@ -669,7 +680,7 @@ impl Node<ForkProviderFactory> {
 
 impl<P> Node<P>
 where
-    P: ProviderFactory + Clone,
+    P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut:
         ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
@@ -771,14 +782,9 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        // --- build and start the messaging server
+        // --- start the messaging server (no-op when messaging is disabled)
 
-        let messaging_handle = Self::build_and_start_messaging(
-            &self.config,
-            &self.backend,
-            &self.pool,
-            self.provider.clone(),
-        )?;
+        let messaging_handle = self.messaging_server.start()?;
 
         Ok(LaunchedNode {
             node: self,
@@ -789,64 +795,6 @@ where
             metrics: metrics_handle,
             messaging: messaging_handle,
         })
-    }
-
-    fn build_and_start_messaging(
-        config: &Config,
-        backend: &Arc<Backend<P>>,
-        pool: &TxPool,
-        provider_factory: P,
-    ) -> Result<MessagingHandle> {
-        const CHECKPOINT_ID: &str = "messaging";
-
-        // Prefer the persisted checkpoint over the config. On restart we resume from the
-        // message after the last successfully processed one: same block, tx_index + 1.
-        // If no checkpoint exists, start fresh at (config.from_block, 0).
-        let (from_block, from_tx_index) = if let Some(ref msg_config) = config.messaging {
-            let tx = provider_factory.provider_mut();
-            let cp = tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
-            MutableProvider::commit(tx).context("commit checkpoint read tx")?;
-            match cp {
-                Some(c) => (c.block, c.tx_index + 1),
-                None => (msg_config.from_block, 0),
-            }
-        } else {
-            (0, 0)
-        };
-
-        let messenger = katana_messaging::build_messenger(
-            config.messaging.as_ref(),
-            backend.chain_spec.id(),
-            from_block,
-            from_tx_index,
-        )?;
-
-        // Atomic per-message commit: index entry + checkpoint in one DB transaction.
-        // If either write or the commit fails, NEITHER is persisted — restart will
-        // re-gather and re-attempt. Splitting them previously meant a failed index
-        // write paired with a successful checkpoint write would silently drop the
-        // L1->L2 mapping forever.
-        let commit_provider = provider_factory.clone();
-        let on_commit: katana_messaging::server::OnCommitCallback = std::sync::Arc::new(
-            move |c: katana_messaging::server::MessageCommit| -> anyhow::Result<()> {
-                let tx = commit_provider.provider_mut();
-                tx.record_l1_to_l2(&c.record.l1_tx_hash, c.record.l2_tx_hash)
-                    .context("record L1->L2 mapping")?;
-                tx.set_messaging_checkpoint(
-                    CHECKPOINT_ID,
-                    &MessagingCheckpoint {
-                        block: c.checkpoint.block,
-                        tx_index: c.checkpoint.tx_index,
-                    },
-                )
-                .context("set messaging checkpoint")?;
-                MutableProvider::commit(tx).context("commit messaging state")?;
-                Ok(())
-            },
-        );
-
-        let server = MessagingServer::new(messenger).pool(pool.clone()).on_commit(on_commit);
-        Ok(server.start())
     }
 }
 
@@ -873,6 +821,11 @@ where
     /// Returns a reference to the node's JSON-RPC server.
     pub fn rpc(&self) -> &NodeRpcServer<P> {
         &self.rpc_server
+    }
+
+    /// Returns a reference to the node's messaging server.
+    pub fn messaging_server(&self) -> &MessagingServer<P> {
+        &self.messaging_server
     }
 
     /// Returns a reference to the node's database.
@@ -909,8 +862,8 @@ where
     grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
-    /// Handle to the messaging server.
-    messaging: MessagingHandle,
+    /// Handle to the messaging server (if running).
+    messaging: Option<MessagingHandle>,
 }
 
 impl<P> LaunchedNode<P>
@@ -939,6 +892,11 @@ where
         self.metrics.as_ref()
     }
 
+    /// Returns a reference to the messaging server handle (if running).
+    pub fn messaging(&self) -> Option<&MessagingHandle> {
+        self.messaging.as_ref()
+    }
+
     /// Returns a reference to the gRPC server handle (if enabled).
     #[cfg(feature = "grpc")]
     pub fn grpc(&self) -> Option<&GrpcServerHandle> {
@@ -948,7 +906,7 @@ where
     /// Stops the node.
     ///
     /// This will instruct the node to stop and wait until it has actually stop.
-    pub async fn stop(mut self) -> Result<()> {
+    pub async fn stop(self) -> Result<()> {
         // TODO: wait for the rpc server to stop instead of just stopping it.
         self.rpc.stop()?;
 
@@ -968,10 +926,12 @@ where
             handle.stop()?;
         }
 
-        // Stop messaging server. Signal and then await so the final checkpoint
-        // write completes before we tear down the provider.
-        self.messaging.stop();
-        self.messaging.stopped().await;
+        // Stop messaging server if running. Signal and then await so the final
+        // checkpoint write completes before we tear down the provider.
+        if let Some(mut handle) = self.messaging {
+            handle.stop();
+            handle.stopped().await;
+        }
 
         self.node.task_manager.shutdown().await;
         Ok(())
