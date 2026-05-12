@@ -1198,9 +1198,10 @@ pub struct MessagingOptions {
     #[serde(default)]
     pub enabled: bool,
 
-    /// Polling interval for new settlement blocks, in seconds.
+    /// Polling interval for new settlement blocks, in seconds. Must be at least 1.
     #[arg(long = "messaging.interval", value_name = "SECS")]
     #[arg(default_value_t = DEFAULT_MESSAGING_INTERVAL)]
+    #[arg(value_parser = clap::value_parser!(u64).range(1..))]
     #[serde(default = "default_messaging_interval")]
     pub interval: u64,
 

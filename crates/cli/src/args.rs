@@ -504,6 +504,15 @@ impl SequencerNodeArgs {
         if !self.messaging.enabled {
             return Ok(None);
         }
+        // The CLI value_parser rejects interval=0, but TOML config can still reach here with one.
+        // Catch it before we hand the value to the messenger (which would panic in
+        // `tokio::time::interval` construction).
+        if self.messaging.interval == 0 {
+            anyhow::bail!(
+                "messaging.interval must be at least 1 second (got 0); set a non-zero value via \
+                 --messaging.interval or the [messaging].interval TOML key"
+            );
+        }
         let settlement = chain.settlement().ok_or_else(|| {
             anyhow::anyhow!(
                 "--messaging.enabled requires a settlement layer. Provide one via --chain with a \
