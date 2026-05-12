@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778601561785,
+  "lastUpdate": 1778630275559,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -27179,6 +27179,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 254,
             "range": "± 19",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c8d76b6150aa3c288aa2da8c3577c676f2815b63",
+          "message": "refactor(cli): refactor messaging-related CLI args (#565)\n\n## Summary\n\nReplaces the standalone `--messaging foo.json` JSON config with\nchain-spec-driven settlement plus an opt-in `--messaging.enabled` CLI\nflag. Stacked on top of `refactor/messaging`.\n\nThe chain spec is now the canonical source of truth for settlement layer\nconfiguration. The CLI surface controls *operational* concerns (does\nthis node consume L1 messages, how often, from where).\n\n## Why\n\nToday there are two sources of settlement config:\n1. The chain spec (`--chain rollup.json`, derives messaging via\n`MessagingConfig::from_chain_spec`)\n2. A standalone JSON file (`--messaging foo.json`)\n\nSource 2 was a leak — it duplicated info that already lives in the chain\nspec, required its own loader, and tied messaging to \"is this JSON file\npresent\" rather than to an explicit operator decision. The previous\nreview flagged this; the in-tree comment on `args.rs` already\ntelegraphed removal (\"temporary and the messaging config will eventually\nbe removed slowly\").\n\nThis PR delivers on that.\n\n## Behavior changes\n\n**Settlement is now read from `chain.settlement()` only.** Existing\nrollup chain spec workflows continue to work — settlement details come\nfrom the chain spec.\n\n**Messaging is opt-in.** Even if the chain spec defines a settlement\nlayer, the messaging service does not run unless `--messaging.enabled`\nis passed. The chain spec describes the chain; the flag describes what\n*this* node does with it.\n\n**Dev / ad-hoc workflow** (anvil + Katana, no chain spec file): use the\nnew `--chain.settlement-*` override flags to inject settlement into the\ndev chain spec at startup.\n\n### New CLI flags\n\n| Flag | Purpose |\n|---|---|\n| `--messaging.enabled` | Opt in. Required for messaging to run. |\n| `--messaging.interval <SECS>` | Polling interval (default: 2). |\n| `--messaging.from-block <N>` | Override start block on the settlement\nchain (replay/debug). |\n| `--chain.settlement-chain <ethereum\\|starknet>` | Override settlement\nchain type. |\n| `--chain.settlement-rpc-url <URL>` | Override settlement RPC URL. |\n| `--chain.settlement-contract <ADDR>` | Override core contract address.\n|\n\n### Removed\n\n- `--messaging <PATH>` JSON config flag.\n- `MessagingConfig::load`, `MessagingConfig::parse`,\n`MessagingConfig::from_chain_spec`.\n- `SettlementChainConfig` enum (the messaging crate now uses\n`katana_chain_spec::SettlementLayer` directly).\n\n### Migration\n\nRollup operators need to add `--messaging.enabled` to existing commands.\nExisting JSON config files are no longer loaded.\n\n## Example workflows\n\n```bash\n# Production rollup — sequencer that consumes L1 messages\nkatana --chain rollup.json --messaging.enabled\n\n# Same chain, run as a non-messaging node (proving, indexing)\nkatana --chain rollup.json\n\n# Local dev with anvil — no chain spec needed\nkatana \\\n  --chain.settlement-chain ethereum \\\n  --chain.settlement-rpc-url http://localhost:8545 \\\n  --chain.settlement-contract 0x... \\\n  --messaging.enabled\n\n# Replay from earlier block\nkatana --chain rollup.json --messaging.enabled --messaging.from-block 1234\n```\n\nIf `--messaging.enabled` is set but the chain spec has no settlement\nlayer, the node fails fast at startup with a clear error message\npointing to the override flags.\n\n## Test plan\n\n- [x] `cargo build --workspace --all-targets` — clean\n- [x] `cargo nextest run -p katana-messaging` — 5/5 pass\n- [x] `cargo nextest run -p katana-db -p katana-provider` — 159/159 pass\n- [x] `cargo nextest run -p katana-rpc-server --test messaging` — 4/4\npass (skipping anvil-only `test_messaging`)\n- [x] `cargo nextest run -p katana-cli` — 17/17 pass\n- [x] `katana --help` shows the 6 new flags and no longer shows\n`--messaging <PATH>`\n- [x] Integration test (`tests/messaging.rs`) updated to mutate the dev\nchain spec settlement directly\n\n## Notes / decisions\n\n- The Ethereum settlement `id` field, when constructing settlement from\n`--chain.settlement-*` overrides on a chain spec without existing\nsettlement, defaults to `1` (mainnet). For non-mainnet chain ids, use a\nchain spec file. No fourth `--chain.settlement-id` flag added in this\npass.\n- `--chain.settlement-from-block` was intentionally not added;\n`--messaging.from-block` is the operational override and the chain\nspec's `block` field stays a deployment-time fact.\n- Sovereign settlement returns an explicit error if messaging is enabled\n— no behavior change there.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-12T18:27:50-05:00",
+          "tree_id": "95d868a67729d3f3d86aed0025cb519bb44c08f4",
+          "url": "https://github.com/dojoengine/katana/commit/c8d76b6150aa3c288aa2da8c3577c676f2815b63"
+        },
+        "date": 1778630274329,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2070455,
+            "range": "± 15393",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2272571,
+            "range": "± 7035",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 27,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 20,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 27,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 20,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 523,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 704,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 63,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 31,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 124,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 123,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 124,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 204,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 175,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 215,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 135,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 271,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 109,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 91,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 71,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 49,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 70,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 49,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 70,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 49,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 69,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 50,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 69,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 50,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 39,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 20,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 39,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 20,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 10,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 10669,
+            "range": "± 37",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 2872,
+            "range": "± 72",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 284,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 677,
+            "range": "± 91",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 124,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 123,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1161,
+            "range": "± 25",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 1787,
+            "range": "± 263",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 509,
+            "range": "± 101",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 731,
+            "range": "± 107",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 20236,
+            "range": "± 1207",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 5084,
+            "range": "± 183",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 123,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 201,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 222,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 226,
+            "range": "± 8",
             "unit": "ns/iter"
           }
         ]
