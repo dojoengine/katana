@@ -18,7 +18,7 @@ use katana_rpc_types::broadcasted::{
 };
 use katana_rpc_types::class::{CasmClass, Class};
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
-use katana_rpc_types::message::MsgFromL1;
+use katana_rpc_types::message::{MessageStatus, MsgFromL1};
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::trace::{
@@ -88,6 +88,20 @@ pub trait StarknetApi {
     /// dropped from it).
     #[method(name = "getTransactionStatus")]
     async fn get_transaction_status(&self, transaction_hash: TxHash) -> RpcResult<TxStatus>;
+
+    /// Returns the status of every L2 L1Handler transaction spawned from the given
+    /// settlement chain (L1) transaction. Returns an empty list if the L1 transaction
+    /// is unknown to this node, either because it hasn't been ingested yet or because
+    /// it never emitted any `MessageSent`/`LogMessageToL2` events.
+    ///
+    /// `transaction_hash` is the raw 32-byte L1 transaction hash. We use `B256` (not
+    /// `Felt`) because Ethereum L1 hashes can exceed STARK_PRIME and modular reduction
+    /// would corrupt the lookup key.
+    #[method(name = "getMessagesStatus")]
+    async fn get_messages_status(
+        &self,
+        transaction_hash: katana_primitives::B256,
+    ) -> RpcResult<Vec<MessageStatus>>;
 
     /// Get the details and status of a submitted transaction.
     #[method(name = "getTransactionByHash")]

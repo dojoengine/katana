@@ -25,6 +25,7 @@ use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 #[cfg(feature = "grpc")]
 use katana_grpc::{GrpcServer, GrpcServerHandle};
+use katana_messaging::server::{MessagingHandle, MessagingServer};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -34,8 +35,12 @@ use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::Felt;
+use katana_provider::api::messaging::{
+    MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
+};
 use katana_provider::{
-    DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
+    DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
+    ProviderRW,
 };
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
@@ -105,13 +110,15 @@ where
     block_producer: BlockProducer<P>,
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
+    messaging_server: MessagingServer<P>,
 }
 
 impl<P> Node<P>
 where
-    P: ProviderFactory + Clone,
-    <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
+    P: ProviderFactory + Clone + Send + Sync + 'static,
+    <P as ProviderFactory>::Provider: ProviderRO + MessagingL1ToL2IndexProvider,
+    <P as ProviderFactory>::ProviderMut:
+        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
 {
     /// Build the node components from the given [`Config`].
     ///
@@ -524,6 +531,15 @@ where
             None
         };
 
+        // --- build messaging server
+
+        let messaging_server = MessagingServer::new(
+            config.messaging.clone(),
+            backend.chain_spec.id(),
+            pool.clone(),
+            provider.clone(),
+        );
+
         Ok(Node {
             db,
             provider,
@@ -535,6 +551,7 @@ where
             gateway_server,
             block_producer,
             metrics_server,
+            messaging_server,
             config: Arc::new(config),
             task_manager,
         })
@@ -664,9 +681,10 @@ impl Node<ForkProviderFactory> {
 
 impl<P> Node<P>
 where
-    P: ProviderFactory + Clone,
+    P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
+    <P as ProviderFactory>::ProviderMut:
+        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
 {
     /// Start the node.
     ///
@@ -709,18 +727,12 @@ where
         };
 
         let pool = self.pool.clone();
-        let backend = self.backend.clone();
         let block_producer = self.block_producer.clone();
 
         // --- build and run sequencing task
 
-        let sequencing = Sequencing::new(
-            pool.clone(),
-            backend.clone(),
-            self.task_manager.task_spawner(),
-            block_producer.clone(),
-            self.config.messaging.clone(),
-        );
+        let sequencing =
+            Sequencing::new(pool.clone(), self.task_manager.task_spawner(), block_producer.clone());
 
         self.task_manager
             .task_spawner()
@@ -771,6 +783,10 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
+        // --- start the messaging server (no-op when messaging is disabled)
+
+        let messaging_handle = self.messaging_server.start()?;
+
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
@@ -778,9 +794,17 @@ where
             #[cfg(feature = "grpc")]
             grpc: grpc_handle,
             metrics: metrics_handle,
+            messaging: messaging_handle,
         })
     }
+}
 
+impl<P> Node<P>
+where
+    P: ProviderFactory + Clone,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
     /// Returns a reference to the node's database environment (if any).
     pub fn provider(&self) -> &P {
         &self.provider
@@ -798,6 +822,11 @@ where
     /// Returns a reference to the node's JSON-RPC server.
     pub fn rpc(&self) -> &NodeRpcServer<P> {
         &self.rpc_server
+    }
+
+    /// Returns a reference to the node's messaging server.
+    pub fn messaging_server(&self) -> &MessagingServer<P> {
+        &self.messaging_server
     }
 
     /// Returns a reference to the node's database.
@@ -834,6 +863,8 @@ where
     grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
+    /// Handle to the messaging server (if running).
+    messaging: Option<MessagingHandle>,
 }
 
 impl<P> LaunchedNode<P>
@@ -860,6 +891,11 @@ where
     /// Returns a reference to the metrics server handle (if enabled).
     pub fn metrics(&self) -> Option<&MetricsServerHandle> {
         self.metrics.as_ref()
+    }
+
+    /// Returns a reference to the messaging server handle (if running).
+    pub fn messaging(&self) -> Option<&MessagingHandle> {
+        self.messaging.as_ref()
     }
 
     /// Returns a reference to the gRPC server handle (if enabled).
@@ -889,6 +925,13 @@ where
         // Stop metrics server if it's running
         if let Some(mut handle) = self.metrics {
             handle.stop()?;
+        }
+
+        // Stop messaging server if running. Signal and then await so the final
+        // checkpoint write completes before we tear down the provider.
+        if let Some(mut handle) = self.messaging {
+            handle.stop();
+            handle.stopped().await;
         }
 
         self.node.task_manager.shutdown().await;

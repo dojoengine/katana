@@ -8,6 +8,7 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
+use katana_provider::api::messaging::MessagingL1ToL2IndexProvider;
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::katana::KatanaApiServer;
@@ -22,7 +23,7 @@ use katana_rpc_types::broadcasted::{
     BroadcastedInvokeTx,
 };
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
-use katana_rpc_types::message::MsgFromL1;
+use katana_rpc_types::message::{MessageFinalityStatus, MessageStatus, MsgFromL1};
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::trace::{
@@ -161,7 +162,7 @@ where
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::Provider: ProviderRO + MessagingL1ToL2IndexProvider,
 {
     // ----- Read methods -----
 
@@ -367,6 +368,34 @@ where
         Ok(self.transaction_status(transaction_hash).await?)
     }
 
+    async fn get_messages_status(
+        &self,
+        transaction_hash: katana_primitives::B256,
+    ) -> RpcResult<Vec<MessageStatus>> {
+        // The index is keyed by raw 32-byte hash so the same machinery serves both
+        // Ethereum and Starknet settlement chains. We accept B256 (not Felt) because
+        // Ethereum L1 hashes can exceed STARK_PRIME.
+        let l1_hash: [u8; 32] = transaction_hash.0;
+        let l2_txs =
+            self.storage().provider().l2_txs_for_l1(&l1_hash).map_err(StarknetApiError::from)?;
+
+        let mut statuses = Vec::with_capacity(l2_txs.len());
+        for l2_hash in l2_txs {
+            // Fetching the live status. If the L2 tx vanished from the pool without
+            // being mined, skip it from the response rather than erroring on the
+            // whole batch.
+            let tx_status = match self.transaction_status(l2_hash).await {
+                Ok(status) => status,
+                Err(StarknetApiError::TxnHashNotFound) => continue,
+                Err(e) => return Err(e.into()),
+            };
+
+            statuses.push(message_status_from_tx_status(l2_hash, tx_status));
+        }
+
+        Ok(statuses)
+    }
+
     async fn get_storage_proof(
         &self,
         block_id: BlockIdOrTag,
@@ -461,4 +490,23 @@ where
     ) -> RpcResult<TxReceiptWithBlockInfo> {
         Ok(self.add_deploy_account_tx_sync(deploy_account_transaction).await?)
     }
+}
+
+/// Adapt the internal [`TxStatus`] to the Starknet spec's `MessageStatus` shape.
+///
+/// `Received` and `Candidate` (mempool-only states with no execution result yet) are
+/// reported as `PreConfirmed` with a `Succeeded` execution result — the message has
+/// been accepted but not yet executed; surfacing it as `PreConfirmed` matches the
+/// finality enum's available states.
+fn message_status_from_tx_status(transaction_hash: TxHash, status: TxStatus) -> MessageStatus {
+    use katana_rpc_types::ExecutionResult;
+    let (finality, exec) = match status {
+        TxStatus::Received | TxStatus::Candidate => {
+            (MessageFinalityStatus::PreConfirmed, ExecutionResult::Succeeded)
+        }
+        TxStatus::PreConfirmed(exec) => (MessageFinalityStatus::PreConfirmed, exec),
+        TxStatus::AcceptedOnL2(exec) => (MessageFinalityStatus::AcceptedOnL2, exec),
+        TxStatus::AcceptedOnL1(exec) => (MessageFinalityStatus::AcceptedOnL1, exec),
+    };
+    MessageStatus { transaction_hash, finality_status: finality, execution_result: exec }
 }

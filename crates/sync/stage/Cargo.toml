@@ -10,7 +10,6 @@ katana-core.workspace = true
 katana-db.workspace = true
 katana-gateway-client.workspace = true
 katana-gateway-types.workspace = true
-katana-messaging.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true

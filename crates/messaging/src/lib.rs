@@ -2,83 +2,63 @@
 
 //! Messaging module.
 //!
-//! Messaging is the capability of a sequencer to gather messages from a settlement chain and
-//! execute them, and send messages to a settlement chain via a provable mechanism (STARK proof in
-//! the case of Starknet).
+//! The messaging component is decomposed into two orthogonal concerns:
 //!
-//! By default, the messaging feature of Katana uses Ethereum as settlement chain.
-//! This feature is useful to locally test the interaction of Katana used as a Starknet dev node,
-//! and an Ethereum dev node like Anvil.
+//! - **Collector** ([`collector::MessageCollector`]): knows *how* to fetch messages from a specific
+//!   settlement chain (Ethereum logs, Starknet events, etc).
+//! - **Trigger** ([`trigger::MessageTrigger`]): knows *when* to check for new messages (fixed
+//!   interval, block subscription, etc).
 //!
-//! The gathering is done by fetching logs from the settlement chain to then self execute a
-//! `L1HandlerTransaction`. There is no account involved to execute this transaction, fees are
-//! charged on the settlement layer.
-//!
-//! The sending of the messages is realized by collecting all the `messages_sent` from local
-//! execution of smart contracts using the `send_message_to_l1_syscall`. Once the messages are
-//! collected, the `StarknetOS` cairo program is executed to generate a proof of the produced block,
-//! which contains the messages. This proof is then sent to the settlement chain where it is
-//! verified, and the messages are consumed.
-//!
-//! Katana also has starknet messaging built-in, where an opiniated implementation of L2 <-> L3
-//! messaging is implemented using Starknet as settlement chain.
-//! When working with `L2 <> L3` with settlement on Starknet, there is one limitation:
-//! Blockifier limits the `to_address` to be an EthAddress, which is smaller than the `Felt` type.
-//! <https://github.com/starkware-libs/sequencer/blob/f4b25dd4689ba8ddec3c7db57ea7e8fd7ce32eab/crates/blockifier/src/execution/call_info.rs#L41>
-//!
-//! An applicative solution would be to use the `MSG` magic value as `to_address`, and the actual
-//! `to_address` used as the first element of the `payload` of the message. This would also require
-//! the settlement contract to be aware of this.
-//!
-//! In this module, the messaging service clearly separates the two implementations for each
-//! settlement chain configuration in `starknet.rs` and `ethereum.rs`. The `service.rs` file aims at
-//! running the common logic.
+//! These are composed by [`stream::MessageStream`] into a [`Stream`] that yields
+//! [`MessagingOutcome`] items. The stream is consumed by [`server::MessagingServer`]
+//! which adds transactions to the pool and persists checkpoints.
 
-mod ethereum;
-mod service;
-mod starknet;
-
-use std::future::Future;
-use std::path::Path;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+pub mod server;
+pub mod stream;
 
 use ::starknet::providers::ProviderError as StarknetProviderError;
 use alloy_transport::TransportError;
-use anyhow::Result;
-use async_trait::async_trait;
-use ethereum::EthereumMessaging;
-use futures::StreamExt;
+use futures::Stream;
 use katana_primitives::chain::ChainId;
+use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, trace};
+use url::Url;
 
-pub use self::service::{MessagingOutcome, MessagingService};
-use self::starknet::StarknetMessaging;
+use crate::stream::collector::ethereum::EthereumCollector;
+use crate::stream::collector::starknet::StarknetCollector;
+use crate::stream::collector::OrderedMessage;
+use crate::stream::trigger::IntervalTrigger;
+use crate::stream::MessageStream;
 
 pub(crate) const LOG_TARGET: &str = "messaging";
-pub(crate) const CONFIG_CHAIN_ETHEREUM: &str = "ethereum";
-pub(crate) const CONFIG_CHAIN_STARKNET: &str = "starknet";
-
-type MessengerResult<T> = Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Failed to initialize messaging")]
     InitError,
-    #[error("Unsupported settlement chain")]
+
+    #[error("unsupported settlement chain")]
     UnsupportedChain,
-    #[error("Failed to gather messages from settlement chain")]
+
+    #[error("failed to gather messages from settlement chain")]
     GatherError,
+
+    /// A settlement chain log/event was found whose shape didn't match the expected
+    /// schema. Surfaces the specific reason so operators can diagnose contract
+    /// upgrades, RPC bugs, or chain-id mismatches without a stack trace.
+    #[error("malformed settlement chain message: {0}")]
+    MalformedMessage(String),
+
     #[error(transparent)]
     Provider(ProviderError),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
-    #[error("Ethereum provider error: {0}")]
+    #[error("ethereum provider error: {0}")]
     Ethereum(TransportError),
-    #[error("Starknet provider error: {0}")]
+
+    #[error("starknet provider error: {0}")]
     Starknet(StarknetProviderError),
 }
 
@@ -88,30 +68,67 @@ impl From<TransportError> for Error {
     }
 }
 
+/// The outcome yielded by a messenger stream on each successful gather.
+#[derive(Debug)]
+pub struct MessagingOutcome {
+    /// The last settlement block inspected. After the server finishes processing this outcome,
+    /// the stream's internal cursor advances past `settlement_block`.
+    pub settlement_block: u64,
+    /// Positioned messages gathered from the settlement chain, in ascending order.
+    /// Each carries its `(block, tx_index)` so the server can write a fine-grained
+    /// checkpoint after each successful pool insert.
+    pub messages: Vec<OrderedMessage>,
+}
+
+/// A messenger is a stream that yields batches of L1Handler transactions
+/// gathered from a settlement chain.
+///
+/// This trait is object-safe, allowing `Box<dyn Messenger>` usage.
+pub trait Messenger: Stream<Item = MessagingOutcome> + Send + Unpin {}
+impl<T> Messenger for T where T: Stream<Item = MessagingOutcome> + Send + Unpin {}
+
 /// The config used to initialize the messaging service.
-#[derive(Debug, Default, Deserialize, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Clone, Serialize, PartialEq, Eq)]
 pub struct MessagingConfig {
-    /// The settlement chain.
-    pub chain: String,
-    /// The RPC-URL of the settlement chain.
-    pub rpc_url: String,
-    /// The messaging-contract address on the settlement chain.
-    pub contract_address: String,
-    /// The interval, in seconds, at which the messaging service will fetch messages
-    /// from the settlement chain.
+    /// The settlement chain configuration.
+    #[serde(flatten)]
+    pub settlement: SettlementChainConfig,
+    /// The interval, in seconds, at which the messaging service will poll for
+    /// new blocks on the settlement chain.
     pub interval: u64,
     /// The block on settlement chain from where Katana will start fetching messages.
+    /// Used only on first start. On restart, the persisted checkpoint takes precedence.
     pub from_block: u64,
+    /// Number of confirmations to wait before considering a settlement chain block safe
+    /// to gather messages from. The messenger only inspects blocks at or below
+    /// `latest_block - confirmation_depth`.
+    ///
+    /// This protects against reorgs: a message gathered from a block that later gets
+    /// reorg'd off the canonical chain would otherwise leave the L2 with a tx that has
+    /// no L1 origin. Recommended values: ~6-12 for Ethereum L1, 1 for Starknet (single
+    /// block finality). Defaults to 0 (no protection — appropriate for dev/test only).
+    #[serde(default)]
+    pub confirmation_depth: u64,
+}
+
+/// Settlement chain configuration with typed variants.
+#[derive(Debug, Deserialize, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "chain")]
+pub enum SettlementChainConfig {
+    #[serde(rename = "ethereum")]
+    Ethereum { rpc_url: Url, contract_address: katana_primitives::eth::Address },
+    #[serde(rename = "starknet")]
+    Starknet { rpc_url: Url, contract_address: ContractAddress },
 }
 
 impl MessagingConfig {
     /// Load the config from a JSON file.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
+    pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self, std::io::Error> {
         let buf = std::fs::read(path)?;
         serde_json::from_slice(&buf).map_err(|e| e.into())
     }
 
-    /// This is used as the clap `value_parser` implementation
+    /// This is used as the clap `value_parser` implementation.
     pub fn parse(path: &str) -> Result<Self, String> {
         Self::load(path).map_err(|e| e.to_string())
     }
@@ -121,20 +138,24 @@ impl MessagingConfig {
             katana_chain_spec::SettlementLayer::Ethereum {
                 rpc_url, core_contract, block, ..
             } => Self {
-                chain: CONFIG_CHAIN_ETHEREUM.to_string(),
-                rpc_url: rpc_url.to_string(),
-                contract_address: core_contract.to_string(),
+                settlement: SettlementChainConfig::Ethereum {
+                    rpc_url: rpc_url.clone(),
+                    contract_address: *core_contract,
+                },
                 from_block: *block,
                 interval: 2,
+                confirmation_depth: 0,
             },
             katana_chain_spec::SettlementLayer::Starknet {
                 rpc_url, core_contract, block, ..
             } => Self {
-                chain: CONFIG_CHAIN_STARKNET.to_string(),
-                rpc_url: rpc_url.to_string(),
-                contract_address: core_contract.to_string(),
+                settlement: SettlementChainConfig::Starknet {
+                    rpc_url: rpc_url.clone(),
+                    contract_address: *core_contract,
+                },
                 from_block: *block,
                 interval: 2,
+                confirmation_depth: 0,
             },
             katana_chain_spec::SettlementLayer::Sovereign { .. } => {
                 panic!("Sovereign chains are not supported for messaging.")
@@ -143,102 +164,49 @@ impl MessagingConfig {
     }
 }
 
-#[async_trait]
-pub trait Messenger {
-    /// The type of the message hash.
-    type MessageHash;
-    /// The transaction type of the message after being collected from the settlement chain.
-    /// This is the transaction type that the message will be converted to before being added to the
-    /// transaction pool.
-    type MessageTransaction;
+/// Build a ready-to-drain messenger from a messaging config.
+///
+/// Encapsulates settlement chain selection, collector construction, and trigger composition.
+/// Builds the appropriate collector for the settlement chain, wraps it in a stream driven by
+/// an [`IntervalTrigger`], and returns it boxed for type erasure.
+///
+/// `from_block` / `from_tx_index` form the resume cursor. On a fresh start they come from
+/// `config.from_block` and `0`; on restart from a persisted checkpoint they come from the
+/// last processed message's position (with `from_tx_index` incremented to start after it).
+pub fn build_messenger(
+    config: &MessagingConfig,
+    chain_id: ChainId,
+    from_block: u64,
+    from_tx_index: u64,
+) -> anyhow::Result<Box<dyn Messenger>> {
+    let trigger = IntervalTrigger::new(config.interval);
+    let confirmation_depth = config.confirmation_depth;
 
-    /// Gathers messages emitted on the settlement chain and convert them to their
-    /// corresponding transaction type on Starknet, and the latest block on the settlement until
-    /// which the messages were collected.
-    ///
-    /// # Arguments
-    ///
-    /// * `from_block` - From which block the messages should be gathered.
-    /// * `max_block` - The number of block fetched in the event/log filter. A too big value can
-    ///   cause the RPC node to reject the query.
-    /// * `chain_id` - The sequencer chain id for transaction hash computation.
-    async fn gather_messages(
-        &self,
-        from_block: u64,
-        max_blocks: u64,
-        chain_id: ChainId,
-    ) -> MessengerResult<(u64, Vec<Self::MessageTransaction>)>;
-}
-
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-pub enum MessengerMode {
-    Ethereum(EthereumMessaging),
-    Starknet(StarknetMessaging),
-}
-
-impl MessengerMode {
-    pub async fn from_config(config: MessagingConfig) -> MessengerResult<Self> {
-        match config.chain.as_str() {
-            CONFIG_CHAIN_ETHEREUM => match EthereumMessaging::new(config).await {
-                Ok(m_eth) => {
-                    info!(target: LOG_TARGET, "Messaging enabled [Ethereum].");
-                    Ok(MessengerMode::Ethereum(m_eth))
-                }
-                Err(e) => {
-                    error!(target: LOG_TARGET,  error = %e, "Ethereum messenger init.");
-                    Err(Error::InitError)
-                }
-            },
-
-            CONFIG_CHAIN_STARKNET => match StarknetMessaging::new(config).await {
-                Ok(m_sn) => {
-                    info!(target: LOG_TARGET, "Messaging enabled [Starknet].");
-                    Ok(MessengerMode::Starknet(m_sn))
-                }
-                Err(e) => {
-                    error!(target: LOG_TARGET, error = %e, "Starknet messenger init.");
-                    Err(Error::InitError)
-                }
-            },
-
-            chain => {
-                error!(target: LOG_TARGET, chain = %chain, "Unsupported settlement chain.");
-                Err(Error::UnsupportedChain)
-            }
-        }
-    }
-}
-
-#[allow(missing_debug_implementations)]
-#[must_use = "MessagingTask does nothing unless polled"]
-pub struct MessagingTask {
-    messaging: MessagingService,
-}
-
-impl MessagingTask {
-    pub fn new(messaging: MessagingService) -> Self {
-        Self { messaging }
-    }
-}
-
-impl Future for MessagingTask {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-
-        while let Poll::Ready(Some(outcome)) = this.messaging.poll_next_unpin(cx) {
-            let MessagingOutcome { msg_count, .. } = outcome;
-            {
-                if msg_count > 0 {
-                    info!(target: LOG_TARGET, %msg_count, "Collected messages from settlement chain.");
-                }
-
-                trace!(target: LOG_TARGET, %msg_count, "Collected messages from settlement chain.");
-            }
+    let stream: Box<dyn Messenger> = match &config.settlement {
+        SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
+            let collector = EthereumCollector::new(rpc_url.clone(), *contract_address)?;
+            Box::new(MessageStream::with_cursor(
+                collector,
+                trigger,
+                chain_id,
+                from_block,
+                from_tx_index,
+                confirmation_depth,
+            ))
         }
 
-        Poll::Pending
-    }
+        SettlementChainConfig::Starknet { rpc_url, contract_address } => {
+            let collector = StarknetCollector::new(rpc_url.clone(), *contract_address)?;
+            Box::new(MessageStream::with_cursor(
+                collector,
+                trigger,
+                chain_id,
+                from_block,
+                from_tx_index,
+                confirmation_depth,
+            ))
+        }
+    };
+
+    Ok(stream)
 }

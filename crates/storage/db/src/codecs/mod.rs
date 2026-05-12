@@ -71,6 +71,30 @@ macro_rules! impl_encode_and_decode_for_felts {
 impl_encode_and_decode_for_uints!(u64);
 impl_encode_and_decode_for_felts!(Felt, ContractAddress);
 
+/// 32-byte fixed array support, used for chain-agnostic hash keys (Ethereum B256,
+/// Starknet Felt). Stored as raw bytes in big-endian order.
+impl Encode for [u8; 32] {
+    type Encoded = [u8; 32];
+    fn encode(self) -> Self::Encoded {
+        self
+    }
+}
+
+impl Decode for [u8; 32] {
+    fn decode<B: AsRef<[u8]>>(bytes: B) -> Result<Self, CodecError> {
+        let bytes = bytes.as_ref();
+        if bytes.len() != 32 {
+            return Err(CodecError::Decode(format!(
+                "expected 32 bytes for [u8; 32], got {}",
+                bytes.len()
+            )));
+        }
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(bytes);
+        Ok(buf)
+    }
+}
+
 impl Encode for String {
     type Encoded = Vec<u8>;
     fn encode(self) -> Self::Encoded {
