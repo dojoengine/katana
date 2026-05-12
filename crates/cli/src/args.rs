@@ -1474,7 +1474,7 @@ explorer = true
 
     mod chain_overrides {
         use katana_chain_spec::{dev, SettlementLayer, SettlementProofKind};
-        use katana_primitives::ContractAddress;
+        use katana_primitives::{eth_address, ContractAddress};
 
         use super::*;
 
@@ -1489,9 +1489,7 @@ explorer = true
                 id: 1,
                 rpc_url: "http://eth.example:8545".parse().unwrap(),
                 account: alloy_primitives::Address::ZERO,
-                core_contract: "0x0000000000000000000000000000000000000001"
-                    .parse::<alloy_primitives::Address>()
-                    .unwrap(),
+                core_contract: eth_address!("0x0000000000000000000000000000000000000001"),
                 block: 100,
             }
         }
@@ -1545,28 +1543,21 @@ explorer = true
         #[test]
         fn dev_with_no_settlement_and_all_three_builds_fresh_ethereum() {
             let mut spec = dev_with(None);
-            let o = overrides(
+            let ovs = overrides(
                 Some(SettlementChainKind::Ethereum),
                 Some("http://eth.example:8545"),
                 Some("0x0000000000000000000000000000000000000123"),
             );
-            apply_chain_overrides(&mut spec, &o).unwrap();
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
 
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum {
-                id, rpc_url, account, core_contract, block,
-            } => {
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
                 // Defaulted fields when constructing from overrides.
                 assert_eq!(id, 1);
                 assert_eq!(account, alloy_primitives::Address::default());
                 assert_eq!(block, 0);
                 // Supplied fields.
                 assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
-                assert_eq!(
-                    core_contract,
-                    "0x0000000000000000000000000000000000000123"
-                        .parse::<alloy_primitives::Address>()
-                        .unwrap(),
-                );
+                assert_eq!(core_contract, eth_address!("0x0000000000000000000000000000000000000123"));
             });
         }
 
@@ -1593,73 +1584,87 @@ explorer = true
 
         #[test]
         fn dev_with_no_settlement_errors_on_partial_overrides() {
-            // Only chain set.
+            // Case 1: Overriding settlement chain kind i.e., --settlement.chain only.
+
             let mut spec = dev_with(None);
-            let err = apply_chain_overrides(
-                &mut spec,
-                &overrides(Some(SettlementChainKind::Ethereum), None, None),
-            )
-            .unwrap_err();
+            let ovs = overrides(Some(SettlementChainKind::Ethereum), None, None);
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.rpc-url"));
 
-            // Only rpc-url set.
+            // Case 2: Overriding settlement rpc url i.e., --settlement.rpc-url only.
+
             let mut spec = dev_with(None);
-            let err = apply_chain_overrides(
-                &mut spec,
-                &overrides(None, Some("http://eth.example:8545"), None),
-            )
-            .unwrap_err();
+            let ovs = overrides(None, Some("http://eth.example:8545"), None);
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.chain"));
 
-            // Only core-contract set.
+            // Case 3: Overriding settlement core contract i.e., --settlement.core-contract only.
+
             let mut spec = dev_with(None);
-            let err =
-                apply_chain_overrides(&mut spec, &overrides(None, None, Some("0x1"))).unwrap_err();
+            let ovs = overrides(None, None, Some("0x1"));
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.chain"));
         }
 
         #[test]
-        fn dev_existing_ethereum_patches_rpc_url_only() {
-            let mut spec = dev_with(Some(ethereum_layer()));
-            apply_chain_overrides(&mut spec, &overrides(None, Some("http://other:8545"), None))
-                .unwrap();
+        fn dev_with_ethereum_settlement_partial_overrides() {
+            // Case 1: Overriding settlement rpc url i.e., --settlement.rpc-url only.
 
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum {
-                id, rpc_url, account, core_contract, block,
-            } => {
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(None, Some("http://other:8545"), None);
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
                 // Override applied.
                 assert_eq!(rpc_url.as_str(), "http://other:8545/");
                 // Original fields preserved.
                 assert_eq!(id, 1);
                 assert_eq!(account, alloy_primitives::Address::ZERO);
-                assert_eq!(
-                    core_contract,
-                    "0x0000000000000000000000000000000000000001"
-                        .parse::<alloy_primitives::Address>()
-                        .unwrap(),
-                );
+                assert_eq!(core_contract, eth_address!("0x0000000000000000000000000000000000000001"));
+                assert_eq!(block, 100);
+            });
+
+            // Case 2: Overriding settlement core contract i.e., --settlement.core-contract only.
+
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(None, None, Some("0x000000000000000000000000000000000000beef"));
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, core_contract, block, .. } => {
+                // Override applied.
+                assert_eq!(core_contract, eth_address!("0x000000000000000000000000000000000000beef"));
+                // Other fields preserved.
+                assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
                 assert_eq!(block, 100);
             });
         }
 
         #[test]
-        fn dev_existing_ethereum_patches_core_contract_only() {
-            let mut spec = dev_with(Some(ethereum_layer()));
-            apply_chain_overrides(
-                &mut spec,
-                &overrides(None, None, Some("0x000000000000000000000000000000000000beef")),
-            )
-            .unwrap();
+        fn dev_with_starknet_settlement_partial_overrides() {
+            // Case 1: Overriding settlement rpc url i.e., --settlement.rpc-url only.
 
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum {
-                rpc_url, core_contract, block, ..
-            } => {
-                assert_eq!(
-                    core_contract,
-                    "0x000000000000000000000000000000000000beef"
-                        .parse::<alloy_primitives::Address>()
-                        .unwrap(),
-                );
+            let mut spec = dev_with(Some(starknet_layer()));
+            let ovs = overrides(None, Some("http://other:5050"), None);
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet { id, rpc_url, core_contract, block, proof_kind } => {
+                assert_eq!(rpc_url.as_str(), "http://other:5050/");
+                // Original fields preserved.
+                assert_eq!(id, ChainId::SEPOLIA);
+                assert_eq!(core_contract, address!("0x1234"));
+                assert_eq!(block, 42);
+                assert_eq!(proof_kind, SettlementProofKind::ValidityProof);
+            });
+
+            // Case 2: Overriding settlement core contract i.e., --settlement.core-contract only.
+
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(None, None, Some("0x000000000000000000000000000000000000beef"));
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, core_contract, block, .. } => {
+                // Override applied.
+                assert_eq!(core_contract, eth_address!("0x000000000000000000000000000000000000beef"));
                 // Other fields preserved.
                 assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
                 assert_eq!(block, 100);
@@ -1671,34 +1676,13 @@ explorer = true
             // Setting --settlement.chain to the current kind is allowed and behaves
             // like a partial override (no fresh-construction requirement).
             let mut spec = dev_with(Some(ethereum_layer()));
-            apply_chain_overrides(
-                &mut spec,
-                &overrides(Some(SettlementChainKind::Ethereum), Some("http://other:8545"), None),
-            )
-            .unwrap();
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum {
-                rpc_url, block, ..
-            } => {
+            let ovs =
+                overrides(Some(SettlementChainKind::Ethereum), Some("http://other:8545"), None);
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, block, .. } => {
                 assert_eq!(rpc_url.as_str(), "http://other:8545/");
                 assert_eq!(block, 100);
-            });
-        }
-
-        #[test]
-        fn dev_existing_starknet_patches_rpc_url_only() {
-            let mut spec = dev_with(Some(starknet_layer()));
-            apply_chain_overrides(&mut spec, &overrides(None, Some("http://other:5050"), None))
-                .unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet {
-                id, rpc_url, core_contract, block, proof_kind,
-            } => {
-                assert_eq!(rpc_url.as_str(), "http://other:5050/");
-                // Original fields preserved.
-                assert_eq!(id, ChainId::SEPOLIA);
-                assert_eq!(core_contract, ContractAddress::new(Felt::from(0x1234u32)));
-                assert_eq!(block, 42);
-                assert_eq!(proof_kind, SettlementProofKind::ValidityProof);
             });
         }
 
@@ -1706,20 +1690,16 @@ explorer = true
         fn chain_swap_with_all_three_builds_fresh_layer() {
             // Existing Ethereum + Starknet override with all three fields → fresh Starknet.
             let mut spec = dev_with(Some(ethereum_layer()));
-            apply_chain_overrides(
-                &mut spec,
-                &overrides(
-                    Some(SettlementChainKind::Starknet),
-                    Some("http://sn.example:5050"),
-                    Some("0xabcd"),
-                ),
-            )
-            .unwrap();
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet {
-                rpc_url, core_contract, block, ..
-            } => {
+            let ovs = overrides(
+                Some(SettlementChainKind::Starknet),
+                Some("http://sn.example:5050"),
+                Some("0xabcd"),
+            );
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet { rpc_url, core_contract, block, .. } => {
                 assert_eq!(rpc_url.as_str(), "http://sn.example:5050/");
-                assert_eq!(core_contract, ContractAddress::new(Felt::from(0xabcdu32)));
+                assert_eq!(core_contract, address!("0xabcd"));
                 // Block is reset because we built a fresh layer.
                 assert_eq!(block, 0);
             });
@@ -1729,62 +1709,57 @@ explorer = true
         fn chain_swap_with_partial_overrides_errors() {
             // Chain-type swap demands all three fields (cannot reuse fields across types).
             let mut spec = dev_with(Some(ethereum_layer()));
-            let err = apply_chain_overrides(
-                &mut spec,
-                &overrides(Some(SettlementChainKind::Starknet), None, None),
-            )
-            .unwrap_err();
+            let ovs = overrides(Some(SettlementChainKind::Starknet), None, None);
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.rpc-url"));
         }
 
         #[test]
         fn sovereign_settlement_requires_all_three_fields() {
             let mut spec = dev_with(Some(SettlementLayer::Sovereign {}));
-            let err = apply_chain_overrides(
-                &mut spec,
-                &overrides(Some(SettlementChainKind::Ethereum), None, None),
-            )
-            .unwrap_err();
+            let ovs = overrides(Some(SettlementChainKind::Ethereum), None, None);
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.rpc-url"));
         }
 
         #[test]
         fn sovereign_settlement_replaced_with_fresh_layer() {
             let mut spec = dev_with(Some(SettlementLayer::Sovereign {}));
-            apply_chain_overrides(
-                &mut spec,
-                &overrides(
-                    Some(SettlementChainKind::Ethereum),
-                    Some("http://eth.example:8545"),
-                    Some("0x0000000000000000000000000000000000000123"),
-                ),
-            )
-            .unwrap();
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { .. });
+            let ovs = overrides(
+                Some(SettlementChainKind::Ethereum),
+                Some("http://eth.example:8545"),
+                Some("0x0000000000000000000000000000000000000123"),
+            );
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, block, rpc_url, core_contract, .. } => {
+                assert_eq!(id, 1);
+                assert_eq!(block, 0);
+                assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
+                assert_eq!(core_contract, eth_address!("0x0000000000000000000000000000000000000123"));
+            });
         }
 
         #[test]
         fn invalid_ethereum_contract_address_errors() {
             // Fresh-construction path.
             let mut spec = dev_with(None);
-            let err = apply_chain_overrides(
-                &mut spec,
-                &overrides(
-                    Some(SettlementChainKind::Ethereum),
-                    Some("http://eth.example:8545"),
-                    Some("not-an-address"),
-                ),
-            )
-            .unwrap_err();
+            let ovs = overrides(
+                Some(SettlementChainKind::Ethereum),
+                Some("http://eth.example:8545"),
+                Some("not-an-address"),
+            );
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+
             assert!(err
                 .chain()
                 .any(|e| e.to_string().contains("parse --settlement.core-contract")));
 
             // Partial-patch path on an existing Ethereum layer.
             let mut spec = dev_with(Some(ethereum_layer()));
-            let err =
-                apply_chain_overrides(&mut spec, &overrides(None, None, Some("not-an-address")))
-                    .unwrap_err();
+            let ovs = overrides(None, None, Some("not-an-address"));
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+
             assert!(err
                 .chain()
                 .any(|e| e.to_string().contains("parse --settlement.core-contract")));
@@ -1794,8 +1769,9 @@ explorer = true
         fn invalid_starknet_contract_address_errors() {
             // Partial-patch path on an existing Starknet layer.
             let mut spec = dev_with(Some(starknet_layer()));
-            let err = apply_chain_overrides(&mut spec, &overrides(None, None, Some("not-a-felt")))
-                .unwrap_err();
+            let ovs = overrides(None, None, Some("not-a-felt"));
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+
             assert!(err
                 .chain()
                 .any(|e| e.to_string().contains("parse --settlement.core-contract")));
