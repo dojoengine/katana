@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778537859209,
+  "lastUpdate": 1778601561785,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -26842,6 +26842,342 @@ window.BENCHMARK_DATA = {
           {
             "name": "TrieHistoryEntry/decompress",
             "value": 250,
+            "range": "± 19",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "332c86fefd4eca288657cd85079da4d5066b374a",
+          "message": "feat(messaging): promote to first-class node component + add `starknet_getMessagesStatus` (#564)\n\n## Summary\n\nTwo related changes shipped together:\n\n**1. Messaging refactor (`4b01a782`)** — Promote messaging from an\ninternal detail of the `Sequencing` stage into a first-class node\ncomponent, peer of `RpcServer` and `GatewayServer`.\n\n- Decompose into orthogonal traits: `MessageCollector` (how to fetch\nfrom a settlement chain) and `MessageTrigger` (when to fetch). Composed\nby `MessageStream<C, T>` with a three-phase state machine (Idle →\nCheckingBlock → Gathering) that only fetches when new blocks exist.\n- Concrete implementations: `EthereumCollector`, `StarknetCollector`,\n`NoopMessenger`. `IntervalTrigger` is the default — open for\nwebsocket/subscription triggers later.\n- New `MessagingServer` + `MessagingHandle` following the `RpcServer`\nbuilder/handle pattern.\n- New `build_messenger()` free function in `katana_messaging` that\nencapsulates collector + trigger composition. The node now imports a\nsingle function instead of 5 internal types.\n- Persistent checkpointing via a new `MessagingCheckpoints` DB table.\nCheckpoint is `(block, tx_index)` — same-block resume works after a\ncrash mid-batch.\n- Per-message checkpointing: server writes the checkpoint after each\nsuccessful pool insert, before advancing. Pool insert failures stop the\nbatch so the failed message is retried.\n- `LaunchedNode::stop` now awaits `messaging.stopped()` so the final\ncheckpoint write completes before tear-down.\n- Strongly typed config: `SettlementChainConfig` serde-tagged enum\n(ethereum/starknet variants), preserving JSON file backwards\ncompatibility.\n\n**2. `starknet_getMessagesStatus` RPC (`4472f2ce`, `17a21007`)** —\nImplement the JSON-RPC v0.8+ spec method that returns the status of\nevery L2 L1Handler transaction spawned from a given L1 transaction.\n\n- Plumb the L1 tx hash through the messenger pipeline.\n`PositionedMessage` gains an `l1_tx_hash: [u8; 32]` field; both Ethereum\nand Starknet collectors populate it from the originating log/event hash.\n- New `MessagingL1ToL2` DupSort table records one-to-many L1→L2\nmappings.\n- Read/write provider trait split: `MessagingL1ToL2IndexProvider` (read)\nand `MessagingL1ToL2IndexWriter` (write), matching the codebase's\n`BlockProvider` / `BlockWriter` convention.\n- `MessagingServer.on_message` callback fires after each successful pool\ninsert (before `on_gather`) so the index is durable before the\ncheckpoint advances.\n- New `MessageStatus` and `MessageFinalityStatus` types in\n`katana-rpc-types`.\n- The RPC takes `B256` (raw 32-byte hex), not `Felt`. Ethereum L1 hashes\ncan exceed STARK_PRIME and modular reduction would corrupt the lookup\nkey.\n- Three isolated business-logic tests in\n`crates/rpc/rpc-server/tests/messaging.rs` that populate the index\ndirectly via the writer trait — no anvil, no real ingestion.\n\n## Test Coverage\n\n| Area | Coverage |\n|------|----------|\n| Messaging conversion (`l1_handler_tx_from_log`,\n`l1_handler_tx_from_event`) | unit tests preserved from previous\n`service.rs`, ported to new structure |\n| `starknet_getMessagesStatus` business logic | 3 new tests: unknown L1\nhash → empty, vanished L2 txs → skipped, mined L2 txs → `AcceptedOnL2` |\n| End-to-end L1→L2 flow | existing `test_messaging` integration test\n(requires anvil) untouched |\n| State machine (`MessageStream`), `NoopMessenger`, `IntervalTrigger`,\nfull server lifecycle | not covered by unit tests today — gap noted for\nfollow-up |\n\n## Pre-Landing Review\n\nThe diff went through several review passes during development:\n\n- Codex independent review of the encapsulation plan (rejected the\noriginal `from_config` design + background writer task; led to the\nleaner `build_messenger` free function approach)\n- Codex adversarial findings on the original orphan `on_gather` callback\nand `tx_index` semantics — both fixed\n- A real bug surfaced while writing the RPC tests: `Felt` input would\nhave silently corrupted Ethereum L1 hashes via modular reduction.\nChanged to `B256` before merge.\n\n## Plan Completion\n\nTwo plans drove this work:\n- `~/.claude/plans/reactive-gathering-mitten.md` — `getMessagesStatus`\nplan, all 5 phases done.\n- The earlier eng review's recommendations — bugs fixed, encapsulation\nrefactored per codex feedback (dropped `from_config`,\n`MessagingCheckpointStore`, background writer, fixed checkpoint key in\nfavor of a smaller `build_messenger()` function).\n\n## Test plan\n\n- [x] cargo build -p katana-cli clean\n- [x] cargo nextest run -p katana-messaging -p katana-db -p\nkatana-provider — 164/164 passing\n- [x] cargo nextest run -p katana-rpc-server --test messaging\nmessages_status:: — 3/3 passing\n- [ ] cargo nextest run -p katana-rpc-server --test messaging\ntest_messaging — requires anvil installed locally (pre-existing\nenvironment dependency, not a regression)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-12T10:24:28-05:00",
+          "tree_id": "e2691833c3b047557c625e5aa22cf1909959c380",
+          "url": "https://github.com/dojoengine/katana/commit/332c86fefd4eca288657cd85079da4d5066b374a"
+        },
+        "date": 1778601560072,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2714068,
+            "range": "± 14198",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2932598,
+            "range": "± 22807",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 32,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 26,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 32,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 26,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 655,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 815,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 78,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 36,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 148,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 139,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 148,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 230,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 220,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 250,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 159,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 316,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 137,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 112,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 83,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 55,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 83,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 55,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 83,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 55,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 82,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 54,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 83,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 55,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 26,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 25,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 12,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 18662,
+            "range": "± 176",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3591,
+            "range": "± 87",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 365,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 770,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 147,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 139,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1590,
+            "range": "± 87",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2442,
+            "range": "± 451",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 667,
+            "range": "± 71",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 964,
+            "range": "± 189",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 30098,
+            "range": "± 1625",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6209,
+            "range": "± 337",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 166,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 227,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 292,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 254,
             "range": "± 19",
             "unit": "ns/iter"
           }
