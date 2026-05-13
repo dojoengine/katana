@@ -398,7 +398,8 @@ where
         &self,
         block_id: Option<BlockIdOrTag>,
     ) -> Result<SubscriptionStream<SubscriptionBlockHeader>> {
-        let sub = StarknetSubscriptionApiClient::subscribe_new_heads(&self.client, block_id).await?;
+        let sub =
+            StarknetSubscriptionApiClient::subscribe_new_heads(&self.client, block_id).await?;
         Ok(SubscriptionStream::new(sub))
     }
 
@@ -454,11 +455,9 @@ where
         &self,
         sender_address: Option<Vec<ContractAddress>>,
     ) -> Result<SubscriptionStream<TxWithFinalityStatus>> {
-        let sub = StarknetSubscriptionApiClient::subscribe_new_transactions(
-            &self.client,
-            sender_address,
-        )
-        .await?;
+        let sub =
+            StarknetSubscriptionApiClient::subscribe_new_transactions(&self.client, sender_address)
+                .await?;
         Ok(SubscriptionStream::new(sub))
     }
 }
