@@ -195,7 +195,8 @@ async fn subscribe_transaction_status_already_finalized_succeeded() {
 }
 
 /// Path: tx is already in storage at subscribe-time, receipt is reverted.
-/// Server emits a single update with `execution_status = REVERTED` and a non-empty `failure_reason`.
+/// Server emits a single update with `execution_status = REVERTED` and a non-empty
+/// `failure_reason`.
 #[tokio::test]
 async fn subscribe_transaction_status_already_finalized_reverted() {
     let node = TestNode::new().await;

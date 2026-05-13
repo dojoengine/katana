@@ -68,7 +68,8 @@ impl<C> StarknetRpcClient<C> {
 impl StarknetRpcClient<WsClient> {
     /// Open a WebSocket connection to the given URL.
     ///
-    /// The resulting client supports both the regular Starknet JSON-RPC methods and the WebSocket subscription methods.
+    /// The resulting client supports both the regular Starknet JSON-RPC methods and the WebSocket
+    /// subscription methods.
     pub async fn new_ws(url: Url) -> Result<Self> {
         let client = WsClientBuilder::default()
             .max_response_size(MAX_RESPONSE_SIZE)
