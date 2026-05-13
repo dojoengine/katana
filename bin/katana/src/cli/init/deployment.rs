@@ -6,9 +6,11 @@ use katana_chain_spec::settlement_check::{
 use katana_chain_spec::tee::compute_katana_tee_config_hash;
 use katana_chain_spec::SettlementProofKind;
 use katana_contracts::piltover::Appchain;
-use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::ContractClass;
+use katana_primitives::version::StarknetVersion;
 use katana_primitives::{felt, ContractAddress, Felt};
+use katana_rpc_types::block::GetBlockWithTxHashesResponse;
 use katana_rpc_types::class::Class;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_utils::{TxWaiter, TxWaitingError};
@@ -106,10 +108,26 @@ pub async fn deploy_settlement_contract(
             Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
                 sp.update_text("Declaring contract...");
                 let class = (*Appchain::CLASS).clone();
+
+                // Starknet >= 0.14.1 switched the canonical compiled class hash from Poseidon
+                // to Blake2s and rejects declares using the old algorithm; older chains still
+                // expect Poseidon. Read the chain's protocol version and pick accordingly.
+                let chain_version = settlement_chain_starknet_version(&starknet_client).await?;
+                let casm_hash = if chain_version >= StarknetVersion::V0_14_1 {
+                    class
+                        .clone()
+                        .compile()
+                        .map_err(|e| ContractInitError::Other(anyhow!(e)))?
+                        .class_hash_blake2s()
+                        .map_err(|e| ContractInitError::Other(anyhow!(e)))?
+                } else {
+                    Appchain::CASM_HASH
+                };
+
                 let rpc_class = prepare_contract_declaration_params(class)?;
 
                 let res = account
-                    .declare_v3(rpc_class.into(), Appchain::CASM_HASH)
+                    .declare_v3(rpc_class.into(), casm_hash)
                     .send()
                     .await
                     .inspect(|res| {
@@ -364,4 +382,19 @@ fn prepare_contract_declaration_params(class: ContractClass) -> Result<Flattened
     let rpc_class = Class::try_from(class).expect("should be valid");
     let Class::Sierra(class) = rpc_class else { unreachable!("unexpected legacy class") };
     Ok(class.try_into()?)
+}
+
+/// Reads the Starknet protocol version of the settlement chain from the latest block header.
+async fn settlement_chain_starknet_version(
+    client: &StarknetClient,
+) -> Result<StarknetVersion, ContractInitError> {
+    let block = client
+        .get_block_with_tx_hashes(BlockIdOrTag::Latest)
+        .await
+        .map_err(|e| ContractInitError::Other(anyhow!(e)))?;
+    let version_str = match block {
+        GetBlockWithTxHashesResponse::Block(b) => b.starknet_version,
+        GetBlockWithTxHashesResponse::PreConfirmed(b) => b.starknet_version,
+    };
+    StarknetVersion::parse(&version_str).map_err(|e| ContractInitError::Other(anyhow!(e)))
 }

@@ -301,6 +301,23 @@ impl CompiledClass {
         }
     }
 
+    /// Computes the Blake2s-based hash of the compiled class.
+    ///
+    /// Starknet >= 0.14.1 replaced Poseidon with Blake2s as the canonical hash function
+    /// for the compiled class hash that `declare` transactions commit to. For legacy
+    /// (Cairo 0) classes the returned value is identical to [`Self::class_hash`] since
+    /// they predate the Sierra/CASM split.
+    pub fn class_hash_blake2s(&self) -> Result<CompiledClassHash, ComputeClassHashError> {
+        use starknet_api::contract_class::compiled_class_hash::{
+            HashVersion, HashableCompiledClass,
+        };
+
+        match self {
+            Self::Class(class) => Ok(class.hash(&HashVersion::V2).0),
+            Self::Legacy(class) => Ok(compute_legacy_class_hash(class)?),
+        }
+    }
+
     /// Checks if the compiled contract class is a legacy (Cairo 0) class.
     ///
     /// Returns `true` if the compiled contract class is a legacy class, `false` otherwise.
