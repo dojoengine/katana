@@ -5,6 +5,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
+use katana_core::service::block_producer::MinedBlockOutcome;
 use katana_core::utils::get_current_timestamp;
 use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::{ExecutionResult, ResultAndStates};
@@ -60,6 +61,7 @@ use katana_rpc_types::{
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
+use tokio::sync::broadcast;
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -71,6 +73,7 @@ pub mod cache;
 mod config;
 mod list;
 mod pending;
+mod subscription;
 
 pub use cache::RpcCache;
 pub use config::StarknetApiConfig;
@@ -126,6 +129,7 @@ where
     cache: RpcCache,
     class_cache: ClassCache,
     forked_client: Option<(Arc<StarknetClient>, BlockNumber)>,
+    block_notify: broadcast::Sender<MinedBlockOutcome>,
 }
 
 impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
@@ -145,6 +149,7 @@ where
         storage: PF,
         cache: RpcCache,
         class_cache: ClassCache,
+        block_notify: broadcast::Sender<MinedBlockOutcome>,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -165,9 +170,19 @@ where
             cache,
             class_cache,
             forked_client,
+            block_notify,
         };
 
         Self { inner: Arc::new(inner) }
+    }
+
+    /// Subscribe to block production notifications.
+    pub fn subscribe_blocks(&self) -> broadcast::Receiver<MinedBlockOutcome> {
+        self.inner.block_notify.subscribe()
+    }
+
+    pub fn task_spawner(&self) -> &TaskSpawner {
+        &self.inner.task_spawner
     }
 
     pub fn pool(&self) -> &Pool {

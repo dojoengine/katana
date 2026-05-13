@@ -457,6 +457,7 @@ mod setup {
             versioned_constant_overrides: None,
         };
 
+        let (block_notify, _) = tokio::sync::broadcast::channel(64);
         let starknet_api = StarknetApi::new(
             chain_spec,
             pool.clone(),
@@ -467,6 +468,7 @@ mod setup {
             storage,
             RpcCache::new(),
             ClassCache::new().unwrap(),
+            block_notify,
         );
 
         let cartridge_api = ::cartridge::CartridgeApiClient::new(mock_url);

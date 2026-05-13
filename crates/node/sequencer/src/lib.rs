@@ -16,7 +16,7 @@ use jsonrpsee::RpcModule;
 use katana_chain_spec::{settlement_check, ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
-use katana_core::service::block_producer::BlockProducer;
+use katana_core::service::block_producer::{BlockProducer, MinedBlockOutcome};
 use katana_db::migration;
 use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::BlockifierFactory;
@@ -71,6 +71,7 @@ use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
 use starknet::signers::SigningKey;
+use tokio::sync::broadcast;
 use tower::layer::util::{Identity, Stack};
 use tracing::info;
 
@@ -108,6 +109,7 @@ where
     task_manager: TaskManager,
     backend: Arc<Backend<P>>,
     block_producer: BlockProducer<P>,
+    block_notify: broadcast::Sender<MinedBlockOutcome>,
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
     messaging_server: MessagingServer<P>,
@@ -265,6 +267,10 @@ where
             rpc_modules.merge(proxy.into_rpc())?;
         };
 
+        // --- build block notification channel
+
+        let (block_notify, _) = broadcast::channel::<MinedBlockOutcome>(64);
+
         // --- build starknet api
 
         let starknet_api_cfg = StarknetApiConfig {
@@ -288,15 +294,16 @@ where
             provider.clone(),
             RpcCache::new(),
             class_cache.clone(),
+            block_notify.clone(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
+            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+
             #[cfg(feature = "explorer")]
             if config.rpc.explorer {
                 rpc_modules.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
             }
-
-            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -550,6 +557,7 @@ where
             grpc_server,
             gateway_server,
             block_producer,
+            block_notify,
             metrics_server,
             messaging_server,
             config: Arc::new(config),
@@ -731,8 +739,12 @@ where
 
         // --- build and run sequencing task
 
-        let sequencing =
-            Sequencing::new(pool.clone(), self.task_manager.task_spawner(), block_producer.clone());
+        let sequencing = Sequencing::new(
+            pool.clone(),
+            self.task_manager.task_spawner(),
+            block_producer.clone(),
+            self.block_notify.clone(),
+        );
 
         self.task_manager
             .task_spawner()

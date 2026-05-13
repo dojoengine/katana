@@ -392,6 +392,7 @@ impl Node {
         };
         let chain_spec = Arc::new(chain_spec);
 
+        let (block_notify, _) = tokio::sync::broadcast::channel(64);
         let starknet_api = StarknetApi::new(
             chain_spec.clone(),
             pool.clone(),
@@ -402,6 +403,7 @@ impl Node {
             storage_provider.clone(),
             RpcCache::new(),
             ClassCache::new()?,
+            block_notify,
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
