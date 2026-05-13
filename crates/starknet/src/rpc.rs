@@ -35,6 +35,7 @@ use katana_rpc_types::{
     CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall,
     ResultPageRequest, SimulationFlag, SyncingResponse, TxStatus,
 };
+use serde::de::DeserializeOwned;
 use url::Url;
 
 type Result<T> = std::result::Result<T, StarknetRpcClientError>;
@@ -53,26 +54,27 @@ impl StarknetRpcClient<HttpClient> {
         HttpClient::builder()
             .max_response_size(MAX_RESPONSE_SIZE)
             .build(url)
-            .map(Self::new_with_client)
+            .map(|client| Self { client })
             .unwrap()
-    }
-}
-
-impl StarknetRpcClient<WsClient> {
-    /// Open a WebSocket connection to the given URL. The resulting client supports both the
-    /// regular Starknet JSON-RPC methods and the WebSocket subscription methods.
-    pub async fn new_ws(url: Url) -> Result<Self> {
-        let client = WsClientBuilder::default()
-            .max_response_size(MAX_RESPONSE_SIZE)
-            .build(url.as_str())
-            .await?;
-        Ok(Self::new_with_client(client))
     }
 }
 
 impl<C> StarknetRpcClient<C> {
     pub fn new_with_client(client: C) -> Self {
-        StarknetRpcClient { client }
+        Self { client }
+    }
+}
+
+impl StarknetRpcClient<WsClient> {
+    /// Open a WebSocket connection to the given URL.
+    ///
+    /// The resulting client supports both the regular Starknet JSON-RPC methods and the WebSocket subscription methods.
+    pub async fn new_ws(url: Url) -> Result<Self> {
+        let client = WsClientBuilder::default()
+            .max_response_size(MAX_RESPONSE_SIZE)
+            .build(url.as_str())
+            .await?;
+        Ok(Self { client })
     }
 }
 
@@ -472,10 +474,7 @@ pub struct SubscriptionStream<T> {
     inner: Subscription<T>,
 }
 
-impl<T> SubscriptionStream<T>
-where
-    T: jsonrpsee::core::DeserializeOwned,
-{
+impl<T: DeserializeOwned> SubscriptionStream<T> {
     fn new(inner: Subscription<T>) -> Self {
         Self { inner }
     }
