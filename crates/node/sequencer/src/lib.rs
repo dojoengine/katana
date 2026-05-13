@@ -47,7 +47,7 @@ use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::node::NodeApiServer;
 use katana_rpc_api::paymaster::PaymasterApiServer;
-use katana_rpc_api::starknet::StarknetApiServer;
+use katana_rpc_api::starknet::{StarknetApiServer, StarknetSubscriptionApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
@@ -299,6 +299,8 @@ where
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules
+                .merge(StarknetSubscriptionApiServer::into_rpc(starknet_api.clone()))?;
 
             #[cfg(feature = "explorer")]
             if config.rpc.explorer {
