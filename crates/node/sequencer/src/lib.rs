@@ -299,8 +299,7 @@ where
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
-            rpc_modules
-                .merge(StarknetSubscriptionApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetSubscriptionApiServer::into_rpc(starknet_api.clone()))?;
 
             #[cfg(feature = "explorer")]
             if config.rpc.explorer {

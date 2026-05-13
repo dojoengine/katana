@@ -414,8 +414,7 @@ impl Node {
             }
 
             rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
-            rpc_modules
-                .merge(StarknetSubscriptionApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetSubscriptionApiServer::into_rpc(starknet_api.clone()))?;
             rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
         }
 
