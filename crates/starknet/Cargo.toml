@@ -15,6 +15,7 @@ katana-rpc-types.workspace = true
 reqwest.workspace = true
 thiserror.workspace = true
 url.workspace = true
+serde.workspace = true
 
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 alloy-sol-types = { workspace = true, default-features = false, features = [ "json" ] }

@@ -32,7 +32,7 @@ use katana_pool::ordering::TipOrdering;
 use katana_provider::DbProviderFactory;
 use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::node::NodeApiServer;
-use katana_rpc_api::starknet::StarknetApiServer;
+use katana_rpc_api::starknet::{StarknetApiServer, StarknetSubscriptionApiServer};
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
@@ -392,6 +392,7 @@ impl Node {
         };
         let chain_spec = Arc::new(chain_spec);
 
+        let (block_notify, _) = tokio::sync::broadcast::channel(64);
         let starknet_api = StarknetApi::new(
             chain_spec.clone(),
             pool.clone(),
@@ -402,6 +403,7 @@ impl Node {
             storage_provider.clone(),
             RpcCache::new(),
             ClassCache::new()?,
+            block_notify,
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -412,6 +414,7 @@ impl Node {
             }
 
             rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetSubscriptionApiServer::into_rpc(starknet_api.clone()))?;
             rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
         }
 

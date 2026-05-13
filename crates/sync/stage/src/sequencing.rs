@@ -3,12 +3,15 @@ use std::future::IntoFuture;
 
 use anyhow::Result;
 use futures::future::BoxFuture;
-use katana_core::service::block_producer::{BlockProducer, BlockProductionError};
+use katana_core::service::block_producer::{
+    BlockProducer, BlockProductionError, MinedBlockOutcome,
+};
 use katana_core::service::{BlockProductionTask, TransactionMiner};
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_tasks::TaskSpawner;
+use tokio::sync::broadcast;
 use tracing::error;
 
 pub type SequencingFut = BoxFuture<'static, Result<()>>;
@@ -22,6 +25,7 @@ where
     pool: TxPool,
     task_spawner: TaskSpawner,
     block_producer: BlockProducer<PF>,
+    block_notify: broadcast::Sender<MinedBlockOutcome>,
 }
 
 impl<PF> Sequencing<PF>
@@ -30,15 +34,25 @@ where
     <PF as ProviderFactory>::Provider: ProviderRO + Debug,
     <PF as ProviderFactory>::ProviderMut: ProviderRW + Debug,
 {
-    pub fn new(pool: TxPool, task_spawner: TaskSpawner, block_producer: BlockProducer<PF>) -> Self {
-        Self { pool, task_spawner, block_producer }
+    pub fn new(
+        pool: TxPool,
+        task_spawner: TaskSpawner,
+        block_producer: BlockProducer<PF>,
+        block_notify: broadcast::Sender<MinedBlockOutcome>,
+    ) -> Self {
+        Self { pool, task_spawner, block_producer, block_notify }
     }
 
     fn run_block_production(&self) -> katana_tasks::JoinHandle<Result<(), BlockProductionError>> {
         // Create a new transaction miner with a subscription to the pool's pending transactions.
         let miner = TransactionMiner::new(self.pool.pending_transactions());
         let block_producer = self.block_producer.clone();
-        let service = BlockProductionTask::new(self.pool.clone(), miner, block_producer);
+        let service = BlockProductionTask::new(
+            self.pool.clone(),
+            miner,
+            block_producer,
+            self.block_notify.clone(),
+        );
         self.task_spawner.build_task().name("Block production").spawn(service)
     }
 }

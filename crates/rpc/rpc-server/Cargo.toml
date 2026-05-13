@@ -27,7 +27,9 @@ katana-tracing.workspace = true
 anyhow.workspace = true
 auto_impl.workspace = true
 futures.workspace = true
+bytes = "1"
 http.workspace = true
+http-body.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
 quick_cache = "0.6.10"
