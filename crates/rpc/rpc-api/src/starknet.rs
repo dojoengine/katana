@@ -273,7 +273,8 @@ pub trait StarknetApi {
 /// WebSocket Subscription API.
 ///
 /// Spec: <https://github.com/starkware-libs/starknet-specs/blob/v0.9.0/api/starknet_ws_api.json>
-#[rpc(server, namespace = "starknet")]
+#[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
+#[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
 pub trait StarknetSubscriptionApi {
     /// Subscribe to new block headers. Emits a [`SubscriptionBlockHeader`] for each new block.
     ///
