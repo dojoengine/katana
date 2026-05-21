@@ -1,19 +1,16 @@
 use std::pin::Pin;
-use std::sync::Arc;
 
 use alloy_primitives::B256;
 use anyhow::Result;
 use futures::Future;
+use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::chain::ChainId;
 use katana_primitives::hash::StarkHash;
 use katana_primitives::transaction::L1HandlerTx;
 use katana_primitives::{hash, ContractAddress, Felt};
-use starknet::core::types::{BlockId, EmittedEvent, EventFilter};
+use katana_rpc_types::event::{EmittedEvent, EventFilter};
+use katana_starknet::rpc::{StarknetRpcClient, StarknetRpcClientError};
 use starknet::macros::selector;
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{
-    AnyProvider, JsonRpcClient, Provider, ProviderError as StarknetProviderError,
-};
 use tracing::{debug, trace};
 use url::Url;
 
@@ -24,7 +21,7 @@ use crate::LOG_TARGET;
 #[derive(Debug, thiserror::Error)]
 pub enum StarknetCollectorError {
     #[error("starknet provider error: {0}")]
-    Provider(#[from] StarknetProviderError),
+    Provider(#[from] StarknetRpcClientError),
 
     /// A Starknet event was found whose shape didn't match the expected
     /// `MessageSent` schema.
@@ -36,32 +33,24 @@ pub enum StarknetCollectorError {
 pub const MESSAGE_SENT_EVENT_KEY: Felt = selector!("MessageSent");
 
 /// Starknet settlement chain message collector.
+#[derive(Debug)]
 pub struct StarknetCollector {
-    provider: Arc<AnyProvider>,
+    provider: StarknetRpcClient,
     messaging_contract_address: ContractAddress,
-}
-
-impl std::fmt::Debug for StarknetCollector {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StarknetCollector")
-            .field("messaging_contract_address", &self.messaging_contract_address)
-            .finish_non_exhaustive()
-    }
 }
 
 impl StarknetCollector {
     pub fn new(rpc_url: Url, messaging_contract_address: ContractAddress) -> Result<Self> {
-        let provider =
-            Arc::new(AnyProvider::JsonRpcHttp(JsonRpcClient::new(HttpTransport::new(rpc_url))));
+        let provider = StarknetRpcClient::new(rpc_url);
         Ok(Self { provider, messaging_contract_address })
     }
 
     async fn fetch_events(
-        provider: &AnyProvider,
+        provider: &StarknetRpcClient,
         contract_address: ContractAddress,
-        from_block: BlockId,
-        to_block: BlockId,
-    ) -> Result<Vec<EmittedEvent>, StarknetProviderError> {
+        from_block: BlockIdOrTag,
+        to_block: BlockIdOrTag,
+    ) -> Result<Vec<EmittedEvent>, StarknetRpcClientError> {
         trace!(target: LOG_TARGET, from_block = ?from_block, to_block = ?to_block, "Fetching starknet events.");
 
         let mut events = vec![];
@@ -69,7 +58,7 @@ impl StarknetCollector {
         let filter = EventFilter {
             from_block: Some(from_block),
             to_block: Some(to_block),
-            address: Some(*contract_address),
+            address: Some(contract_address),
             keys: Some(vec![vec![MESSAGE_SENT_EVENT_KEY]]),
         };
 
@@ -101,7 +90,7 @@ impl MessageCollector for StarknetCollector {
     type Error = StarknetCollectorError;
 
     fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Self::Error>> + Send + '_>> {
-        Box::pin(async { Ok(self.provider.block_number().await?) })
+        Box::pin(async { Ok(self.provider.block_number().await?.block_number) })
     }
 
     fn gather(
@@ -117,8 +106,8 @@ impl MessageCollector for StarknetCollector {
             let events = Self::fetch_events(
                 &self.provider,
                 self.messaging_contract_address,
-                BlockId::Number(from_block),
-                BlockId::Number(to_block),
+                BlockIdOrTag::Number(from_block),
+                BlockIdOrTag::Number(to_block),
             )
             .await?;
 
@@ -259,12 +248,15 @@ mod tests {
         let event = EmittedEvent {
             from_address: felt!(
                 "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-            ),
+            )
+            .into(),
             keys: vec![MESSAGE_SENT_EVENT_KEY, selector!("random_hash"), from_address, to_address],
             data: vec![selector, nonce, Felt::from(calldata.len() as u128), Felt::THREE],
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
         };
 
         let message_hash = compute_starknet_to_appchain_message_hash(
@@ -303,7 +295,8 @@ mod tests {
         let event = EmittedEvent {
             from_address: felt!(
                 "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-            ),
+            )
+            .into(),
             keys: vec![
                 selector!("AnOtherUnexpectedEvent"),
                 selector!("random_hash"),
@@ -314,6 +307,8 @@ mod tests {
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
         };
 
         let err = l1_handler_tx_from_event(&event, ChainId::default()).unwrap_err();
@@ -329,12 +324,15 @@ mod tests {
         let event = EmittedEvent {
             from_address: felt!(
                 "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-            ),
+            )
+            .into(),
             keys: vec![selector!("AnOtherUnexpectedEvent"), selector!("random_hash"), from_address],
             data: vec![],
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
         };
 
         let err = l1_handler_tx_from_event(&event, ChainId::default()).unwrap_err();

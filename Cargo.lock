@@ -6727,6 +6727,8 @@ dependencies = [
  "katana-pool",
  "katana-primitives",
  "katana-provider",
+ "katana-rpc-types",
+ "katana-starknet",
  "parking_lot",
  "serde",
  "serde_json",
