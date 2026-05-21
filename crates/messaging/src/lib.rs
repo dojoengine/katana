@@ -19,16 +19,11 @@ pub mod stream;
 use ::starknet::providers::ProviderError as StarknetProviderError;
 use alloy_transport::TransportError;
 use futures::Stream;
-use katana_primitives::chain::ChainId;
 use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::stream::collector::ethereum::EthereumCollector;
-use crate::stream::collector::starknet::StarknetCollector;
 use crate::stream::collector::OrderedMessage;
-use crate::stream::trigger::IntervalTrigger;
-use crate::stream::MessageStream;
 
 pub(crate) const LOG_TARGET: &str = "messaging";
 
@@ -122,17 +117,6 @@ pub enum SettlementChainConfig {
 }
 
 impl MessagingConfig {
-    /// Load the config from a JSON file.
-    pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self, std::io::Error> {
-        let buf = std::fs::read(path)?;
-        serde_json::from_slice(&buf).map_err(|e| e.into())
-    }
-
-    /// This is used as the clap `value_parser` implementation.
-    pub fn parse(path: &str) -> Result<Self, String> {
-        Self::load(path).map_err(|e| e.to_string())
-    }
-
     pub fn from_chain_spec(spec: &katana_chain_spec::rollup::ChainSpec) -> Self {
         match &spec.settlement {
             katana_chain_spec::SettlementLayer::Ethereum {
@@ -162,51 +146,4 @@ impl MessagingConfig {
             }
         }
     }
-}
-
-/// Build a ready-to-drain messenger from a messaging config.
-///
-/// Encapsulates settlement chain selection, collector construction, and trigger composition.
-/// Builds the appropriate collector for the settlement chain, wraps it in a stream driven by
-/// an [`IntervalTrigger`], and returns it boxed for type erasure.
-///
-/// `from_block` / `from_tx_index` form the resume cursor. On a fresh start they come from
-/// `config.from_block` and `0`; on restart from a persisted checkpoint they come from the
-/// last processed message's position (with `from_tx_index` incremented to start after it).
-pub fn build_messenger(
-    config: &MessagingConfig,
-    chain_id: ChainId,
-    from_block: u64,
-    from_tx_index: u64,
-) -> anyhow::Result<Box<dyn Messenger>> {
-    let trigger = IntervalTrigger::new(config.interval);
-    let confirmation_depth = config.confirmation_depth;
-
-    let stream: Box<dyn Messenger> = match &config.settlement {
-        SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
-            let collector = EthereumCollector::new(rpc_url.clone(), *contract_address)?;
-            Box::new(MessageStream::with_cursor(
-                collector,
-                trigger,
-                chain_id,
-                from_block,
-                from_tx_index,
-                confirmation_depth,
-            ))
-        }
-
-        SettlementChainConfig::Starknet { rpc_url, contract_address } => {
-            let collector = StarknetCollector::new(rpc_url.clone(), *contract_address)?;
-            Box::new(MessageStream::with_cursor(
-                collector,
-                trigger,
-                chain_id,
-                from_block,
-                from_tx_index,
-                confirmation_depth,
-            ))
-        }
-    };
-
-    Ok(stream)
 }
