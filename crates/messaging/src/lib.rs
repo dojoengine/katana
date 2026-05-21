@@ -16,8 +16,6 @@
 pub mod server;
 pub mod stream;
 
-use ::starknet::providers::ProviderError as StarknetProviderError;
-use alloy_transport::TransportError;
 use futures::Stream;
 use katana_primitives::chain::ChainId;
 use katana_primitives::ContractAddress;
@@ -31,42 +29,6 @@ use crate::stream::trigger::IntervalTrigger;
 use crate::stream::MessageStream;
 
 pub(crate) const LOG_TARGET: &str = "messaging";
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("Failed to initialize messaging")]
-    InitError,
-
-    #[error("unsupported settlement chain")]
-    UnsupportedChain,
-
-    #[error("failed to gather messages from settlement chain")]
-    GatherError,
-
-    /// A settlement chain log/event was found whose shape didn't match the expected
-    /// schema. Surfaces the specific reason so operators can diagnose contract
-    /// upgrades, RPC bugs, or chain-id mismatches without a stack trace.
-    #[error("malformed settlement chain message: {0}")]
-    MalformedMessage(String),
-
-    #[error(transparent)]
-    Provider(ProviderError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ProviderError {
-    #[error("ethereum provider error: {0}")]
-    Ethereum(TransportError),
-
-    #[error("starknet provider error: {0}")]
-    Starknet(StarknetProviderError),
-}
-
-impl From<TransportError> for Error {
-    fn from(e: TransportError) -> Self {
-        Self::Provider(ProviderError::Ethereum(e))
-    }
-}
 
 /// The outcome yielded by a messenger stream on each successful gather.
 #[derive(Debug)]

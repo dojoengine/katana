@@ -15,8 +15,6 @@ use katana_primitives::transaction::L1HandlerTx;
 pub mod ethereum;
 pub mod starknet;
 
-use crate::Error;
-
 /// A message gathered from the settlement chain together with the position
 /// that identifies it uniquely.
 ///
@@ -64,8 +62,11 @@ pub struct GatherResult {
 /// details of log/event fetching and conversion to L1HandlerTx.
 #[auto_impl::auto_impl(Arc)]
 pub trait MessageCollector: Send + Sync + 'static {
+    /// The error type returned by collector operations.
+    type Error: std::error::Error + Send + Sync + 'static;
+
     /// Get the latest block number on the settlement chain.
-    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + '_>>;
+    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Self::Error>> + Send + '_>>;
 
     /// Gather messages from the given block range.
     ///
@@ -81,5 +82,5 @@ pub trait MessageCollector: Send + Sync + 'static {
         from_tx_index: u64,
         to_block: BlockNumber,
         chain_id: ChainId,
-    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Self::Error>> + Send + '_>>;
 }

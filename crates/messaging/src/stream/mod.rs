@@ -15,7 +15,7 @@ pub mod trigger;
 use collector::{GatherResult, MessageCollector};
 use trigger::MessageTrigger;
 
-use crate::{Error, MessagingOutcome, LOG_TARGET};
+use crate::{MessagingOutcome, LOG_TARGET};
 
 /// Maximum number of blocks to fetch in a single gather call.
 const MAX_BLOCKS_PER_GATHER: u64 = 200;
@@ -23,13 +23,13 @@ const MAX_BLOCKS_PER_GATHER: u64 = 200;
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 /// The phase of the stream's state machine.
-enum MessageStreamPhase {
+enum MessageStreamPhase<E> {
     /// Waiting for the trigger to fire.
     Idle,
     /// Fetching the latest block number from the settlement chain.
-    CheckingBlock(BoxFuture<Result<BlockNumber, Error>>),
+    CheckingBlock(BoxFuture<Result<BlockNumber, E>>),
     /// Fetching messages from a known block range.
-    Gathering(BoxFuture<Result<GatherResult, Error>>),
+    Gathering(BoxFuture<Result<GatherResult, E>>),
 }
 
 /// A message stream that composes a collector ("how") and a trigger ("when").
@@ -44,7 +44,7 @@ enum MessageStreamPhase {
 /// cursor is passed to the collector on every gather so messages at or before the
 /// cursor in `from_block` are filtered out (supports same-block resume after a crash).
 #[allow(missing_debug_implementations)]
-pub struct MessageStream<C, T> {
+pub struct MessageStream<C: MessageCollector, T> {
     collector: Arc<C>,
     trigger: T,
     chain_id: ChainId,
@@ -54,7 +54,7 @@ pub struct MessageStream<C, T> {
     /// gather from. The "safe head" is `latest_block - confirmation_depth`; gathers
     /// never cross past it. `0` disables the protection.
     confirmation_depth: u64,
-    phase: MessageStreamPhase,
+    phase: MessageStreamPhase<C::Error>,
 }
 
 impl<C, T> MessageStream<C, T>
@@ -247,9 +247,13 @@ mod tests {
     use super::collector::OrderedMessage;
     use super::*;
     use crate::stream::collector::{GatherResult, MessageCollector};
-    use crate::Error;
 
     const SHORT: Duration = Duration::from_millis(50);
+
+    /// A dummy error type returned by [`MockCollector`] when a response queue is empty.
+    #[derive(Debug, thiserror::Error)]
+    #[error("mock collector error")]
+    pub struct MockCollectorError;
 
     /// One recorded call to [`MockCollector::gather`].
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -264,15 +268,15 @@ mod tests {
     ///
     /// Each test pushes responses in expected order via [`push_latest_block`] and
     /// [`push_gather`]. The collector pops them on each call. If a queue is empty,
-    /// the method returns [`Error::GatherError`] so tests fail loudly when they
+    /// the method returns [`MockCollectorError`] so tests fail loudly when they
     /// haven't enqueued enough responses.
     ///
     /// All calls are recorded for assertions via [`latest_block_calls`] and
     /// [`gather_calls`].
     #[derive(Default)]
     pub struct MockCollector {
-        latest_block_responses: Mutex<VecDeque<Result<u64, Error>>>,
-        gather_responses: Mutex<VecDeque<Result<GatherResult, Error>>>,
+        latest_block_responses: Mutex<VecDeque<Result<u64, MockCollectorError>>>,
+        gather_responses: Mutex<VecDeque<Result<GatherResult, MockCollectorError>>>,
         latest_block_call_count: AtomicU64,
         gather_calls: Mutex<Vec<GatherCall>>,
     }
@@ -283,12 +287,12 @@ mod tests {
         }
 
         /// Push a `latest_block` response onto the queue. Called in FIFO order.
-        pub fn push_latest_block(&self, response: Result<u64, Error>) {
+        pub fn push_latest_block(&self, response: Result<u64, MockCollectorError>) {
             self.latest_block_responses.lock().push_back(response);
         }
 
         /// Push a `gather` response onto the queue. Called in FIFO order.
-        pub fn push_gather(&self, response: Result<GatherResult, Error>) {
+        pub fn push_gather(&self, response: Result<GatherResult, MockCollectorError>) {
             self.gather_responses.lock().push_back(response);
         }
 
@@ -304,10 +308,14 @@ mod tests {
     }
 
     impl MessageCollector for MockCollector {
-        fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + '_>> {
+        type Error = MockCollectorError;
+
+        fn latest_block(
+            &self,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, Self::Error>> + Send + '_>> {
             self.latest_block_call_count.fetch_add(1, Ordering::SeqCst);
             let response =
-                self.latest_block_responses.lock().pop_front().unwrap_or(Err(Error::GatherError));
+                self.latest_block_responses.lock().pop_front().unwrap_or(Err(MockCollectorError));
             Box::pin(async move { response })
         }
 
@@ -317,7 +325,7 @@ mod tests {
             from_tx_index: u64,
             to_block: u64,
             chain_id: ChainId,
-        ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
+        ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Self::Error>> + Send + '_>> {
             self.gather_calls.lock().push(GatherCall {
                 from_block,
                 from_tx_index,
@@ -325,7 +333,7 @@ mod tests {
                 chain_id,
             });
             let response =
-                self.gather_responses.lock().pop_front().unwrap_or(Err(Error::GatherError));
+                self.gather_responses.lock().pop_front().unwrap_or(Err(MockCollectorError));
             Box::pin(async move { response })
         }
     }
@@ -563,7 +571,7 @@ mod tests {
         let (mut stream, collector, trigger) = build(5, 0, 0);
 
         // Tick 1: latest_block errors. No gather. No yield. Cursor unchanged.
-        collector.push_latest_block(Err(Error::GatherError));
+        collector.push_latest_block(Err(MockCollectorError));
         trigger.fire();
         assert_no_yield(&mut stream).await;
         assert!(collector.gather_calls().is_empty());
@@ -588,7 +596,7 @@ mod tests {
 
         // Tick 1: gather errors. No yield. Cursor unchanged.
         collector.push_latest_block(Ok(8));
-        collector.push_gather(Err(Error::GatherError));
+        collector.push_gather(Err(MockCollectorError));
         trigger.fire();
         assert_no_yield(&mut stream).await;
 

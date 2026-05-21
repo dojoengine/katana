@@ -11,12 +11,26 @@ use katana_primitives::{hash, ContractAddress, Felt};
 use starknet::core::types::{BlockId, EmittedEvent, EventFilter};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{AnyProvider, JsonRpcClient, Provider};
+use starknet::providers::{
+    AnyProvider, JsonRpcClient, Provider, ProviderError as StarknetProviderError,
+};
 use tracing::{debug, trace};
 use url::Url;
 
 use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
-use crate::{Error, LOG_TARGET};
+use crate::LOG_TARGET;
+
+/// Errors produced by [`StarknetCollector`].
+#[derive(Debug, thiserror::Error)]
+pub enum StarknetCollectorError {
+    #[error("starknet provider error: {0}")]
+    Provider(#[from] StarknetProviderError),
+
+    /// A Starknet event was found whose shape didn't match the expected
+    /// `MessageSent` schema.
+    #[error("malformed settlement chain message: {0}")]
+    MalformedMessage(String),
+}
 
 /// TODO: This may come from the configuration.
 pub const MESSAGE_SENT_EVENT_KEY: Felt = selector!("MessageSent");
@@ -47,7 +61,7 @@ impl StarknetCollector {
         contract_address: ContractAddress,
         from_block: BlockId,
         to_block: BlockId,
-    ) -> Result<Vec<EmittedEvent>> {
+    ) -> Result<Vec<EmittedEvent>, StarknetProviderError> {
         trace!(target: LOG_TARGET, from_block = ?from_block, to_block = ?to_block, "Fetching starknet events.");
 
         let mut events = vec![];
@@ -84,8 +98,10 @@ impl StarknetCollector {
 }
 
 impl MessageCollector for StarknetCollector {
-    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + '_>> {
-        Box::pin(async { self.provider.block_number().await.map_err(|_| Error::GatherError) })
+    type Error = StarknetCollectorError;
+
+    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Self::Error>> + Send + '_>> {
+        Box::pin(async { Ok(self.provider.block_number().await?) })
     }
 
     fn gather(
@@ -94,9 +110,9 @@ impl MessageCollector for StarknetCollector {
         from_tx_index: u64,
         to_block: u64,
         chain_id: ChainId,
-    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Self::Error>> + Send + '_>> {
         Box::pin(async move {
-            let mut messages: Vec<OrderedMessage> = vec![];
+            let mut messages: Vec<OrderedMessage> = Vec::new();
 
             let events = Self::fetch_events(
                 &self.provider,
@@ -104,8 +120,7 @@ impl MessageCollector for StarknetCollector {
                 BlockId::Number(from_block),
                 BlockId::Number(to_block),
             )
-            .await
-            .map_err(|_| Error::GatherError)?;
+            .await?;
 
             // Starknet events don't carry a native tx index, so we assign one by
             // counting `MessageSent` events scoped to each block.
@@ -141,32 +156,32 @@ impl MessageCollector for StarknetCollector {
 
 // --- Conversion functions ---
 
-fn l1_handler_tx_from_event(event: &EmittedEvent, chain_id: ChainId) -> Result<L1HandlerTx> {
+fn l1_handler_tx_from_event(
+    event: &EmittedEvent,
+    chain_id: ChainId,
+) -> Result<L1HandlerTx, StarknetCollectorError> {
     // Validate event shape before any indexing — the `MessageSent` schema requires
     // exactly 4 keys (event_key, random_hash, from_address, to_address) and at least
     // 3 data entries (selector, nonce, payload_length, ...payload).
     if event.keys.len() != 4 {
-        return Err(Error::MalformedMessage(format!(
+        return Err(StarknetCollectorError::MalformedMessage(format!(
             "MessageSent event expected 4 keys, got {}",
             event.keys.len()
-        ))
-        .into());
+        )));
     }
     if event.data.len() < 3 {
-        return Err(Error::MalformedMessage(format!(
+        return Err(StarknetCollectorError::MalformedMessage(format!(
             "MessageSent event expected at least 3 data entries (selector, nonce, \
              payload_length), got {}",
             event.data.len()
-        ))
-        .into());
+        )));
     }
 
     if event.keys[0] != MESSAGE_SENT_EVENT_KEY {
-        return Err(Error::MalformedMessage(format!(
+        return Err(StarknetCollectorError::MalformedMessage(format!(
             "MessageSent event key mismatch: expected {MESSAGE_SENT_EVENT_KEY:#x}, got {:#x}",
             event.keys[0]
-        ))
-        .into());
+        )));
     }
 
     let from_address = event.keys[2];
