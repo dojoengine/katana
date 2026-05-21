@@ -8,6 +8,7 @@ use alloy_primitives::{Address, U256};
 use alloy_provider::{Provider, RootProvider};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, FilterSet, Log, Topic};
 use alloy_sol_types::{sol, SolEvent};
+use alloy_transport::TransportError;
 use anyhow::Result;
 use futures::Future;
 use katana_primitives::chain::ChainId;
@@ -23,7 +24,19 @@ use tracing::{debug, trace};
 use url::Url;
 
 use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
-use crate::{Error, LOG_TARGET};
+use crate::LOG_TARGET;
+
+/// Errors produced by [`EthereumCollector`].
+#[derive(Debug, thiserror::Error)]
+pub enum EthereumCollectorError {
+    #[error("ethereum provider error: {0}")]
+    Provider(#[from] TransportError),
+
+    /// An Ethereum log was found whose shape didn't match the expected
+    /// `LogMessageToL2` schema.
+    #[error("malformed settlement chain message: {0}")]
+    MalformedMessage(String),
+}
 
 sol! {
     #[sol(rpc, rename_all = "snakecase")]
@@ -62,7 +75,7 @@ impl EthereumCollector {
         contract_address: Address,
         from_block: u64,
         to_block: u64,
-    ) -> Result<Vec<Log>, Error> {
+    ) -> Result<Vec<Log>, EthereumCollectorError> {
         trace!(target: LOG_TARGET, from_block, to_block, "Fetching ethereum logs.");
 
         let filters = Filter {
@@ -91,7 +104,9 @@ impl EthereumCollector {
 }
 
 impl MessageCollector for EthereumCollector {
-    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + '_>> {
+    type Error = EthereumCollectorError;
+
+    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Self::Error>> + Send + '_>> {
         Box::pin(async { Ok(self.provider.get_block_number().await?) })
     }
 
@@ -101,7 +116,7 @@ impl MessageCollector for EthereumCollector {
         from_tx_index: u64,
         to_block: u64,
         chain_id: ChainId,
-    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Error>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Self::Error>> + Send + '_>> {
         Box::pin(async move {
             let mut messages = vec![];
 
@@ -137,16 +152,23 @@ impl MessageCollector for EthereumCollector {
 
 // --- Conversion functions ---
 
-fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> Result<L1HandlerTx, Error> {
-    let log = LogMessageToL2::decode_log(log.as_ref())
-        .map_err(|e| Error::MalformedMessage(format!("decode LogMessageToL2 log: {e}")))?;
+fn l1_handler_tx_from_log(
+    log: Log,
+    chain_id: ChainId,
+) -> Result<L1HandlerTx, EthereumCollectorError> {
+    let log = LogMessageToL2::decode_log(log.as_ref()).map_err(|e| {
+        EthereumCollectorError::MalformedMessage(format!("decode LogMessageToL2 log: {e}"))
+    })?;
 
     let from_address = log.from_address;
     let contract_address = ContractAddress::from(log.to_address);
     let entry_point_selector = felt_from_u256(log.selector);
     let nonce = felt_from_u256(log.nonce);
     let paid_fee_on_l1: u128 = log.fee.try_into().map_err(|_| {
-        Error::MalformedMessage(format!("L1->L2 fee {} does not fit into u128", log.fee))
+        EthereumCollectorError::MalformedMessage(format!(
+            "L1->L2 fee {} does not fit into u128",
+            log.fee
+        ))
     })?;
     let payload = log.payload.clone().into_iter().map(felt_from_u256).collect::<Vec<_>>();
 
