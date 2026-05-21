@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use futures::StreamExt;
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
@@ -12,41 +12,87 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use crate::{build_messenger, MessagingConfig, MessagingOutcome, LOG_TARGET};
+use crate::stream::collector::ethereum::EthereumCollector;
+use crate::stream::collector::starknet::StarknetCollector;
+use crate::stream::trigger::IntervalTrigger;
+use crate::stream::MessageStream;
+use crate::{MessagingOutcome, Messenger, SettlementChainConfig, LOG_TARGET};
 
 /// Identifier used to namespace the persisted messaging checkpoint within the
 /// shared `MessagingCheckpoints` table.
 const CHECKPOINT_ID: &str = "messaging";
 
+/// Default poll interval (in seconds) between gather ticks.
+const DEFAULT_INTERVAL: u64 = 2;
+
 /// The messaging server.
 ///
-/// A "static" node component held on `Node` whether or not messaging is enabled.
-/// [`Self::start`] is non-consuming and mirrors `RpcServer::start`. When `config`
-/// is `None` (messaging disabled), [`Self::start`] returns `Ok(None)` — no task is
-/// spawned. Otherwise it reads the resume checkpoint, builds the messenger, and
-/// spawns the drain loop.
+/// [`Self::start`] is non-consuming and mirrors `RpcServer::start`. It reads the
+/// resume checkpoint, builds the messenger, and spawns the drain loop. A
+/// settlement chain must be configured via [`settlement`](Self::settlement)
+/// before calling [`start`](Self::start); otherwise it returns an error.
 ///
 /// The server depends directly on the provider factory `P` for both reading the
 /// resume checkpoint at boot and atomically persisting the L1->L2 index entry +
 /// checkpoint after each successful pool insert.
+///
+/// Configure the server using the builder-style setters
+/// ([`settlement`](Self::settlement), [`interval`](Self::interval),
+/// [`from_block`](Self::from_block), [`confirmation_depth`](Self::confirmation_depth))
+/// before calling [`start`](Self::start).
 pub struct MessagingServer<P> {
-    config: Option<MessagingConfig>,
     chain_id: ChainId,
     pool: TxPool,
     provider: P,
+
+    settlement: Option<SettlementChainConfig>,
+    interval: u64,
+    from_block: u64,
+    confirmation_depth: u64,
 }
 
 impl<P> MessagingServer<P> {
-    /// Create a new messaging server.
+    /// Create a new messaging server with no settlement configured.
     ///
-    /// `config == None` makes [`Self::start`] a no-op (returns `Ok(None)`).
-    pub fn new(
-        config: Option<MessagingConfig>,
-        chain_id: ChainId,
-        pool: TxPool,
-        provider: P,
-    ) -> Self {
-        Self { config, chain_id, pool, provider }
+    /// A settlement chain must be set via [`settlement`](Self::settlement)
+    /// before [`start`](Self::start) can be called.
+    pub fn new(chain_id: ChainId, pool: TxPool, provider: P) -> Self {
+        Self {
+            chain_id,
+            pool,
+            provider,
+            settlement: None,
+            interval: DEFAULT_INTERVAL,
+            from_block: 0,
+            confirmation_depth: 0,
+        }
+    }
+
+    /// Set the settlement chain configuration. Required to enable messaging.
+    pub fn settlement(mut self, settlement: SettlementChainConfig) -> Self {
+        self.settlement = Some(settlement);
+        self
+    }
+
+    /// Set the interval, in seconds, at which the messaging service polls the
+    /// settlement chain for new blocks. Default is `2` seconds.
+    pub fn interval(mut self, interval: u64) -> Self {
+        self.interval = interval;
+        self
+    }
+
+    /// Set the settlement-chain block from which to start gathering on a fresh
+    /// run (no persisted checkpoint). Default is `0`.
+    pub fn from_block(mut self, from_block: u64) -> Self {
+        self.from_block = from_block;
+        self
+    }
+
+    /// Set the number of settlement-chain confirmations required before a block
+    /// is considered safe to gather from. Default is `0` (no protection).
+    pub fn confirmation_depth(mut self, confirmation_depth: u64) -> Self {
+        self.confirmation_depth = confirmation_depth;
+        self
     }
 }
 
@@ -58,16 +104,44 @@ where
 {
     /// Start the messaging server.
     ///
-    /// Returns `Ok(None)` when messaging is disabled (no config) — the component
-    /// exists but no task is spawned. Returns `Ok(Some(handle))` after successfully
-    /// reading the checkpoint, building the messenger, and spawning the drain loop.
-    pub fn start(&self) -> Result<Option<MessagingHandle>, anyhow::Error> {
-        let Some(config) = &self.config else {
-            return Ok(None);
-        };
+    /// Reads the resume checkpoint, builds the messenger, and spawns the drain
+    /// loop. Returns an error if no settlement chain has been configured via
+    /// [`settlement`](Self::settlement).
+    pub fn start(&self) -> Result<MessagingHandle, anyhow::Error> {
+        let settlement = self.settlement.as_ref().ok_or_else(|| {
+            anyhow!(
+                "cannot start messaging server: no settlement chain configured. Call \
+                 `MessagingServer::settlement(...)` before `start()`."
+            )
+        })?;
 
-        let (from_block, from_tx_index) = resume_cursor(&self.provider, config)?;
-        let mut messenger = build_messenger(config, self.chain_id, from_block, from_tx_index)?;
+        let (from_block, from_tx_index) = resume_cursor(&self.provider, self.from_block)?;
+
+        let trigger = IntervalTrigger::new(self.interval);
+        let mut messenger: Box<dyn Messenger> = match settlement {
+            SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
+                let collector = EthereumCollector::new(rpc_url.clone(), *contract_address)?;
+                Box::new(MessageStream::with_cursor(
+                    collector,
+                    trigger,
+                    self.chain_id,
+                    from_block,
+                    from_tx_index,
+                    self.confirmation_depth,
+                ))
+            }
+            SettlementChainConfig::Starknet { rpc_url, contract_address } => {
+                let collector = StarknetCollector::new(rpc_url.clone(), *contract_address)?;
+                Box::new(MessageStream::with_cursor(
+                    collector,
+                    trigger,
+                    self.chain_id,
+                    from_block,
+                    from_tx_index,
+                    self.confirmation_depth,
+                ))
+            }
+        };
 
         let pool = self.pool.clone();
         let provider = self.provider.clone();
@@ -162,15 +236,15 @@ where
             }
         });
 
-        Ok(Some(MessagingHandle { shutdown_tx: Some(shutdown_tx), task_handle }))
+        Ok(MessagingHandle { shutdown_tx: Some(shutdown_tx), task_handle })
     }
 }
 
 /// Determine `(from_block, from_tx_index)` for the next gather.
 ///
 /// If a persisted checkpoint exists, resume from the message immediately after it
-/// (same block, next `tx_index`). Otherwise fall back to `config.from_block`.
-fn resume_cursor<P>(provider: &P, config: &MessagingConfig) -> Result<(u64, u64), anyhow::Error>
+/// (same block, next `tx_index`). Otherwise fall back to `default_from_block`.
+fn resume_cursor<P>(provider: &P, default_from_block: u64) -> Result<(u64, u64), anyhow::Error>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::ProviderMut: MessagingCheckpointProvider + MutableProvider,
@@ -181,7 +255,7 @@ where
 
     Ok(match cp {
         Some(c) => (c.block, c.tx_index + 1),
-        None => (config.from_block, 0),
+        None => (default_from_block, 0),
     })
 }
 
@@ -194,10 +268,13 @@ impl<P> std::fmt::Debug for MessagingServer<P> {
 impl<P: Clone> Clone for MessagingServer<P> {
     fn clone(&self) -> Self {
         Self {
-            config: self.config.clone(),
             chain_id: self.chain_id,
             pool: self.pool.clone(),
             provider: self.provider.clone(),
+            settlement: self.settlement.clone(),
+            interval: self.interval,
+            from_block: self.from_block,
+            confirmation_depth: self.confirmation_depth,
         }
     }
 }
@@ -256,28 +333,14 @@ mod tests {
     use katana_provider::DbProviderFactory;
 
     use super::*;
-    use crate::SettlementChainConfig;
-
-    fn test_config(from_block: u64) -> MessagingConfig {
-        MessagingConfig {
-            settlement: SettlementChainConfig::Ethereum {
-                rpc_url: "http://localhost:8545".parse().unwrap(),
-                contract_address: Default::default(),
-            },
-            interval: 1,
-            from_block,
-            confirmation_depth: 0,
-        }
-    }
 
     #[test]
-    fn resume_cursor_falls_back_to_config_from_block_when_no_checkpoint_persisted() {
+    fn resume_cursor_falls_back_to_default_from_block_when_no_checkpoint_persisted() {
         let provider = DbProviderFactory::new_in_memory();
-        let config = test_config(42);
 
-        let (from_block, from_tx_index) = resume_cursor(&provider, &config).unwrap();
+        let (from_block, from_tx_index) = resume_cursor(&provider, 42).unwrap();
 
-        assert_eq!(from_block, 42, "should use config.from_block on fresh start");
+        assert_eq!(from_block, 42, "should use the default from_block on fresh start");
         assert_eq!(from_tx_index, 0, "should start from the first tx in the block");
     }
 
@@ -295,10 +358,9 @@ mod tests {
             .unwrap();
         db_tx.commit().unwrap();
 
-        // config.from_block is intentionally far below the persisted checkpoint —
+        // The default from_block is intentionally far below the persisted checkpoint —
         // the persisted state must take precedence to avoid re-processing on restart.
-        let config = test_config(0);
-        let (from_block, from_tx_index) = resume_cursor(&provider, &config).unwrap();
+        let (from_block, from_tx_index) = resume_cursor(&provider, 0).unwrap();
 
         assert_eq!(from_block, 100, "should resume on the same block as the checkpoint");
         assert_eq!(

@@ -112,7 +112,7 @@ where
     block_notify: broadcast::Sender<MinedBlockOutcome>,
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
-    messaging_server: MessagingServer<P>,
+    messaging_server: Option<MessagingServer<P>>,
 }
 
 impl<P> Node<P>
@@ -541,12 +541,13 @@ where
 
         // --- build messaging server
 
-        let messaging_server = MessagingServer::new(
-            config.messaging.clone(),
-            backend.chain_spec.id(),
-            pool.clone(),
-            provider.clone(),
-        );
+        let messaging_server = config.messaging.as_ref().map(|cfg| {
+            MessagingServer::new(backend.chain_spec.id(), pool.clone(), provider.clone())
+                .settlement(cfg.settlement.clone())
+                .interval(cfg.interval)
+                .from_block(cfg.from_block)
+                .confirmation_depth(cfg.confirmation_depth)
+        });
 
         Ok(Node {
             db,
@@ -796,9 +797,9 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        // --- start the messaging server (no-op when messaging is disabled)
+        // --- start the messaging server (skipped when messaging is disabled)
 
-        let messaging_handle = self.messaging_server.start()?;
+        let messaging_handle = self.messaging_server.as_ref().map(|s| s.start()).transpose()?;
 
         Ok(LaunchedNode {
             node: self,
@@ -837,9 +838,9 @@ where
         &self.rpc_server
     }
 
-    /// Returns a reference to the node's messaging server.
-    pub fn messaging_server(&self) -> &MessagingServer<P> {
-        &self.messaging_server
+    /// Returns a reference to the node's messaging server, if messaging is enabled.
+    pub fn messaging_server(&self) -> Option<&MessagingServer<P>> {
+        self.messaging_server.as_ref()
     }
 
     /// Returns a reference to the node's database.

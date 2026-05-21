@@ -24,7 +24,6 @@ anyhow.workspace = true
 auto_impl.workspace = true
 futures.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
