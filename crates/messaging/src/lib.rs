@@ -13,7 +13,7 @@
 //! [`MessagingOutcome`] items. The stream is consumed by [`server::MessagingServer`]
 //! which adds transactions to the pool and persists checkpoints.
 
-pub mod server;
+pub mod service;
 pub mod stream;
 
 use futures::Stream;

@@ -25,7 +25,7 @@ use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 #[cfg(feature = "grpc")]
 use katana_grpc::{GrpcServer, GrpcServerHandle};
-use katana_messaging::server::{MessagingHandle, MessagingServer};
+use katana_messaging::service::{MessagingService, MessagingServiceHandle};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -112,7 +112,7 @@ where
     block_notify: broadcast::Sender<MinedBlockOutcome>,
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
-    messaging_server: Option<MessagingServer<P>>,
+    messaging_server: Option<MessagingService<P>>,
 }
 
 impl<P> Node<P>
@@ -542,7 +542,7 @@ where
         // --- build messaging server
 
         let messaging_server = config.messaging.as_ref().map(|cfg| {
-            MessagingServer::new(backend.chain_spec.id(), pool.clone(), provider.clone())
+            MessagingService::new(backend.chain_spec.id(), pool.clone(), provider.clone())
                 .settlement(cfg.settlement.clone())
                 .interval(cfg.interval)
                 .from_block(cfg.from_block)
@@ -839,7 +839,7 @@ where
     }
 
     /// Returns a reference to the node's messaging server, if messaging is enabled.
-    pub fn messaging_server(&self) -> Option<&MessagingServer<P>> {
+    pub fn messaging_server(&self) -> Option<&MessagingService<P>> {
         self.messaging_server.as_ref()
     }
 
@@ -878,7 +878,7 @@ where
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
     /// Handle to the messaging server (if running).
-    messaging: Option<MessagingHandle>,
+    messaging: Option<MessagingServiceHandle>,
 }
 
 impl<P> LaunchedNode<P>
@@ -908,7 +908,7 @@ where
     }
 
     /// Returns a reference to the messaging server handle (if running).
-    pub fn messaging(&self) -> Option<&MessagingHandle> {
+    pub fn messaging(&self) -> Option<&MessagingServiceHandle> {
         self.messaging.as_ref()
     }
 

@@ -40,7 +40,7 @@ const DEFAULT_INTERVAL: u64 = 2;
 /// ([`settlement`](Self::settlement), [`interval`](Self::interval),
 /// [`from_block`](Self::from_block), [`confirmation_depth`](Self::confirmation_depth))
 /// before calling [`start`](Self::start).
-pub struct MessagingServer<P> {
+pub struct MessagingService<P> {
     chain_id: ChainId,
     pool: TxPool,
     provider: P,
@@ -51,7 +51,7 @@ pub struct MessagingServer<P> {
     confirmation_depth: u64,
 }
 
-impl<P> MessagingServer<P> {
+impl<P> MessagingService<P> {
     /// Create a new messaging server with no settlement configured.
     ///
     /// A settlement chain must be set via [`settlement`](Self::settlement)
@@ -96,7 +96,7 @@ impl<P> MessagingServer<P> {
     }
 }
 
-impl<P> MessagingServer<P>
+impl<P> MessagingService<P>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::ProviderMut:
@@ -107,7 +107,7 @@ where
     /// Reads the resume checkpoint, builds the messenger, and spawns the drain
     /// loop. Returns an error if no settlement chain has been configured via
     /// [`settlement`](Self::settlement).
-    pub fn start(&self) -> Result<MessagingHandle, anyhow::Error> {
+    pub fn start(&self) -> Result<MessagingServiceHandle, anyhow::Error> {
         let settlement = self.settlement.as_ref().ok_or_else(|| {
             anyhow!(
                 "cannot start messaging server: no settlement chain configured. Call \
@@ -118,6 +118,7 @@ where
         let (from_block, from_tx_index) = resume_cursor(&self.provider, self.from_block)?;
 
         let trigger = IntervalTrigger::new(self.interval);
+
         let mut messenger: Box<dyn Messenger> = match settlement {
             SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
                 let collector = EthereumCollector::new(rpc_url.clone(), *contract_address)?;
@@ -178,7 +179,7 @@ where
                                             // these previously meant a failed index write paired
                                             // with a successful checkpoint write would silently
                                             // drop the L1->L2 mapping forever.
-                                            if let Err(e) = commit_message(
+                                            if let Err(error) = commit_message(
                                                 &provider,
                                                 &msg.l1_tx_hash,
                                                 hash,
@@ -187,7 +188,7 @@ where
                                             ) {
                                                 warn!(
                                                     target: LOG_TARGET,
-                                                    error = %e,
+                                                    %error,
                                                     block = msg.block,
                                                     tx_index = msg.tx_index,
                                                     tx_hash = %format!("{hash:#x}"),
@@ -236,7 +237,9 @@ where
             }
         });
 
-        Ok(MessagingHandle { shutdown_tx: Some(shutdown_tx), task_handle })
+        info!(target: LOG_TARGET, "Messaging service started.");
+
+        Ok(MessagingServiceHandle { shutdown_tx: Some(shutdown_tx), task_handle })
     }
 }
 
@@ -259,13 +262,13 @@ where
     })
 }
 
-impl<P> std::fmt::Debug for MessagingServer<P> {
+impl<P> std::fmt::Debug for MessagingService<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MessagingServer").finish_non_exhaustive()
     }
 }
 
-impl<P: Clone> Clone for MessagingServer<P> {
+impl<P: Clone> Clone for MessagingService<P> {
     fn clone(&self) -> Self {
         Self {
             chain_id: self.chain_id,
@@ -301,18 +304,18 @@ where
 }
 
 /// Handle to a running messaging server, providing lifecycle control.
-pub struct MessagingHandle {
+pub struct MessagingServiceHandle {
     shutdown_tx: Option<oneshot::Sender<()>>,
     task_handle: JoinHandle<()>,
 }
 
-impl std::fmt::Debug for MessagingHandle {
+impl std::fmt::Debug for MessagingServiceHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MessagingHandle").finish_non_exhaustive()
     }
 }
 
-impl MessagingHandle {
+impl MessagingServiceHandle {
     /// Signal the messaging server to stop.
     pub fn stop(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
