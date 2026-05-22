@@ -40,6 +40,8 @@ const INSPECT_TABLES: &[Tables] = &[
     Tables::StagePruningCheckpoints,
     Tables::StateHistoryRetention,
     Tables::MigrationCheckpoints,
+    Tables::MessagingCheckpoints,
+    Tables::MessagingL1ToL2,
 ];
 
 use ratatui::backend::CrosstermBackend;
@@ -99,6 +101,8 @@ macro_rules! try_count_entries {
             }
             Tables::StateHistoryRetention => $tx.entries::<tables::StateHistoryRetention>().ok(),
             Tables::MigrationCheckpoints => $tx.entries::<tables::MigrationCheckpoints>().ok(),
+            Tables::MessagingCheckpoints => $tx.entries::<tables::MessagingCheckpoints>().ok(),
+            Tables::MessagingL1ToL2 => $tx.entries::<tables::MessagingL1ToL2>().ok(),
             // State trie tables are excluded from the inspector
             _ => None,
         }
