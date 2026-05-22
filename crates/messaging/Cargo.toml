@@ -13,7 +13,6 @@ version.workspace = true
 testing = []
 
 [dependencies]
-katana-chain-spec.workspace = true
 katana-pool.workspace = true
 katana-primitives = { workspace = true, features = [ "arbitrary" ] }
 katana-provider.workspace = true

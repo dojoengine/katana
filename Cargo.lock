@@ -6723,7 +6723,6 @@ dependencies = [
  "anyhow",
  "auto_impl",
  "futures",
- "katana-chain-spec",
  "katana-pool",
  "katana-primitives",
  "katana-provider",

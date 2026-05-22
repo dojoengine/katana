@@ -73,39 +73,18 @@ pub struct MessagingConfig {
 #[serde(tag = "chain")]
 pub enum SettlementChainConfig {
     #[serde(rename = "ethereum")]
-    Ethereum { rpc_url: Url, contract_address: katana_primitives::eth::Address },
-    #[serde(rename = "starknet")]
-    Starknet { rpc_url: Url, contract_address: ContractAddress },
-}
+    Ethereum {
+        /// The RPC URL of the Ethereum network that the messaging service will listen to.
+        rpc_url: Url,
+        /// The messaging contract address deployed on the Ethereum network.
+        contract_address: katana_primitives::eth::Address,
+    },
 
-impl MessagingConfig {
-    pub fn from_chain_spec(spec: &katana_chain_spec::rollup::ChainSpec) -> Self {
-        match &spec.settlement {
-            katana_chain_spec::SettlementLayer::Ethereum {
-                rpc_url, core_contract, block, ..
-            } => Self {
-                settlement: SettlementChainConfig::Ethereum {
-                    rpc_url: rpc_url.clone(),
-                    contract_address: *core_contract,
-                },
-                from_block: *block,
-                interval: 2,
-                confirmation_depth: 0,
-            },
-            katana_chain_spec::SettlementLayer::Starknet {
-                rpc_url, core_contract, block, ..
-            } => Self {
-                settlement: SettlementChainConfig::Starknet {
-                    rpc_url: rpc_url.clone(),
-                    contract_address: *core_contract,
-                },
-                from_block: *block,
-                interval: 2,
-                confirmation_depth: 0,
-            },
-            katana_chain_spec::SettlementLayer::Sovereign { .. } => {
-                panic!("Sovereign chains are not supported for messaging.")
-            }
-        }
-    }
+    #[serde(rename = "starknet")]
+    Starknet {
+        /// The RPC URL of the Starknet network that the messaging service will listen to.
+        rpc_url: Url,
+        /// The messaging contract address deployed on the Starknet network.
+        contract_address: ContractAddress,
+    },
 }

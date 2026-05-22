@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use futures::StreamExt;
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
@@ -45,7 +45,7 @@ pub struct MessagingService<P> {
     pool: TxPool,
     provider: P,
 
-    settlement: Option<SettlementChainConfig>,
+    settlement: SettlementChainConfig,
     interval: u64,
     from_block: u64,
     confirmation_depth: u64,
@@ -56,22 +56,21 @@ impl<P> MessagingService<P> {
     ///
     /// A settlement chain must be set via [`settlement`](Self::settlement)
     /// before [`start`](Self::start) can be called.
-    pub fn new(chain_id: ChainId, pool: TxPool, provider: P) -> Self {
+    pub fn new(
+        chain_id: ChainId,
+        pool: TxPool,
+        provider: P,
+        settlement: SettlementChainConfig,
+    ) -> Self {
         Self {
             chain_id,
             pool,
             provider,
-            settlement: None,
+            settlement,
             interval: DEFAULT_INTERVAL,
             from_block: 0,
             confirmation_depth: 0,
         }
-    }
-
-    /// Set the settlement chain configuration. Required to enable messaging.
-    pub fn settlement(mut self, settlement: SettlementChainConfig) -> Self {
-        self.settlement = Some(settlement);
-        self
     }
 
     /// Set the interval, in seconds, at which the messaging service polls the
@@ -108,18 +107,11 @@ where
     /// loop. Returns an error if no settlement chain has been configured via
     /// [`settlement`](Self::settlement).
     pub fn start(&self) -> Result<MessagingServiceHandle, anyhow::Error> {
-        let settlement = self.settlement.as_ref().ok_or_else(|| {
-            anyhow!(
-                "cannot start messaging server: no settlement chain configured. Call \
-                 `MessagingServer::settlement(...)` before `start()`."
-            )
-        })?;
-
         let (from_block, from_tx_index) = resume_cursor(&self.provider, self.from_block)?;
 
         let trigger = IntervalTrigger::new(self.interval);
 
-        let mut messenger: Box<dyn Messenger> = match settlement {
+        let mut messenger: Box<dyn Messenger> = match &self.settlement {
             SettlementChainConfig::Ethereum { rpc_url, contract_address } => {
                 let collector = EthereumCollector::new(rpc_url.clone(), *contract_address)?;
                 Box::new(MessageStream::with_cursor(

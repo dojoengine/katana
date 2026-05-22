@@ -112,7 +112,7 @@ where
     block_notify: broadcast::Sender<MinedBlockOutcome>,
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
-    messaging_server: Option<MessagingService<P>>,
+    messaging_service: Option<MessagingService<P>>,
 }
 
 impl<P> Node<P>
@@ -541,12 +541,16 @@ where
 
         // --- build messaging server
 
-        let messaging_server = config.messaging.as_ref().map(|cfg| {
-            MessagingService::new(backend.chain_spec.id(), pool.clone(), provider.clone())
-                .settlement(cfg.settlement.clone())
-                .interval(cfg.interval)
-                .from_block(cfg.from_block)
-                .confirmation_depth(cfg.confirmation_depth)
+        let messaging_service = config.messaging.as_ref().map(|cfg| {
+            MessagingService::new(
+                backend.chain_spec.id(),
+                pool.clone(),
+                provider.clone(),
+                cfg.settlement.clone(),
+            )
+            .interval(cfg.interval)
+            .from_block(cfg.from_block)
+            .confirmation_depth(cfg.confirmation_depth)
         });
 
         Ok(Node {
@@ -561,9 +565,9 @@ where
             block_producer,
             block_notify,
             metrics_server,
-            messaging_server,
-            config: Arc::new(config),
+            messaging_service,
             task_manager,
+            config: Arc::new(config),
         })
     }
 }
@@ -799,7 +803,7 @@ where
 
         // --- start the messaging server (skipped when messaging is disabled)
 
-        let messaging_handle = self.messaging_server.as_ref().map(|s| s.start()).transpose()?;
+        let messaging_handle = self.messaging_service.as_ref().map(|s| s.start()).transpose()?;
 
         Ok(LaunchedNode {
             node: self,
@@ -840,7 +844,7 @@ where
 
     /// Returns a reference to the node's messaging server, if messaging is enabled.
     pub fn messaging_server(&self) -> Option<&MessagingService<P>> {
-        self.messaging_server.as_ref()
+        self.messaging_service.as_ref()
     }
 
     /// Returns a reference to the node's database.
