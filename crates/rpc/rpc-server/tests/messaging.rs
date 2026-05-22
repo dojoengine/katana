@@ -299,6 +299,22 @@ mod checkpoint {
         assert!(post.is_none(), "reset deletes the row");
     }
 
+    /// Two consecutive `setCheckpoint` calls: the second value must overwrite
+    /// the first in the DB. This is the canonical "operator changed their mind"
+    /// path — there's no merge semantics, last write wins.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn set_checkpoint_twice_persists_latest() {
+        let node = TestNode::new_with_config(messaging_test_config()).await;
+        let client = node.rpc_http_client();
+
+        client.set_checkpoint(100, 5).await.expect("first set succeeds");
+        client.set_checkpoint(50, 0).await.expect("second set succeeds");
+
+        let cp = client.get_checkpoint().await.expect("rpc").expect("Some");
+        assert_eq!(cp.block, 50, "latest set wins");
+        assert_eq!(cp.tx_index, 0);
+    }
+
     /// End-to-end tests for the `messaging_*` checkpoint RPCs against a real
     /// Anvil-backed messaging server. These exercise the live-rewind path —
     /// `setCheckpoint` / `resetCheckpoint` cause the running messenger to

@@ -1286,4 +1286,66 @@ mod tests {
         let cp = provider.messaging_checkpoint("messaging").unwrap();
         assert!(cp.is_none());
     }
+
+    /// The checkpoints table is keyed by a free-form `id` (multi-tenant). Deleting
+    /// `"messaging"` must not touch rows under other ids — this is what lets a
+    /// single table host distinct workflows safely.
+    #[test]
+    fn delete_messaging_checkpoint_preserves_other_ids() {
+        use katana_provider_api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
+
+        let factory = create_db_provider();
+
+        let provider = factory.provider_mut();
+        provider
+            .set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 1, tx_index: 0 })
+            .unwrap();
+        provider
+            .set_messaging_checkpoint("other", &MessagingCheckpoint { block: 99, tx_index: 7 })
+            .unwrap();
+        provider.commit().unwrap();
+
+        let provider = factory.provider_mut();
+        provider.delete_messaging_checkpoint("messaging").unwrap();
+        provider.commit().unwrap();
+
+        let provider = factory.provider_mut();
+        let messaging_cp = provider.messaging_checkpoint("messaging").unwrap();
+        let other_cp = provider.messaging_checkpoint("other").unwrap();
+        assert!(messaging_cp.is_none(), "deleted id is gone");
+        let other_cp = other_cp.expect("other id is untouched");
+        assert_eq!(other_cp.block, 99);
+        assert_eq!(other_cp.tx_index, 7);
+    }
+
+    /// set → delete → set must leave the table in a usable state, ending with
+    /// the most recent write visible. Exercises the post-delete write path that
+    /// would silently break if MDBX cached the dropped key.
+    #[test]
+    fn set_then_delete_then_set_round_trip() {
+        use katana_provider_api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
+
+        let factory = create_db_provider();
+
+        let provider = factory.provider_mut();
+        provider
+            .set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 1, tx_index: 1 })
+            .unwrap();
+        provider.commit().unwrap();
+
+        let provider = factory.provider_mut();
+        provider.delete_messaging_checkpoint("messaging").unwrap();
+        provider.commit().unwrap();
+
+        let provider = factory.provider_mut();
+        provider
+            .set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 9, tx_index: 4 })
+            .unwrap();
+        provider.commit().unwrap();
+
+        let provider = factory.provider_mut();
+        let cp = provider.messaging_checkpoint("messaging").unwrap().expect("final set visible");
+        assert_eq!(cp.block, 9);
+        assert_eq!(cp.tx_index, 4);
+    }
 }
