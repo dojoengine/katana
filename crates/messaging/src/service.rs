@@ -374,11 +374,38 @@ impl MessagingServiceHandle {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use katana_pool::ordering::FiFo;
+    use katana_pool::pool::Pool;
+    use katana_pool::validation::NoopValidator;
+    use katana_primitives::transaction::ExecutableTxWithHash;
     use katana_primitives::Felt;
     use katana_provider::api::messaging::MessagingL1ToL2IndexProvider;
     use katana_provider::DbProviderFactory;
+    use url::Url;
 
     use super::*;
+
+    /// No-op pool used by the lifecycle tests. The drain task never actually inserts
+    /// transactions in these tests (the configured settlement endpoint is unroutable),
+    /// so this type only needs to satisfy the trait bounds of `start()`.
+    type NoopPool =
+        Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
+
+    fn noop_pool() -> NoopPool {
+        Pool::new(NoopValidator::new(), FiFo::new())
+    }
+
+    /// Settlement config pointing at a non-routable URL. The drain task may try
+    /// `latest_block()` against this; it'll fail or pend, which is fine — the
+    /// lifecycle tests don't depend on any successful gather.
+    fn unroutable_settlement() -> SettlementChainConfig {
+        SettlementChainConfig::Ethereum {
+            rpc_url: Url::parse("http://127.0.0.1:1/").unwrap(),
+            contract_address: Default::default(),
+        }
+    }
 
     #[test]
     fn resume_cursor_falls_back_to_default_from_block_when_no_checkpoint_persisted() {
@@ -495,5 +522,97 @@ mod tests {
 
         assert_eq!(cp.block, 10, "checkpoint should reflect the latest committed message");
         assert_eq!(cp.tx_index, 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // Lifecycle tests
+    //
+    // These exercise `MessagingService::start` itself — that the rewind_rx is
+    // single-take, that clones can't be started, and that a closed rewind
+    // channel doesn't kill the drain task. They use a non-routable settlement
+    // endpoint; the drain task never produces work but stays alive, which is
+    // all the lifecycle invariants require.
+    // -------------------------------------------------------------------------
+
+    /// The `rewind_rx` is taken on first `start()`; a second call on the same
+    /// instance must fail with a clear "already started" error rather than
+    /// silently spawning a second drain task that competes for rewind signals.
+    #[tokio::test]
+    async fn start_twice_returns_error() {
+        let provider = DbProviderFactory::new_in_memory();
+        let pool = noop_pool();
+        let server =
+            MessagingService::new(ChainId::default(), pool, provider, unroutable_settlement())
+                .interval(60);
+
+        let mut handle = server.start().expect("first start succeeds");
+
+        let err = server.start().expect_err("second start must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("already started"), "expected 'already started' in error, got: {msg}");
+
+        // Clean up the first task so the test process exits cleanly.
+        handle.stop();
+        handle.stopped().await;
+    }
+
+    /// `Clone for MessagingService` deliberately sets `rewind_rx: None` on the
+    /// clone so only the original instance can drive the drain loop. Starting
+    /// a clone must fail with the same error as a double-start.
+    #[tokio::test]
+    async fn clone_cannot_be_started() {
+        let provider = DbProviderFactory::new_in_memory();
+        let pool = noop_pool();
+        let server =
+            MessagingService::new(ChainId::default(), pool, provider, unroutable_settlement())
+                .interval(60);
+
+        let clone = server.clone();
+
+        let err = clone.start().expect_err("starting a clone must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("already started"), "expected 'already started' in error, got: {msg}");
+
+        // The original is still startable (rewind_rx wasn't taken from it).
+        let mut handle = server.start().expect("original is still startable after cloning");
+        handle.stop();
+        handle.stopped().await;
+    }
+
+    /// Dropping the controller (and hence one rewind_tx sender) must not kill
+    /// the running drain task. The other arms of the `select!` (shutdown,
+    /// messenger.next) keep firing; the rewind arm just goes permanently
+    /// inactive once all senders are gone. This guards against a regression
+    /// where the loop would exit on `rewind_rx.recv() == None`.
+    #[tokio::test]
+    async fn rewind_sender_dropped_does_not_kill_task() {
+        let provider = DbProviderFactory::new_in_memory();
+        let pool = noop_pool();
+        let server =
+            MessagingService::new(ChainId::default(), pool, provider, unroutable_settlement())
+                .interval(60);
+
+        let controller = server.controller();
+        let mut handle = server.start().expect("start succeeds");
+
+        // Drop everything that holds a rewind_tx clone: the controller, the
+        // server itself (its own sender), so the receiver inside the task
+        // observes a fully-closed channel.
+        drop(controller);
+        drop(server);
+
+        // Give the runtime a moment to deliver the channel-closed notification
+        // to the task. Tokio's `mpsc::Receiver::recv` returns `None` once all
+        // senders are dropped, and the `select!` arm with that pattern simply
+        // never matches again — the other arms must keep working.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert!(
+            !handle.task_handle.is_finished(),
+            "drain task must survive a closed rewind channel"
+        );
+
+        handle.stop();
+        handle.stopped().await;
     }
 }
