@@ -372,6 +372,13 @@ fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usiz
         Tables::ContractInfoChangeSet => detail!(tables::ContractInfoChangeSet),
         Tables::StorageChangeSet => detail!(debug tables::StorageChangeSet),
 
+        Tables::MessagingCheckpoints => tabular!(
+            tables::MessagingCheckpoints,
+            "MessagingCheckpoints",
+            ["id", "block", "tx_index"],
+            |k, v| vec![format!("{k}"), format!("{}", v.block), format!("{}", v.tx_index)]
+        ),
+
         // State trie tables are excluded
         _ => FetchResult { columns: vec![], rows: vec![], tabular: true, value_type: "" },
     }
