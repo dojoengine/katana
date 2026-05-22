@@ -114,7 +114,7 @@ where
     block_notify: broadcast::Sender<MinedBlockOutcome>,
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
-    messaging_service: Option<MessagingService<P>>,
+    messaging_service: Option<MessagingService<P, TxPool>>,
 }
 
 impl<P> Node<P>
@@ -852,8 +852,8 @@ where
         &self.rpc_server
     }
 
-    /// Returns a reference to the node's messaging server, if messaging is enabled.
-    pub fn messaging_server(&self) -> Option<&MessagingService<P>> {
+    /// Returns a reference to the node's messaging service, if messaging is enabled.
+    pub fn messaging_service(&self) -> Option<&MessagingService<P, TxPool>> {
         self.messaging_service.as_ref()
     }
 
