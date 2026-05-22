@@ -70,7 +70,11 @@ where
         // The DB write is the source of truth — a failed channel send (server
         // not running, or already stopped) is logged but does not fail the call.
         // The next `start()` will resume from the new value.
-        let signal = RewindSignal { from_block: block, from_tx_index: tx_index + 1 };
+        //
+        // Why `saturating_add`: a `tx_index` of `u64::MAX` is degenerate but the
+        // RPC accepts any `u64`. Without saturation, debug builds would panic and
+        // release builds would silently wrap to 0 (re-gathering the whole block).
+        let signal = RewindSignal { from_block: block, from_tx_index: tx_index.saturating_add(1) };
         if let Err(e) = self.rewind_tx.send(signal).await {
             warn!(
                 target: LOG_TARGET,
@@ -166,5 +170,98 @@ mod tests {
 
         controller.set_checkpoint(1, 2).await.expect("set succeeds with dropped receiver");
         controller.reset_checkpoint().await.expect("reset succeeds with dropped receiver");
+    }
+
+    /// Operator-rewind path: a later `setCheckpoint` to a *lower* `(block, tx_index)`
+    /// must overwrite the prior higher value. This is the canonical "I want to
+    /// re-gather from a known earlier point" use case.
+    #[tokio::test]
+    async fn set_checkpoint_overrides_prior_higher_checkpoint() {
+        let (controller, mut rx) = setup();
+
+        controller.set_checkpoint(100, 50).await.unwrap();
+        // Drain the first signal so we can inspect the second cleanly.
+        let _ = rx.try_recv().expect("first signal");
+
+        controller.set_checkpoint(20, 0).await.unwrap();
+
+        let cp = controller.get_checkpoint().unwrap().expect("checkpoint persisted");
+        assert_eq!(cp.block, 20);
+        assert_eq!(cp.tx_index, 0);
+
+        let signal = rx.try_recv().expect("second signal sent");
+        assert_eq!(signal.from_block, 20);
+        assert_eq!(signal.from_tx_index, 1);
+    }
+
+    /// `tx_index == u64::MAX` must not panic. The published rewind signal saturates
+    /// to `u64::MAX` rather than wrapping (which would silently re-gather block 0).
+    #[tokio::test]
+    async fn set_checkpoint_at_tx_index_max_saturates() {
+        let (controller, mut rx) = setup();
+
+        controller.set_checkpoint(5, u64::MAX).await.expect("no panic on u64::MAX");
+
+        let cp = controller.get_checkpoint().unwrap().expect("checkpoint persisted");
+        assert_eq!(cp.block, 5);
+        assert_eq!(cp.tx_index, u64::MAX);
+
+        let signal = rx.try_recv().expect("signal sent");
+        assert_eq!(signal.from_block, 5);
+        assert_eq!(signal.from_tx_index, u64::MAX, "saturating_add must not wrap");
+    }
+
+    /// `resetCheckpoint` on a fresh DB must succeed (the DB delete is a no-op)
+    /// AND emit the default-from-block rewind signal.
+    #[tokio::test]
+    async fn reset_checkpoint_is_idempotent_when_no_row_exists() {
+        let (controller, mut rx) = setup();
+
+        controller.reset_checkpoint().await.expect("reset on fresh DB is a no-op");
+
+        let cp = controller.get_checkpoint().unwrap();
+        assert!(cp.is_none(), "no row materialized");
+
+        let signal = rx.try_recv().expect("reset signal sent");
+        assert_eq!(signal.from_block, 7, "default_from_block from setup()");
+        assert_eq!(signal.from_tx_index, 0);
+    }
+
+    /// The controller snapshots `default_from_block` at construction; reset must
+    /// emit *that* value, independent of any prior set/get traffic.
+    #[tokio::test]
+    async fn reset_checkpoint_uses_snapshot_default_from_block() {
+        let provider = DbProviderFactory::new_in_memory();
+        let (tx, mut rx) = mpsc::channel(1);
+        let controller = MessagingController::new(provider, 42, tx);
+
+        controller.reset_checkpoint().await.unwrap();
+
+        let signal = rx.try_recv().expect("reset signal");
+        assert_eq!(signal.from_block, 42, "snapshot of construction-time default_from_block");
+        assert_eq!(signal.from_tx_index, 0);
+    }
+
+    /// `get_checkpoint` reads what was *committed*, including writes that bypass
+    /// the controller (e.g., the messaging drain task). Companion to the existing
+    /// "returns None when absent" test.
+    #[tokio::test]
+    async fn get_checkpoint_reads_committed_value() {
+        let provider = DbProviderFactory::new_in_memory();
+        let (tx, _rx) = mpsc::channel(1);
+        let controller = MessagingController::new(provider.clone(), 0, tx);
+
+        let db_tx = provider.provider_mut();
+        db_tx
+            .set_messaging_checkpoint(
+                CHECKPOINT_ID,
+                &MessagingCheckpoint { block: 77, tx_index: 9 },
+            )
+            .unwrap();
+        MutableProvider::commit(db_tx).unwrap();
+
+        let cp = controller.get_checkpoint().unwrap().expect("controller observes committed write");
+        assert_eq!(cp.block, 77);
+        assert_eq!(cp.tx_index, 9);
     }
 }
