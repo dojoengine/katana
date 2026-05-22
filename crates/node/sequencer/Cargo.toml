@@ -46,7 +46,7 @@ native = [ "katana-executor/native" ]
 tee-snp = [ "katana-tee/snp" ]
 # Enables `TeeProviderType::Mock` (software-only attestation provider) for use
 # by integration test crates. Not intended for production binaries.
-tee-mock = [ "katana-tee/tee-mock" ]
+tee-mock = [ "katana-tee/mock" ]
 
 [dev-dependencies]
 katana-contracts.workspace = true

@@ -76,3 +76,6 @@ init-slot = [  ]
 jemalloc = [  ]
 debug = [  ]
 native = [ "katana-cli/native" ]
+
+tee-snp = [ "katana-cli/tee-snp" ]
+tee-mock = [ "katana-cli/tee-mock" ]
