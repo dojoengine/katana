@@ -210,6 +210,15 @@ where
                         this.from_tx_index = 0;
                         this.phase = MessageStreamPhase::Idle;
 
+                        trace!(
+                            target: LOG_TARGET,
+                            from_block = this.from_block,
+                            from_tx_index = this.from_tx_index,
+                            to_block = result.to_block,
+                            messages_count = result.messages.len(),
+                            "Messages gathered successfully."
+                        );
+
                         return Poll::Ready(Some(MessagingOutcome {
                             settlement_block: result.to_block,
                             messages: result.messages,
