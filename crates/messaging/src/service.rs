@@ -1,4 +1,6 @@
-use anyhow::Context;
+use std::sync::Mutex;
+
+use anyhow::{anyhow, Context};
 use futures::StreamExt;
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
@@ -8,10 +10,11 @@ use katana_provider::api::messaging::{
     MessagingCheckpoint, MessagingCheckpointProvider, MessagingL1ToL2IndexWriter,
 };
 use katana_provider::{MutableProvider, ProviderFactory, ProviderRW};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
+use crate::controller::{MessagingController, RewindSignal};
 use crate::stream::collector::ethereum::EthereumCollector;
 use crate::stream::collector::starknet::StarknetCollector;
 use crate::stream::trigger::IntervalTrigger;
@@ -20,26 +23,26 @@ use crate::{MessagingOutcome, Messenger, SettlementChainConfig, LOG_TARGET};
 
 /// Identifier used to namespace the persisted messaging checkpoint within the
 /// shared `MessagingCheckpoints` table.
-const CHECKPOINT_ID: &str = "messaging";
+pub(crate) const CHECKPOINT_ID: &str = "messaging";
 
 /// Default poll interval (in seconds) between gather ticks.
 const DEFAULT_INTERVAL: u64 = 2;
 
-/// The messaging server.
+/// The messaging service.
 ///
 /// [`Self::start`] is non-consuming and mirrors `RpcServer::start`. It reads the
-/// resume checkpoint, builds the messenger, and spawns the drain loop. A
-/// settlement chain must be configured via [`settlement`](Self::settlement)
-/// before calling [`start`](Self::start); otherwise it returns an error.
+/// resume checkpoint, builds the messenger, and spawns the drain loop. Calling
+/// [`start`](Self::start) more than once returns an error: the rewind receiver
+/// is single-consumer and is taken on the first call.
 ///
-/// The server depends directly on the provider factory `P` for both reading the
-/// resume checkpoint at boot and atomically persisting the L1->L2 index entry +
-/// checkpoint after each successful pool insert.
+/// The service depends directly on the provider factory `P` for both reading
+/// the resume checkpoint at boot and atomically persisting the L1->L2 index
+/// entry + checkpoint after each successful pool insert.
 ///
-/// Configure the server using the builder-style setters
-/// ([`settlement`](Self::settlement), [`interval`](Self::interval),
-/// [`from_block`](Self::from_block), [`confirmation_depth`](Self::confirmation_depth))
-/// before calling [`start`](Self::start).
+/// Configure with builder-style setters
+/// ([`interval`](Self::interval), [`from_block`](Self::from_block),
+/// [`confirmation_depth`](Self::confirmation_depth)) before calling
+/// [`start`](Self::start). The settlement chain is required at construction.
 pub struct MessagingService<P, Pl = TxPool> {
     chain_id: ChainId,
     pool: Pl,
@@ -49,19 +52,26 @@ pub struct MessagingService<P, Pl = TxPool> {
     interval: u64,
     from_block: u64,
     confirmation_depth: u64,
+
+    /// Sender shared with all controllers; cloning is cheap.
+    rewind_tx: mpsc::Sender<RewindSignal>,
+    /// Owned by the service until [`start`](Self::start) takes it. Clones of the
+    /// service get an empty mutex so only the original can drive the drain loop.
+    /// Wrapped in a `Mutex` because `start` is `&self`.
+    rewind_rx: Mutex<Option<mpsc::Receiver<RewindSignal>>>,
 }
 
 impl<P, Pl> MessagingService<P, Pl> {
-    /// Create a new messaging server with no settlement configured.
-    ///
-    /// A settlement chain must be set via [`settlement`](Self::settlement)
-    /// before [`start`](Self::start) can be called.
+    /// Create a new messaging service for the given settlement chain.
     pub fn new(
         chain_id: ChainId,
         pool: Pl,
         provider: P,
         settlement: SettlementChainConfig,
     ) -> Self {
+        // Capacity 1 with `send().await` gives natural back-pressure on rapid
+        // rewinds; operator-issued resets don't burst.
+        let (rewind_tx, rewind_rx) = mpsc::channel(1);
         Self {
             chain_id,
             pool,
@@ -70,6 +80,8 @@ impl<P, Pl> MessagingService<P, Pl> {
             interval: DEFAULT_INTERVAL,
             from_block: 0,
             confirmation_depth: 0,
+            rewind_tx,
+            rewind_rx: Mutex::new(Some(rewind_rx)),
         }
     }
 
@@ -102,12 +114,31 @@ where
         ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
     Pl: TransactionPool<Transaction = ExecutableTxWithHash> + Clone + Send + Sync + 'static,
 {
-    /// Start the messaging server.
+    /// Returns a [`MessagingController`] that can read/write the persisted
+    /// checkpoint and signal a live rewind to a running drain task.
+    ///
+    /// Snapshots the configured `from_block` as the controller's default — call
+    /// [`from_block`](Self::from_block) before this.
+    pub fn controller(&self) -> MessagingController<P>
+    where
+        P: Clone,
+    {
+        MessagingController::new(self.provider.clone(), self.from_block, self.rewind_tx.clone())
+    }
+
+    /// Start the messaging service.
     ///
     /// Reads the resume checkpoint, builds the messenger, and spawns the drain
-    /// loop. Returns an error if no settlement chain has been configured via
-    /// [`settlement`](Self::settlement).
+    /// loop. Returns an error if `start()` has already been called on this
+    /// instance (the rewind receiver is single-consumer).
     pub fn start(&self) -> Result<MessagingServiceHandle, anyhow::Error> {
+        let mut rewind_rx = self
+            .rewind_rx
+            .lock()
+            .map_err(|_| anyhow!("rewind receiver mutex poisoned"))?
+            .take()
+            .ok_or_else(|| anyhow!("messaging service already started"))?;
+
         let (from_block, from_tx_index) = resume_cursor(&self.provider, self.from_block)?;
 
         let trigger = IntervalTrigger::new(self.interval);
@@ -146,6 +177,24 @@ where
 
             loop {
                 tokio::select! {
+                    // Shutdown takes priority over both gather and rewind so
+                    // a stop signal can't be starved by busy work.
+                    biased;
+
+                    _ = &mut shutdown => {
+                        break;
+                    }
+
+                    Some(sig) = rewind_rx.recv() => {
+                        info!(
+                            target: LOG_TARGET,
+                            from_block = sig.from_block,
+                            from_tx_index = sig.from_tx_index,
+                            "Rewinding messenger cursor.",
+                        );
+                        messenger.rewind(sig.from_block, sig.from_tx_index);
+                    }
+
                     outcome = messenger.next() => {
                         match outcome {
                             None => break, // Stream ended
@@ -222,10 +271,6 @@ where
                             }
                         }
                     }
-
-                    _ = &mut shutdown => {
-                        break;
-                    }
                 }
             }
         });
@@ -257,7 +302,7 @@ where
 
 impl<P, Pl> std::fmt::Debug for MessagingService<P, Pl> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MessagingServer").finish_non_exhaustive()
+        f.debug_struct("MessagingService").finish_non_exhaustive()
     }
 }
 
@@ -271,6 +316,11 @@ impl<P: Clone, Pl: Clone> Clone for MessagingService<P, Pl> {
             interval: self.interval,
             from_block: self.from_block,
             confirmation_depth: self.confirmation_depth,
+            rewind_tx: self.rewind_tx.clone(),
+            // Clones share the sender but cannot be started — the receiver is
+            // not cloneable and only the original service can drive the drain
+            // loop.
+            rewind_rx: Mutex::new(None),
         }
     }
 }
@@ -304,7 +354,7 @@ pub struct MessagingServiceHandle {
 
 impl std::fmt::Debug for MessagingServiceHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MessagingHandle").finish_non_exhaustive()
+        f.debug_struct("MessagingServiceHandle").finish_non_exhaustive()
     }
 }
 

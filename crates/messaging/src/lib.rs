@@ -10,9 +10,10 @@
 //!   interval, block subscription, etc).
 //!
 //! These are composed by [`stream::MessageStream`] into a [`Stream`] that yields
-//! [`MessagingOutcome`] items. The stream is consumed by [`server::MessagingServer`]
+//! [`MessagingOutcome`] items. The stream is consumed by [`service::MessagingService`]
 //! which adds transactions to the pool and persists checkpoints.
 
+pub mod controller;
 pub mod service;
 pub mod stream;
 
@@ -22,6 +23,7 @@ use serde::{Deserialize, Serialize};
 pub use service::{MessagingService, MessagingServiceHandle};
 use url::Url;
 
+pub use crate::controller::{MessagingController, RewindSignal};
 use crate::stream::collector::OrderedMessage;
 
 pub(crate) const LOG_TARGET: &str = "messaging";
@@ -42,8 +44,12 @@ pub struct MessagingOutcome {
 /// gathered from a settlement chain.
 ///
 /// This trait is object-safe, allowing `Box<dyn Messenger>` usage.
-pub trait Messenger: Stream<Item = MessagingOutcome> + Send + Unpin {}
-impl<T> Messenger for T where T: Stream<Item = MessagingOutcome> + Send + Unpin {}
+pub trait Messenger: Stream<Item = MessagingOutcome> + Send + Unpin {
+    /// Rewind the in-memory cursor to `(from_block, from_tx_index)`. Any
+    /// in-flight gather is abandoned — the next trigger tick re-gathers from
+    /// the new cursor.
+    fn rewind(&mut self, from_block: u64, from_tx_index: u64);
+}
 
 /// The config used to initialize the messaging service.
 #[derive(Debug, Deserialize, Clone, Serialize, PartialEq, Eq)]

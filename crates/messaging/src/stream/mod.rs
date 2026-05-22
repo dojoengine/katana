@@ -15,7 +15,7 @@ pub mod trigger;
 use collector::{GatherResult, MessageCollector};
 use trigger::MessageTrigger;
 
-use crate::{MessagingOutcome, LOG_TARGET};
+use crate::{MessagingOutcome, Messenger, LOG_TARGET};
 
 /// Maximum number of blocks to fetch in a single gather call.
 const MAX_BLOCKS_PER_GATHER: u64 = 200;
@@ -234,6 +234,22 @@ where
                 },
             }
         }
+    }
+}
+
+impl<C, T> Messenger for MessageStream<C, T>
+where
+    C: MessageCollector + 'static,
+    T: MessageTrigger,
+{
+    fn rewind(&mut self, from_block: u64, from_tx_index: u64) {
+        self.from_block = from_block;
+        self.from_tx_index = from_tx_index;
+        // Resetting `phase` to `Idle` abandons any in-flight gather/checking
+        // future built from the old cursor. The next trigger tick rebuilds from
+        // the new cursor — any abandoned blocks get re-fetched, and the pool's
+        // hash-level dedup absorbs duplicate inserts.
+        self.phase = MessageStreamPhase::Idle;
     }
 }
 
@@ -634,5 +650,67 @@ mod tests {
         drop(trigger); // closes the underlying channel
         let res = tokio::time::timeout(SHORT, stream.next()).await.expect("ready promptly");
         assert!(res.is_none(), "stream should terminate when trigger ends");
+    }
+
+    // -------------------------------------------------------------------------
+    // Rewind (Messenger trait)
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn rewind_during_idle_updates_cursor() {
+        use crate::Messenger;
+
+        // Stream is idle (no trigger fired yet). Rewind moves the cursor;
+        // the next gather call must use the new (from_block, from_tx_index).
+        let (mut stream, collector, trigger) = build(100, 5, 0);
+
+        Messenger::rewind(&mut *stream, 10, 2);
+
+        collector.push_latest_block(Ok(50));
+        collector.push_gather(Ok(GatherResult { to_block: 50, messages: vec![] }));
+        trigger.fire();
+        let _ = stream.next().await.expect("yielded after rewind");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from_block, 10, "gather must use rewound from_block");
+        assert_eq!(calls[0].from_tx_index, 2, "gather must use rewound from_tx_index");
+    }
+
+    /// Rewinding while a gather future is in flight resets `phase` to `Idle`,
+    /// so the next trigger tick rebuilds gather/checking futures from the new
+    /// cursor instead of continuing the old one. Verified by giving the stream
+    /// time to consume one gather, rewinding, and asserting the subsequent
+    /// gather is keyed on the new cursor.
+    #[tokio::test]
+    async fn rewind_after_gather_resets_phase_to_idle() {
+        use crate::Messenger;
+
+        let (mut stream, collector, trigger) = build(100, 0, 0);
+
+        // First tick fully consumes the queued latest_block + gather and the
+        // stream yields, ending in `Idle`. Cursor now advances to 201.
+        collector.push_latest_block(Ok(200));
+        collector.push_gather(Ok(GatherResult { to_block: 200, messages: vec![] }));
+        trigger.fire();
+        let _ = stream.next().await.expect("first gather yielded");
+
+        // Rewind: cursor jumps backward, phase reset to Idle (idempotently).
+        Messenger::rewind(&mut *stream, 5, 0);
+
+        // Next tick must use the rewound cursor (5, 0), not (201, 0).
+        collector.push_latest_block(Ok(30));
+        collector.push_gather(Ok(GatherResult { to_block: 30, messages: vec![] }));
+        trigger.fire();
+        let _ = tokio::time::timeout(SHORT, stream.next())
+            .await
+            .expect("woke after rewind")
+            .expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].from_block, 100, "first gather uses original cursor");
+        assert_eq!(calls[1].from_block, 5, "second gather uses rewound cursor");
+        assert_eq!(calls[1].from_tx_index, 0);
     }
 }
