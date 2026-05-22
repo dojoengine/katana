@@ -45,6 +45,7 @@ use katana_provider::{
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::katana::KatanaApiServer;
+use katana_rpc_api::messaging::MessagingApiServer;
 use katana_rpc_api::node::NodeApiServer;
 use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetSubscriptionApiServer};
@@ -54,6 +55,7 @@ use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::dev::DevApi;
+use katana_rpc_server::messaging::MessagingApiHandler;
 use katana_rpc_server::middleware::cartridge::{ControllerDeploymentLayer, VrfLayer};
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::middleware::logger::RpcLoggerLayer;
@@ -311,6 +313,28 @@ where
             rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
         }
 
+        // --- build messaging service (early so its controller can back the
+        //     `messaging` RPC namespace registered below).
+
+        let messaging_service = config.messaging.as_ref().map(|cfg| {
+            MessagingService::new(
+                backend.chain_spec.id(),
+                pool.clone(),
+                provider.clone(),
+                cfg.settlement.clone(),
+            )
+            .interval(cfg.interval)
+            .from_block(cfg.from_block)
+            .confirmation_depth(cfg.confirmation_depth)
+        });
+
+        if let Some(ref service) = messaging_service {
+            if config.rpc.apis.contains(&RpcModuleKind::Messaging) {
+                let handler = MessagingApiHandler::new(service.controller());
+                rpc_modules.merge(MessagingApiServer::into_rpc(handler))?;
+            }
+        }
+
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
             let api = DevApi::new(backend.clone(), block_producer.clone(), pool.clone());
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
@@ -538,20 +562,6 @@ where
         } else {
             None
         };
-
-        // --- build messaging server
-
-        let messaging_service = config.messaging.as_ref().map(|cfg| {
-            MessagingService::new(
-                backend.chain_spec.id(),
-                pool.clone(),
-                provider.clone(),
-                cfg.settlement.clone(),
-            )
-            .interval(cfg.interval)
-            .from_block(cfg.from_block)
-            .confirmation_depth(cfg.confirmation_depth)
-        });
 
         Ok(Node {
             db,

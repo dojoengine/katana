@@ -220,3 +220,82 @@ mod messages_status {
         assert!(returned.contains(&l2_b), "missing l2_b in response");
     }
 }
+
+// ==============================================================================
+// `messaging_*` checkpoint RPC tests.
+//
+// These exercise the new `messaging` namespace end-to-end against a running
+// TestNode without requiring a settlement chain. The messaging server is
+// enabled with a dummy URL — the drain task's gather calls will fail and be
+// logged, but those failures are isolated from the checkpoint RPC paths the
+// controller drives synchronously through the DB.
+// ==============================================================================
+
+mod checkpoint {
+    use katana_messaging::MessagingConfig;
+    use katana_provider::api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
+    use katana_provider::{MutableProvider, ProviderFactory};
+    use katana_rpc_api::messaging::MessagingApiClient;
+    use katana_utils::TestNode;
+    use url::Url;
+
+    /// Build a config with messaging enabled and a deliberately unreachable
+    /// settlement URL. The drain task will log errors but the RPC handler that
+    /// drives the controller works purely off the DB and the rewind channel.
+    fn messaging_test_config() -> katana_sequencer_node::config::Config {
+        let mut config = katana_utils::node::test_config();
+        config.messaging = Some(MessagingConfig {
+            settlement: katana_messaging::SettlementChainConfig::Ethereum {
+                rpc_url: Url::parse("http://127.0.0.1:1").unwrap(),
+                contract_address: Default::default(),
+            },
+            interval: 60,
+            from_block: 42,
+            confirmation_depth: 0,
+        });
+        config
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_checkpoint_returns_null_when_no_row_persisted() {
+        let node = TestNode::new_with_config(messaging_test_config()).await;
+        let client = node.rpc_http_client();
+
+        let cp = client.get_checkpoint().await.expect("rpc call succeeds");
+        assert!(cp.is_none(), "fresh DB returns null checkpoint");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn set_checkpoint_persists_row_visible_to_subsequent_get() {
+        let node = TestNode::new_with_config(messaging_test_config()).await;
+        let client = node.rpc_http_client();
+
+        client.set_checkpoint(100, 5).await.expect("set_checkpoint succeeds");
+
+        let cp = client.get_checkpoint().await.expect("get_checkpoint succeeds").expect("Some");
+        assert_eq!(cp.block, 100);
+        assert_eq!(cp.tx_index, 5);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reset_checkpoint_deletes_row_so_get_returns_null() {
+        let node = TestNode::new_with_config(messaging_test_config()).await;
+        let client = node.rpc_http_client();
+
+        // Pre-populate via the provider so we don't depend on `setCheckpoint`
+        // working — exercises reset in isolation.
+        let factory = node.handle().node().provider();
+        let tx = factory.provider_mut();
+        tx.set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 11, tx_index: 2 })
+            .expect("set checkpoint");
+        MutableProvider::commit(tx).expect("commit");
+
+        let pre = client.get_checkpoint().await.expect("rpc").expect("Some pre-reset");
+        assert_eq!(pre.block, 11);
+
+        client.reset_checkpoint().await.expect("reset_checkpoint succeeds");
+
+        let post = client.get_checkpoint().await.expect("rpc");
+        assert!(post.is_none(), "reset deletes the row");
+    }
+}
