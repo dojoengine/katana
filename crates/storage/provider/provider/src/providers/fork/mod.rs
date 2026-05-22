@@ -699,6 +699,10 @@ impl<Tx1: DbTxMut> MessagingCheckpointProvider for ForkedProvider<Tx1> {
     ) -> ProviderResult<()> {
         self.local_db.set_messaging_checkpoint(id, checkpoint)
     }
+
+    fn delete_messaging_checkpoint(&self, id: &str) -> ProviderResult<()> {
+        self.local_db.delete_messaging_checkpoint(id)
+    }
 }
 
 impl<Tx1: DbTx> MessagingL1ToL2IndexProvider for ForkedProvider<Tx1> {

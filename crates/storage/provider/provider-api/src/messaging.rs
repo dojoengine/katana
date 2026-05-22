@@ -23,6 +23,10 @@ pub trait MessagingCheckpointProvider: Send + Sync {
         id: &str,
         checkpoint: &MessagingCheckpoint,
     ) -> ProviderResult<()>;
+
+    /// Deletes the messaging checkpoint for the given messenger. No-op if no
+    /// checkpoint row exists.
+    fn delete_messaging_checkpoint(&self, id: &str) -> ProviderResult<()>;
 }
 
 /// Read-only access to the settlement-chain L1 -> L2 index.

@@ -946,6 +946,11 @@ impl<Tx: DbTxMut> MessagingCheckpointProvider for DbProvider<Tx> {
         self.0.put::<tables::MessagingCheckpoints>(id.to_string(), value)?;
         Ok(())
     }
+
+    fn delete_messaging_checkpoint(&self, id: &str) -> ProviderResult<()> {
+        self.0.delete::<tables::MessagingCheckpoints>(id.to_string(), None)?;
+        Ok(())
+    }
 }
 
 impl<Tx: DbTx> MessagingL1ToL2IndexProvider for DbProvider<Tx> {
@@ -1033,7 +1038,7 @@ mod tests {
     use katana_provider_api::state::StateFactoryProvider;
     use katana_provider_api::transaction::TransactionProvider;
 
-    use crate::{DbProviderFactory, ProviderFactory};
+    use crate::{DbProviderFactory, MutableProvider, ProviderFactory};
 
     fn create_dummy_block() -> SealedBlockWithStatus {
         let header = Header { parent_hash: 199u8.into(), number: 0, ..Default::default() };
@@ -1244,5 +1249,41 @@ mod tests {
 
         assert_eq!(storage1, felt!("100"));
         assert_eq!(storage2, felt!("200"));
+    }
+
+    #[test]
+    fn delete_messaging_checkpoint_removes_existing_row() {
+        use katana_provider_api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
+
+        let factory = create_db_provider();
+        let provider = factory.provider_mut();
+
+        provider
+            .set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 42, tx_index: 3 })
+            .unwrap();
+        provider.commit().unwrap();
+
+        let provider = factory.provider_mut();
+        provider.delete_messaging_checkpoint("messaging").unwrap();
+        provider.commit().unwrap();
+
+        let provider = factory.provider_mut();
+        let cp = provider.messaging_checkpoint("messaging").unwrap();
+        assert!(cp.is_none(), "checkpoint row should be gone after delete");
+    }
+
+    #[test]
+    fn delete_messaging_checkpoint_is_noop_when_absent() {
+        use katana_provider_api::messaging::MessagingCheckpointProvider;
+
+        let factory = create_db_provider();
+        let provider = factory.provider_mut();
+
+        provider.delete_messaging_checkpoint("messaging").expect("delete of absent row succeeds");
+        provider.commit().unwrap();
+
+        let provider = factory.provider_mut();
+        let cp = provider.messaging_checkpoint("messaging").unwrap();
+        assert!(cp.is_none());
     }
 }
