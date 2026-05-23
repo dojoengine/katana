@@ -21,10 +21,6 @@ use crate::stream::trigger::IntervalTrigger;
 use crate::stream::MessageStream;
 use crate::{MessagingOutcome, Messenger, SettlementChainConfig, LOG_TARGET};
 
-/// Identifier used to namespace the persisted messaging checkpoint within the
-/// shared `MessagingCheckpoints` table.
-pub(crate) const CHECKPOINT_ID: &str = "messaging";
-
 /// Default poll interval (in seconds) between gather ticks.
 const DEFAULT_INTERVAL: u64 = 2;
 
@@ -291,7 +287,7 @@ where
     <P as ProviderFactory>::ProviderMut: MessagingCheckpointProvider + MutableProvider,
 {
     let db_tx = provider.provider_mut();
-    let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
+    let cp = db_tx.messaging_checkpoint().context("read messaging checkpoint")?;
     db_tx.commit().context("commit checkpoint read tx")?;
 
     Ok(match cp {
@@ -341,7 +337,7 @@ where
 {
     let db_tx = provider.provider_mut();
     db_tx.record_l1_to_l2(l1_tx_hash, l2_tx_hash)?;
-    db_tx.set_messaging_checkpoint(CHECKPOINT_ID, &MessagingCheckpoint { block, tx_index })?;
+    db_tx.set_messaging_checkpoint(&MessagingCheckpoint { block, tx_index })?;
     db_tx.commit()?;
     Ok(())
 }
@@ -423,12 +419,7 @@ mod tests {
 
         // Persist a checkpoint marking message at (block=100, tx_index=5) as fully processed.
         let db_tx = provider.provider_mut();
-        db_tx
-            .set_messaging_checkpoint(
-                CHECKPOINT_ID,
-                &MessagingCheckpoint { block: 100, tx_index: 5 },
-            )
-            .unwrap();
+        db_tx.set_messaging_checkpoint(&MessagingCheckpoint { block: 100, tx_index: 5 }).unwrap();
         db_tx.commit().unwrap();
 
         // The default from_block is intentionally far below the persisted checkpoint —
@@ -455,8 +446,7 @@ mod tests {
 
         let db_tx = provider.provider_mut();
         let mapped = db_tx.l2_txs_for_l1(&l1).unwrap();
-        let cp =
-            db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap().expect("checkpoint should exist");
+        let cp = db_tx.messaging_checkpoint().unwrap().expect("checkpoint should exist");
         db_tx.commit().unwrap();
 
         assert_eq!(mapped, vec![l2], "L1->L2 index entry should be written");
@@ -517,7 +507,7 @@ mod tests {
         commit_message(&provider, &l1, l2, 10, 2).unwrap();
 
         let db_tx = provider.provider_mut();
-        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap().expect("checkpoint");
+        let cp = db_tx.messaging_checkpoint().unwrap().expect("checkpoint");
         db_tx.commit().unwrap();
 
         assert_eq!(cp.block, 10, "checkpoint should reflect the latest committed message");

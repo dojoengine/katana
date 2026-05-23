@@ -286,7 +286,7 @@ mod checkpoint {
         // working — exercises reset in isolation.
         let factory = node.handle().node().provider();
         let tx = factory.provider_mut();
-        tx.set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 11, tx_index: 2 })
+        tx.set_messaging_checkpoint(&MessagingCheckpoint { block: 11, tx_index: 2 })
             .expect("set checkpoint");
         MutableProvider::commit(tx).expect("commit");
 

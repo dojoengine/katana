@@ -925,30 +925,33 @@ impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
     }
 }
 
+/// Key under which the singleton messaging checkpoint row is stored in the
+/// shared `MessagingCheckpoints` table. An implementation detail — the trait
+/// surface intentionally hides it.
+const MESSAGING_CHECKPOINT_KEY: &str = "messaging";
+
 impl<Tx: DbTxMut> MessagingCheckpointProvider for DbProvider<Tx> {
-    fn messaging_checkpoint(
-        &self,
-        id: &str,
-    ) -> ProviderResult<Option<messaging::MessagingCheckpoint>> {
-        let result = self.0.get::<tables::MessagingCheckpoints>(id.to_string())?;
+    fn messaging_checkpoint(&self) -> ProviderResult<Option<messaging::MessagingCheckpoint>> {
+        let result =
+            self.0.get::<tables::MessagingCheckpoints>(MESSAGING_CHECKPOINT_KEY.to_string())?;
         Ok(result.map(|c| messaging::MessagingCheckpoint { block: c.block, tx_index: c.tx_index }))
     }
 
     fn set_messaging_checkpoint(
         &self,
-        id: &str,
         checkpoint: &messaging::MessagingCheckpoint,
     ) -> ProviderResult<()> {
         let value = katana_db::models::stage::MessagingCheckpoint {
             block: checkpoint.block,
             tx_index: checkpoint.tx_index,
         };
-        self.0.put::<tables::MessagingCheckpoints>(id.to_string(), value)?;
+        self.0.put::<tables::MessagingCheckpoints>(MESSAGING_CHECKPOINT_KEY.to_string(), value)?;
         Ok(())
     }
 
-    fn delete_messaging_checkpoint(&self, id: &str) -> ProviderResult<()> {
-        self.0.delete::<tables::MessagingCheckpoints>(id.to_string(), None)?;
+    fn delete_messaging_checkpoint(&self) -> ProviderResult<()> {
+        self.0
+            .delete::<tables::MessagingCheckpoints>(MESSAGING_CHECKPOINT_KEY.to_string(), None)?;
         Ok(())
     }
 }
@@ -1258,17 +1261,15 @@ mod tests {
         let factory = create_db_provider();
         let provider = factory.provider_mut();
 
-        provider
-            .set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 42, tx_index: 3 })
-            .unwrap();
+        provider.set_messaging_checkpoint(&MessagingCheckpoint { block: 42, tx_index: 3 }).unwrap();
         provider.commit().unwrap();
 
         let provider = factory.provider_mut();
-        provider.delete_messaging_checkpoint("messaging").unwrap();
+        provider.delete_messaging_checkpoint().unwrap();
         provider.commit().unwrap();
 
         let provider = factory.provider_mut();
-        let cp = provider.messaging_checkpoint("messaging").unwrap();
+        let cp = provider.messaging_checkpoint().unwrap();
         assert!(cp.is_none(), "checkpoint row should be gone after delete");
     }
 
@@ -1279,43 +1280,12 @@ mod tests {
         let factory = create_db_provider();
         let provider = factory.provider_mut();
 
-        provider.delete_messaging_checkpoint("messaging").expect("delete of absent row succeeds");
+        provider.delete_messaging_checkpoint().expect("delete of absent row succeeds");
         provider.commit().unwrap();
 
         let provider = factory.provider_mut();
-        let cp = provider.messaging_checkpoint("messaging").unwrap();
+        let cp = provider.messaging_checkpoint().unwrap();
         assert!(cp.is_none());
-    }
-
-    /// The checkpoints table is keyed by a free-form `id` (multi-tenant). Deleting
-    /// `"messaging"` must not touch rows under other ids — this is what lets a
-    /// single table host distinct workflows safely.
-    #[test]
-    fn delete_messaging_checkpoint_preserves_other_ids() {
-        use katana_provider_api::messaging::{MessagingCheckpoint, MessagingCheckpointProvider};
-
-        let factory = create_db_provider();
-
-        let provider = factory.provider_mut();
-        provider
-            .set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 1, tx_index: 0 })
-            .unwrap();
-        provider
-            .set_messaging_checkpoint("other", &MessagingCheckpoint { block: 99, tx_index: 7 })
-            .unwrap();
-        provider.commit().unwrap();
-
-        let provider = factory.provider_mut();
-        provider.delete_messaging_checkpoint("messaging").unwrap();
-        provider.commit().unwrap();
-
-        let provider = factory.provider_mut();
-        let messaging_cp = provider.messaging_checkpoint("messaging").unwrap();
-        let other_cp = provider.messaging_checkpoint("other").unwrap();
-        assert!(messaging_cp.is_none(), "deleted id is gone");
-        let other_cp = other_cp.expect("other id is untouched");
-        assert_eq!(other_cp.block, 99);
-        assert_eq!(other_cp.tx_index, 7);
     }
 
     /// set → delete → set must leave the table in a usable state, ending with
@@ -1328,23 +1298,19 @@ mod tests {
         let factory = create_db_provider();
 
         let provider = factory.provider_mut();
-        provider
-            .set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 1, tx_index: 1 })
-            .unwrap();
+        provider.set_messaging_checkpoint(&MessagingCheckpoint { block: 1, tx_index: 1 }).unwrap();
         provider.commit().unwrap();
 
         let provider = factory.provider_mut();
-        provider.delete_messaging_checkpoint("messaging").unwrap();
+        provider.delete_messaging_checkpoint().unwrap();
         provider.commit().unwrap();
 
         let provider = factory.provider_mut();
-        provider
-            .set_messaging_checkpoint("messaging", &MessagingCheckpoint { block: 9, tx_index: 4 })
-            .unwrap();
+        provider.set_messaging_checkpoint(&MessagingCheckpoint { block: 9, tx_index: 4 }).unwrap();
         provider.commit().unwrap();
 
         let provider = factory.provider_mut();
-        let cp = provider.messaging_checkpoint("messaging").unwrap().expect("final set visible");
+        let cp = provider.messaging_checkpoint().unwrap().expect("final set visible");
         assert_eq!(cp.block, 9);
         assert_eq!(cp.tx_index, 4);
     }

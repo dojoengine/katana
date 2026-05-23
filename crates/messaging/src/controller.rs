@@ -11,7 +11,6 @@ use katana_provider::{MutableProvider, ProviderFactory, ProviderRW, ProviderResu
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::service::CHECKPOINT_ID;
 use crate::LOG_TARGET;
 
 /// Signal sent from the controller to the drain task: rewind the in-memory
@@ -53,7 +52,7 @@ where
     /// reads on boot.
     pub fn get_checkpoint(&self) -> ProviderResult<Option<MessagingCheckpoint>> {
         let db_tx = self.provider.provider_mut();
-        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID)?;
+        let cp = db_tx.messaging_checkpoint()?;
         MutableProvider::commit(db_tx)?;
         Ok(cp)
     }
@@ -63,7 +62,7 @@ where
     pub async fn set_checkpoint(&self, block: u64, tx_index: u64) -> anyhow::Result<()> {
         let db_tx = self.provider.provider_mut();
         db_tx
-            .set_messaging_checkpoint(CHECKPOINT_ID, &MessagingCheckpoint { block, tx_index })
+            .set_messaging_checkpoint(&MessagingCheckpoint { block, tx_index })
             .context("set messaging checkpoint")?;
         MutableProvider::commit(db_tx).context("commit checkpoint write")?;
 
@@ -90,7 +89,7 @@ where
     /// when no checkpoint exists).
     pub async fn reset_checkpoint(&self) -> anyhow::Result<()> {
         let db_tx = self.provider.provider_mut();
-        db_tx.delete_messaging_checkpoint(CHECKPOINT_ID).context("delete messaging checkpoint")?;
+        db_tx.delete_messaging_checkpoint().context("delete messaging checkpoint")?;
         MutableProvider::commit(db_tx).context("commit checkpoint delete")?;
 
         let signal = RewindSignal { from_block: self.default_from_block, from_tx_index: 0 };
@@ -252,12 +251,7 @@ mod tests {
         let controller = MessagingController::new(provider.clone(), 0, tx);
 
         let db_tx = provider.provider_mut();
-        db_tx
-            .set_messaging_checkpoint(
-                CHECKPOINT_ID,
-                &MessagingCheckpoint { block: 77, tx_index: 9 },
-            )
-            .unwrap();
+        db_tx.set_messaging_checkpoint(&MessagingCheckpoint { block: 77, tx_index: 9 }).unwrap();
         MutableProvider::commit(db_tx).unwrap();
 
         let cp = controller.get_checkpoint().unwrap().expect("controller observes committed write");
