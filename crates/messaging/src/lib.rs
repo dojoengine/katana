@@ -19,6 +19,7 @@ pub mod stream;
 use futures::Stream;
 use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
+pub use service::{MessagingService, MessagingServiceHandle};
 use url::Url;
 
 use crate::stream::collector::OrderedMessage;

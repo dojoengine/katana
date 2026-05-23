@@ -40,9 +40,9 @@ const DEFAULT_INTERVAL: u64 = 2;
 /// ([`settlement`](Self::settlement), [`interval`](Self::interval),
 /// [`from_block`](Self::from_block), [`confirmation_depth`](Self::confirmation_depth))
 /// before calling [`start`](Self::start).
-pub struct MessagingService<P> {
+pub struct MessagingService<P, Pl = TxPool> {
     chain_id: ChainId,
-    pool: TxPool,
+    pool: Pl,
     provider: P,
 
     settlement: SettlementChainConfig,
@@ -51,14 +51,14 @@ pub struct MessagingService<P> {
     confirmation_depth: u64,
 }
 
-impl<P> MessagingService<P> {
+impl<P, Pl> MessagingService<P, Pl> {
     /// Create a new messaging server with no settlement configured.
     ///
     /// A settlement chain must be set via [`settlement`](Self::settlement)
     /// before [`start`](Self::start) can be called.
     pub fn new(
         chain_id: ChainId,
-        pool: TxPool,
+        pool: Pl,
         provider: P,
         settlement: SettlementChainConfig,
     ) -> Self {
@@ -95,11 +95,12 @@ impl<P> MessagingService<P> {
     }
 }
 
-impl<P> MessagingService<P>
+impl<P, Pl> MessagingService<P, Pl>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::ProviderMut:
         ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
+    Pl: TransactionPool<Transaction = ExecutableTxWithHash> + Clone + Send + Sync + 'static,
 {
     /// Start the messaging server.
     ///
@@ -254,13 +255,13 @@ where
     })
 }
 
-impl<P> std::fmt::Debug for MessagingService<P> {
+impl<P, Pl> std::fmt::Debug for MessagingService<P, Pl> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MessagingServer").finish_non_exhaustive()
     }
 }
 
-impl<P: Clone> Clone for MessagingService<P> {
+impl<P: Clone, Pl: Clone> Clone for MessagingService<P, Pl> {
     fn clone(&self) -> Self {
         Self {
             chain_id: self.chain_id,
