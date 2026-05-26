@@ -17,7 +17,24 @@ use trigger::MessageTrigger;
 
 use crate::{MessagingOutcome, LOG_TARGET};
 
-/// Maximum number of blocks to fetch in a single gather call.
+/// Maximum number of blocks to scan per gather call.
+///
+/// Gathering is chunked by block range instead of querying `[from_block, latest]`
+/// in one shot because of how settlement RPCs bound a single query:
+///
+/// - Ethereum `eth_getLogs` has no pagination in the JSON-RPC spec (no continuation token), so an
+///   over-large range fails wholesale with no way to resume mid-range. Providers cap a single query
+///   well below all of history — commonly ~2k blocks or ~10k logs (Alchemy, Infura), with free
+///   tiers far lower (Alchemy 10 blocks, QuickNode trial 5, Cloudflare 128). Chunking the range
+///   client-side is the only portable way to stay under every cap.
+/// - Starknet `starknet_getEvents` *does* paginate (continuation token), and the Starknet collector
+///   already drains arbitrary ranges that way; there this cap only bounds per-gather memory and
+///   work.
+///
+/// 200 is deliberately conservative: under every paid-tier block-range cap and
+/// below typical log-count caps, trading extra round-trips for near-universal
+/// provider compatibility. Catch-up speed doesn't depend on a larger value —
+/// capped chunks are drained back-to-back without waiting for the trigger.
 const MAX_BLOCKS_PER_GATHER: u64 = 200;
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
