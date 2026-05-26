@@ -74,13 +74,10 @@ where
         // RPC accepts any `u64`. Without saturation, debug builds would panic and
         // release builds would silently wrap to 0 (re-gathering the whole block).
         let signal = RewindSignal { from_block: block, from_tx_index: tx_index.saturating_add(1) };
-        if let Err(e) = self.rewind_tx.send(signal).await {
-            warn!(
-                target: LOG_TARGET,
-                error = %e,
-                "Failed to send rewind signal; DB checkpoint persisted, will be picked up on next start.",
-            );
+        if let Err(error) = self.rewind_tx.send(signal).await {
+            warn!(target: LOG_TARGET, %error, "Failed to send rewind signal; DB checkpoint persisted, will be picked up on next start.");
         }
+
         Ok(())
     }
 
@@ -93,13 +90,10 @@ where
         MutableProvider::commit(db_tx).context("commit checkpoint delete")?;
 
         let signal = RewindSignal { from_block: self.default_from_block, from_tx_index: 0 };
-        if let Err(e) = self.rewind_tx.send(signal).await {
-            warn!(
-                target: LOG_TARGET,
-                error = %e,
-                "Failed to send rewind signal; DB checkpoint deleted, will be picked up on next start.",
-            );
+        if let Err(error) = self.rewind_tx.send(signal).await {
+            warn!(target: LOG_TARGET, %error, "Failed to send rewind signal; DB checkpoint deleted, will be picked up on next start.");
         }
+
         Ok(())
     }
 }
