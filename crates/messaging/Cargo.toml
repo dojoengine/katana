@@ -38,4 +38,14 @@ alloy-rpc-types-eth = { workspace = true, default-features = false }
 alloy-transport = { workspace = true, default-features = false }
 
 [dev-dependencies]
+katana-contracts.workspace = true
+katana-utils = { workspace = true, features = [ "node" ] }
+
+alloy-node-bindings = "1.0.24"
+alloy-provider = { workspace = true, default-features = false, features = [ "anvil-node", "reqwest", "reqwest-rustls-tls" ] }
+
+cainome.workspace = true
+cairo-lang-starknet-classes.workspace = true
 parking_lot.workspace = true
+rand.workspace = true
+serde_json.workspace = true
