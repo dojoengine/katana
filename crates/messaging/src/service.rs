@@ -158,72 +158,9 @@ where
 
                             Some(MessagingOutcome { settlement_block, messages }) => {
                                 let total_messages = messages.len();
-                                let mut inserted: usize = 0;
-
-                                // Mark the whole batch as pending the moment it's gathered.
-                                // Each entry is removed below once its pool insert succeeds;
-                                // any left over after an error-break stays pending and is
-                                // reconciled (overwritten by key) on the next gather.
-                                pending_for_task.insert_batch(&messages);
-
-                                for msg in messages {
-                                    let hash = msg.tx.calculate_hash();
-                                    info!(target: LOG_TARGET, tx_hash = %format!("{:#x}", hash), "L1Handler transaction added to the pool.");
-
-                                    let pool_tx = ExecutableTxWithHash { hash, transaction: msg.tx.into() };
-                                    let insert_result = pool.add_transaction(pool_tx).await;
-
-                                    match insert_result {
-                                        Ok(_) => {
-                                            inserted += 1;
-
-                                            // Accepted by the pool: no longer pending.
-                                            pending_for_task.remove(msg.block, msg.tx_index);
-
-                                            // Atomically persist the L1->L2 index entry and the
-                                            // checkpoint in a single DB transaction. If either
-                                            // write or the commit fails, NEITHER is persisted —
-                                            // on restart we'll re-gather and re-attempt. Splitting
-                                            // these previously meant a failed index write paired
-                                            // with a successful checkpoint write would silently
-                                            // drop the L1->L2 mapping forever.
-                                            if let Err(error) = commit_message(
-                                                &provider,
-                                                &msg.l1_tx_hash,
-                                                hash,
-                                                msg.block,
-                                                msg.tx_index,
-                                            ) {
-                                                warn!(
-                                                    target: LOG_TARGET,
-                                                    %error,
-                                                    block = msg.block,
-                                                    tx_index = msg.tx_index,
-                                                    tx_hash = %format!("{hash:#x}"),
-                                                    "Failed to commit messaging state; aborting batch, will retry on next gather.",
-                                                );
-                                                break;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            warn!(
-                                                target: LOG_TARGET,
-                                                error = %e,
-                                                block = msg.block,
-                                                tx_index = msg.tx_index,
-                                                tx_hash = %format!("{hash:#x}"),
-                                                "Failed to add L1Handler transaction to pool; will retry on next gather.",
-                                            );
-
-                                            // Stop processing this batch. The stream's cursor
-                                            // was already advanced past the current gather range;
-                                            // the retry for this message will rely on the pool's
-                                            // hash-level deduplication of successful inserts and
-                                            // re-gather on the next tick.
-                                            break;
-                                        }
-                                    }
-                                }
+                                let inserted =
+                                    process_batch(messages, &pool, &provider, &pending_for_task)
+                                        .await;
 
                                 if inserted > 0 {
                                     info!(
@@ -288,6 +225,88 @@ impl<P: Clone, Pl: Clone> Clone for MessagingService<P, Pl> {
             confirmation_depth: self.confirmation_depth,
         }
     }
+}
+
+/// Process one gathered batch: mark every message pending, then insert each into
+/// the pool in order, removing it from the pending set and atomically persisting
+/// its L1->L2 index entry + checkpoint the moment the pool accepts it.
+///
+/// Returns the number of messages inserted. On the first pool insert or commit
+/// failure the batch is abandoned: the offending message and the untouched tail
+/// stay pending and are re-gathered (and overwritten by position) on the next
+/// tick. The stream cursor only advances for committed messages.
+async fn process_batch<P, Pl>(
+    messages: Vec<OrderedMessage>,
+    pool: &Pl,
+    provider: &P,
+    pending: &PendingMessages,
+) -> usize
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut:
+        MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
+    Pl: TransactionPool<Transaction = ExecutableTxWithHash>,
+{
+    let mut inserted: usize = 0;
+
+    // Mark the whole batch as pending the moment it's gathered. Each entry is
+    // removed below once its pool insert succeeds; any left over after an
+    // error-break stays pending and is reconciled (overwritten by key) on the
+    // next gather.
+    pending.insert_batch(&messages);
+
+    for msg in messages {
+        let hash = msg.tx.calculate_hash();
+        info!(target: LOG_TARGET, tx_hash = %format!("{hash:#x}"), "L1Handler transaction added to the pool.");
+
+        let pool_tx = ExecutableTxWithHash { hash, transaction: msg.tx.into() };
+
+        match pool.add_transaction(pool_tx).await {
+            Ok(_) => {
+                inserted += 1;
+
+                // Accepted by the pool: no longer pending.
+                pending.remove(msg.block, msg.tx_index);
+
+                // Atomically persist the L1->L2 index entry and the checkpoint in a
+                // single DB transaction. If either write or the commit fails, NEITHER
+                // is persisted — on restart we'll re-gather and re-attempt. Splitting
+                // these previously meant a failed index write paired with a successful
+                // checkpoint write would silently drop the L1->L2 mapping forever.
+                if let Err(error) =
+                    commit_message(provider, &msg.l1_tx_hash, hash, msg.block, msg.tx_index)
+                {
+                    warn!(
+                        target: LOG_TARGET,
+                        %error,
+                        block = msg.block,
+                        tx_index = msg.tx_index,
+                        tx_hash = %format!("{hash:#x}"),
+                        "Failed to commit messaging state; aborting batch, will retry on next gather.",
+                    );
+                    break;
+                }
+            }
+            Err(e) => {
+                warn!(
+                    target: LOG_TARGET,
+                    error = %e,
+                    block = msg.block,
+                    tx_index = msg.tx_index,
+                    tx_hash = %format!("{hash:#x}"),
+                    "Failed to add L1Handler transaction to pool; will retry on next gather.",
+                );
+
+                // Stop processing this batch. The stream's cursor was already advanced
+                // past the current gather range; the retry for this message will rely
+                // on the pool's hash-level deduplication of successful inserts and
+                // re-gather on the next tick.
+                break;
+            }
+        }
+    }
+
+    inserted
 }
 
 /// Atomically record the L1->L2 mapping and advance the checkpoint inside a single
@@ -420,11 +439,61 @@ impl MessagingServiceHandle {
 
 #[cfg(test)]
 mod tests {
-    use katana_primitives::Felt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use katana_pool::api::validation::{
+        InvalidTransactionError, ValidationOutcome, ValidationResult, Validator,
+    };
+    use katana_pool::ordering::FiFo;
+    use katana_pool::pool::Pool;
+    use katana_pool::validation::NoopValidator;
+    use katana_primitives::{ContractAddress, Felt};
     use katana_provider::api::messaging::MessagingL1ToL2IndexProvider;
     use katana_provider::DbProviderFactory;
 
     use super::*;
+
+    /// A validator that rejects every transaction, so `pool.add_transaction`
+    /// always returns `Err` — used to drive `process_batch`'s pool-failure path.
+    #[derive(Debug)]
+    struct RejectingValidator;
+
+    impl Validator for RejectingValidator {
+        type Transaction = ExecutableTxWithHash;
+
+        async fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
+            Ok(ValidationOutcome::Invalid {
+                tx,
+                error: InvalidTransactionError::NonAccount { address: ContractAddress::default() },
+            })
+        }
+    }
+
+    /// A validator that accepts the first `accept` transactions and rejects the
+    /// rest — used to drive the partial-failure path where some of a batch lands
+    /// in the pool and the remainder stays pending.
+    #[derive(Debug)]
+    struct AcceptThenReject {
+        accept: usize,
+        seen: AtomicUsize,
+    }
+
+    impl Validator for AcceptThenReject {
+        type Transaction = ExecutableTxWithHash;
+
+        async fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
+            if self.seen.fetch_add(1, Ordering::SeqCst) < self.accept {
+                Ok(ValidationOutcome::Valid(tx))
+            } else {
+                Ok(ValidationOutcome::Invalid {
+                    tx,
+                    error: InvalidTransactionError::NonAccount {
+                        address: ContractAddress::default(),
+                    },
+                })
+            }
+        }
+    }
 
     /// Builds a stub `OrderedMessage` whose tx internals don't matter — the buffer
     /// only keys on `(block, tx_index)`. `nonce` is varied so distinct positions
@@ -618,5 +687,74 @@ mod tests {
         let entry = pending.snapshot().pop().expect("one pending entry");
         assert_eq!(entry.l1_tx_hash, [0xab; 32]);
         assert_eq!(entry.l2_tx_hash, expected_l2);
+    }
+
+    /// The happy path: every message in the batch is accepted by the pool, so the
+    /// pending set ends empty, both txs land in the pool, and the checkpoint
+    /// advances to the last committed message.
+    #[tokio::test]
+    async fn process_batch_inserts_all_and_clears_pending_when_pool_accepts() {
+        let pool = Pool::new(NoopValidator::new(), FiFo::new());
+        let provider = DbProviderFactory::new_in_memory();
+        let pending = PendingMessages::default();
+
+        let inserted = process_batch(vec![msg(5, 0), msg(5, 1)], &pool, &provider, &pending).await;
+
+        assert_eq!(inserted, 2, "both messages should be accepted by the pool");
+        assert!(pending.is_empty(), "accepted messages must leave the pending set");
+        assert_eq!(pool.size(), 2, "both L1Handler txs should be in the pool");
+
+        let db_tx = provider.provider_mut();
+        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap().expect("checkpoint");
+        db_tx.commit().unwrap();
+        assert_eq!((cp.block, cp.tx_index), (5, 1), "checkpoint advances to the last commit");
+    }
+
+    /// The feature's reason for existing: when the pool rejects, the message was
+    /// picked up from settlement but never pooled, so it must remain queryable as
+    /// pending. The first reject aborts the batch, leaving the untouched tail
+    /// pending too, and nothing is committed.
+    #[tokio::test]
+    async fn process_batch_keeps_messages_pending_when_pool_rejects() {
+        let pool = Pool::new(RejectingValidator, FiFo::new());
+        let provider = DbProviderFactory::new_in_memory();
+        let pending = PendingMessages::default();
+
+        let inserted = process_batch(vec![msg(9, 0), msg(9, 1)], &pool, &provider, &pending).await;
+
+        assert_eq!(inserted, 0, "a rejecting pool inserts nothing");
+        assert_eq!(pool.size(), 0);
+
+        let positions: Vec<_> = pending.snapshot().iter().map(|m| (m.block, m.tx_index)).collect();
+        assert_eq!(positions, vec![(9, 0), (9, 1)], "rejected messages stay pending");
+
+        let db_tx = provider.provider_mut();
+        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap();
+        db_tx.commit().unwrap();
+        assert!(cp.is_none(), "nothing is committed when nothing is pooled");
+    }
+
+    /// Partial failure: the pool accepts the first message and rejects the second.
+    /// The accepted one leaves the pending set and advances the checkpoint; the
+    /// rejected one stays pending, so a query surfaces exactly the un-pooled tail.
+    #[tokio::test]
+    async fn process_batch_keeps_only_the_unpooled_tail_pending_on_partial_failure() {
+        let pool =
+            Pool::new(AcceptThenReject { accept: 1, seen: AtomicUsize::new(0) }, FiFo::new());
+        let provider = DbProviderFactory::new_in_memory();
+        let pending = PendingMessages::default();
+
+        let inserted = process_batch(vec![msg(3, 0), msg(3, 1)], &pool, &provider, &pending).await;
+
+        assert_eq!(inserted, 1, "only the first message is accepted");
+        assert_eq!(pool.size(), 1);
+
+        let positions: Vec<_> = pending.snapshot().iter().map(|m| (m.block, m.tx_index)).collect();
+        assert_eq!(positions, vec![(3, 1)], "only the un-pooled message stays pending");
+
+        let db_tx = provider.provider_mut();
+        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap().expect("checkpoint");
+        db_tx.commit().unwrap();
+        assert_eq!((cp.block, cp.tx_index), (3, 0), "checkpoint stops at the one commit");
     }
 }
