@@ -29,7 +29,15 @@ enum MessageStreamPhase<E> {
     /// Fetching the latest block number from the settlement chain.
     CheckingBlock(BoxFuture<Result<BlockNumber, E>>),
     /// Fetching messages from a known block range.
-    Gathering(BoxFuture<Result<GatherResult, E>>),
+    Gathering {
+        fut: BoxFuture<Result<GatherResult, E>>,
+        /// `true` when this gather was capped by [`MAX_BLOCKS_PER_GATHER`] below
+        /// the safe head — i.e. confirmed blocks remain past `to_block`. The
+        /// stream re-checks and gathers the next chunk immediately instead of
+        /// waiting for the trigger, so a far-behind cursor catches up at RPC
+        /// speed rather than `MAX_BLOCKS_PER_GATHER` per trigger tick.
+        more_pending: bool,
+    },
 }
 
 /// A message stream that composes a collector ("how") and a trigger ("when").
@@ -169,6 +177,10 @@ where
                         }
 
                         let to_block = Self::to_block(this.from_block, safe_head);
+                        // Confirmed blocks remain past this gather's range when the
+                        // chunk was capped below the safe head; drive the next chunk
+                        // without waiting for the trigger.
+                        let more_pending = to_block < safe_head;
                         trace!(
                             target: LOG_TARGET,
                             from_block = this.from_block,
@@ -176,6 +188,7 @@ where
                             to_block,
                             latest_block,
                             safe_head,
+                            more_pending,
                             "New blocks detected, gathering messages."
                         );
 
@@ -184,9 +197,14 @@ where
                         let from_tx_index = this.from_tx_index;
                         let chain_id = this.chain_id;
 
-                        this.phase = MessageStreamPhase::Gathering(Box::pin(async move {
-                            collector.gather(from_block, from_tx_index, to_block, chain_id).await
-                        }));
+                        this.phase = MessageStreamPhase::Gathering {
+                            fut: Box::pin(async move {
+                                collector
+                                    .gather(from_block, from_tx_index, to_block, chain_id)
+                                    .await
+                            }),
+                            more_pending,
+                        };
                     }
 
                     Poll::Ready(Err(error)) => {
@@ -197,41 +215,59 @@ where
                     }
                 },
 
-                MessageStreamPhase::Gathering(fut) => match fut.poll_unpin(cx) {
-                    Poll::Pending => return Poll::Pending,
+                MessageStreamPhase::Gathering { fut, more_pending } => {
+                    let more_pending = *more_pending;
+                    match fut.poll_unpin(cx) {
+                        Poll::Pending => return Poll::Pending,
 
-                    Poll::Ready(Ok(result)) => {
-                        // Advance cursor past the fully-inspected range. The server
-                        // checkpoints per-message, so this bulk advance is safe: any
-                        // crash between the cursor advance here and the next gather
-                        // will re-gather this range and the server will skip already-
-                        // processed messages via pool hash dedupe.
-                        this.from_block = result.to_block + 1;
-                        this.from_tx_index = 0;
-                        this.phase = MessageStreamPhase::Idle;
+                        Poll::Ready(Ok(result)) => {
+                            // Advance cursor past the fully-inspected range. The server
+                            // checkpoints per-message, so this bulk advance is safe: any
+                            // crash between the cursor advance here and the next gather
+                            // will re-gather this range and the server will skip already-
+                            // processed messages via pool hash dedupe.
+                            this.from_block = result.to_block + 1;
+                            this.from_tx_index = 0;
 
-                        trace!(
-                            target: LOG_TARGET,
-                            from_block = this.from_block,
-                            from_tx_index = this.from_tx_index,
-                            to_block = result.to_block,
-                            messages_count = result.messages.len(),
-                            "Messages gathered successfully."
-                        );
+                            // While still behind the safe head, re-check and gather the
+                            // next chunk immediately rather than waiting for the trigger.
+                            // Re-checking (vs. reusing a snapshot) keeps the safe head
+                            // fresh as the chain advances during a long catch-up. Once a
+                            // gather reaches the safe head, fall back to trigger polling.
+                            if more_pending {
+                                let collector = this.collector.clone();
+                                this.phase =
+                                    MessageStreamPhase::CheckingBlock(Box::pin(async move {
+                                        collector.latest_block().await
+                                    }));
+                            } else {
+                                this.phase = MessageStreamPhase::Idle;
+                            }
 
-                        return Poll::Ready(Some(MessagingOutcome {
-                            settlement_block: result.to_block,
-                            messages: result.messages,
-                        }));
+                            trace!(
+                                target: LOG_TARGET,
+                                from_block = this.from_block,
+                                from_tx_index = this.from_tx_index,
+                                to_block = result.to_block,
+                                messages_count = result.messages.len(),
+                                more_pending,
+                                "Messages gathered successfully."
+                            );
+
+                            return Poll::Ready(Some(MessagingOutcome {
+                                settlement_block: result.to_block,
+                                messages: result.messages,
+                            }));
+                        }
+
+                        Poll::Ready(Err(error)) => {
+                            error!(target: LOG_TARGET, block = %this.from_block, %error, "Gathering messages for block.");
+                            this.phase = MessageStreamPhase::Idle;
+                            // Re-poll the trigger so a waker is registered for the next tick.
+                            continue;
+                        }
                     }
-
-                    Poll::Ready(Err(error)) => {
-                        error!(target: LOG_TARGET, block = %this.from_block, %error, "Gathering messages for block.");
-                        this.phase = MessageStreamPhase::Idle;
-                        // Re-poll the trigger so a waker is registered for the next tick.
-                        continue;
-                    }
-                },
+                }
             }
         }
     }
@@ -569,6 +605,75 @@ mod tests {
         let calls = collector.gather_calls();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].to_block, MAX_BLOCKS_PER_GATHER);
+    }
+
+    // -------------------------------------------------------------------------
+    // Catch-up: drain capped chunks back-to-back without waiting for the trigger
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn catches_up_back_to_back_without_waiting_for_trigger() {
+        // from_block far behind a safe head of 1000 (depth 0). Each gather caps at
+        // MAX_BLOCKS_PER_GATHER, so the stream must re-check and gather the next
+        // chunk immediately rather than parking until the next trigger tick.
+        let safe_head = 1000;
+        let (mut stream, collector, trigger) = build(0, 0, 0);
+
+        let m = MAX_BLOCKS_PER_GATHER;
+        // (from_block, to_block) for three consecutive capped chunks.
+        let chunks = [(0, m), (m + 1, 2 * m + 1), (2 * m + 2, 3 * m + 2)];
+        for (_, to) in chunks {
+            collector.push_latest_block(Ok(safe_head));
+            collector.push_gather(Ok(GatherResult { to_block: to, messages: vec![] }));
+        }
+
+        // A SINGLE trigger tick.
+        trigger.fire();
+
+        // All three chunks must come through with no further trigger fires.
+        for (_, to) in chunks {
+            let outcome = tokio::time::timeout(SHORT, stream.next())
+                .await
+                .expect("chunk yielded without waiting for the trigger")
+                .expect("stream yielded");
+            assert_eq!(outcome.settlement_block, to);
+        }
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 3, "three chunks drained from a single trigger tick");
+        for (i, (from, to)) in chunks.iter().enumerate() {
+            assert_eq!(calls[i].from_block, *from, "chunk {i} from_block");
+            assert_eq!(calls[i].to_block, *to, "chunk {i} to_block");
+        }
+    }
+
+    #[tokio::test]
+    async fn stops_catching_up_at_safe_head_and_waits_for_trigger() {
+        // safe_head = 150 < MAX_BLOCKS_PER_GATHER: the first gather reaches the safe
+        // head in one (uncapped) chunk, so the stream must return to Idle and not
+        // gather again until the next trigger fire.
+        let (mut stream, collector, trigger) = build(0, 0, 0);
+        collector.push_latest_block(Ok(150));
+        collector.push_gather(Ok(GatherResult { to_block: 150, messages: vec![] }));
+
+        trigger.fire();
+        let outcome = stream.next().await.expect("stream yielded");
+        assert_eq!(outcome.settlement_block, 150);
+
+        // Even with the next chunk's responses queued, no gather happens until the
+        // trigger fires again — proving catch-up stops at the safe head.
+        collector.push_latest_block(Ok(300));
+        collector.push_gather(Ok(GatherResult { to_block: 300, messages: vec![] }));
+        assert_no_yield(&mut stream).await;
+        assert_eq!(collector.gather_calls().len(), 1, "no further gather without a trigger tick");
+
+        trigger.fire();
+        let outcome = tokio::time::timeout(SHORT, stream.next())
+            .await
+            .expect("woke on the next trigger tick")
+            .expect("stream yielded");
+        assert_eq!(outcome.settlement_block, 300);
+        assert_eq!(collector.gather_calls().len(), 2);
     }
 
     // -------------------------------------------------------------------------
