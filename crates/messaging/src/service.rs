@@ -1,9 +1,12 @@
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+
 use anyhow::Context;
 use futures::StreamExt;
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
 use katana_primitives::chain::ChainId;
-use katana_primitives::transaction::{ExecutableTxWithHash, TxHash};
+use katana_primitives::transaction::{ExecutableTxWithHash, L1HandlerTx, TxHash};
 use katana_provider::api::messaging::{
     MessagingCheckpoint, MessagingCheckpointProvider, MessagingL1ToL2IndexWriter,
 };
@@ -14,6 +17,7 @@ use tracing::{info, warn};
 
 use crate::stream::collector::ethereum::EthereumCollector;
 use crate::stream::collector::starknet::StarknetCollector;
+use crate::stream::collector::OrderedMessage;
 use crate::stream::trigger::IntervalTrigger;
 use crate::stream::MessageStream;
 use crate::{MessagingOutcome, Messenger, SettlementChainConfig, LOG_TARGET};
@@ -139,6 +143,8 @@ where
 
         let pool = self.pool.clone();
         let provider = self.provider.clone();
+        let pending = PendingMessages::default();
+        let pending_for_task = pending.clone();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         let task_handle = tokio::spawn(async move {
@@ -154,6 +160,12 @@ where
                                 let total_messages = messages.len();
                                 let mut inserted: usize = 0;
 
+                                // Mark the whole batch as pending the moment it's gathered.
+                                // Each entry is removed below once its pool insert succeeds;
+                                // any left over after an error-break stays pending and is
+                                // reconciled (overwritten by key) on the next gather.
+                                pending_for_task.insert_batch(&messages);
+
                                 for msg in messages {
                                     let hash = msg.tx.calculate_hash();
                                     info!(target: LOG_TARGET, tx_hash = %format!("{:#x}", hash), "L1Handler transaction added to the pool.");
@@ -164,6 +176,9 @@ where
                                     match insert_result {
                                         Ok(_) => {
                                             inserted += 1;
+
+                                            // Accepted by the pool: no longer pending.
+                                            pending_for_task.remove(msg.block, msg.tx_index);
 
                                             // Atomically persist the L1->L2 index entry and the
                                             // checkpoint in a single DB transaction. If either
@@ -232,7 +247,7 @@ where
 
         info!(target: LOG_TARGET, "Messaging service started.");
 
-        Ok(MessagingServiceHandle { shutdown_tx: Some(shutdown_tx), task_handle })
+        Ok(MessagingServiceHandle { shutdown_tx: Some(shutdown_tx), task_handle, pending })
     }
 }
 
@@ -296,10 +311,82 @@ where
     Ok(())
 }
 
+/// A message that has been gathered from the settlement chain but not yet
+/// accepted by the transaction pool.
+#[derive(Debug, Clone)]
+pub struct PendingMessage {
+    /// The settlement block the message was emitted in.
+    pub block: u64,
+    /// The transaction index within `block`.
+    pub tx_index: u64,
+    /// The settlement-chain transaction hash that emitted the originating event/log.
+    pub l1_tx_hash: [u8; 32],
+    /// The hash of the L2 `L1Handler` transaction this message will become.
+    pub l2_tx_hash: TxHash,
+    /// The `L1Handler` transaction converted from the settlement-chain event.
+    pub tx: L1HandlerTx,
+}
+
+/// Volatile, in-memory registry of messages that have been gathered from the
+/// settlement chain but not yet accepted by the transaction pool.
+///
+/// A message is inserted the moment its batch is gathered ("picked up") and
+/// removed the instant the pool accepts it. Entries are keyed by their
+/// `(block, tx_index)` position, so a message re-gathered after a failed pool
+/// insert overwrites its prior entry rather than duplicating it.
+///
+/// This state is intentionally volatile: it is created fresh on each
+/// [`MessagingService::start`] and discarded on shutdown. It reflects only the
+/// in-flight window of the currently running drain loop, never history.
+#[derive(Debug, Clone, Default)]
+pub struct PendingMessages {
+    inner: Arc<Mutex<BTreeMap<(u64, u64), PendingMessage>>>,
+}
+
+impl PendingMessages {
+    /// Mark every message in a freshly gathered batch as pending.
+    fn insert_batch(&self, messages: &[OrderedMessage]) {
+        let mut guard = self.inner.lock().expect("pending messages lock poisoned");
+        for msg in messages {
+            guard.insert(
+                (msg.block, msg.tx_index),
+                PendingMessage {
+                    block: msg.block,
+                    tx_index: msg.tx_index,
+                    l1_tx_hash: msg.l1_tx_hash,
+                    l2_tx_hash: msg.tx.calculate_hash(),
+                    tx: msg.tx.clone(),
+                },
+            );
+        }
+    }
+
+    /// Drop the entry for a message the pool has accepted.
+    fn remove(&self, block: u64, tx_index: u64) {
+        self.inner.lock().expect("pending messages lock poisoned").remove(&(block, tx_index));
+    }
+
+    /// Snapshot the currently pending messages, ordered by `(block, tx_index)`.
+    pub fn snapshot(&self) -> Vec<PendingMessage> {
+        self.inner.lock().expect("pending messages lock poisoned").values().cloned().collect()
+    }
+
+    /// The number of messages currently pending.
+    pub fn len(&self) -> usize {
+        self.inner.lock().expect("pending messages lock poisoned").len()
+    }
+
+    /// Whether there are no pending messages.
+    pub fn is_empty(&self) -> bool {
+        self.inner.lock().expect("pending messages lock poisoned").is_empty()
+    }
+}
+
 /// Handle to a running messaging server, providing lifecycle control.
 pub struct MessagingServiceHandle {
     shutdown_tx: Option<oneshot::Sender<()>>,
     task_handle: JoinHandle<()>,
+    pending: PendingMessages,
 }
 
 impl std::fmt::Debug for MessagingServiceHandle {
@@ -320,6 +407,15 @@ impl MessagingServiceHandle {
     pub async fn stopped(self) {
         let _ = self.task_handle.await;
     }
+
+    /// Snapshot the messages gathered from the settlement chain but not yet
+    /// accepted by the transaction pool, ordered by `(block, tx_index)`.
+    ///
+    /// This is a point-in-time view of volatile in-memory state; an empty result
+    /// means nothing is currently in flight, not that no messages were ever seen.
+    pub fn pending_messages(&self) -> Vec<PendingMessage> {
+        self.pending.snapshot()
+    }
 }
 
 #[cfg(test)]
@@ -329,6 +425,23 @@ mod tests {
     use katana_provider::DbProviderFactory;
 
     use super::*;
+
+    /// Builds a stub `OrderedMessage` whose tx internals don't matter — the buffer
+    /// only keys on `(block, tx_index)`. `nonce` is varied so distinct positions
+    /// produce distinct computed L2 hashes, letting tests tell entries apart.
+    fn msg(block: u64, tx_index: u64) -> OrderedMessage {
+        let tx = L1HandlerTx {
+            calldata: vec![],
+            chain_id: ChainId::default(),
+            message_hash: Default::default(),
+            paid_fee_on_l1: 0,
+            nonce: Felt::from(block * 1000 + tx_index),
+            entry_point_selector: Felt::ZERO,
+            version: Felt::ZERO,
+            contract_address: Default::default(),
+        };
+        OrderedMessage { block, tx_index, l1_tx_hash: [0u8; 32], tx }
+    }
 
     #[test]
     fn resume_cursor_falls_back_to_default_from_block_when_no_checkpoint_persisted() {
@@ -445,5 +558,65 @@ mod tests {
 
         assert_eq!(cp.block, 10, "checkpoint should reflect the latest committed message");
         assert_eq!(cp.tx_index, 2);
+    }
+
+    /// A gathered batch becomes pending in `(block, tx_index)` order, and each entry
+    /// disappears once its position is removed (the pool-accepted path).
+    #[test]
+    fn pending_messages_track_batch_then_clear_on_remove() {
+        let pending = PendingMessages::default();
+        assert!(pending.is_empty());
+
+        // Intentionally out of order — the snapshot must come back sorted.
+        pending.insert_batch(&[msg(7, 1), msg(5, 0), msg(7, 0)]);
+
+        let snapshot = pending.snapshot();
+        let positions: Vec<_> = snapshot.iter().map(|m| (m.block, m.tx_index)).collect();
+        assert_eq!(
+            positions,
+            vec![(5, 0), (7, 0), (7, 1)],
+            "snapshot should be ordered by (block, tx_index)"
+        );
+        assert_eq!(pending.len(), 3);
+
+        // The pool accepts (5, 0): it leaves the pending set.
+        pending.remove(5, 0);
+
+        let positions: Vec<_> = pending.snapshot().iter().map(|m| (m.block, m.tx_index)).collect();
+        assert_eq!(positions, vec![(7, 0), (7, 1)], "removed position should be gone");
+    }
+
+    /// Re-gathering the same message after a failed pool insert must not duplicate it:
+    /// `(block, tx_index)` is the key, so a re-insert overwrites the prior entry.
+    #[test]
+    fn insert_batch_is_idempotent_by_position() {
+        let pending = PendingMessages::default();
+
+        pending.insert_batch(&[msg(3, 0), msg(3, 1)]);
+        // Next tick re-gathers the unprocessed tail alongside fresh messages.
+        pending.insert_batch(&[msg(3, 1), msg(4, 0)]);
+
+        let positions: Vec<_> = pending.snapshot().iter().map(|m| (m.block, m.tx_index)).collect();
+        assert_eq!(
+            positions,
+            vec![(3, 0), (3, 1), (4, 0)],
+            "re-gathered (3, 1) should not duplicate"
+        );
+    }
+
+    /// The computed L2 hash and the L1 origin hash are surfaced on each entry so a
+    /// consumer can correlate a pending message with the pool/block once it lands.
+    #[test]
+    fn pending_message_exposes_l1_and_l2_hashes() {
+        let pending = PendingMessages::default();
+        let mut m = msg(1, 0);
+        m.l1_tx_hash = [0xab; 32];
+        let expected_l2 = m.tx.calculate_hash();
+
+        pending.insert_batch(&[m]);
+
+        let entry = pending.snapshot().pop().expect("one pending entry");
+        assert_eq!(entry.l1_tx_hash, [0xab; 32]);
+        assert_eq!(entry.l2_tx_hash, expected_l2);
     }
 }
