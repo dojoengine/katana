@@ -268,7 +268,7 @@ mod tests {
         let chain_id = ChainId::Named(NamedChainId::Goerli);
 
         let message_hash = compute_l1_to_l2_message_hash(
-            from_address.clone(),
+            from_address,
             ContractAddress(to_address),
             selector,
             &payload,

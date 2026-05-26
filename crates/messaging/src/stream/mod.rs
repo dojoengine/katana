@@ -411,18 +411,17 @@ mod tests {
         OrderedMessage { block, tx_index, l1_tx_hash: [0u8; 32], tx: stub_tx() }
     }
 
-    /// Build a stream wired to a fresh `MockCollector` + `ManualTrigger`.
-    /// Returns the boxed stream alongside handles for queueing mock responses
-    /// and firing trigger ticks.
-    fn build(
-        from_block: u64,
-        from_tx_index: u64,
-        confirmation_depth: u64,
-    ) -> (
+    /// The boxed stream plus the handles needed to drive it in tests.
+    type StreamHarness = (
         Pin<Box<MessageStream<Arc<MockCollector>, ManualTrigger>>>,
         Arc<MockCollector>,
         ManualTriggerHandle,
-    ) {
+    );
+
+    /// Build a stream wired to a fresh `MockCollector` + `ManualTrigger`.
+    /// Returns the boxed stream alongside handles for queueing mock responses
+    /// and firing trigger ticks.
+    fn build(from_block: u64, from_tx_index: u64, confirmation_depth: u64) -> StreamHarness {
         let collector = Arc::new(MockCollector::new());
         let (trigger, handle) = ManualTrigger::new();
         let stream = Box::pin(MessageStream::with_cursor(
