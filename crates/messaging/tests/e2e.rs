@@ -65,7 +65,7 @@ async fn test_messaging() {
 
     let messaging_config = MessagingConfig {
         settlement: katana_messaging::SettlementChainConfig::Ethereum {
-            rpc_url: Url::parse(&format!("http://localhost:{}", port)).unwrap(),
+            rpc_url: Url::parse(&format!("http://localhost:{port}")).unwrap(),
             contract_address: *core_contract.address(),
         },
         interval: 2,

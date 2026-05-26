@@ -50,7 +50,7 @@ async fn collects_single_message_from_anvil() {
     let l1_test_contract = Contract1::deploy(&l1_provider, *core_contract.address()).await.unwrap();
 
     let settlement = SettlementChainConfig::Ethereum {
-        rpc_url: Url::parse(&format!("http://localhost:{}", port)).unwrap(),
+        rpc_url: Url::parse(&format!("http://localhost:{port}")).unwrap(),
         contract_address: *core_contract.address(),
     };
 
@@ -138,7 +138,7 @@ async fn collects_multiple_messages_in_same_block() {
     let l1_test_contract = Contract1::deploy(&l1_provider, *core_contract.address()).await.unwrap();
 
     let settlement = SettlementChainConfig::Ethereum {
-        rpc_url: Url::parse(&format!("http://localhost:{}", port)).unwrap(),
+        rpc_url: Url::parse(&format!("http://localhost:{port}")).unwrap(),
         contract_address: *core_contract.address(),
     };
 
