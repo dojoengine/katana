@@ -156,7 +156,7 @@ where
 
                                 for msg in messages {
                                     let hash = msg.tx.calculate_hash();
-                                    info!(target: LOG_TARGET, tx_hash = %format!("{:#x}", hash), "L1Handler transaction added to the pool.");
+                                    info!(target: LOG_TARGET, tx_hash = %format!("{:#x}", hash), msg_hash = %msg.tx.message_hash, "L1Handler transaction added to the pool.");
 
                                     let pool_tx = ExecutableTxWithHash { hash, transaction: msg.tx.into() };
                                     let insert_result = pool.add_transaction(pool_tx).await;
