@@ -46,10 +46,8 @@ from; `saya-tee` registers itself there at startup.
 Binaries on `PATH`:
 
 - `katana` — this repo (`cargo build --release -p katana`).
-- `saya-tee` and `saya-ops` — from [`cartridge-gg/saya`][saya]. **Supported
-  version: `0.4.0`.** Other versions are not guaranteed to be wire-compatible
-  with this Katana revision; pin to the `v0.4.0` tag when building or
-  installing.
+- `saya-tee` and `saya-ops` — from [`cartridge-gg/saya`][saya]. Supported
+  version: `0.4.0`.
 - `jq` — for parsing JSON from `saya-ops`.
 
 A funded settlement-chain account:
