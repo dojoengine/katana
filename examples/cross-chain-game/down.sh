@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
-# Stop any Katana nodes started by this demo (ports 5050 and 5051).
+# Stop the demo: both Katana nodes (ports 5050/5051) and the saya-tee sidecar.
 set -uo pipefail
 
 stopped=0
-for port in 5050 5051; do
-  pids=$(pgrep -f "katana --dev --dev.no-fee --http.port $port" || true)
+kill_match() {
+  local label="$1" pat="$2"
+  local pids
+  pids=$(pgrep -f "$pat" || true)
   if [[ -n "$pids" ]]; then
-    echo "→ stopping katana on :$port (pid $pids)"
+    echo "→ stopping $label (pid $pids)"
     kill $pids 2>/dev/null || true
     stopped=1
   fi
-done
-[[ "$stopped" -eq 0 ]] && echo "no demo Katana nodes running."
+}
+
+kill_match "settlement katana (:5050)" "katana .*--http.port 5050"
+kill_match "appchain katana (:5051)" "katana .*--http.port 5051"
+kill_match "saya-tee" "saya-tee tee start"
+
+[[ "$stopped" -eq 0 ]] && echo "no demo processes running."
 echo "done."
