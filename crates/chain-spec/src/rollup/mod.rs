@@ -1,15 +1,18 @@
+use katana_contracts::contracts;
+use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
 use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
+use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 
 pub mod file;
 pub mod utils;
 
 pub use file::*;
-pub use utils::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
 
+use crate::fee_token::add_fee_token;
 use crate::{FeeContracts, SettlementLayer};
 
 /// The rollup chain specification.
@@ -49,5 +52,47 @@ impl ChainSpec {
         let transactions = utils::GenesisTransactionsBuilder::new(self).build();
 
         ExecutableBlock { header, body: transactions }
+    }
+
+    /// Pre-allocated genesis state applied before the genesis block executes.
+    ///
+    /// Currently this holds the STRK fee token: declared and deployed at the canonical Starknet
+    /// mainnet address (`DEFAULT_STRK_FEE_TOKEN_ADDRESS`) with the full initial supply credited to
+    /// the genesis master account. This bypasses UDC because UDC-derived addresses can't land at
+    /// the canonical mainnet address.
+    ///
+    /// The executor must see this state when processing the genesis transactions (the
+    /// `transfer_balance` invokes from [`utils::GenesisTransactionsBuilder`] target this exact
+    /// contract). Callers that drive genesis execution should overlay these state updates onto an
+    /// empty state provider before running the block.
+    pub fn state_updates(&self) -> StateUpdatesWithClasses {
+        let mut states = StateUpdatesWithClasses::default();
+
+        // Declare the legacy ERC20 class used by the fee token. It would otherwise be declared by
+        // a genesis transaction; the pre-allocation pulls it forward into initial state.
+        states
+            .classes
+            .entry(contracts::LegacyERC20::HASH)
+            .or_insert_with(|| contracts::LegacyERC20::CLASS.clone());
+        states.state_updates.deprecated_declared_classes.insert(contracts::LegacyERC20::HASH);
+
+        // The genesis master account starts with the full ERC20 supply (matches the constructor
+        // mint that the old UDC-deploy used). `GenesisTransactionsBuilder` then drains this into
+        // the dev accounts via `transfer` invokes during block execution.
+        let master = utils::master_account_address();
+        let extra_balances = [(master, utils::ROLLUP_FEE_TOKEN_INITIAL_SUPPLY)];
+
+        add_fee_token(
+            &mut states,
+            "Starknet Token",
+            "STRK",
+            18,
+            DEFAULT_STRK_FEE_TOKEN_ADDRESS,
+            contracts::LegacyERC20::HASH,
+            &self.genesis.allocations,
+            &extra_balances,
+        );
+
+        states
     }
 }

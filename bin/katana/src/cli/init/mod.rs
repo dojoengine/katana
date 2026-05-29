@@ -61,13 +61,13 @@ use std::str::FromStr;
 use anyhow::Context;
 use clap::{Args, Subcommand};
 use deployment::DeploymentOutcome;
-use katana_chain_spec::rollup::{ChainConfigDir, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
+use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::settlement_check::SettlementChainProvider;
 use katana_chain_spec::{rollup, FeeContracts, SettlementLayer, SettlementProofKind};
 use katana_cli::utils::ShortStringValueParser;
 use katana_contracts::piltover::Appchain;
 use katana_genesis::allocation::DevAllocationsGenerator;
-use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 use katana_genesis::Genesis;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
@@ -266,10 +266,12 @@ impl RollupArgs {
         #[cfg(feature = "init-slot")]
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
 
-        // At the moment, the fee token is limited to a predefined token.
+        // STRK is pre-allocated by rollup::ChainSpec::state_updates at the canonical Starknet
+        // mainnet address. ETH mirrors STRK on rollup — the on-disk config keeps only one address
+        // (see FileFeeContract).
         let fee_contracts = FeeContracts {
-            eth: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
-            strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
+            eth: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
+            strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
 
         let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
@@ -479,11 +481,12 @@ impl SovereignArgs {
         #[cfg(feature = "init-slot")]
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
 
-        // At the moment, the fee token is limited to a predefined token.
-        // At the moment, the fee token is limited to a predefined token.
+        // STRK is pre-allocated by rollup::ChainSpec::state_updates at the canonical Starknet
+        // mainnet address. ETH mirrors STRK on rollup — the on-disk config keeps only one address
+        // (see FileFeeContract).
         let fee_contracts = FeeContracts {
-            eth: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
-            strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
+            eth: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
+            strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
 
         let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };

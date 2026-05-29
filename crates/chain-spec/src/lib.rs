@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 pub mod dev;
+mod fee_token;
 pub mod full_node;
 pub mod rollup;
 pub mod settlement_check;

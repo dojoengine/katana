@@ -1,29 +1,20 @@
-use std::collections::BTreeMap;
-use std::str::FromStr;
-
 use alloy_primitives::U256;
 use katana_contracts::contracts;
-use katana_genesis::allocation::{DevAllocationsGenerator, GenesisAllocation};
+use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::{
-    get_fee_token_balance_base_storage_address, DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH,
-    DEFAULT_LEGACY_UDC_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-    DEFAULT_UDC_ADDRESS, ERC20_DECIMAL_STORAGE_SLOT, ERC20_NAME_STORAGE_SLOT,
-    ERC20_SYMBOL_STORAGE_SLOT, ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
+    DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT, DEFAULT_ETH_FEE_TOKEN_ADDRESS,
+    DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH, DEFAULT_LEGACY_UDC_ADDRESS,
+    DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
 use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
-use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
-use katana_primitives::class::ClassHash;
-use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::state::StateUpdatesWithClasses;
-use katana_primitives::utils::split_u256;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
-use katana_primitives::Felt;
 use lazy_static::lazy_static;
 
+use crate::fee_token::add_fee_token;
 use crate::{FeeContracts, SettlementLayer};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +151,7 @@ fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesi
         DEFAULT_ETH_FEE_TOKEN_ADDRESS,
         contracts::LegacyERC20::HASH,
         &genesis.allocations,
+        &[],
     );
 
     // -- STRK
@@ -171,56 +163,8 @@ fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesi
         DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         contracts::LegacyERC20::HASH,
         &genesis.allocations,
+        &[],
     );
-}
-
-fn add_fee_token(
-    states: &mut StateUpdatesWithClasses,
-    name: &str,
-    symbol: &str,
-    decimals: u8,
-    address: ContractAddress,
-    class_hash: ClassHash,
-    allocations: &BTreeMap<ContractAddress, GenesisAllocation>,
-) {
-    let mut storage = BTreeMap::new();
-    let mut total_supply = U256::ZERO;
-
-    // --- set the ERC20 balances for each allocations that have a balance
-
-    for (address, alloc) in allocations {
-        if let Some(balance) = alloc.balance() {
-            total_supply += balance;
-            let (low, high) = split_u256(balance);
-
-            // the base storage address for a standard ERC20 contract balance
-            let bal_base_storage_var = get_fee_token_balance_base_storage_address(*address);
-
-            // the storage address of low u128 of the balance
-            let low_bal_storage_var = bal_base_storage_var;
-            // the storage address of high u128 of the balance
-            let high_bal_storage_var = bal_base_storage_var + Felt::ONE;
-
-            storage.insert(low_bal_storage_var, low);
-            storage.insert(high_bal_storage_var, high);
-        }
-    }
-
-    // --- ERC20 metadata
-
-    let name = ShortString::from_str(name).expect("valid ERC20 name");
-    let symbol = ShortString::from_str(symbol).expect("valid ERC20 symbol");
-    let decimals = decimals.into();
-    let (total_supply_low, total_supply_high) = split_u256(total_supply);
-
-    storage.insert(ERC20_NAME_STORAGE_SLOT, name.into());
-    storage.insert(ERC20_SYMBOL_STORAGE_SLOT, symbol.into());
-    storage.insert(ERC20_DECIMAL_STORAGE_SLOT, decimals);
-    storage.insert(ERC20_TOTAL_SUPPLY_STORAGE_SLOT, total_supply_low);
-    storage.insert(ERC20_TOTAL_SUPPLY_STORAGE_SLOT + Felt::ONE, total_supply_high);
-
-    states.state_updates.deployed_contracts.insert(address, class_hash);
-    states.state_updates.storage_updates.insert(address, storage);
 }
 
 fn add_default_udc(states: &mut StateUpdatesWithClasses) {
@@ -261,14 +205,23 @@ fn add_default_udc(states: &mut StateUpdatesWithClasses) {
 #[cfg(test)]
 mod tests {
 
+    use std::collections::BTreeMap;
     use std::str::FromStr;
 
     use alloy_primitives::U256;
-    use katana_genesis::allocation::{GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc};
-    use katana_genesis::constant::DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT;
-    use katana_primitives::address;
+    use katana_genesis::allocation::{
+        GenesisAccount, GenesisAccountAlloc, GenesisAllocation, GenesisContractAlloc,
+    };
+    use katana_genesis::constant::{
+        get_fee_token_balance_base_storage_address, DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
+        ERC20_DECIMAL_STORAGE_SLOT, ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT,
+        ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
+    };
     use katana_primitives::block::GasPrices;
+    use katana_primitives::cairo::ShortString;
     use katana_primitives::da::L1DataAvailabilityMode;
+    use katana_primitives::utils::split_u256;
+    use katana_primitives::{address, Felt};
     use starknet::macros::felt;
 
     use super::*;
