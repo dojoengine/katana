@@ -22,10 +22,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use cainome::rs::abigen_legacy;
-use katana_chain_spec::rollup::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
 use katana_chain_spec::{rollup, ChainSpec, FeeContracts, SettlementLayer, SettlementProofKind};
 use katana_genesis::allocation::DevAllocationsGenerator;
-use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use katana_primitives::U256;
@@ -108,14 +107,10 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
     let l2_url = l2.url();
     let l2_chain_id = ChainId::SEPOLIA; // Matches katana_utils::test_config()'s default.
 
-    // Use the default appchain fee token so it matches what saya assumes
-    // for the StarknetOsConfig hash computation. (saya-tee `--mock-prove`
-    // doesn't actually rely on this, but keeping it canonical avoids
-    // accidental mismatches if the flag is removed in the future.)
-    let fee_contracts = FeeContracts {
-        eth: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
-        strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
-    };
+    // STRK at the canonical Starknet mainnet address — matches what
+    // `katana init`-generated rollups use and what saya's StarknetOsConfig hash binds to.
+    let fee_contracts =
+        FeeContracts { eth: DEFAULT_STRK_FEE_TOKEN_ADDRESS, strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS };
 
     // Generate prefunded accounts for the L3 so the test can drive
     // transactions through it.
@@ -124,12 +119,11 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
         .generate();
     // IMPORTANT: rollup chain specs run their genesis through
     // `GenesisTransactionsBuilder`, which emits explicit declare txs for the
-    // ERC20, UDC, and account classes. `Genesis::default()` pre-declares
-    // those same three classes directly into chain state, which causes the
-    // builder's declare txs to fail with "already declared", cascading into
-    // nonce mismatches that skip the `transfer_balance` calls and leave
-    // prefunded accounts with zero balance. So we start from an empty-classes
-    // genesis here.
+    // UDC and account classes. `Genesis::default()` pre-declares those same
+    // classes directly into chain state, which causes the builder's declare
+    // txs to fail with "already declared", cascading into nonce mismatches
+    // that skip the `transfer_balance` calls and leave prefunded accounts
+    // with zero balance. So we start from an empty-classes genesis here.
     let mut genesis = Genesis { classes: Default::default(), ..Genesis::default() };
     genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
@@ -168,7 +162,7 @@ pub async fn drive_l3_block(l3: &L3InProcess) -> Result<()> {
     abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
     let account = l3.account();
-    let strk_contract = Erc20Contract::new(DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS.into(), &account);
+    let strk_contract = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
     let result = strk_contract
         .transfer(&account.address().into(), &Uint256 { low: Felt::ONE, high: Felt::ZERO })
