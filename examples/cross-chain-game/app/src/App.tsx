@@ -51,6 +51,7 @@ export default function App() {
 
   const [buying, setBuying] = useState(false);
   const [rolling, setRolling] = useState(false);
+  const [introOpen, setIntroOpen] = useState(true); // intro shown on load
   // Reconciler guard: claim one played-but-unpublished game at a time, in order.
   const publishing = useRef(false);
 
@@ -135,6 +136,7 @@ export default function App() {
 
   return (
     <TooltipProvider>
+    <IntroDialog open={introOpen} onOpenChange={setIntroOpen} />
     <div className="min-h-screen bg-background bg-[radial-gradient(1100px_560px_at_85%_-12%,oklch(0.72_0.13_285/0.16),transparent_58%)] text-foreground">
       <div className="mx-auto max-w-5xl px-5 py-8 pb-16">
         <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -151,10 +153,15 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <Badge variant="outline" className="gap-1.5 py-1">
-              <span className={cn("size-2 rounded-full", online ? "bg-green-500" : "bg-amber-500")} />
-              {online ? "Connected" : "Connecting…"}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => setIntroOpen(true)}>
+                <Info className="size-3.5" /> About
+              </Button>
+              <Badge variant="outline" className="gap-1.5 py-1">
+                <span className={cn("size-2 rounded-full", online ? "bg-green-500" : "bg-amber-500")} />
+                {online ? "Connected" : "Connecting…"}
+              </Badge>
+            </div>
             {online && (
               <Tooltip>
                 <TooltipTrigger className="flex cursor-help items-center gap-1.5 text-xs text-muted-foreground decoration-dotted underline-offset-2 hover:underline">
@@ -208,7 +215,7 @@ export default function App() {
         </section>
 
         {/* Phase 1 — Buy */}
-        <PhaseCard n={1} icon={<ShoppingCart className="size-4" />} title="Buy games" subtitle="L1 → L2 message">
+        <PhaseCard n={1} icon={<ShoppingCart className="size-4" />} title="Buy games" subtitle="L1 → L2 message" info={<BuyInfo />}>
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={onBuy} disabled={buying || !online}>
               {buying ? <Loader2 className="size-4 animate-spin" /> : <ShoppingCart className="size-4" />}
@@ -254,7 +261,7 @@ export default function App() {
         </PhaseCard>
 
         {/* Phase 2 — Play */}
-        <PhaseCard n={2} icon={<Dices className="size-4" />} title="Play a game" subtitle="on the appchain">
+        <PhaseCard n={2} icon={<Dices className="size-4" />} title="Play a game" subtitle="on the appchain" info={<PlayInfo />}>
           <div className="flex flex-col items-center gap-4 py-2 sm:flex-row sm:justify-between">
             <div className="text-center sm:text-left">
               <div className="text-5xl font-bold tabular-nums text-primary">{available}</div>
@@ -291,7 +298,7 @@ export default function App() {
         </PhaseCard>
 
         {/* Phase 3 — Published to L1 */}
-        <PhaseCard n={3} icon={<Trophy className="size-4" />} title="Scores published to L1" subtitle="L2 → L1, settled by saya — automatic">
+        <PhaseCard n={3} icon={<Trophy className="size-4" />} title="Scores published to L1" subtitle="L2 → L1, settled by saya — automatic" info={<PublishInfo />}>
           <div className="mb-4 grid grid-cols-2 gap-3">
             <Stat label="Last score on L1" value={score ? score.lastPublished : "…"} highlight />
             <Stat label="Total published" value={score ? score.totalPublished : "…"} />
@@ -324,9 +331,69 @@ export default function App() {
   );
 }
 
-function PhaseCard(props: { n: number; icon: React.ReactNode; title: string; subtitle: string; children: React.ReactNode }) {
+function IntroDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const C = ({ children }: { children: React.ReactNode }) => (
+    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">{children}</code>
+  );
   return (
-    <Card className="mb-4 py-5">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Dices className="size-5 text-primary" /> Cross-Chain Dice
+          </DialogTitle>
+          <DialogDescription>
+            A hands-on demo of building an app as a Starknet appchain — and wiring up cross-chain messaging.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          <p>
+            It runs two Katana nodes — a <b>settlement layer</b> (“L1”) and a rollup <b>appchain</b> (“L2”) that
+            settles to it via <b>saya</b>. The dice game is just a vehicle to show how the two chains coordinate
+            through <b>messages</b>.
+          </p>
+          <div className="space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <ArrowRight className="mt-0.5 size-4 shrink-0 text-primary" />
+              <p>
+                <b className="text-primary">L1 → L2 — buy &amp; mint.</b> Buying a game calls{" "}
+                <C>send_message_to_appchain</C>; Katana relays it into the appchain’s <C>mint_game</C> handler.
+              </p>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <ArrowLeft className="mt-0.5 size-4 shrink-0 text-green-600" />
+              <p>
+                <b className="text-green-600">L2 → L1 — play &amp; publish.</b> Playing rolls a score and emits{" "}
+                <C>send_message_to_l1</C>; saya proves &amp; settles the block, then <C>score_registry</C> consumes
+                it via <C>consume_message_from_appchain</C>.
+              </p>
+            </div>
+          </div>
+          <p className="text-muted-foreground">
+            Use it to understand the messaging system end to end — and as a reference for designing your own
+            message-driven appchain app or game. Click any message card to trace its full lifecycle and the
+            transactions on each chain.
+          </p>
+        </div>
+        <Button className="w-full cursor-pointer" onClick={() => onOpenChange(false)}>
+          Got it — let’s play
+        </Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PhaseCard(props: {
+  n: number;
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  info?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [infoOpen, setInfoOpen] = useState(false);
+  return (
+    <Card className="relative mb-4 py-5">
       <CardContent className="px-5">
         <div className="mb-4 flex items-center gap-3">
           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-bold text-primary">
@@ -335,10 +402,153 @@ function PhaseCard(props: { n: number; icon: React.ReactNode; title: string; sub
           <span className="text-primary">{props.icon}</span>
           <h2 className="text-base font-semibold">{props.title}</h2>
           <Badge variant="secondary" className="text-[10px]">{props.subtitle}</Badge>
+          {props.info && (
+            <>
+              <button
+                type="button"
+                onClick={() => setInfoOpen(true)}
+                aria-label={`How “${props.title}” works`}
+                className="absolute top-4 right-4 inline-flex cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Info className="size-4" />
+              </button>
+              <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
+                <DialogContent className="max-w-lg sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <span className="text-primary">{props.icon}</span> {props.title}
+                    </DialogTitle>
+                    <DialogDescription>{props.subtitle}</DialogDescription>
+                  </DialogHeader>
+                  {props.info}
+                </DialogContent>
+              </Dialog>
+            </>
+          )}
         </div>
         {props.children}
       </CardContent>
     </Card>
+  );
+}
+
+function Code({ children }: { children: React.ReactNode }) {
+  return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">{children}</code>;
+}
+
+/** Reusable "how this step works" body: services involved + numbered on-chain steps. */
+function StepInfo(props: { services: string[]; steps: React.ReactNode[]; note: React.ReactNode }) {
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <div className="mb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Services involved</div>
+        <div className="flex flex-wrap gap-1.5">
+          {props.services.map((s) => (
+            <Badge key={s} variant="secondary" className="font-mono text-[11px]">{s}</Badge>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">On-chain flow</div>
+        <ol className="space-y-2.5">
+          {props.steps.map((s, i) => (
+            <li key={i} className="flex gap-2.5">
+              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                {i + 1}
+              </span>
+              <div className="flex-1 leading-snug">{s}</div>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <p className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground">{props.note}</p>
+    </div>
+  );
+}
+
+function BuyInfo() {
+  return (
+    <StepInfo
+      services={["settlement katana (L1)", "appchain katana — messaging service"]}
+      steps={[
+        <>
+          The buyer account calls <Code>send_message_to_appchain(game, mint_game, [game_id])</Code> on the{" "}
+          <b>piltover core</b> contract (L1), which emits a <Code>MessageSent</Code> event.
+        </>,
+        <>
+          The appchain runs with <Code>--messaging.enabled</Code>; its messaging service polls the settlement
+          chain, picks up <Code>MessageSent</Code>, and submits an <b>L1-handler</b> transaction to the appchain.
+        </>,
+        <>
+          <Code>mint_game(from_address, game_id)</Code> runs on the <b>game</b> contract (L2), growing the
+          playable pool and emitting <Code>GameMinted</Code>.
+        </>,
+      ]}
+      note={
+        <>
+          Evaluated as <b>minted</b> once the appchain executes the L1 handler (the <Code>GameMinted</Code>{" "}
+          event). No prover is involved — this direction is relayed by Katana directly.
+        </>
+      }
+    />
+  );
+}
+
+function PlayInfo() {
+  return (
+    <StepInfo
+      services={["appchain katana (L2)"]}
+      steps={[
+        <>
+          The player account calls <Code>play_game()</Code> on the <b>game</b> contract (L2).
+        </>,
+        <>
+          It asserts <Code>available &gt; 0</Code>, consumes one game, and rolls a score on chain —{" "}
+          <Code>poseidon(block_timestamp, play_no) % 100 + 1</Code> — storing <Code>last_score</Code> and
+          emitting <Code>GamePlayed</Code>.
+        </>,
+        <>
+          In the <i>same</i> transaction it emits the score to L1 via{" "}
+          <Code>send_message_to_l1(score_registry, [player, score])</Code> — picked up in step 3.
+        </>,
+      ]}
+      note={
+        <>
+          Evaluated entirely on the appchain: the game finishes the instant the tx is mined, and the score is
+          the on-chain roll. The L1 side happens in the next phase.
+        </>
+      }
+    />
+  );
+}
+
+function PublishInfo() {
+  return (
+    <StepInfo
+      services={["appchain katana (L2)", "saya-tee — prover / settler", "settlement katana (L1)"]}
+      steps={[
+        <>
+          <Code>play_game</Code> recorded an L2→L1 message in the appchain block (via <Code>send_message_to_l1</Code>).
+        </>,
+        <>
+          <b>saya-tee</b> polls the appchain, proves each block (mock proof here), and submits{" "}
+          <Code>update_state</Code> to the <b>piltover core</b> (L1), which registers the message hashes via{" "}
+          <Code>process_messages_to_starknet</Code>. Settlement advances block-by-block (the <i>saya: settled / tip</i>{" "}
+          indicator).
+        </>,
+        <>
+          Once the block is settled, the app calls <Code>claim_score(game, player, score)</Code> on{" "}
+          <b>score_registry</b> (L1), which calls <Code>consume_message_from_appchain</Code> on the piltover core,
+          stores the score, and emits <Code>ScoreClaimed</Code>.
+        </>,
+      ]}
+      note={
+        <>
+          Evaluated as <b>published</b> once <Code>score_registry</Code> consumes the message — which can only
+          succeed after saya has settled the block the score was emitted in.
+        </>
+      }
+    />
   );
 }
 
