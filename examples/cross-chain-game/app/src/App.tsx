@@ -1,183 +1,152 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, ExternalLink, Gamepad2, Loader2, Trophy } from "lucide-react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, Check, ChevronRight, Dices, ExternalLink, Info, Loader2, ShoppingCart, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import {
   readGameState,
   readScoreState,
-  getMintTxHashes,
+  getPurchaseHistory,
+  getPlayHistory,
   purchaseGame,
-  syncScore,
+  playGame,
   claimScore,
   settledBlock,
   appchainBlock,
   shortHex,
   explorerTxUrl,
+  explorerAddrUrl,
   type GameState,
   type ScoreState,
+  type PurchaseRecord,
+  type PlayRecord,
   SETTLEMENT_RPC,
   APPCHAIN_RPC,
   SETTLEMENT_EXPLORER,
   APPCHAIN_EXPLORER,
   PILTOVER,
   SCORE_REGISTRY,
-  GAME_MINTER,
-  ACHIEVEMENTS,
+  GAME,
   BUYER_ADDRESS,
   PLAYER_ADDRESS,
 } from "./chain.ts";
 
-const CATALOG = ["Cosmic Drift", "Neon Samurai", "Dungeon of Felt", "Starkfall", "Pixel Raiders", "Cairo Quest"];
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function waitUntil(pred: () => Promise<boolean>, timeoutMs: number) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (await pred()) return true;
-    await sleep(1000);
-  }
-  return false;
-}
-
-type Purchase = { id: number; game: string; gameId: number; l1TxHash?: string; error?: string };
-type PurchaseStage = "sending" | "relaying" | "minted";
-
-type SyncStage = "emitting" | "settling" | "claiming" | "claimed" | "error";
-type Sync = {
-  id: number;
-  score: number;
-  l2TxHash?: string;
-  emitBlock?: number;
-  claimTxHash?: string;
-  stage: SyncStage;
-  error?: string;
-};
 
 export default function App() {
   const [online, setOnline] = useState(false);
   const [game, setGame] = useState<GameState | null>(null);
   const [score, setScore] = useState<ScoreState | null>(null);
-  const [settled, setSettled] = useState<number>(-1);
-  const [tip, setTip] = useState<number>(0);
+  const [settled, setSettled] = useState(-1);
+  const [tip, setTip] = useState(0);
 
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
-  const [mintTxs, setMintTxs] = useState<string[]>([]);
-  const mintBaseline = useRef<number | null>(null);
+  // Feeds are event-sourced — rebuilt from chain every poll, so they survive a
+  // page refresh instead of living only in volatile React state.
+  const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
+  const [plays, setPlays] = useState<PlayRecord[]>([]);
+
   const [buying, setBuying] = useState(false);
-  const nextPurchase = useRef(1);
-
-  const [syncs, setSyncs] = useState<Sync[]>([]);
-  const nextSync = useRef(1);
-  const syncing = syncs.some((s) => s.stage !== "claimed" && s.stage !== "error");
+  const [rolling, setRolling] = useState(false);
+  // Reconciler guard: claim one played-but-unpublished game at a time, in order.
+  const publishing = useRef(false);
 
   useEffect(() => {
     let active = true;
     const tick = async () => {
       try {
-        const [g, sc, txs, sb, tp] = await Promise.all([
+        const [g, sc, ph, plh, sb, tp] = await Promise.all([
           readGameState(),
           readScoreState(),
-          getMintTxHashes(),
+          getPurchaseHistory(),
+          getPlayHistory(),
           settledBlock(),
           appchainBlock(),
         ]);
         if (!active) return;
-        if (mintBaseline.current === null) mintBaseline.current = txs.length;
         setGame(g);
         setScore(sc);
-        setMintTxs(txs);
+        setPurchases(ph);
+        setPlays(plh);
         setSettled(sb);
         setTip(tp);
         setOnline(true);
+
+        // Auto-publish: resume any played-but-unclaimed game (e.g. after refresh).
+        const nextUnclaimed = plh.find((p) => !p.claimTxHash);
+        if (nextUnclaimed && !publishing.current) {
+          publishing.current = true;
+          void publish(nextUnclaimed.score).finally(() => {
+            publishing.current = false;
+          });
+        }
       } catch {
         if (active) setOnline(false);
       }
     };
     tick();
-    const h = setInterval(tick, 1000);
+    const h = setInterval(tick, 1500);
     return () => {
       active = false;
       clearInterval(h);
     };
   }, []);
 
-  // --- L1 -> L2 purchase ---
-  const mintBase = mintBaseline.current ?? 0;
-  const confirmed = Math.max(0, mintTxs.length - mintBase);
-  const purchaseStage = (i: number, p: Purchase): PurchaseStage =>
-    i < confirmed ? "minted" : p.l1TxHash ? "relaying" : "sending";
-  const l2HashFor = (i: number) => (i < confirmed ? mintTxs[mintBase + i] : undefined);
-  const pendingPurchases = purchases.length - confirmed;
+  // Claim a played game's score on L1, retrying until saya has settled its block.
+  async function publish(sc: number) {
+    for (let i = 0; i < 90; i++) {
+      try {
+        await claimScore(PLAYER_ADDRESS, sc);
+        return;
+      } catch {
+        await sleep(2000);
+      }
+    }
+  }
 
-  async function onPurchase() {
-    const game = CATALOG[(nextPurchase.current - 1) % CATALOG.length];
-    const id = nextPurchase.current;
-    nextPurchase.current += 1;
-    setPurchases((p) => [...p, { id, game, gameId: id }]);
+  async function onBuy() {
     setBuying(true);
     try {
-      const tx = await purchaseGame(id);
-      setPurchases((p) => p.map((x) => (x.id === id ? { ...x, l1TxHash: tx } : x)));
-    } catch (err) {
-      setPurchases((p) =>
-        p.map((x) => (x.id === id ? { ...x, error: err instanceof Error ? err.message : String(err) } : x)),
-      );
+      await purchaseGame(purchases.length + 1);
+    } catch (e) {
+      console.error("buy failed", e);
     } finally {
       setBuying(false);
     }
   }
 
-  // --- L2 -> L1 score sync ---
-  const updateSync = (id: number, patch: Partial<Sync>) =>
-    setSyncs((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-
-  async function onSync() {
-    const id = nextSync.current;
-    nextSync.current += 1;
-    const value = 1000 + Math.floor(Math.random() * 9000);
-    setSyncs((s) => [...s, { id, score: value, stage: "emitting" }]);
+  async function onRoll() {
+    if (rolling) return;
+    setRolling(true);
     try {
-      const { txHash, block } = await syncScore(value);
-      updateSync(id, { l2TxHash: txHash, emitBlock: block, stage: "settling" });
-
-      const ok = await waitUntil(async () => (await settledBlock()) >= block, 180_000);
-      if (!ok) throw new Error("timed out waiting for saya to settle the block");
-      updateSync(id, { stage: "claiming" });
-
-      // The message is registered by the settled state update; claim may need a
-      // retry if the settlement tx is still being indexed.
-      let claimTx = "";
-      for (let attempt = 0; attempt < 5 && !claimTx; attempt++) {
-        try {
-          claimTx = await claimScore(PLAYER_ADDRESS, value);
-        } catch (e) {
-          if (attempt === 4) throw e;
-          await sleep(1500);
-        }
-      }
-      updateSync(id, { claimTxHash: claimTx, stage: "claimed" });
-    } catch (err) {
-      updateSync(id, { stage: "error", error: err instanceof Error ? err.message : String(err) });
+      await playGame(); // rolls + publishes the message; reconciler handles the L1 claim
+    } catch (e) {
+      console.error("roll failed", e);
+    } finally {
+      setRolling(false);
     }
   }
 
-  const sayaCaughtUp = settled >= tip;
+  const available = game?.available ?? 0;
+  const lastPlay = plays.length ? plays[plays.length - 1] : undefined;
 
   return (
-    <div className="min-h-screen bg-background bg-[radial-gradient(1200px_600px_at_80%_-10%,oklch(0.3_0.08_280/0.25),transparent_55%)] text-foreground">
-      <div className="mx-auto max-w-6xl px-5 py-8 pb-16">
+    <TooltipProvider>
+    <div className="min-h-screen bg-background bg-[radial-gradient(1100px_560px_at_85%_-12%,oklch(0.72_0.13_285/0.16),transparent_58%)] text-foreground">
+      <div className="mx-auto max-w-5xl px-5 py-8 pb-16">
         <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
-              <Gamepad2 className="size-6" />
+              <Dices className="size-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Cross-Chain Game Store</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">Cross-Chain Dice</h1>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                Two-way Katana messaging: buy a game (L1&nbsp;→&nbsp;L2) and sync your score
-                (L2&nbsp;→&nbsp;L1, settled by <b className="text-foreground">saya</b>).
+                Buy games on L1, play them on the appchain, and your score is published back to L1 —
+                settlement by <b className="text-foreground">saya</b>.
               </p>
             </div>
           </div>
@@ -186,7 +155,34 @@ export default function App() {
               <span className={cn("size-2 rounded-full", online ? "bg-green-500" : "bg-amber-500")} />
               {online ? "Connected" : "Connecting…"}
             </Badge>
-            <SayaIndicator settled={settled} tip={tip} caughtUp={sayaCaughtUp} online={online} />
+            {online && (
+              <Tooltip>
+                <TooltipTrigger className="flex cursor-help items-center gap-1.5 text-xs text-muted-foreground decoration-dotted underline-offset-2 hover:underline">
+                  {settled >= tip ? (
+                    <Check className="size-3.5 text-green-600" />
+                  ) : (
+                    <Loader2 className="size-3.5 animate-spin text-primary" />
+                  )}
+                  saya: settled <span className="font-mono text-foreground">{Math.max(settled, 0)}</span> / tip{" "}
+                  <span className="font-mono text-foreground">{tip}</span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <div className="space-y-1.5 text-left leading-snug">
+                    <p>
+                      <b>settled</b> — the latest appchain block <b>saya</b> has proved and settled onto the L1
+                      piltover core.
+                    </p>
+                    <p>
+                      <b>tip</b> — the appchain's current block height.
+                    </p>
+                    <p>
+                      A rolled score (L2→L1) only becomes publishable on L1 once its block is settled, so{" "}
+                      <b>settled = tip</b> means saya is fully caught up.
+                    </p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </header>
 
@@ -195,117 +191,163 @@ export default function App() {
             tag="Settlement · “L1”"
             rpc={SETTLEMENT_RPC}
             explorer={SETTLEMENT_EXPLORER}
-            contracts={[
-              { label: "piltover core", addr: PILTOVER },
-              { label: "score_registry", addr: SCORE_REGISTRY },
-            ]}
+            contracts={[{ label: "piltover core", addr: PILTOVER }, { label: "score_registry", addr: SCORE_REGISTRY }]}
           />
           <div className="flex flex-col items-center justify-center gap-2 px-2 text-center text-muted-foreground">
-            <span className="font-mono text-[11px] text-primary">send_message_to_appchain</span>
+            <span className="font-mono text-[11px] text-primary">buy → mint</span>
             <ArrowRight className="size-5 text-primary" />
-            <ArrowLeft className="size-5 text-green-500" />
-            <span className="font-mono text-[11px] text-green-500">send_message_to_l1 + saya</span>
+            <ArrowLeft className="size-5 text-green-600" />
+            <span className="font-mono text-[11px] text-green-600">score + saya</span>
           </div>
           <ChainCard
             tag="Appchain · “L2”"
             rpc={APPCHAIN_RPC}
             explorer={APPCHAIN_EXPLORER}
-            contracts={[
-              { label: "game_minter", addr: GAME_MINTER },
-              { label: "achievements", addr: ACHIEVEMENTS },
-            ]}
+            contracts={[{ label: "game", addr: GAME }]}
           />
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-2">
-          {/* L1 -> L2 */}
-          <Card className="py-5">
-            <CardContent className="px-5">
-              <FlowHeader tone="l1" title="Buy a game" subtitle="L1 → L2 message" />
-              <div className="mb-4 grid grid-cols-2 gap-3">
-                <Stat label="Total minted" value={game ? game.totalMinted : "…"} highlight tone="l1" />
-                <Stat label="Your games" value={game ? game.mintedByYou : "…"} />
-              </div>
-              <Button className="w-full" onClick={onPurchase} disabled={buying || !online}>
-                {buying ? <Loader2 className="size-4 animate-spin" /> : <Gamepad2 className="size-4" />}
-                {buying ? "Submitting on L1…" : `Purchase “${CATALOG[(nextPurchase.current - 1) % CATALOG.length]}”`}
-              </Button>
-              <p className="mt-2 text-center text-xs text-muted-foreground">
-                buyer <code className="font-mono">{shortHex(BUYER_ADDRESS)}</code>
-                {pendingPurchases > 0 && ` · ${pendingPurchases} awaiting relay`}
-              </p>
-              <Feed empty={purchases.length === 0} emptyText="No purchases yet.">
-                {purchases
-                  .map((p, i) => ({ p, stage: purchaseStage(i, p), l2: l2HashFor(i) }))
-                  .reverse()
-                  .map(({ p, stage, l2 }) => (
-                    <PurchaseRow key={p.id} purchase={p} stage={stage} l2TxHash={l2} />
-                  ))}
-              </Feed>
-            </CardContent>
-          </Card>
-
-          {/* L2 -> L1 */}
-          <Card className="py-5">
-            <CardContent className="px-5">
-              <FlowHeader tone="l2" title="Sync your score" subtitle="L2 → L1 message · settled by saya" />
-              <div className="mb-4 grid grid-cols-2 gap-3">
-                <Stat label="Last synced score" value={score ? score.lastScore : "…"} highlight tone="l2" />
-                <Stat label="Total syncs" value={score ? score.totalSynced : "…"} />
-              </div>
-              <Button
-                className="w-full bg-green-600 text-white hover:bg-green-600/90"
-                onClick={onSync}
-                disabled={syncing || !online}
+        {/* Phase 1 — Buy */}
+        <PhaseCard n={1} icon={<ShoppingCart className="size-4" />} title="Buy games" subtitle="L1 → L2 message">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={onBuy} disabled={buying || !online}>
+              {buying ? <Loader2 className="size-4 animate-spin" /> : <ShoppingCart className="size-4" />}
+              {buying ? "Submitting on L1…" : "Buy a game"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              buyer{" "}
+              <a
+                href={explorerAddrUrl(SETTLEMENT_EXPLORER, BUYER_ADDRESS)}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-primary hover:underline"
               >
-                {syncing ? <Loader2 className="size-4 animate-spin" /> : <Trophy className="size-4" />}
-                {syncing ? "Syncing…" : "Sync a random score to L1"}
+                {shortHex(BUYER_ADDRESS)}
+              </a>{" "}
+              · buy as many as you like
+            </span>
+          </div>
+          {purchases.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                Purchase games ({game ? game.totalMinted : purchases.length})
+              </div>
+              <div className="flex max-h-[12rem] flex-col gap-2 overflow-y-auto py-px pr-1">
+                <AnimatePresence initial={false}>
+                  {[...purchases].reverse().map((p) => (
+                    <motion.div
+                      key={p.seq}
+                      layout
+                      initial={{ opacity: 0, y: -10, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.25, ease: "easeOut" }}
+                      className="shrink-0"
+                    >
+                      <PurchaseRow purchase={p} />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+          )}
+        </PhaseCard>
+
+        {/* Phase 2 — Play */}
+        <PhaseCard n={2} icon={<Dices className="size-4" />} title="Play a game" subtitle="on the appchain">
+          <div className="flex flex-col items-center gap-4 py-2 sm:flex-row sm:justify-between">
+            <div className="text-center sm:text-left">
+              <div className="text-5xl font-bold tabular-nums text-primary">{available}</div>
+              <div className="text-sm text-muted-foreground">games available to play</div>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              {lastPlay && (
+                <div className="text-center text-sm">
+                  last roll <b className="text-2xl text-foreground">{lastPlay.score}</b>
+                </div>
+              )}
+              <Button
+                size="lg"
+                className="h-14 px-10 text-lg"
+                onClick={onRoll}
+                disabled={rolling || available < 1 || !online}
+              >
+                {rolling ? <Loader2 className="size-5 animate-spin" /> : <Dices className="size-5" />}
+                {rolling ? "Playing…" : available < 1 ? "No games — buy one above" : "🎲 Roll"}
               </Button>
-              <p className="mt-2 text-center text-xs text-muted-foreground">
-                player <code className="font-mono">{shortHex(PLAYER_ADDRESS)}</code>
-                {score && score.yourScore > 0 && ` · your score on L1: ${score.yourScore}`}
-              </p>
-              <Feed empty={syncs.length === 0} emptyText="No syncs yet.">
-                {[...syncs].reverse().map((s) => (
-                  <SyncRow key={s.id} sync={s} settled={settled} />
+              <span className="text-xs text-muted-foreground">
+                played {game ? game.totalPlayed : 0} · player{" "}
+                <a
+                  href={explorerAddrUrl(APPCHAIN_EXPLORER, PLAYER_ADDRESS)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-primary hover:underline"
+                >
+                  {shortHex(PLAYER_ADDRESS)}
+                </a>
+              </span>
+            </div>
+          </div>
+        </PhaseCard>
+
+        {/* Phase 3 — Published to L1 */}
+        <PhaseCard n={3} icon={<Trophy className="size-4" />} title="Scores published to L1" subtitle="L2 → L1, settled by saya — automatic">
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <Stat label="Last score on L1" value={score ? score.lastPublished : "…"} highlight />
+            <Stat label="Total published" value={score ? score.totalPublished : "…"} />
+          </div>
+          {plays.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Play a game and its score publishes here automatically.</p>
+          ) : (
+            <div className="flex max-h-[12rem] flex-col gap-2 overflow-y-auto py-px pr-1">
+              <AnimatePresence initial={false}>
+                {[...plays].reverse().map((p) => (
+                  <motion.div
+                    key={p.seq}
+                    layout
+                    initial={{ opacity: 0, y: -10, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.25, ease: "easeOut" }}
+                    className="shrink-0"
+                  >
+                    <PlayRow play={p} />
+                  </motion.div>
                 ))}
-              </Feed>
-            </CardContent>
-          </Card>
-        </section>
+              </AnimatePresence>
+            </div>
+          )}
+        </PhaseCard>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
 
-function SayaIndicator(props: { settled: number; tip: number; caughtUp: boolean; online: boolean }) {
-  if (!props.online) return null;
+function PhaseCard(props: { n: number; icon: React.ReactNode; title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      {props.caughtUp ? (
-        <Check className="size-3.5 text-green-500" />
-      ) : (
-        <Loader2 className="size-3.5 animate-spin text-primary" />
-      )}
-      saya: settled block <span className="font-mono text-foreground">{Math.max(props.settled, 0)}</span> / appchain tip{" "}
-      <span className="font-mono text-foreground">{props.tip}</span>
-    </div>
+    <Card className="mb-4 py-5">
+      <CardContent className="px-5">
+        <div className="mb-4 flex items-center gap-3">
+          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+            {props.n}
+          </span>
+          <span className="text-primary">{props.icon}</span>
+          <h2 className="text-base font-semibold">{props.title}</h2>
+          <Badge variant="secondary" className="text-[10px]">{props.subtitle}</Badge>
+        </div>
+        {props.children}
+      </CardContent>
+    </Card>
   );
 }
 
-function ChainCard(props: {
-  tag: string;
-  rpc: string;
-  explorer: string;
-  contracts: { label: string; addr: string }[];
-}) {
+function ChainCard(props: { tag: string; rpc: string; explorer: string; contracts: { label: string; addr: string }[] }) {
   return (
     <Card className="gap-0 py-4">
       <CardContent className="px-4">
         <div className="mb-2 flex items-center justify-between">
-          <Badge variant="secondary" className="text-[10px] tracking-wide uppercase">
-            {props.tag}
-          </Badge>
+          <Badge variant="secondary" className="text-[10px] tracking-wide uppercase">{props.tag}</Badge>
           <a
             href={props.explorer}
             target="_blank"
@@ -321,7 +363,20 @@ function ChainCard(props: {
           {props.contracts.map((c) => (
             <div key={c.label}>
               <dt className="mt-2 text-[11px] tracking-wide text-muted-foreground uppercase">{c.label}</dt>
-              <dd className="font-mono text-[13px] break-all">{shortHex(c.addr, 10, 6)}</dd>
+              <dd className="font-mono text-[13px] break-all">
+                {c.addr ? (
+                  <a
+                    href={explorerAddrUrl(props.explorer, c.addr)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    {shortHex(c.addr, 10, 6)} <ExternalLink className="size-3" />
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </dd>
             </div>
           ))}
         </dl>
@@ -330,51 +385,33 @@ function ChainCard(props: {
   );
 }
 
-function FlowHeader(props: { tone: "l1" | "l2"; title: string; subtitle: string }) {
+function Stat(props: { label: string; value: React.ReactNode; highlight?: boolean; tip?: string }) {
   return (
-    <div className="mb-4 flex items-center gap-2">
-      <Badge className={cn(props.tone === "l2" && "bg-green-600 text-white")}>{props.subtitle}</Badge>
-      <h2 className="text-base font-semibold">{props.title}</h2>
-    </div>
-  );
-}
-
-function Stat(props: { label: string; value: React.ReactNode; highlight?: boolean; tone?: "l1" | "l2" }) {
-  return (
-    <div
-      className={cn(
-        "rounded-lg border p-3 text-center",
-        props.highlight && props.tone === "l1" && "border-primary/40 bg-primary/10",
-        props.highlight && props.tone === "l2" && "border-green-600/40 bg-green-600/10",
-      )}
-    >
-      <div
-        className={cn(
-          "text-2xl font-bold tracking-tight tabular-nums",
-          props.highlight && props.tone === "l1" && "text-primary",
-          props.highlight && props.tone === "l2" && "text-green-500",
+    <div className={cn("rounded-lg border p-3 text-center", props.highlight && "border-green-600/40 bg-green-600/10")}>
+      <div className={cn("text-2xl font-bold tabular-nums", props.highlight && "text-green-600")}>{props.value}</div>
+      <div className="mt-0.5 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+        {props.label}
+        {props.tip && (
+          <Tooltip>
+            <TooltipTrigger
+              aria-label={`What does “${props.label}” mean?`}
+              className="inline-flex text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Info className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipContent>{props.tip}</TooltipContent>
+          </Tooltip>
         )}
-      >
-        {props.value}
       </div>
-      <div className="mt-0.5 text-xs text-muted-foreground">{props.label}</div>
-    </div>
-  );
-}
-
-function Feed(props: { empty: boolean; emptyText: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-4">
-      {props.empty ? (
-        <p className="text-sm text-muted-foreground">{props.emptyText}</p>
-      ) : (
-        <div className="flex flex-col gap-2">{props.children}</div>
-      )}
     </div>
   );
 }
 
 function TxLink(props: { label: string; href: string; hash: string; tone: "l1" | "l2" }) {
+  const tone =
+    props.tone === "l1"
+      ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
+      : "border-green-600/30 bg-green-600/10 text-green-600 hover:bg-green-600/20";
   return (
     <a
       href={props.href}
@@ -382,8 +419,8 @@ function TxLink(props: { label: string; href: string; hash: string; tone: "l1" |
       rel="noreferrer"
       title={props.hash}
       className={cn(
-        "inline-flex items-center gap-1 font-mono text-xs hover:underline",
-        props.tone === "l1" ? "text-primary" : "text-green-500",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-xs transition-colors",
+        tone,
       )}
     >
       {props.label} {shortHex(props.hash)} <ExternalLink className="size-3" />
@@ -391,13 +428,19 @@ function TxLink(props: { label: string; href: string; hash: string; tone: "l1" |
   );
 }
 
-function Step(props: { done: boolean; active: boolean; label: string }) {
+function Step(props: { done: boolean; active: boolean; label: string; grow?: boolean }) {
   return (
-    <div className={cn("flex flex-1 items-center gap-1.5 text-xs", props.done || props.active ? "text-foreground" : "text-muted-foreground")}>
+    <div
+      className={cn(
+        "flex items-center gap-1.5 text-xs",
+        props.grow === false ? "shrink-0" : "flex-1",
+        props.done || props.active ? "text-foreground" : "text-muted-foreground",
+      )}
+    >
       <span
         className={cn(
           "grid size-5 shrink-0 place-items-center rounded-full border text-[10px]",
-          props.done && "border-green-500 bg-green-500 text-white",
+          props.done && "border-green-600 bg-green-600 text-white",
           props.active && "border-primary text-primary",
         )}
       >
@@ -408,66 +451,183 @@ function Step(props: { done: boolean; active: boolean; label: string }) {
   );
 }
 
-function PurchaseRow({ purchase, stage, l2TxHash }: { purchase: Purchase; stage: PurchaseStage; l2TxHash?: string }) {
-  const order: PurchaseStage[] = ["sending", "relaying", "minted"];
-  const current = order.indexOf(stage);
-  const steps = ["L1 message sent", "Katana relaying", "Minted on L2"];
+/** A long connector arrow that grows to fill the gap between two phases
+ *  (line + arrowhead, tip to tip). `lit` colors it as a completed transition. */
+function FlowArrow({ lit }: { lit?: boolean }) {
   return (
-    <Card className={cn("gap-0 border-l-4 py-3", stage === "minted" ? "border-l-green-500" : "border-l-amber-500")}>
-      <CardContent className="px-3">
-        <div className="mb-2.5 flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold">{purchase.game}</span>
-          <span className="font-mono text-xs text-muted-foreground">#{purchase.gameId}</span>
-          <div className="ml-auto flex items-center gap-3">
-            {purchase.l1TxHash && (
-              <TxLink tone="l1" label="L1 tx" hash={purchase.l1TxHash} href={explorerTxUrl(SETTLEMENT_EXPLORER, purchase.l1TxHash)} />
-            )}
-            {l2TxHash && <TxLink tone="l2" label="L2 tx" hash={l2TxHash} href={explorerTxUrl(APPCHAIN_EXPLORER, l2TxHash)} />}
-          </div>
-        </div>
-        {purchase.error ? (
-          <div className="font-mono text-xs text-destructive">⚠ {purchase.error}</div>
-        ) : (
-          <div className="flex gap-2">
-            {steps.map((label, idx) => (
-              <Step key={label} label={label} done={idx < current || stage === "minted"} active={idx === current && stage !== "minted"} />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className={cn("flex flex-1 items-center", lit ? "text-green-600" : "text-muted-foreground/40")} aria-hidden>
+      <span className="h-0.5 flex-1 rounded-full bg-current" />
+      <ChevronRight className="-ml-2 size-4 shrink-0" strokeWidth={3} />
+    </div>
   );
 }
 
-function SyncRow({ sync, settled }: { sync: Sync; settled: number }) {
-  const done = sync.stage === "claimed";
-  const settlingLabel =
-    sync.stage === "settling" && sync.emitBlock !== undefined
-      ? `saya settling (block ${Math.max(settled, 0)}/${sync.emitBlock})`
-      : "Settled by saya";
-  const steps = ["Emitted on L2", settlingLabel, "Claimed on L1"];
-  // map 4-stage model onto 3 visible steps: emitting->0, settling->1, claiming/claimed->2
-  const visibleCurrent = sync.stage === "emitting" ? 0 : sync.stage === "settling" ? 1 : 2;
+type StepState = "done" | "active" | "pending";
+type FlowStep = {
+  label: string;
+  description: string;
+  state: StepState;
+  tx?: { label: string; hash: string; href: string; tone: "l1" | "l2" };
+};
+type FlowSpec = {
+  title: string;
+  direction: string;
+  status: string;
+  done: boolean;
+  steps: FlowStep[];
+};
+
+/** Render text with `backtick`-wrapped tokens as inline <code>. */
+function withCode(text: string) {
+  return text.split("`").map((part, i) =>
+    i % 2 === 1 ? (
+      <code key={i} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">{part}</code>
+    ) : (
+      <Fragment key={i}>{part}</Fragment>
+    ),
+  );
+}
+
+/** A clickable message card: compact stepper on the card, full flow + tx hashes
+ *  in a modal. Shared by both the purchase ("game") and the play ("score") feeds. */
+function MessageCard({ spec }: { spec: FlowSpec }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Card className={cn("gap-0 border-l-4 py-3", done ? "border-l-green-500" : sync.stage === "error" ? "border-l-destructive" : "border-l-amber-500")}>
-      <CardContent className="px-3">
-        <div className="mb-2.5 flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold">Score {sync.score}</span>
-          <div className="ml-auto flex items-center gap-3">
-            {sync.l2TxHash && <TxLink tone="l2" label="L2 tx" hash={sync.l2TxHash} href={explorerTxUrl(APPCHAIN_EXPLORER, sync.l2TxHash)} />}
-            {sync.claimTxHash && <TxLink tone="l1" label="L1 tx" hash={sync.claimTxHash} href={explorerTxUrl(SETTLEMENT_EXPLORER, sync.claimTxHash)} />}
+    <>
+      <Card
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen(true)}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setOpen(true))}
+        className={cn(
+          "shrink-0 cursor-pointer gap-0 border-l-4 py-3 transition-colors hover:bg-muted/50",
+          spec.done ? "border-l-green-500" : "border-l-amber-500",
+        )}
+      >
+        <CardContent className="flex items-center gap-3 px-3">
+          <div className="flex w-28 shrink-0 flex-col leading-tight">
+            <span className="text-sm font-semibold">{spec.title}</span>
+            <span className="text-[10px] text-muted-foreground">{spec.direction}</span>
           </div>
-        </div>
-        {sync.stage === "error" ? (
-          <div className="font-mono text-xs text-destructive">⚠ {sync.error}</div>
-        ) : (
-          <div className="flex gap-2">
-            {steps.map((label, idx) => (
-              <Step key={idx} label={label} done={idx < visibleCurrent || done} active={idx === visibleCurrent && !done} />
+          <div className="flex flex-1 items-center gap-2">
+            {spec.steps.map((s, i) => (
+              <Fragment key={s.label}>
+                {i > 0 && <FlowArrow lit={spec.steps[i - 1].state === "done"} />}
+                <Step grow={false} label={s.label} done={s.state === "done"} active={s.state === "active"} />
+              </Fragment>
             ))}
           </div>
-        )}
-      </CardContent>
-    </Card>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+        </CardContent>
+      </Card>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {spec.title}
+              <Badge variant="secondary" className="text-[10px]">{spec.direction}</Badge>
+            </DialogTitle>
+            <DialogDescription>
+              Cross-chain message · <span className={spec.done ? "text-green-600" : "text-amber-600"}>{spec.status}</span>
+            </DialogDescription>
+          </DialogHeader>
+          <ol className="flex flex-col">
+            {spec.steps.map((s, i) => (
+              <li key={s.label} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <span
+                    className={cn(
+                      "grid size-6 shrink-0 place-items-center rounded-full border text-[10px]",
+                      s.state === "done" && "border-green-600 bg-green-600 text-white",
+                      s.state === "active" && "border-primary text-primary",
+                      s.state === "pending" && "border-border text-muted-foreground",
+                    )}
+                  >
+                    {s.state === "done" ? <Check className="size-3.5" /> : s.state === "active" ? <Loader2 className="size-3.5 animate-spin" /> : i + 1}
+                  </span>
+                  {i < spec.steps.length - 1 && (
+                    <span className={cn("my-1 w-px flex-1", s.state === "done" ? "bg-green-600" : "bg-border")} />
+                  )}
+                </div>
+                <div className="flex-1 pb-4">
+                  <div className="text-sm font-medium">{s.label}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{withCode(s.description)}</div>
+                  {s.tx && (
+                    <div className="mt-2">
+                      <TxLink {...s.tx} />
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </DialogContent>
+      </Dialog>
+    </>
   );
+}
+
+function PurchaseRow({ purchase }: { purchase: PurchaseRecord }) {
+  const minted = !!purchase.mintTxHash;
+  const spec: FlowSpec = {
+    title: `Game #${purchase.seq}`,
+    direction: "L1 → L2",
+    status: minted ? "Minted" : "Relaying",
+    done: minted,
+    steps: [
+      {
+        label: "L1 message sent",
+        state: "done",
+        description: "`send_message_to_appchain` was called on the piltover core, emitting a `MessageSent` event on the settlement layer.",
+        tx: { label: "L1 tx", tone: "l1", hash: purchase.l1TxHash, href: explorerTxUrl(SETTLEMENT_EXPLORER, purchase.l1TxHash) },
+      },
+      {
+        label: "Katana relaying",
+        state: minted ? "done" : "active",
+        description: "Katana's messaging service picks up the event and submits it to the appchain as an L1-handler transaction.",
+      },
+      {
+        label: "Game minted",
+        state: minted ? "done" : "pending",
+        description: "`mint_game` runs on the appchain, adding the game to the playable pool.",
+        tx: purchase.mintTxHash
+          ? { label: "L2 tx", tone: "l2", hash: purchase.mintTxHash, href: explorerTxUrl(APPCHAIN_EXPLORER, purchase.mintTxHash) }
+          : undefined,
+      },
+    ],
+  };
+  return <MessageCard spec={spec} />;
+}
+
+function PlayRow({ play }: { play: PlayRecord }) {
+  const published = !!play.claimTxHash;
+  const spec: FlowSpec = {
+    title: `🎲 Score ${play.score}`,
+    direction: "L2 → L1",
+    status: published ? "Published" : "Publishing",
+    done: published,
+    steps: [
+      {
+        label: "Rolled on L2",
+        state: "done",
+        description: "`play_game` rolled the score on the appchain and emitted it to L1 via `send_message_to_l1`.",
+        tx: { label: "L2 tx", tone: "l2", hash: play.l2TxHash, href: explorerTxUrl(APPCHAIN_EXPLORER, play.l2TxHash) },
+      },
+      {
+        label: "Settled by saya",
+        state: published ? "done" : "active",
+        description: "saya proves the appchain block and submits `update_state` to the piltover core, registering the message.",
+      },
+      {
+        label: "Published to L1",
+        state: published ? "done" : "pending",
+        description: "`score_registry` consumes the message via `consume_message_from_appchain` and records the score.",
+        tx: play.claimTxHash
+          ? { label: "L1 tx", tone: "l1", hash: play.claimTxHash, href: explorerTxUrl(SETTLEMENT_EXPLORER, play.claimTxHash) }
+          : undefined,
+      },
+    ],
+  };
+  return <MessageCard spec={spec} />;
 }

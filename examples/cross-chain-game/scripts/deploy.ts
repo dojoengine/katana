@@ -3,11 +3,10 @@
 // Reads the base `deployments.json` written by `up.sh` (rpc urls, accounts, the
 // piltover core address) and deploys:
 //   - score_registry  on the settlement layer (ctor: piltover address)
-//   - game_minter     on the appchain
-//   - achievements    on the appchain (ctor: score_registry address)
+//   - game            on the appchain (ctor: score_registry address)
 //
-// Order matters: achievements addresses its L2 -> L1 messages to score_registry,
-// so the registry must exist first.
+// Order matters: the game contract publishes its L2 -> L1 scores to
+// score_registry, so the registry must exist first.
 
 import {
   ARTIFACT,
@@ -34,17 +33,10 @@ async function main() {
   saveDeployments(d);
   console.log("  scoreRegistry:", d.settlement.scoreRegistry);
 
-  console.log("[deploy] game_minter on appchain");
-  d.appchain.gameMinter = await declareAndDeploy(appchain, ARTIFACT.gameMinter, []);
+  console.log("[deploy] game on appchain (registry:", d.settlement.scoreRegistry, ")");
+  d.appchain.game = await declareAndDeploy(appchain, ARTIFACT.game, [d.settlement.scoreRegistry]);
   saveDeployments(d);
-  console.log("  gameMinter:", d.appchain.gameMinter);
-
-  console.log("[deploy] achievements on appchain (registry:", d.settlement.scoreRegistry, ")");
-  d.appchain.achievements = await declareAndDeploy(appchain, ARTIFACT.achievements, [
-    d.settlement.scoreRegistry,
-  ]);
-  saveDeployments(d);
-  console.log("  achievements:", d.appchain.achievements);
+  console.log("  game:", d.appchain.game);
 
   console.log("[deploy] done.");
 }

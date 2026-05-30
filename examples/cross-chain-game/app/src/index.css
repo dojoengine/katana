@@ -128,9 +128,31 @@
     @apply font-sans;
     }
 }
-/* Demo accent: give the neutral base-nova theme a violet primary in dark mode. */
-.dark {
-  --primary: oklch(0.62 0.19 280);
+/* Demo palette: shades of white as the base surfaces, with a violet primary
+   accent (green is applied directly via Tailwind utilities in the components). */
+:root {
+  --background: oklch(0.984 0.003 286); /* faint cool off-white page */
+  --foreground: oklch(0.22 0.01 286); /* near-black ink */
+  --card: oklch(1 0 0); /* pure white cards layer above the page */
+  --card-foreground: oklch(0.22 0.01 286);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.01 286);
+  --muted: oklch(0.965 0.004 286); /* light gray fills */
+  --muted-foreground: oklch(0.52 0.01 286);
+  --secondary: oklch(0.965 0.004 286);
+  --secondary-foreground: oklch(0.3 0.01 286);
+  --accent: oklch(0.965 0.006 286);
+  --accent-foreground: oklch(0.3 0.01 286);
+  --border: oklch(0.91 0.004 286); /* subtle hairlines between whites */
+  --input: oklch(0.91 0.004 286);
+  --primary: oklch(0.56 0.2 285); /* violet accent */
   --primary-foreground: oklch(0.99 0 0);
-  --ring: oklch(0.62 0.19 280);
+  --ring: oklch(0.56 0.2 285);
+}
+
+/* Keep the violet accent if dark mode is ever re-enabled. */
+.dark {
+  --primary: oklch(0.62 0.19 285);
+  --primary-foreground: oklch(0.99 0 0);
+  --ring: oklch(0.62 0.19 285);
 }

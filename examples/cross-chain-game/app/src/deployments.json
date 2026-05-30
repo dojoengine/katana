@@ -13,7 +13,6 @@
     "rpcUrl": "http://localhost:5051",
     "explorer": "http://localhost:5051/explorer",
     "account": { "address": "", "privateKey": "" },
-    "gameMinter": "",
-    "achievements": ""
+    "game": ""
   }
 }

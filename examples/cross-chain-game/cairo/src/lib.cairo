@@ -1,9 +1,9 @@
-//! Contracts for the cross-chain game store demo.
+//! Contracts for the cross-chain game demo.
 //!
-//! - `game_minter`  — appchain ("L2"). Receives L1 -> L2 messages (`mint_game`).
-//! - `achievements` — appchain ("L2"). Emits L2 -> L1 messages (`sync_score`).
-//! - `score_registry` — settlement ("L1"). Consumes the settled L2 -> L1 message.
+//! - `game`           — appchain ("L2"). Purchase (mint_game l1_handler), play
+//!                       (roll + finish), and publish score to L1 (send_message_to_l1).
+//! - `score_registry` — settlement ("L1"). Consumes the published score after saya
+//!                       settles the appchain block.
 
-mod game_minter;
-mod achievements;
+mod game;
 mod score_registry;

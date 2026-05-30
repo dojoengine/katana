@@ -31,15 +31,13 @@ export type Deployments = {
     rpcUrl: string;
     explorer: string;
     account: Keypair;
-    gameMinter?: string;
-    achievements?: string;
+    game?: string;
   };
 };
 
 /** Artifact base names (under cairo/target/dev). */
 export const ARTIFACT = {
-  gameMinter: "cross_chain_game_game_minter",
-  achievements: "cross_chain_game_achievements",
+  game: "cross_chain_game_game",
   scoreRegistry: "cross_chain_game_score_registry",
 } as const;
 
