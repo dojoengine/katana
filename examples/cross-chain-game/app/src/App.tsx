@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Dices, ExternalLink, Info, Loader2, ShoppingCart, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -52,8 +52,7 @@ export default function App() {
   const [buying, setBuying] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [introOpen, setIntroOpen] = useState(true); // intro shown on load
-  // Reconciler guard: claim one played-but-unpublished game at a time, in order.
-  const publishing = useRef(false);
+  const [settling, setSettling] = useState<Set<number>>(new Set()); // play seqs being settled to L1
 
   useEffect(() => {
     let active = true;
@@ -75,15 +74,6 @@ export default function App() {
         setSettled(sb);
         setTip(tp);
         setOnline(true);
-
-        // Auto-publish: resume any played-but-unclaimed game (e.g. after refresh).
-        const nextUnclaimed = plh.find((p) => !p.claimTxHash);
-        if (nextUnclaimed && !publishing.current) {
-          publishing.current = true;
-          void publish(nextUnclaimed.score).finally(() => {
-            publishing.current = false;
-          });
-        }
       } catch {
         if (active) setOnline(false);
       }
@@ -96,15 +86,25 @@ export default function App() {
     };
   }, []);
 
-  // Claim a played game's score on L1, retrying until saya has settled its block.
-  async function publish(sc: number) {
-    for (let i = 0; i < 90; i++) {
-      try {
-        await claimScore(PLAYER_ADDRESS, sc);
-        return;
-      } catch {
-        await sleep(2000);
+  // Explicit settle: consume the score's message on L1 via claim_score. Retries
+  // in case saya is still settling the block the score was emitted in.
+  async function onSettle(seq: number, sc: number) {
+    setSettling((s) => new Set(s).add(seq));
+    try {
+      for (let i = 0; i < 90; i++) {
+        try {
+          await claimScore(PLAYER_ADDRESS, sc);
+          break;
+        } catch {
+          await sleep(2000);
+        }
       }
+    } finally {
+      setSettling((s) => {
+        const n = new Set(s);
+        n.delete(seq);
+        return n;
+      });
     }
   }
 
@@ -298,13 +298,13 @@ export default function App() {
         </PhaseCard>
 
         {/* Phase 3 — Published to L1 */}
-        <PhaseCard n={3} icon={<Trophy className="size-4" />} title="Scores published to L1" subtitle="L2 → L1, settled by saya — automatic" info={<PublishInfo />}>
+        <PhaseCard n={3} icon={<Trophy className="size-4" />} title="Scores published to L1" subtitle="L2 → L1 · you settle each score" info={<PublishInfo />}>
           <div className="mb-4 grid grid-cols-2 gap-3">
             <Stat label="Last score on L1" value={score ? score.lastPublished : "…"} highlight />
             <Stat label="Total published" value={score ? score.totalPublished : "…"} />
           </div>
           {plays.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Play a game and its score publishes here automatically.</p>
+            <p className="text-sm text-muted-foreground">Play a game, then settle its score onto the settlement chain here.</p>
           ) : (
             <div className="flex max-h-[12rem] flex-col gap-2 overflow-y-auto py-px pr-1">
               <AnimatePresence initial={false}>
@@ -318,7 +318,12 @@ export default function App() {
                     transition={{ duration: 0.25, ease: "easeOut" }}
                     className="shrink-0"
                   >
-                    <PlayRow play={p} />
+                    <PlayRow
+                      play={p}
+                      settled={settled}
+                      settling={settling.has(p.seq)}
+                      onSettle={() => onSettle(p.seq, p.score)}
+                    />
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -363,9 +368,9 @@ function IntroDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
             <div className="flex items-start gap-2.5">
               <ArrowLeft className="mt-0.5 size-4 shrink-0 text-green-600" />
               <p>
-                <b className="text-green-600">L2 → L1 — play &amp; publish.</b> Playing rolls a score and emits{" "}
-                <C>send_message_to_l1</C>; saya proves &amp; settles the block, then <C>score_registry</C> consumes
-                it via <C>consume_message_from_appchain</C>.
+                <b className="text-green-600">L2 → L1 — play, then settle.</b> Playing rolls a score and emits{" "}
+                <C>send_message_to_l1</C>; saya settles the block, then <i>you</i> settle it to L1 —{" "}
+                <C>score_registry</C> consumes it via <C>consume_message_from_appchain</C>.
               </p>
             </div>
           </div>
@@ -537,15 +542,16 @@ function PublishInfo() {
           indicator).
         </>,
         <>
-          Once the block is settled, the app calls <Code>claim_score(game, player, score)</Code> on{" "}
-          <b>score_registry</b> (L1), which calls <Code>consume_message_from_appchain</Code> on the piltover core,
-          stores the score, and emits <Code>ScoreClaimed</Code>.
+          Once saya has settled the block, you click <b>Settle to L1</b>, which calls{" "}
+          <Code>claim_score(game, player, score)</Code> on <b>score_registry</b> (L1). It calls{" "}
+          <Code>consume_message_from_appchain</Code> on the piltover core, stores the score, and emits{" "}
+          <Code>ScoreClaimed</Code>.
         </>,
       ]}
       note={
         <>
-          Evaluated as <b>published</b> once <Code>score_registry</Code> consumes the message — which can only
-          succeed after saya has settled the block the score was emitted in.
+          Settling is an <b>explicit step</b> — playing only emits the message; you publish it to L1 yourself. The{" "}
+          <b>Settle to L1</b> button unlocks once saya has settled the block the score was emitted in.
         </>
       }
     />
@@ -685,6 +691,7 @@ type FlowSpec = {
   status: string;
   done: boolean;
   steps: FlowStep[];
+  action?: { label: string; onClick: () => void; disabled: boolean; busy: boolean };
 };
 
 /** Render text with `backtick`-wrapped tokens as inline <code>. */
@@ -727,6 +734,20 @@ function MessageCard({ spec }: { spec: FlowSpec }) {
               </Fragment>
             ))}
           </div>
+          {spec.action && (
+            <Button
+              size="sm"
+              className="h-7 shrink-0 cursor-pointer gap-1 px-2.5 text-xs"
+              disabled={spec.action.disabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                spec.action!.onClick();
+              }}
+            >
+              {spec.action.busy ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowLeft className="size-3.5" />}
+              {spec.action.label}
+            </Button>
+          )}
           <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
         </CardContent>
       </Card>
@@ -810,12 +831,23 @@ function PurchaseRow({ purchase }: { purchase: PurchaseRecord }) {
   return <MessageCard spec={spec} />;
 }
 
-function PlayRow({ play }: { play: PlayRecord }) {
+function PlayRow({
+  play,
+  settled,
+  settling,
+  onSettle,
+}: {
+  play: PlayRecord;
+  settled: number;
+  settling: boolean;
+  onSettle: () => void;
+}) {
   const published = !!play.claimTxHash;
+  const sayaSettled = settled >= play.block; // saya has settled the block the score was emitted in
   const spec: FlowSpec = {
     title: `🎲 Score ${play.score}`,
     direction: "L2 → L1",
-    status: published ? "Published" : "Publishing",
+    status: published ? "Published" : settling ? "Settling…" : sayaSettled ? "Ready to settle" : "Awaiting saya",
     done: published,
     steps: [
       {
@@ -826,18 +858,27 @@ function PlayRow({ play }: { play: PlayRecord }) {
       },
       {
         label: "Settled by saya",
-        state: published ? "done" : "active",
+        state: published || sayaSettled ? "done" : "pending",
         description: "saya proves the appchain block and submits `update_state` to the piltover core, registering the message.",
       },
       {
         label: "Published to L1",
-        state: published ? "done" : "pending",
-        description: "`score_registry` consumes the message via `consume_message_from_appchain` and records the score.",
+        state: published ? "done" : settling ? "active" : "pending",
+        description:
+          "You settle the game: `score_registry` consumes the message via `consume_message_from_appchain` and records the score.",
         tx: play.claimTxHash
           ? { label: "L1 tx", tone: "l1", hash: play.claimTxHash, href: explorerTxUrl(SETTLEMENT_EXPLORER, play.claimTxHash) }
           : undefined,
       },
     ],
+    action: published
+      ? undefined
+      : {
+          label: settling ? "Settling…" : sayaSettled ? "Settle to L1" : "Awaiting saya…",
+          onClick: onSettle,
+          disabled: settling || !sayaSettled,
+          busy: settling,
+        },
   };
   return <MessageCard spec={spec} />;
 }

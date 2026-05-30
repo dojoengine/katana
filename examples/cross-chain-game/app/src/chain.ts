@@ -128,7 +128,7 @@ export async function purchaseGame(gameId: number): Promise<string> {
   });
 }
 
-type RawEvent = { transaction_hash: string; keys: string[]; data: string[] };
+type RawEvent = { transaction_hash: string; keys: string[]; data: string[]; block: number };
 
 /** Fetch all events for an address + key, oldest-first, following pagination. */
 async function fetchEvents(p: RpcProvider, address: string, key: string): Promise<RawEvent[]> {
@@ -143,7 +143,8 @@ async function fetchEvents(p: RpcProvider, address: string, key: string): Promis
       chunk_size: 100,
       continuation_token: continuationToken,
     });
-    for (const ev of res.events) out.push({ transaction_hash: ev.transaction_hash, keys: ev.keys, data: ev.data });
+    for (const ev of res.events)
+      out.push({ transaction_hash: ev.transaction_hash, keys: ev.keys, data: ev.data, block: ev.block_number ?? 0 });
     continuationToken = res.continuation_token;
     if (!continuationToken) break;
   }
@@ -180,24 +181,34 @@ export async function getPurchaseHistory(): Promise<PurchaseRecord[]> {
 export type PlayRecord = {
   seq: number;
   score: number;
+  block: number; // appchain block the play landed in (gates settling on saya)
   l2TxHash: string; // play_game tx on the appchain
-  claimTxHash?: string; // claim_score tx on the settlement layer (once published)
+  claimTxHash?: string; // claim_score (settle) tx on the settlement layer, once published
 };
 
 /** Rebuild the play list: each appchain `GamePlayed` is a play; the matching
- *  settlement `ScoreClaimed` (same FIFO order) is its publish to L1. */
+ *  settlement `ScoreClaimed` is its publish to L1. Claims are matched by score
+ *  (first-come) so a game settled out of order still lines up with its own tx. */
 export async function getPlayHistory(): Promise<PlayRecord[]> {
   const [played, claimed] = await Promise.all([
     fetchEvents(appchainProvider, GAME, GAME_PLAYED_KEY),
     SCORE_REGISTRY ? fetchEvents(settlementProvider, SCORE_REGISTRY, SCORE_CLAIMED_KEY) : Promise.resolve([]),
   ]);
+  // ScoreClaimed: keys=[selector, player], data=[score, new_total]
+  const claimsByScore = new Map<number, string[]>();
+  for (const e of claimed) {
+    const sc = Number(BigInt(e.data[0]));
+    const q = claimsByScore.get(sc);
+    if (q) q.push(e.transaction_hash);
+    else claimsByScore.set(sc, [e.transaction_hash]);
+  }
   // GamePlayed: keys=[selector, player], data=[game_no, score]
-  return played.map((e, i) => ({
-    seq: i + 1,
-    score: Number(BigInt(e.data[1])),
-    l2TxHash: e.transaction_hash,
-    claimTxHash: claimed[i]?.transaction_hash,
-  }));
+  return played.map((e, i) => {
+    const score = Number(BigInt(e.data[1]));
+    const q = claimsByScore.get(score);
+    const claimTxHash = q && q.length ? q.shift() : undefined;
+    return { seq: i + 1, score, block: e.block, l2TxHash: e.transaction_hash, claimTxHash };
+  });
 }
 
 // --- Phase 2 + 3: play (rolls + publishes to L1 in one tx) ---
