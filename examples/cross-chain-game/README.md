@@ -20,6 +20,10 @@ that settles to a piltover core via a **saya-tee** sidecar. Game/score state liv
 in Dojo models; the frontend reads it from a Torii indexer per chain (it never
 calls contract views), and rebuilds its feeds from Dojo events.
 
+> **Building your own appchain app?** This demo doubles as a worked example for a
+> generalized guide — architecture, why each service exists, the contracts, and
+> how the client queries state: see **[docs/](./docs/README.md)**.
+
 ```
                          buy → mint  (L1 → L2)
    ┌───────────────────────────┐ ─────────────────────► ┌──────────────────────────┐
