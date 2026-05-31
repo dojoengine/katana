@@ -94,7 +94,11 @@ impl L3InProcess {
 /// Spawns the L2 settlement Katana as an in-process `TestNode` on the standard dev chain spec
 /// (`ChainId::SEPOLIA`, `fee: false`) — equivalent to `katana --dev --dev.no-fee`.
 pub async fn spawn_l2() -> L2InProcess {
-    let config = katana_utils::node::test_config();
+    let mut config = katana_utils::node::test_config();
+    // The L3 messaging collector fetches `MessageSent` events from this node with
+    // `chunk_size = 200`; `test_config` caps `max_event_page_size` at 100, which
+    // would reject the query. Raise it so the L1->L2 relay can run.
+    config.rpc.max_event_page_size = Some(1024);
     L2InProcess { inner: TestNode::new_with_config(config).await }
 }
 
@@ -136,7 +140,7 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
     let settlement = SettlementLayer::Starknet {
         block: 0,
         id: l2_chain_id,
-        rpc_url: l2_url,
+        rpc_url: l2_url.clone(),
         core_contract: piltover_address.into(),
         proof_kind: SettlementProofKind::Tee,
     };
@@ -151,6 +155,18 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
     let mut config = katana_utils::node::test_config();
     config.chain = Arc::new(ChainSpec::Rollup(l3_chain));
     config.tee = Some(TeeConfig { provider_type: TeeProviderType::Mock, fork_block_number: None });
+    // Enable the inbound messaging collector so L1->L2 messages sent on L2's
+    // piltover core are relayed into L3 as L1-handler txs — letting the messaging
+    // regression settle a block that actually consumes a cross-chain message.
+    config.messaging = Some(katana_messaging::MessagingConfig {
+        settlement: katana_messaging::SettlementChainConfig::Starknet {
+            rpc_url: l2_url,
+            contract_address: piltover_address.into(),
+        },
+        interval: 1,
+        from_block: 0,
+        confirmation_depth: 0,
+    });
     // Note: rollup chain specs (provable mode) never produce empty blocks
     // even with `block_time` set, per the upstream Saya README. The L3 only
     // advances when transactions are submitted; we drive that explicitly

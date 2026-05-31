@@ -7,11 +7,14 @@ on:
             - "release/**"
         paths:
             - "Cargo.toml"
+            - "Cargo.lock"
             - "bin/**/*.rs"
             - "bin/**/Cargo.toml"
             - "crates/**/*.rs"
             - "crates/**/Cargo.toml"
             - "crates/explorer/**"
+            - "tests/**/*.rs"
+            - "tests/**/Cargo.toml"
             - ".gitmodules"
             - "Makefile"
             - ".github/workflows/test.yml"
@@ -21,11 +24,14 @@ on:
         types: [opened, synchronize, ready_for_review]
         paths:
             - "Cargo.toml"
+            - "Cargo.lock"
             - "bin/**/*.rs"
             - "bin/**/Cargo.toml"
             - "crates/**/*.rs"
             - "crates/**/Cargo.toml"
             - "crates/explorer/**"
+            - "tests/**/*.rs"
+            - "tests/**/Cargo.toml"
             - ".gitmodules"
             - "Makefile"
             - ".github/workflows/test.yml"
@@ -59,10 +65,13 @@ jobs:
                   filters: |
                       broader-rust:
                         - 'Cargo.toml'
+                        - 'Cargo.lock'
                         - 'bin/**/*.rs'
                         - 'bin/**/Cargo.toml'
                         - 'crates/**/*.rs'
                         - 'crates/**/Cargo.toml'
+                        - 'tests/**/*.rs'
+                        - 'tests/**/Cargo.toml'
                         - '!crates/explorer/**'
                         - '.github/workflows/test.yml'
 
@@ -648,7 +657,7 @@ jobs:
             - name: Clone Saya repository
               run: |
                   git clone https://github.com/dojoengine/saya /tmp/saya
-                  git -C /tmp/saya checkout 17c0ee0
+                  git -C /tmp/saya checkout v0.4.1
 
             - uses: software-mansion/setup-scarb@v1
               with:
