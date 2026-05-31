@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Info,
   Loader2,
+  Settings,
   Trophy,
   Vault,
   Wrench,
@@ -200,9 +201,16 @@ export default function App() {
             <div className="flex items-center gap-2">
               <Hud icon={<Coins className="size-3.5 text-primary" />} label="Credits" value={online ? available : "…"} />
               <Hud icon={<Trophy className="size-3.5 text-green-600" />} label="Best" value={online ? best : "…"} tone="green" />
-              <Button variant="ghost" size="sm" className="h-9 gap-1.5 px-2.5 text-xs" onClick={() => setHoodOpen(true)}>
-                <Wrench className="size-3.5" /> Under the hood
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button variant="ghost" size="icon" className="size-10 rounded-full" onClick={() => setHoodOpen(true)} aria-label="Under the hood" />
+                  }
+                >
+                  <Settings className="size-5 transition-transform duration-300 group-hover/button:rotate-90" />
+                </TooltipTrigger>
+                <TooltipContent>Under the hood</TooltipContent>
+              </Tooltip>
             </div>
           </header>
 
@@ -344,11 +352,11 @@ export default function App() {
 
 function Hud(props: { icon: React.ReactNode; label: string; value: React.ReactNode; tone?: "green" }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-1.5">
+    <div className="flex h-10 items-center gap-2 rounded-full border bg-card px-4">
       {props.icon}
-      <div className="leading-none">
-        <div className={cn("text-sm font-bold tabular-nums", props.tone === "green" && "text-green-600")}>{props.value}</div>
-        <div className="text-[10px] text-muted-foreground">{props.label}</div>
+      <div className="flex items-baseline gap-1.5 leading-none">
+        <span className="text-[11px] text-muted-foreground">{props.label}</span>
+        <span className={cn("text-sm font-bold tabular-nums", props.tone === "green" && "text-green-600")}>{props.value}</span>
       </div>
     </div>
   );
