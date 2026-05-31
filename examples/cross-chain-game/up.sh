@@ -36,12 +36,27 @@ for bin in saya-ops saya-tee; do
   command -v "$bin" >/dev/null 2>&1 || {
     echo "error: '$bin' not found on PATH. Install from cartridge-gg/saya (v0.4.0)." >&2; exit 1; }
 done
+# Dojo toolchain: sozo migrates the worlds, torii indexes them. Pinned in
+# .tool-versions (sozo 1.8.7, torii 1.8.16) — install with `asdf install`.
+for bin in sozo torii; do
+  command -v "$bin" >/dev/null 2>&1 || {
+    echo "error: '$bin' not found on PATH. Run 'asdf install' in this directory (see .tool-versions)." >&2; exit 1; }
+done
 echo "→ katana: $KATANA"
 echo "→ saya-tee: $(command -v saya-tee)"
+echo "→ sozo: $(sozo --version 2>&1 | head -1)   torii: $(torii --version 2>&1 | head -1)"
 
-SETTLEMENT_PID=""; APPCHAIN_PID=""; SAYA_PID=""
+# Torii ports (settlement indexes the score world + piltover; appchain indexes
+# the game world). Relay ports must be distinct per instance; chosen away from
+# the 8080/9090 defaults to avoid clashing with other local dojo projects.
+TORII_SCORE_HTTP=8081; TORII_SCORE_GRPC=50081; TORII_SCORE_RELAY=9181
+TORII_GAME_HTTP=8082;  TORII_GAME_GRPC=50082;  TORII_GAME_RELAY=9184
+
+SETTLEMENT_PID=""; APPCHAIN_PID=""; SAYA_PID=""; TORII_SCORE_PID=""; TORII_GAME_PID=""
 cleanup() {
   echo ""; echo "→ shutting down…"
+  [[ -n "$TORII_GAME_PID" ]] && kill "$TORII_GAME_PID" 2>/dev/null || true
+  [[ -n "$TORII_SCORE_PID" ]] && kill "$TORII_SCORE_PID" 2>/dev/null || true
   [[ -n "$SAYA_PID" ]] && kill "$SAYA_PID" 2>/dev/null || true
   [[ -n "$APPCHAIN_PID" ]] && kill "$APPCHAIN_PID" 2>/dev/null || true
   [[ -n "$SETTLEMENT_PID" ]] && kill "$SETTLEMENT_PID" 2>/dev/null || true
@@ -51,9 +66,7 @@ trap cleanup EXIT INT TERM
 echo "→ installing JS dependencies…"
 ( cd "$DEMO_DIR" && bun install >/dev/null )
 ( cd "$DEMO_DIR/app" && bun install >/dev/null )
-
-echo "→ building contracts (scarb)…"
-( cd "$DEMO_DIR/cairo" && scarb build )
+# Contracts are built + migrated per-world by scripts/deploy.ts (sozo build/migrate).
 
 # 1. Settlement node (SN_SEPOLIA so saya-ops / init rollup chain id match).
 echo "→ starting settlement node on :5050…"
@@ -98,16 +111,18 @@ node -e '
   const d = {
     settlement: {
       rpcUrl: "http://localhost:5050", explorer: "http://localhost:5050/explorer",
+      torii: "http://localhost:" + process.argv[6],
       account: { address: process.argv[2], privateKey: process.argv[3] },
       piltover: process.argv[4],
     },
     appchain: {
       rpcUrl: "http://localhost:5051", explorer: "http://localhost:5051/explorer",
+      torii: "http://localhost:" + process.argv[7],
       account: { address: addr, privateKey: acct.privateKey },
     },
   };
   fs.writeFileSync(process.argv[5], JSON.stringify(d, null, 2) + "\n");
-' "$CHAIN_DIR/genesis.json" "$SETTLE_ADDR" "$SETTLE_PK" "$PILTOVER" "$DEMO_DIR/app/src/deployments.json"
+' "$CHAIN_DIR/genesis.json" "$SETTLE_ADDR" "$SETTLE_PK" "$PILTOVER" "$DEMO_DIR/app/src/deployments.json" "$TORII_SCORE_HTTP" "$TORII_GAME_HTTP"
 
 # 5. Appchain rollup node, settling to piltover, with L1->L2 messaging enabled.
 echo "→ starting appchain node on :5051…"
@@ -138,14 +153,41 @@ saya-tee tee start --mock-prove \
   > "$RUN_DIR/saya.log" 2>&1 &
 SAYA_PID=$!
 
-# 7. Deploy the demo contracts and fill in their addresses.
+# 7. Migrate the two Dojo worlds (sozo) and fill in their addresses.
 ( cd "$DEMO_DIR" && bun run scripts/deploy.ts )
+
+# Read back the migrated world addresses for torii.
+SCORE_WORLD=$(node -e 'console.log(require(process.argv[1]).settlement.scoreWorld)' "$DEMO_DIR/app/src/deployments.json")
+GAME_WORLD=$(node -e 'console.log(require(process.argv[1]).appchain.gameWorld)' "$DEMO_DIR/app/src/deployments.json")
+
+# 8. Torii indexers — one per chain (a torii instance indexes a single RPC).
+#    Each indexes its world's models + events. Purchases sent on L1 (piltover
+#    `MessageSent`) are read straight from the settlement RPC by the frontend.
+echo "→ starting torii (settlement: score world) on :${TORII_SCORE_HTTP}…"
+rm -rf "$RUN_DIR/torii-score.db" "$RUN_DIR/torii-game.db"
+torii --rpc http://localhost:5050 --world "$SCORE_WORLD" \
+  --http.port "$TORII_SCORE_HTTP" --grpc.port "$TORII_SCORE_GRPC" \
+  --relay.port "$TORII_SCORE_RELAY" --relay.webrtc_port $((TORII_SCORE_RELAY+1)) --relay.websocket_port $((TORII_SCORE_RELAY+2)) \
+  --http.cors_origins '*' \
+  --db-dir "$RUN_DIR/torii-score.db" > "$RUN_DIR/torii-score.log" 2>&1 &
+TORII_SCORE_PID=$!
+
+echo "→ starting torii (appchain: game world) on :${TORII_GAME_HTTP}…"
+torii --rpc http://localhost:5051 --world "$GAME_WORLD" \
+  --http.port "$TORII_GAME_HTTP" --grpc.port "$TORII_GAME_GRPC" \
+  --relay.port "$TORII_GAME_RELAY" --relay.webrtc_port $((TORII_GAME_RELAY+1)) --relay.websocket_port $((TORII_GAME_RELAY+2)) \
+  --http.cors_origins '*' \
+  --db-dir "$RUN_DIR/torii-game.db" > "$RUN_DIR/torii-game.log" 2>&1 &
+TORII_GAME_PID=$!
+until curl -s -o /dev/null "http://localhost:$TORII_GAME_HTTP/" 2>/dev/null; do sleep 0.5; done
 
 echo ""
 echo "✓ Demo is up:"
 echo "    settlement RPC : http://localhost:5050   explorer: http://localhost:5050/explorer"
 echo "    appchain RPC   : http://localhost:5051   explorer: http://localhost:5051/explorer"
 echo "    saya-tee       : running (.run/saya.log)"
+echo "    torii (score)  : http://localhost:$TORII_SCORE_HTTP/sql   (.run/torii-score.log)"
+echo "    torii (game)   : http://localhost:$TORII_GAME_HTTP/sql    (.run/torii-game.log)"
 echo "    frontend       : http://localhost:3001"
 echo ""
 

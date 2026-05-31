@@ -1,9 +1,16 @@
-// starknet.js wrapper for the cross-chain game.
+// Frontend data layer for the cross-chain game (Dojo + Torii edition).
 //
-// Settlement ("L1"): piltover core + score_registry. The settlement account signs
-// purchases (L1->L2) and score claims.
-// Appchain ("L2"): a single `game` contract — purchase mints a playable game,
-// play rolls a score and publishes it to L1. The appchain account signs plays.
+// Settlement ("L1"): piltover core + the `score` Dojo world (score_registry
+// system). The settlement account signs purchases (L1->L2) and score claims.
+// Appchain ("L2"): the `game` Dojo world (game system) — purchase mints a
+// playable game, play rolls a score and publishes it to L1. The appchain
+// account signs plays.
+//
+// Writes go through starknet.js (system calls + piltover). Reads come from
+// Torii: model rows for current state, Dojo event-message tables for the
+// per-mint / per-play / per-claim feeds. The one exception is the L1-side
+// purchase log (piltover `MessageSent`), read straight from the settlement RPC
+// so the "pending mint" state survives even before the appchain relays.
 
 import { Account, RpcProvider, hash } from "starknet";
 import deployments from "./deployments.json";
@@ -13,20 +20,28 @@ export const APPCHAIN_RPC = deployments.appchain.rpcUrl;
 export const SETTLEMENT_EXPLORER = deployments.settlement.explorer;
 export const APPCHAIN_EXPLORER = deployments.appchain.explorer;
 
+// Torii indexers (one per chain).
+export const TORII_SCORE = deployments.settlement.torii; // settlement: score world
+export const TORII_GAME = deployments.appchain.torii; // appchain: game world
+
 export const PILTOVER = deployments.settlement.piltover;
-export const SCORE_REGISTRY = deployments.settlement.scoreRegistry;
-export const GAME = deployments.appchain.game;
+export const SCORE_WORLD = deployments.settlement.scoreWorld;
+export const GAME_WORLD = deployments.appchain.gameWorld;
+// Dojo system contracts: the `game`/`score_registry` system addresses are what
+// the frontend calls and what the cross-chain messages target.
+export const GAME = deployments.appchain.gameSystem; // appchain game system
+export const SCORE_REGISTRY = deployments.settlement.scoreSystem; // settlement score system
 
 export const BUYER_ADDRESS = deployments.settlement.account.address; // signs on L1
 export const PLAYER_ADDRESS = deployments.appchain.account.address; // signs on L2
 
 const MINT_GAME_SELECTOR = hash.getSelectorFromName("mint_game");
-const GAME_MINTED_KEY = hash.getSelectorFromName("GameMinted");
-const GAME_PLAYED_KEY = hash.getSelectorFromName("GamePlayed");
 const MESSAGE_SENT_KEY = hash.getSelectorFromName("MessageSent"); // piltover core (L1)
-const SCORE_CLAIMED_KEY = hash.getSelectorFromName("ScoreClaimed"); // score_registry (L1)
 
 const sameFelt = (a: string, b: string) => BigInt(a) === BigInt(b);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Torii returns felt/uint columns as hex strings; collapse to a JS number. */
+const num = (v: string | number): number => (typeof v === "number" ? v : Number(BigInt(v)));
 
 const settlementProvider = new RpcProvider({ nodeUrl: SETTLEMENT_RPC });
 const appchainProvider = new RpcProvider({ nodeUrl: APPCHAIN_RPC });
@@ -58,9 +73,20 @@ function withSettlementLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function callFelt(p: RpcProvider, contractAddress: string, entrypoint: string, calldata: string[] = []) {
-  const res = await p.callContract({ contractAddress, entrypoint, calldata });
-  return BigInt(res[0]);
+// --- Torii SQL ---
+
+/** Run a read-only SQL query against a Torii instance; returns the JSON rows. */
+async function toriiSql<T = Record<string, string | number>>(base: string, sql: string): Promise<T[]> {
+  const res = await fetch(`${base}/sql?query=${encodeURIComponent(sql)}`);
+  if (!res.ok) throw new Error(`torii sql ${res.status}: ${await res.text()}`);
+  return (await res.json()) as T[];
+}
+
+/** Torii stamps each event-message row with `internal_event_id` formatted as
+ *  `<block>:<txHash>:<world>:<idx>`. Pull out the block and L2 tx hash. */
+function parseEventId(internalEventId: string): { block: number; txHash: string } {
+  const [blockHex, txHash] = internalEventId.split(":");
+  return { block: num(blockHex), txHash };
 }
 
 export function explorerTxUrl(explorerBase: string, txHash: string): string {
@@ -77,7 +103,7 @@ export function shortHex(value: string, lead = 6, tail = 4): string {
   return `${value.slice(0, lead)}…${value.slice(-tail)}`;
 }
 
-// --- Appchain game state ---
+// --- Appchain game state (game world `Stats` model) ---
 
 export type GameState = {
   totalMinted: number; // games purchased
@@ -87,31 +113,26 @@ export type GameState = {
 };
 
 export async function readGameState(): Promise<GameState> {
-  const [minted, avail, played, last] = await Promise.all([
-    callFelt(appchainProvider, GAME, "total_minted"),
-    callFelt(appchainProvider, GAME, "available"),
-    callFelt(appchainProvider, GAME, "total_played"),
-    callFelt(appchainProvider, GAME, "last_score"),
-  ]);
+  const rows = await toriiSql(TORII_GAME, 'SELECT total_minted, available, total_played, last_score FROM "game-Stats" WHERE id = 0');
+  const r = rows[0];
+  if (!r) return { totalMinted: 0, available: 0, totalPlayed: 0, lastScore: 0 };
   return {
-    totalMinted: Number(minted),
-    available: Number(avail),
-    totalPlayed: Number(played),
-    lastScore: Number(last),
+    totalMinted: num(r.total_minted),
+    available: num(r.available),
+    totalPlayed: num(r.total_played),
+    lastScore: num(r.last_score),
   };
 }
 
-// --- L1 published-score state (settlement score_registry) ---
+// --- L1 published-score state (score world `Leaderboard` model) ---
 
 export type ScoreState = { lastPublished: number; totalPublished: number };
 
 export async function readScoreState(): Promise<ScoreState> {
-  if (!SCORE_REGISTRY) return { lastPublished: 0, totalPublished: 0 };
-  const [last, total] = await Promise.all([
-    callFelt(settlementProvider, SCORE_REGISTRY, "last_score"),
-    callFelt(settlementProvider, SCORE_REGISTRY, "total_synced"),
-  ]);
-  return { lastPublished: Number(last), totalPublished: Number(total) };
+  const rows = await toriiSql(TORII_SCORE, 'SELECT last_score, total FROM "score-Leaderboard" WHERE id = 0');
+  const r = rows[0];
+  if (!r) return { lastPublished: 0, totalPublished: 0 };
+  return { lastPublished: num(r.last_score), totalPublished: num(r.total) };
 }
 
 // --- Phase 1: purchase (L1 -> L2) ---
@@ -128,9 +149,9 @@ export async function purchaseGame(gameId: number): Promise<string> {
   });
 }
 
-type RawEvent = { transaction_hash: string; keys: string[]; data: string[]; block: number };
+type RawEvent = { transaction_hash: string; keys: string[]; data: string[] };
 
-/** Fetch all events for an address + key, oldest-first, following pagination. */
+/** Fetch all events for an address + key from an RPC, oldest-first, paginated. */
 async function fetchEvents(p: RpcProvider, address: string, key: string): Promise<RawEvent[]> {
   const out: RawEvent[] = [];
   let continuationToken: string | undefined;
@@ -143,16 +164,14 @@ async function fetchEvents(p: RpcProvider, address: string, key: string): Promis
       chunk_size: 100,
       continuation_token: continuationToken,
     });
-    for (const ev of res.events)
-      out.push({ transaction_hash: ev.transaction_hash, keys: ev.keys, data: ev.data, block: ev.block_number ?? 0 });
+    for (const ev of res.events) out.push({ transaction_hash: ev.transaction_hash, keys: ev.keys, data: ev.data });
     continuationToken = res.continuation_token;
     if (!continuationToken) break;
   }
   return out;
 }
 
-// Event-sourced history so the feeds survive a page refresh (rebuilt from chain
-// on every poll instead of living only in volatile React state).
+// Event-sourced history so the feeds survive a page refresh.
 
 export type PurchaseRecord = {
   seq: number; // 1-based order
@@ -160,12 +179,16 @@ export type PurchaseRecord = {
   mintTxHash?: string; // relayed mint_game tx on the appchain (once minted)
 };
 
-/** Rebuild the purchase list: each L1 `MessageSent` (to the game contract) is a
- *  purchase; the matching `GameMinted` (same FIFO order) is its relayed mint. */
+/** Rebuild the purchase list: each L1 `MessageSent` (to the game system, with
+ *  the `mint_game` selector) is a purchase; the matching `GameMinted` event in
+ *  the game world (same FIFO order) is its relayed mint. */
 export async function getPurchaseHistory(): Promise<PurchaseRecord[]> {
   const [sent, minted] = await Promise.all([
     fetchEvents(settlementProvider, PILTOVER, MESSAGE_SENT_KEY),
-    fetchEvents(appchainProvider, GAME, GAME_MINTED_KEY),
+    toriiSql<{ mint_no: number; internal_event_id: string }>(
+      TORII_GAME,
+      'SELECT mint_no, internal_event_id FROM "game-GameMinted" ORDER BY mint_no',
+    ),
   ]);
   // MessageSent: keys=[selector, message_hash, from, to], data=[selector, nonce, payload_len, ...payload]
   const purchases = sent.filter(
@@ -174,7 +197,7 @@ export async function getPurchaseHistory(): Promise<PurchaseRecord[]> {
   return purchases.map((e, i) => ({
     seq: i + 1,
     l1TxHash: e.transaction_hash,
-    mintTxHash: minted[i]?.transaction_hash,
+    mintTxHash: minted[i] ? parseEventId(minted[i].internal_event_id).txHash : undefined,
   }));
 }
 
@@ -186,47 +209,62 @@ export type PlayRecord = {
   claimTxHash?: string; // claim_score (settle) tx on the settlement layer, once published
 };
 
-/** Rebuild the play list: each appchain `GamePlayed` is a play; the matching
- *  settlement `ScoreClaimed` is its publish to L1. Claims are matched by score
- *  (first-come) so a game settled out of order still lines up with its own tx. */
+/** Rebuild the play list: each `GamePlayed` event (game world) is a play; the
+ *  matching `ScoreClaimed` event (score world) is its publish to L1. Claims are
+ *  matched by score (first-come) so a game settled out of order still lines up
+ *  with its own tx. */
 export async function getPlayHistory(): Promise<PlayRecord[]> {
   const [played, claimed] = await Promise.all([
-    fetchEvents(appchainProvider, GAME, GAME_PLAYED_KEY),
-    SCORE_REGISTRY ? fetchEvents(settlementProvider, SCORE_REGISTRY, SCORE_CLAIMED_KEY) : Promise.resolve([]),
+    toriiSql<{ game_no: number; score: string | number; internal_event_id: string }>(
+      TORII_GAME,
+      'SELECT game_no, score, internal_event_id FROM "game-GamePlayed" ORDER BY game_no',
+    ),
+    toriiSql<{ claim_no: number; score: string | number; internal_event_id: string }>(
+      TORII_SCORE,
+      'SELECT claim_no, score, internal_event_id FROM "score-ScoreClaimed" ORDER BY claim_no',
+    ),
   ]);
-  // ScoreClaimed: keys=[selector, player], data=[score, new_total]
   const claimsByScore = new Map<number, string[]>();
-  for (const e of claimed) {
-    const sc = Number(BigInt(e.data[0]));
+  for (const c of claimed) {
+    const sc = num(c.score);
+    const tx = parseEventId(c.internal_event_id).txHash;
     const q = claimsByScore.get(sc);
-    if (q) q.push(e.transaction_hash);
-    else claimsByScore.set(sc, [e.transaction_hash]);
+    if (q) q.push(tx);
+    else claimsByScore.set(sc, [tx]);
   }
-  // GamePlayed: keys=[selector, player], data=[game_no, score]
   return played.map((e, i) => {
-    const score = Number(BigInt(e.data[1]));
+    const score = num(e.score);
+    const { block, txHash } = parseEventId(e.internal_event_id);
     const q = claimsByScore.get(score);
     const claimTxHash = q && q.length ? q.shift() : undefined;
-    return { seq: i + 1, score, block: e.block, l2TxHash: e.transaction_hash, claimTxHash };
+    return { seq: i + 1, score, block, l2TxHash: txHash, claimTxHash };
   });
 }
 
 // --- Phase 2 + 3: play (rolls + publishes to L1 in one tx) ---
 
 /** Play one available game. Rolls on chain and emits the score to L1. Returns
- *  the L2 tx hash, the block it landed in, and the rolled score (from the event). */
+ *  the L2 tx hash, the block it landed in, and the rolled score (read back from
+ *  the game world's `Stats` once Torii has indexed the play). */
 export async function playGame(): Promise<{ txHash: string; block: number; score: number }> {
+  const before = await readGameState();
   const { transaction_hash } = await appchainAccount.execute({
     contractAddress: GAME,
     entrypoint: "play_game",
     calldata: [],
   });
-  const receipt: any = await appchainProvider.waitForTransaction(transaction_hash);
-  const events: any[] = receipt?.events ?? [];
-  const played = events.find((e) => e.keys?.[0] === GAME_PLAYED_KEY);
-  // GamePlayed: keys=[selector, player], data=[game_no, score]
-  const score = played ? Number(BigInt(played.data[1])) : 0;
+  await appchainProvider.waitForTransaction(transaction_hash);
   const block = await appchainProvider.getBlockNumber();
+  // Wait for Torii to index the play so the rolled score is readable.
+  let score = before.lastScore;
+  for (let i = 0; i < 60; i++) {
+    const s = await readGameState();
+    if (s.totalPlayed > before.totalPlayed) {
+      score = s.lastScore;
+      break;
+    }
+    await sleep(150);
+  }
   return { txHash: transaction_hash, block, score };
 }
 
@@ -246,13 +284,13 @@ export async function settledBlock(): Promise<number> {
   return bn > 0xffffffffffffffffn ? -1 : Number(bn);
 }
 
-/** L1 op: consume the settled score on the settlement layer (auto, after a play). */
+/** L1 op: consume the settled score on the settlement layer (banking a run). */
 export async function claimScore(player: string, score: number): Promise<string> {
   return withSettlementLock(async () => {
     const { transaction_hash } = await settlementAccount.execute({
       contractAddress: SCORE_REGISTRY,
       entrypoint: "claim_score",
-      // claim_score(from_address = game contract, player, score)
+      // claim_score(from_address = game system, player, score)
       calldata: [GAME, player, "0x" + score.toString(16)],
     });
     await settlementProvider.waitForTransaction(transaction_hash);

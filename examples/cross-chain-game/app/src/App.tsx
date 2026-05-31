@@ -43,7 +43,11 @@ import {
   APPCHAIN_EXPLORER,
   PILTOVER,
   SCORE_REGISTRY,
+  SCORE_WORLD,
   GAME,
+  GAME_WORLD,
+  TORII_SCORE,
+  TORII_GAME,
   PLAYER_ADDRESS,
 } from "./chain.ts";
 
@@ -475,8 +479,13 @@ function HoodDialog({ open, onOpenChange, online }: { open: boolean; onOpenChang
           <ChainCard
             tag="Settlement · “L1”"
             rpc={SETTLEMENT_RPC}
+            torii={TORII_SCORE}
             explorer={SETTLEMENT_EXPLORER}
-            contracts={[{ label: "piltover core", addr: PILTOVER }, { label: "score_registry", addr: SCORE_REGISTRY }]}
+            contracts={[
+              { label: "piltover core", addr: PILTOVER },
+              { label: "score world", addr: SCORE_WORLD },
+              { label: "score system", addr: SCORE_REGISTRY },
+            ]}
           />
           <div className="flex flex-col items-center justify-center gap-2 px-2 text-center text-muted-foreground">
             <span className="font-mono text-[11px] text-primary">buy → mint</span>
@@ -487,8 +496,12 @@ function HoodDialog({ open, onOpenChange, online }: { open: boolean; onOpenChang
           <ChainCard
             tag="Appchain · “L2”"
             rpc={APPCHAIN_RPC}
+            torii={TORII_GAME}
             explorer={APPCHAIN_EXPLORER}
-            contracts={[{ label: "game", addr: GAME }]}
+            contracts={[
+              { label: "game world", addr: GAME_WORLD },
+              { label: "game system", addr: GAME },
+            ]}
           />
         </div>
         {!online && <p className="text-center text-xs text-amber-600">Not connected — start the stack with ./up.sh</p>}
@@ -497,7 +510,13 @@ function HoodDialog({ open, onOpenChange, online }: { open: boolean; onOpenChang
   );
 }
 
-function ChainCard(props: { tag: string; rpc: string; explorer: string; contracts: { label: string; addr: string }[] }) {
+function ChainCard(props: {
+  tag: string;
+  rpc: string;
+  torii: string;
+  explorer: string;
+  contracts: { label: string; addr: string }[];
+}) {
   return (
     <Card className="gap-0 py-4">
       <CardContent className="px-4">
@@ -515,6 +534,17 @@ function ChainCard(props: { tag: string; rpc: string; explorer: string; contract
         <dl className="grid gap-0.5 text-sm">
           <dt className="text-[11px] tracking-wide text-muted-foreground uppercase">RPC</dt>
           <dd className="font-mono text-[13px] break-all">{props.rpc}</dd>
+          <dt className="mt-2 text-[11px] tracking-wide text-muted-foreground uppercase">Torii (indexer)</dt>
+          <dd className="font-mono text-[13px] break-all">
+            <a
+              href={`${props.torii}/sql`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              {props.torii} <ExternalLink className="size-3" />
+            </a>
+          </dd>
           {props.contracts.map((c) => (
             <div key={c.label}>
               <dt className="mt-2 text-[11px] tracking-wide text-muted-foreground uppercase">{c.label}</dt>
