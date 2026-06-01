@@ -77,13 +77,19 @@ send_message_to_l1_syscall(config.registry.into(),
 
 ```cairo
 piltover.consume_message_from_appchain(from_address, array![player, score, loot].span());
-// then: write the leaderboard row, and mint the reward
+// then: mint the reward, and emit RunBanked (the per-run leaderboard entry)
 IGameTokenMintDispatcher { contract_address: config.game_token }.mint(to, reward);
 ```
 
 **The payload contract is sacred:** `[player, score, loot]` must be reconstructed
 exactly on both ends (and `from_address` is the appchain game system), or the
 consume reverts. The reward is `score * reward_per_point` in GAME_TOKEN base units.
+
+**The leaderboard is per-run, not per-player.** Each banked run emits a `RunBanked`
+event keyed by the claim sequence (`claim_no`), so it's one row per banked run — the
+same player can appear many times. The client orders by the run's `score`, so the
+board ranks individual runs by how big a haul they banked (deaths never settle, so
+they never appear).
 
 ## The token economy
 

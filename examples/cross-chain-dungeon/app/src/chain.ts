@@ -244,17 +244,21 @@ export async function getActionFeed(limit = 40): Promise<ActionRow[]> {
 
 // --- leaderboard + bank feed (score world, on Sepolia) ---
 
-export type LeaderRow = { player: string; bestScore: number; runs: number; totalReward: bigint };
+// The leaderboard is per-run: each banked run (a `score-RunBanked` event, keyed by
+// the claim sequence) is its own entry, so the same player can appear many times.
+// Ordered by the run's banked score (ties broken by claim order).
+export type LeaderRow = { claimNo: number; player: string; score: number; loot: number; reward: bigint };
 export async function readLeaderboard(limit = 10): Promise<LeaderRow[]> {
   const rows = await toriiSql<Record<string, string>>(
     TORII_SCORE,
-    `SELECT player, best_score, runs, total_reward FROM "score-Leaderboard" ORDER BY best_score DESC LIMIT ${limit}`,
+    `SELECT claim_no, player, score, loot, reward FROM "score-RunBanked" ORDER BY score DESC, claim_no ASC LIMIT ${limit}`,
   );
   return rows.map((r) => ({
+    claimNo: num(r.claim_no),
     player: r.player,
-    bestScore: num(r.best_score),
-    runs: num(r.runs),
-    totalReward: BigInt(r.total_reward),
+    score: num(r.score),
+    loot: num(r.loot),
+    reward: BigInt(r.reward),
   }));
 }
 

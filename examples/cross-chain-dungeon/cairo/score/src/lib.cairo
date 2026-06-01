@@ -51,17 +51,6 @@ pub mod score {
 
     const SINGLETON: u8 = 0;
 
-    /// Per-player leaderboard row: best score and lifetime totals.
-    #[derive(Copy, Drop, Serde)]
-    #[dojo::model]
-    pub struct Leaderboard {
-        #[key]
-        pub player: felt252,
-        pub best_score: u64,
-        pub runs: u64,
-        pub total_reward: u256,
-    }
-
     /// Config + global claim counter (one row, keyed by `SINGLETON`).
     #[derive(Copy, Drop, Serde)]
     #[dojo::model]
@@ -77,7 +66,9 @@ pub mod score {
     }
 
     /// Emitted when a settled run is banked. Keyed by the unique claim sequence so
-    /// Torii keeps one row per banked run.
+    /// Torii keeps one row per banked run — this is the per-run leaderboard: each
+    /// banked run is its own entry (a player can appear many times), ordered by
+    /// `score`.
     #[derive(Copy, Drop, Serde)]
     #[dojo::event]
     pub struct RunBanked {
@@ -131,15 +122,8 @@ pub mod score {
             let to: ContractAddress = player.try_into().unwrap();
             IGameTokenMintDispatcher { contract_address: config.game_token }.mint(to, reward);
 
-            // Update the player's leaderboard row.
-            let mut row: Leaderboard = world.read_model(player);
-            row.runs += 1;
-            row.total_reward += reward;
-            if score_u64 > row.best_score {
-                row.best_score = score_u64;
-            }
-            world.write_model(@row);
-
+            // Record the banked run. `RunBanked` (keyed by the claim sequence) is the
+            // per-run leaderboard: one entry per banked run, ordered off-chain by score.
             config.total_claims += 1;
             world.write_model(@config);
 

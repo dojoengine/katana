@@ -360,7 +360,7 @@ export default function App() {
                     <tr>
                       <th>#</th>
                       <th>diver</th>
-                      <th style={{ textAlign: "right" }}>best</th>
+                      <th style={{ textAlign: "right" }}>score</th>
                       <th style={{ textAlign: "right" }}>reward</th>
                     </tr>
                   </thead>
@@ -373,11 +373,11 @@ export default function App() {
                       </tr>
                     ) : (
                       board.map((row, i) => (
-                        <tr key={row.player} className={BigInt(row.player) === BigInt(player || "0x0") ? "you" : ""}>
+                        <tr key={row.claimNo} className={BigInt(row.player) === BigInt(player || "0x0") ? "you" : ""}>
                           <td className="r">{String(i + 1).padStart(2, "0")}</td>
                           <td>{chain.shortHex(row.player)}</td>
-                          <td className="score">{row.bestScore.toLocaleString()}</td>
-                          <td className="rw">{chain.fmtToken(row.totalReward, chain.GAME_DECIMALS, 0)}</td>
+                          <td className="score">{row.score.toLocaleString()}</td>
+                          <td className="rw">{chain.fmtToken(row.reward, chain.GAME_DECIMALS, 0)}</td>
                         </tr>
                       ))
                     )}
@@ -401,7 +401,7 @@ export default function App() {
                   {!run && (b("enter") || !lastEnded?.died) && (
                     <div className="veil">
                       {b("enter") ? (
-                        <div>entering… (relaying L1→L2 mint_run)</div>
+                        <div>entering…</div>
                       ) : (
                         <>
                           <div>no active run</div>

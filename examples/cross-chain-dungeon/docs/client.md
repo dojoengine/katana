@@ -27,8 +27,7 @@ strings collapsed with `Number(BigInt(v))`):
 | Live run (HP/gold/depth/room/potions) | `game-RunState` model, keyed by the player |
 | World counters | `game-Stats` |
 | Action feed (the message log) | `game-ActionTaken` event table |
-| Leaderboard | `score-Leaderboard` model (Sepolia Torii) |
-| Banked runs | `score-RunBanked` event table |
+| Leaderboard + banked runs (per run) | `score-RunBanked` event table (Sepolia Torii), ordered by `score` |
 
 `ActionTaken.kind`/`outcome` are short-string felts — the client decodes them back
 to ASCII for the log (`move`, `attack`, `kill`, `trap`, `shrine`, …).
