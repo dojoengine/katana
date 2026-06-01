@@ -50,7 +50,6 @@ pub mod score {
     };
 
     const SINGLETON: u8 = 0;
-    const BPS_DENOM: u64 = 10000;
 
     /// Per-player leaderboard row: best score and lifetime totals.
     #[derive(Copy, Drop, Serde)]
@@ -59,7 +58,6 @@ pub mod score {
         #[key]
         pub player: felt252,
         pub best_score: u64,
-        pub best_depth: u32,
         pub runs: u64,
         pub total_reward: u256,
     }
@@ -72,8 +70,9 @@ pub mod score {
         pub id: u8,
         pub piltover: ContractAddress,
         pub game_token: ContractAddress,
-        /// Reward = score * reward_bps / 10000 (in GAME_TOKEN base units).
-        pub reward_bps: u64,
+        /// Reward = score * reward_per_point, in GAME_TOKEN base units (so the
+        /// rate can carry the token's decimals — e.g. 1e17 = 0.1 GAME per point).
+        pub reward_per_point: u256,
         pub total_claims: u64,
     }
 
@@ -95,12 +94,14 @@ pub mod score {
         self: @ContractState,
         piltover: ContractAddress,
         game_token: ContractAddress,
-        reward_bps: u64,
+        reward_per_point: u256,
     ) {
         let mut world = self.world_default();
         world
             .write_model(
-                @ScoreConfig { id: SINGLETON, piltover, game_token, reward_bps, total_claims: 0 },
+                @ScoreConfig {
+                    id: SINGLETON, piltover, game_token, reward_per_point, total_claims: 0,
+                },
             );
     }
 
@@ -126,7 +127,7 @@ pub mod score {
             let loot_u64: u64 = loot.try_into().unwrap();
 
             // Mint the reward to the player (this world must be an authorized minter).
-            let reward: u256 = (score_u64 * config.reward_bps / BPS_DENOM).into();
+            let reward: u256 = score_u64.into() * config.reward_per_point;
             let to: ContractAddress = player.try_into().unwrap();
             IGameTokenMintDispatcher { contract_address: config.game_token }.mint(to, reward);
 
@@ -136,10 +137,6 @@ pub mod score {
             row.total_reward += reward;
             if score_u64 > row.best_score {
                 row.best_score = score_u64;
-            }
-            let depth_u32: u32 = (score_u64 / 80).try_into().unwrap(); // mirrors DEPTH_WEIGHT=80
-            if depth_u32 > row.best_depth {
-                row.best_depth = depth_u32;
             }
             world.write_model(@row);
 

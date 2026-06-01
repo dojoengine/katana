@@ -1,0 +1,15 @@
+[package]
+name = "cross_chain_dungeon_token"
+version = "0.1.0"
+edition = "2024_07"
+cairo-version = "2.13"
+
+# Plain Starknet contracts (no Dojo world): the GAME_TOKEN ERC20, the USDC→GAME
+# sale, and the dungeon Entry that charges GAME and sends the L1→L2 message.
+[dependencies]
+starknet = "2.13"
+openzeppelin = "0.20.0"
+
+[[target.starknet-contract]]
+sierra = true
+casm = true
