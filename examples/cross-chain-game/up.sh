@@ -21,10 +21,20 @@ RUN_DIR="$DEMO_DIR/.run"
 CHAIN_DIR="$RUN_DIR/chain-config"
 mkdir -p "$RUN_DIR"
 
-# Deterministic seed-0 dev account on the settlement node (used as the saya /
-# bootstrap / purchase account).
+# Deterministic seed-0 dev accounts on the settlement node.
+#   SETTLE = account 0: bootstrap (TEE registry deploy) + the demo's dev-path
+#     buy/bank signer. In Controller mode katana also reserves account 0 as the
+#     paymaster *relayer* (gas tank = 1, estimate = 2).
+#   SAYA   = account 3: piltover operator + saya's update_state submitter. It MUST
+#     be distinct from the paymaster's accounts 0/1/2 — otherwise saya and the
+#     relayer race for the same nonce and settlement stalls mid-stream (the relayer
+#     bumps the nonce under saya, its update_state is rejected, the orchestrator
+#     freezes). init rollup and saya-tee must use the SAME account (the operator
+#     deploying piltover is the only one allowed to call update_state).
 SETTLE_ADDR="0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec"
 SETTLE_PK="0xc5b2fcab997346f3ea1c00b002ecf6f382c5f9c9659a3894eb783c5320f912"
+SAYA_ADDR="0x2af9427c5a277474c079a1283c880ee8a6f0f8fbf73ce969c08d88befec1bba"
+SAYA_PK="0x1800000000300000180000000000030000000000003006001800006600"
 TEE_REGISTRY_SALT="0x7ee"
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
@@ -124,8 +134,8 @@ rm -rf "$CHAIN_DIR"
 "$KATANA" init rollup \
   --id GAMECHAIN \
   --settlement-chain http://localhost:5050 \
-  --settlement-account-address "$SETTLE_ADDR" \
-  --settlement-account-private-key "$SETTLE_PK" \
+  --settlement-account-address "$SAYA_ADDR" \
+  --settlement-account-private-key "$SAYA_PK" \
   --tee \
   --tee-registry-address "$TEE_REGISTRY" \
   --output-path "$CHAIN_DIR" > "$RUN_DIR/init.log" 2>&1
@@ -176,8 +186,8 @@ saya-tee tee start --mock-prove \
   --settlement-rpc http://localhost:5050 \
   --settlement-piltover-address "$PILTOVER" \
   --tee-registry-address "$TEE_REGISTRY" \
-  --settlement-account-address "$SETTLE_ADDR" \
-  --settlement-account-private-key "$SETTLE_PK" \
+  --settlement-account-address "$SAYA_ADDR" \
+  --settlement-account-private-key "$SAYA_PK" \
   --prover-private-key 0xdeadbeef \
   --db-dir "$RUN_DIR/saya-db" \
   --batch-size 1 \
