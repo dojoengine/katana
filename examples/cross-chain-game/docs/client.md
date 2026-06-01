@@ -118,6 +118,11 @@ demo's [README](../README.md) → "Using Controller". Because the same Controlle
 now the caller on the appchain, `play_game`'s `get_caller_address()`, the L2→L1 score
 message, and the leaderboard `player` all key on the Controller.
 
+> **Caveat:** driving the Controller on the *appchain* (the roll) currently relies on
+> a self-hosted keychain and runtime workarounds — `CONTROLLER=1 ./up.sh` alone is
+> not enough. See [Current known blockers](#current-known-blockers-appchain-controller)
+> below. The L1 side (buy/bank) and the default dev-account path work without any of that.
+
 ## Tying it to the UI: subscribe + derive
 
 The client keeps no authoritative state of its own. A single `tick()` re-reads
@@ -155,6 +160,69 @@ const unbanked = plays.filter((p) => !p.claimTxHash);   // still on L2
 const banked   = plays.filter((p) =>  p.claimTxHash);    // settled to L1
 ```
 [`app/src/App.tsx:170`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/App.tsx#L170)
+
+## Current known blockers (appchain Controller)
+
+Driving a **Cartridge Controller against the appchain** works end-to-end (same
+Controller address signs buy/bank on L1 and the roll on `GAMECHAIN`), but only via
+a **self-hosted keychain plus several workarounds** — the hosted keychain at
+`x.cartridge.gg` is built for Cartridge-known chains (mainnet, sepolia, and slot
+katana chains), and a bespoke `katana init rollup` appchain trips a series of its
+assumptions. These are the open rough edges.
+
+### Fee-token address mismatch (the active one)
+
+**Symptom.** On a roll, the keychain shows `Contract not found` during the
+fee/transaction step. The roll still executes (the appchain runs `--dev.no-fee`
+and the Cartridge paymaster sponsors it), so it's non-fatal but blocks/clutters the
+UI.
+
+**Why.** The keychain hardcodes its token registry
+(`packages/keychain/src/components/provider/tokens.tsx`): `DEFAULT_TOKENS` = ETH/STRK
+at the **canonical Starknet addresses** (ETH `0x049d3657…`, STRK `0x04718f5a…`) and
+`DEFAULT_FEE_TOKEN = STRK`. A `katana init rollup` appchain deploys its fee token at
+a **different** address (`DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS = 0x2e7442…915eea`), and
+canonical ETH/STRK aren't deployed at all. So every fee-token-dependent call resolves
+to a non-existent contract on the appchain: `balanceOf` (caught/cosmetic), and the
+fee estimate / fee display / deploy-funding check (surfaces as the modal error).
+Verified: canonical ETH exists on the settlement node (`:5050`, a `--dev` chain that
+*does* use canonical addresses) but returns `Contract not found` on the appchain
+(`:5051`).
+
+**Controller limitation.** The keychain's token/fee layer is **not chain-derived** —
+it assumes every connected chain uses the canonical token addresses (true for
+mainnet/sepolia/slot, false for a bespoke appchain). It never asks the node which
+token it charges fees in.
+
+**Solutions & impact.**
+
+| Solution | Where | Impact |
+|----------|-------|--------|
+| Expose tokens at the canonical addresses in the rollup genesis (place ETH/STRK at the canonical addresses, or alias the fee token there) | katana | Hosted keychain works unmodified; but diverges from `DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS` and may surprise other tooling. Smallest fork surface. |
+| Make the keychain fee-token chain-aware/configurable (`TokensProvider` already takes `tokens`/`feeToken` props) | keychain | Correct general fix, but hosted keychain doesn't expose this to dapps — self-hosted fork only. |
+| Make the keychain tolerate a missing fee token when fees are sponsored | keychain | Cheap band-aid; self-hosted fork only. |
+| Register the appchain as a Cartridge **slot** chain | Cartridge infra | The supported path (slot chains use canonical addresses, known to the hosted keychain); not a local bespoke appchain. |
+
+### Other assumptions that required workarounds
+
+- **Chain switch doesn't re-point execution.** `@cartridge/controller`'s
+  `switchStarknetChain` doesn't rebuild the executing account, and the deployed
+  hosted keychain doesn't re-point its controller on switch. Worked around by
+  self-hosting the keychain from `controller` HEAD (whose `switchChain` rebuilds
+  the controller with the new RPC).
+- **API CORS.** `api.cartridge.gg` only allows Cartridge origins, so a localhost
+  keychain can't do account lookup directly — needs a same-origin proxy.
+- **Controller class hash.** `katana init rollup`'s genesis JSON round-trip shifts
+  the embedded controller class hash, so the class the keychain deploys isn't found
+  by its canonical hash — worked around by declaring `controller.latest` on the
+  appchain at runtime.
+- **Sessions are per-chain.** The session is approved on the settlement chain at
+  login; the appchain has none (and the demo's policies are unverified, so the
+  keychain can't silently auto-create one), so rolls fall back to a manual confirm
+  modal instead of being silent like buy/bank.
+
+None of these are reproducible from a clean `./up.sh` — they live in the self-hosted
+keychain fork and runtime steps. The **default dev-account path is unaffected**.
 
 Because the feeds are rebuilt from Torii on each refetch, the UI is
 **refresh-proof**: reload the page and the same state reappears, since it was never

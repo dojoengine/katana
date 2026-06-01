@@ -119,10 +119,14 @@ SETTLEMENT_PID=$!
 until curl -s -o /dev/null http://localhost:5050/ 2>/dev/null; do sleep 0.5; done
 
 # 2. Mock TEE registry on settlement (permissive attestation verifier).
+#    Deploy from the SAYA account (3), not account 0: in Controller mode the
+#    settlement node's paymaster bootstrap deploys the AVNU forwarder from account
+#    0 right after startup, and a concurrent deploy from account 0 here races its
+#    nonce ("Account nonce: 0x2; got: 0x1") and aborts the launch.
 echo "→ deploying mock TEE registry (saya-ops)…"
 REG_OUT=$(SETTLEMENT_RPC_URL=http://localhost:5050 \
-  SETTLEMENT_ACCOUNT_ADDRESS="$SETTLE_ADDR" \
-  SETTLEMENT_ACCOUNT_PRIVATE_KEY="$SETTLE_PK" \
+  SETTLEMENT_ACCOUNT_ADDRESS="$SAYA_ADDR" \
+  SETTLEMENT_ACCOUNT_PRIVATE_KEY="$SAYA_PK" \
   SETTLEMENT_CHAIN_ID=SN_SEPOLIA \
   saya-ops core-contract declare-and-deploy-tee-registry-mock --salt "$TEE_REGISTRY_SALT" 2>&1)
 TEE_REGISTRY=$(echo "$REG_OUT" | sed -nE 's/.*TEE registry mock address:[[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | tail -1)

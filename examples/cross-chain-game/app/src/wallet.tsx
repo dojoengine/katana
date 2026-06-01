@@ -91,6 +91,10 @@ type WalletCtx = {
   /** L2 signer (roll): dev appchain account, or the Controller (on the appchain). */
   l2Account: Signer;
   l1Address: string;
+  /** Address that `play_game` records as the player (and that `claim_score` must
+   *  consume the L2→L1 message for): the dev appchain account, or the Controller
+   *  (same address on both chains). */
+  playerAddress: string;
   label: string;
   username?: string;
   connecting: boolean;
@@ -147,6 +151,10 @@ function WalletInner({ children }: PropsWithChildren) {
   const usingController = method === "controller" && !!ctrlAccount;
   const l1Account = (usingController ? ctrlAccount : settlementAccount) as AccountInterface;
   const l1Address = usingController ? (ctrlAddress ?? "") : settlementAccount.address;
+  // The roll's caller: the Controller (same address on both chains) when connected,
+  // else the dev appchain account. claim_score must consume the score message for
+  // this address, not the L1 signer (which differs in dev mode).
+  const playerAddress = usingController ? (ctrlAddress ?? "") : appchainAccount.address;
   const label = usingController ? (username ?? shortHex(l1Address)) : "Dev account";
 
   // L2 signer. The Controller's default chain is the settlement layer (for
@@ -163,15 +171,9 @@ function WalletInner({ children }: PropsWithChildren) {
         execute: async (calls) => {
           // usingController implies a live connection, so the connector exists.
           const ctrl = controllerConnector!.controller;
-          const switched = await ctrl.switchStarknetChain(APPCHAIN_CHAIN_ID);
-          // eslint-disable-next-line no-console
-          console.log("[roll] switch→GAMECHAIN ok?", switched, "| ctrl.account?", !!ctrl.account);
+          await ctrl.switchStarknetChain(APPCHAIN_CHAIN_ID);
           try {
             return await (ctrl.account ?? ctrlAccount!).execute(calls);
-          } catch (e) {
-            // eslint-disable-next-line no-console
-            console.error("[roll] execute failed:", e);
-            throw e;
           } finally {
             await ctrl.switchStarknetChain(SETTLEMENT_CHAIN_ID);
           }
@@ -186,6 +188,7 @@ function WalletInner({ children }: PropsWithChildren) {
         l1Account,
         l2Account,
         l1Address,
+        playerAddress,
         label,
         username,
         connecting,

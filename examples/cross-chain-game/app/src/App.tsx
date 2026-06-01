@@ -61,7 +61,6 @@ import {
   GAME_WORLD,
   TORII_SCORE,
   TORII_GAME,
-  PLAYER_ADDRESS,
   BUYER_ADDRESS,
 } from "./chain.ts";
 import { sourceUrl } from "./source.ts";
@@ -370,7 +369,7 @@ export default function App() {
     try {
       for (let i = 0; i < 90; i++) {
         try {
-          await claimScore(wallet.l1Account, PLAYER_ADDRESS, sc);
+          await claimScore(wallet.l1Account, wallet.playerAddress, sc);
           refetch.current(); // ScoreClaimed will also push, but don't wait on it
           break;
         } catch {
