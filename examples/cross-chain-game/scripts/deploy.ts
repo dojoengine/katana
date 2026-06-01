@@ -46,6 +46,24 @@ async function main() {
   saveDeployments(d);
   console.log("  gameWorld:", game.world, "gameSystem:", game.system);
 
+  // Store world: the L1 storefront whose buy_game sends the L1->L2 mint message.
+  // It needs the piltover core (to send) and the game system (to address). The
+  // game system only exists after the migration above, so store goes last.
+  console.log("[deploy] migrating store world on settlement (game:", game.system, ")");
+  const store = migrateWorld({
+    pkg: "store",
+    seed: "ccg_store",
+    namespace: "store",
+    systemTag: "store-store",
+    rpcUrl: d.settlement.rpcUrl,
+    account: d.settlement.account,
+    initArgs: [d.settlement.piltover, game.system],
+  });
+  d.settlement.storeWorld = store.world;
+  d.settlement.storeSystem = store.system;
+  saveDeployments(d);
+  console.log("  storeWorld:", store.world, "storeSystem:", store.system);
+
   console.log("[deploy] done.");
 }
 

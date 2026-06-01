@@ -47,6 +47,8 @@ import {
   PILTOVER,
   SCORE_REGISTRY,
   SCORE_WORLD,
+  STORE,
+  STORE_WORLD,
   GAME,
   GAME_WORLD,
   TORII_SCORE,
@@ -73,6 +75,7 @@ export default function App() {
   const [introOpen, setIntroOpen] = useState(true);
   const [tourStep, setTourStep] = useState(-1); // -1 = tour closed
   const [hoodOpen, setHoodOpen] = useState(false);
+  const [coinsOpen, setCoinsOpen] = useState(false);
   const [detail, setDetail] = useState<PlayRecord | null>(null);
   const rollStart = useRef(0); // plays.length when the current roll started
   const rollToken = useRef(0); // invalidates a stale play_game() resolution
@@ -203,6 +206,7 @@ export default function App() {
         onStep={setTourStep}
         state={{ online, available, playsLen: plays.length, bankedLen: banked.length }}
       />
+      <CoinMessagesDialog open={coinsOpen} onOpenChange={setCoinsOpen} purchases={purchases} />
       <PlayDetailDialog play={detail} settled={settled} onOpenChange={(o) => !o && setDetail(null)} />
       <HoodDialog open={hoodOpen} onOpenChange={setHoodOpen} online={online} />
 
@@ -258,9 +262,14 @@ export default function App() {
                     {rolling ? "Rolling…" : available < 1 ? "No credits" : "Roll"}
                   </Button>
                   <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCoinsOpen(true)}
+                      title="View the L1 → L2 messages behind your credits"
+                      className="inline-flex cursor-pointer items-center gap-1 rounded-md decoration-dotted underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                    >
                       <Coins className="size-3.5" /> {available} credit{available === 1 ? "" : "s"}
-                    </span>
+                    </button>
                     <Button
                       data-tour="coin"
                       variant="outline"
@@ -508,6 +517,8 @@ function HoodDialog({ open, onOpenChange, online }: { open: boolean; onOpenChang
             explorer={SETTLEMENT_EXPLORER}
             contracts={[
               { label: "piltover core", addr: PILTOVER },
+              { label: "store world", addr: STORE_WORLD },
+              { label: "store system", addr: STORE },
               { label: "score world", addr: SCORE_WORLD },
               { label: "score system", addr: SCORE_REGISTRY },
             ]}
@@ -717,6 +728,71 @@ function PlayDetailDialog({
   );
 }
 
+function CoinMessagesDialog({
+  open,
+  onOpenChange,
+  purchases,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  purchases: PurchaseRecord[];
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Coins className="size-5 text-primary" /> L1 → L2 messages
+            <Badge variant="secondary" className="text-[10px]">{purchases.length}</Badge>
+          </DialogTitle>
+          <DialogDescription>
+            Each <b>Insert coin</b> calls <Code>buy_game</Code> on the L1 store, which messages the appchain (relayed into{" "}
+            <Code>mint_game</Code>) to mint one credit on L2.
+          </DialogDescription>
+        </DialogHeader>
+        {purchases.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No credits bought yet — hit <b>Insert coin</b> to send your first L1 → L2 message.
+          </p>
+        ) : (
+          <div className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto py-px pr-1">
+            {[...purchases].reverse().map((p) => (
+              <div key={p.seq} className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2">
+                <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary/10 text-xs font-bold tabular-nums text-primary">
+                  {p.seq}
+                </span>
+                <div className="flex flex-1 flex-wrap items-center gap-1.5">
+                  <TxLink
+                    label="L1 send"
+                    tone="l1"
+                    hash={p.l1TxHash}
+                    href={explorerTxUrl(SETTLEMENT_EXPLORER, p.l1TxHash)}
+                  />
+                  {p.mintTxHash ? (
+                    <TxLink
+                      label="L2 mint"
+                      tone="l2"
+                      hash={p.mintTxHash}
+                      href={explorerTxUrl(APPCHAIN_EXPLORER, p.mintTxHash)}
+                    />
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-600">
+                      <Loader2 className="size-3 animate-spin" /> relaying…
+                    </span>
+                  )}
+                </div>
+                <span className={cn("shrink-0 text-xs", p.mintTxHash ? "text-green-600" : "text-amber-600")}>
+                  {p.mintTxHash ? "Minted" : "Pending"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function InfoButton({ title, className, children }: { title: string; className?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
@@ -774,8 +850,11 @@ function BuyInfo() {
       services={["settlement katana (L1)", "appchain katana — messaging"]}
       steps={[
         <>
-          The buyer calls <Code>send_message_to_appchain(game, mint_game, [id])</Code> on the <b>piltover core</b> (L1),
-          emitting <Code>MessageSent</Code>.
+          The buyer calls <Code>buy_game</Code> on the <b>store</b> contract (L1), which runs the store’s rules.
+        </>,
+        <>
+          The store then calls <Code>send_message_to_appchain</Code> on the <b>piltover core</b>, emitting{" "}
+          <Code>MessageSent</Code>.
         </>,
         <>The appchain’s messaging service relays it as an <b>L1-handler</b> tx.</>,
         <>
@@ -940,8 +1019,8 @@ const TOUR_STEPS: TourStep[] = [
       <TourFlow
         steps={[
           <>
-            Calls <Code>send_message_to_appchain</Code> on the <b>piltover core</b> (settlement / L1), emitting{" "}
-            <Code>MessageSent</Code>.
+            Calls <Code>buy_game</Code> on the <b>store</b> contract (settlement / L1), which runs the store’s rules then{" "}
+            <Code>send_message_to_appchain</Code> on the <b>piltover core</b>, emitting <Code>MessageSent</Code>.
           </>,
           <>
             The appchain (<Code>--messaging.enabled</Code>) relays it as an <b>L1-handler</b> transaction.

@@ -26,11 +26,13 @@ export const TORII_GAME = deployments.appchain.torii; // appchain: game world
 
 export const PILTOVER = deployments.settlement.piltover;
 export const SCORE_WORLD = deployments.settlement.scoreWorld;
+export const STORE_WORLD = deployments.settlement.storeWorld;
 export const GAME_WORLD = deployments.appchain.gameWorld;
 // Dojo system contracts: the `game`/`score_registry` system addresses are what
 // the frontend calls and what the cross-chain messages target.
 export const GAME = deployments.appchain.gameSystem; // appchain game system
 export const SCORE_REGISTRY = deployments.settlement.scoreSystem; // settlement score system
+export const STORE = deployments.settlement.storeSystem; // settlement store system (buy_game)
 
 export const BUYER_ADDRESS = deployments.settlement.account.address; // signs on L1
 export const PLAYER_ADDRESS = deployments.appchain.account.address; // signs on L2
@@ -137,13 +139,15 @@ export async function readScoreState(): Promise<ScoreState> {
 
 // --- Phase 1: purchase (L1 -> L2) ---
 
-/** L1 op: send a message via the piltover core to mint a playable game on L2. */
+/** L1 op: buy a game through the store contract, which runs the store's rules
+ *  and then sends the L1 -> L2 message (via the piltover core) that mints a
+ *  credit on L2. The client calls the game's own contract, not piltover directly. */
 export async function purchaseGame(gameId: number): Promise<string> {
   return withSettlementLock(async () => {
     const { transaction_hash } = await settlementAccount.execute({
-      contractAddress: PILTOVER,
-      entrypoint: "send_message_to_appchain",
-      calldata: [GAME, MINT_GAME_SELECTOR, "1", "0x" + gameId.toString(16)],
+      contractAddress: STORE,
+      entrypoint: "buy_game",
+      calldata: ["0x" + gameId.toString(16)],
     });
     return transaction_hash;
   });

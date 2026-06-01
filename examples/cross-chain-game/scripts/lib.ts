@@ -31,6 +31,8 @@ export type Deployments = {
     piltover: string;
     scoreWorld?: string;
     scoreSystem?: string;
+    storeWorld?: string;
+    storeSystem?: string;
   };
   appchain: {
     rpcUrl: string;

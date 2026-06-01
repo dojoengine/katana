@@ -9,7 +9,9 @@
     },
     "piltover": "",
     "scoreWorld": "",
-    "scoreSystem": ""
+    "scoreSystem": "",
+    "storeWorld": "",
+    "storeSystem": ""
   },
   "appchain": {
     "rpcUrl": "http://localhost:5051",
