@@ -28,22 +28,22 @@ async function toriiSql(base, sql) {
   return res.json();                       // array of row objects
 }
 ```
-[`app/src/chain.ts:81`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L81)
+[`app/src/chain.ts:81`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L81)
 
 Two parsing details every client needs:
 
 - **Columns come back as hex strings** (`"0x…41"`). Collapse to numbers:
-  `const num = (v) => Number(BigInt(v));` [`app/src/chain.ts:46`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L46)
+  `const num = (v) => Number(BigInt(v));` [`app/src/chain.ts:46`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L46)
 - **Each event row has `internal_event_id`** = `block:txHash:world:idx`. Split it
   to recover the block height and the tx hash (for explorer links / settlement
-  gating): [`app/src/chain.ts:89`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L89)
+  gating): [`app/src/chain.ts:89`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L89)
 
 Reading current state is then a one-liner against the model table:
 
 ```ts
 const rows = await toriiSql(TORII_GAME, 'SELECT total_minted, available … FROM "game-Stats" WHERE id = 0');
 ```
-[`app/src/chain.ts:117`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L117)
+[`app/src/chain.ts:117`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L117)
 
 ## Joining across two Toriis
 
@@ -60,7 +60,7 @@ const [played, claimed] = await Promise.all([
 ]);
 // → each play row gets a claimTxHash if a matching claim exists
 ```
-[`app/src/chain.ts:220`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L220)
+[`app/src/chain.ts:220`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L220)
 
 This "read both indexers, join on a shared field" pattern is how any multi-chain
 appchain app presents one coherent timeline.
@@ -70,10 +70,10 @@ appchain app presents one coherent timeline.
 A few things aren't world state, so they bypass Torii and hit the chain directly:
 
 - **Block heights** (appchain tip) and **piltover `get_state`** (settled height) —
-  the "settled N / tip M" gauge. [`app/src/chain.ts:281`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L281)
+  the "settled N / tip M" gauge. [`app/src/chain.ts:281`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L281)
 - **The L1 purchase log** (piltover `MessageSent`) via `getEvents`, so a purchase
   shows as *pending* before the appchain relays it — that L1-side event isn't in
-  either world. [`app/src/chain.ts:189`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L189)
+  either world. [`app/src/chain.ts:189`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L189)
 
 Rule of thumb: world models/events → Torii; raw chain facts (block numbers,
 non-world contract events, settled state) → RPC.
@@ -82,9 +82,9 @@ non-world contract events, settled state) → RPC.
 
 Writes are ordinary signed transactions; nothing Torii-specific:
 
-- **L1→L2 (buy):** `storeSystem.buy_game(game_id)` — the L1 store runs its rules, then messages the appchain — [`app/src/chain.ts:145`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L145)
-- **L2 (play):** `gameSystem.play_game()` — [`app/src/chain.ts:253`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L253)
-- **L2→L1 (bank):** `scoreSystem.claim_score(game_system, player, score)` — [`app/src/chain.ts:292`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L292)
+- **L1→L2 (buy):** `storeSystem.buy_game(game_id)` — the L1 store runs its rules, then messages the appchain — [`app/src/chain.ts:145`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L145)
+- **L2 (play):** `gameSystem.play_game()` — [`app/src/chain.ts:253`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L253)
+- **L2→L1 (bank):** `scoreSystem.claim_score(game_system, player, score)` — [`app/src/chain.ts:292`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L292)
 
 Two practical notes from the demo:
 
@@ -94,7 +94,7 @@ Two practical notes from the demo:
 - **A write returns before the read updates.** `playGame()` sends the tx, waits
   for the receipt, then **polls Torii** until the play is indexed before returning
   the score — bridging the write path to the eventually-consistent read path.
-  [`app/src/chain.ts:253`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/chain.ts#L253)
+  [`app/src/chain.ts:253`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L253)
 
 ## Tying it to the UI: poll + derive
 
@@ -108,7 +108,7 @@ const [g, sc, ph, plh, sb, tp] = await Promise.all([
 ]);
 // …setState; const h = setInterval(tick, 1500)
 ```
-[`app/src/App.tsx:90`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/App.tsx#L90)
+[`app/src/App.tsx:90`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/App.tsx#L90)
 
 Everything shown is then derived from those reads — e.g. unbanked vs banked runs
 are just a filter over the joined play list:
@@ -117,7 +117,7 @@ are just a filter over the joined play list:
 const unbanked = plays.filter((p) => !p.claimTxHash);   // still on L2
 const banked   = plays.filter((p) =>  p.claimTxHash);    // settled to L1
 ```
-[`app/src/App.tsx:138`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/app/src/App.tsx#L138)
+[`app/src/App.tsx:138`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/App.tsx#L138)
 
 Because the feeds are rebuilt from Torii every tick, the UI is **refresh-proof**:
 reload the page and the same state reappears, since it was never only in React.

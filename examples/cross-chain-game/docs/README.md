@@ -57,8 +57,9 @@ Five kinds of process, explained in [services.md](./services.md):
 Everything in the demo is a variation on this round trip. Follow it once and the
 rest of the guide is just detail.
 
-1. **Act on L1.** The client calls `piltover.send_message_to_appchain(...)` on the
-   settlement chain (the demo: *Insert coin*). piltover emits `MessageSent`.
+1. **Act on L1.** The client calls a settlement contract that, in turn, calls
+   `piltover.send_message_to_appchain(...)` (the demo: *Insert coin* → the `store`
+   world's `buy_game`). piltover emits `MessageSent`.
 2. **Relay to L2.** The appchain Katana (`--messaging.enabled`) sees the message
    and relays it as an `L1HandlerTx` that runs your `#[l1_handler]` (the demo:
    `mint_game` adds a credit). → [contracts.md](./contracts.md)

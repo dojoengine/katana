@@ -30,7 +30,7 @@ chain your app runs *on* — and each is a Katana instance:
   mainnet/Sepolia in production). It hosts the **piltover core** and your
   settlement world. In the demo it runs with `--chain-id SN_SEPOLIA` so saya's
   tooling and `katana init rollup` agree on the chain id.
-  [`up.sh:91`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/up.sh#L91)
+  [`up.sh:91`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L91)
 - **Appchain Katana ("L2").** Your app's chain, started as a **rollup** that
   settles to the piltover core. Key flags:
   - `--tee mock` — run as a TEE-settled rollup (mock attestation locally).
@@ -41,7 +41,7 @@ chain your app runs *on* — and each is a Katana instance:
   katana --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee \
          --http.port 5051 --explorer --messaging.enabled
   ```
-  [`up.sh:147`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/up.sh#L147)
+  [`up.sh:147`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L147)
 
 **How they connect.** The appchain is created by `katana init rollup`, which
 deploys the piltover core on the settlement chain and writes a chain config the
@@ -59,11 +59,11 @@ messages that have been *settled*, so L1 contracts can consume them safely. That
 contract is piltover.
 
 **Where / how.** Deployed by `katana init rollup --tee` on the settlement chain
-([`up.sh:109`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/up.sh#L109)). Its interface, as used in this guide:
+([`up.sh:109`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L109)). Its interface, as used in this guide:
 
 - `send_message_to_appchain(to, selector, payload)` — **L1 → L2**. Emits
-  `MessageSent`; the appchain relays it. (Called by the client to start a round
-  trip.)
+  `MessageSent`; the appchain relays it. (In the demo, called by the L1 `store`
+  contract's `buy_game` to start a round trip.)
 - `consume_message_from_appchain(from, payload)` — **L2 → L1**. Succeeds only if
   saya has settled a block containing that message. (Called by your settlement
   system.)
@@ -86,7 +86,7 @@ The message becomes consumable on L1 **only after** its block is settled:
 This is why the demo's *bank* step can't be instant: the client has to wait for
 saya to settle the block the play landed in before claiming.
 
-**Where / how.** A sidecar process next to the two Katanas ([`up.sh:159`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/up.sh#L159)):
+**Where / how.** A sidecar process next to the two Katanas ([`up.sh:159`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L159)):
 
 ```bash
 saya-tee tee start --mock-prove \
@@ -96,7 +96,7 @@ saya-tee tee start --mock-prove \
 
 - `--mock-prove` — exercises the settlement *plumbing* without a real SP1/TEE
   prover. It proves the messaging path works, not proof soundness.
-- The **mock TEE registry** (deployed by `saya-ops`, [`up.sh:98`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/up.sh#L98)) is the on-L1
+- The **mock TEE registry** (deployed by `saya-ops`, [`up.sh:98`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L98)) is the on-L1
   attestation verifier; the mock accepts saya's attestation so `update_state` is
   allowed. In production this is a real attestation registry.
 
@@ -126,7 +126,7 @@ world isn't indexed; its purchases are read from the piltover log over RPC):
 torii --rpc http://localhost:5050 --world "$SCORE_WORLD" --http.port 8081 …  # settlement
 torii --rpc http://localhost:5051 --world "$GAME_WORLD"  --http.port 8082 …  # appchain
 ```
-[`up.sh:185`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/up.sh#L185), [`up.sh:194`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/up.sh#L194)
+[`up.sh:185`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L185), [`up.sh:194`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L194)
 
 **How the client uses it.** Current state from model tables (`game-Stats`), feeds
 from per-event tables (`game-GamePlayed`), via `GET /sql?query=…`. The client even
@@ -138,7 +138,7 @@ instance so two Toriis don't collide (`up.sh` `--relay.port …`).
 
 | Step | Actor | Touches |
 | --- | --- | --- |
-| Send L1→L2 | client → piltover (settlement Katana) | piltover emits `MessageSent` |
+| Send L1→L2 | client → `store` → piltover (settlement Katana) | piltover emits `MessageSent` |
 | Relay | appchain Katana (`--messaging.enabled`) | runs your `#[l1_handler]` |
 | Act on L2 | client → appchain system | writes model, maybe `send_message_to_l1` |
 | Settle | saya → piltover | registers L2→L1 message hashes |
