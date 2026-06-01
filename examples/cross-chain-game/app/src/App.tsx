@@ -90,28 +90,35 @@ function ConnectingBanner() {
   );
 }
 
-// Shown once a read has failed: the services aren't up. The poll keeps retrying,
-// so the banner clears itself when the stack comes back.
-function ServicesOffline() {
+// Shown once a read has failed: the services aren't up. Stands in for the intro
+// modal. Non-dismissible (no close button, ignores Escape/backdrop) and bound to
+// `open={offline}`, so it clears itself the moment the poll reconnects.
+function OfflineDialog({ open }: { open: boolean }) {
   return (
-    <div className="mb-4 shrink-0 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
-      <div className="flex items-start gap-3">
-        <PlugZap className="mt-0.5 size-5 shrink-0 text-amber-600" />
-        <div className="space-y-1.5 text-sm">
-          <p className="font-semibold text-amber-700 dark:text-amber-500">Can't reach the local stack</p>
-          <p className="text-muted-foreground">
-            The game's services aren't responding. Start them and this page reconnects on its own:
-          </p>
-          <code className="inline-block rounded-md border bg-card px-2 py-1 font-mono text-xs text-foreground">
-            cd examples/cross-chain-game && ./up.sh
-          </code>
+    <Dialog open={open} onOpenChange={() => {}}>
+      <DialogContent showCloseButton={false} className="max-w-md sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PlugZap className="size-5 text-amber-600" /> Can't reach the local stack
+          </DialogTitle>
+          <DialogDescription>
+            The game's services aren't responding. Start them and this dialog closes on its own.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <pre className="rounded-lg border bg-muted px-3 py-2 font-mono text-xs">
+            cd examples/cross-chain-game{"\n"}./up.sh
+          </pre>
           <p className="text-xs text-muted-foreground">
-            settlement <span className="font-mono">:5050</span> · appchain <span className="font-mono">:5051</span> · Torii{" "}
-            <span className="font-mono">:8081/:8082</span> · saya
+            Brings up settlement <span className="font-mono">:5050</span> · appchain{" "}
+            <span className="font-mono">:5051</span> · Torii <span className="font-mono">:8081/:8082</span> · saya.
           </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin text-primary" /> Waiting for services — reconnects automatically.
+          </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -216,6 +223,7 @@ export default function App() {
     }
   }, [plays, rolling]);
 
+  const offline = !loading && !online; // first read failed → services aren't up
   const available = game?.available ?? 0;
   const pendingMints = purchases.filter((p) => !p.mintTxHash).length;
   const coinLoading = buying || pendingMints > 0; // submitting on L1 or still minting on L2
@@ -282,8 +290,11 @@ export default function App() {
 
   return (
     <TooltipProvider>
+      {/* When the stack is down, the offline modal stands in for the intro. The
+          intro only opens once we're connected, so the two never collide. */}
+      <OfflineDialog open={offline} />
       <IntroDialog
-        open={introOpen}
+        open={introOpen && online}
         onSkip={() => setIntroOpen(false)}
         onStartTutorial={() => {
           setIntroOpen(false);
@@ -349,12 +360,9 @@ export default function App() {
             </div>
           </header>
 
-          {/* Connection status: connecting → offline → (gone once online) */}
-          {loading ? (
-            <ConnectingBanner />
-          ) : !online ? (
-            <ServicesOffline />
-          ) : null}
+          {/* Connecting hint while the first read is in flight. The offline state
+              is handled by <OfflineDialog> (a blocking modal), not a banner. */}
+          {loading && <ConnectingBanner />}
 
           {/* Game area */}
           <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1.35fr_1fr]">
