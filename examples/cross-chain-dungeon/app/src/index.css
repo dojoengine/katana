@@ -45,6 +45,12 @@ body {
 
 .frame {
   max-width: 1280px; margin: 0 auto;
+  /* Fill the viewport minus the body's top+bottom padding (the "spacing"),
+     clamped so it neither shrinks nor grows too far. Inner columns scroll. */
+  height: calc(100vh - 66px);
+  min-height: 600px;
+  max-height: 940px;
+  display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid var(--border-hi);
   background: linear-gradient(180deg, rgba(255,180,84,.03), transparent 30%);
   box-shadow: 0 0 0 1px rgba(0,0,0,.6) inset, 0 0 60px rgba(255,140,40,.06) inset, 0 30px 80px rgba(0,0,0,.6);
@@ -88,10 +94,12 @@ body {
 .gauge .n { color: var(--ink); }
 .gauge .lag { color: var(--amber); }
 
-.grid { display: grid; grid-template-columns: 272px 1fr 440px; gap: 0; }
-.grid > section { padding: 16px 18px; }
-.col-left { border-right: 1px solid var(--border); }
-.col-right { border-left: 1px solid var(--border); }
+/* The grid fills the remaining frame height; each column scrolls independently. */
+.grid { flex: 1 1 auto; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 272px 1fr 440px; grid-template-rows: minmax(0, 1fr); gap: 0; }
+.grid > section { padding: 16px 18px; min-height: 0; }
+.col-left { border-right: 1px solid var(--border); overflow-y: auto; }
+.col-center { overflow-y: auto; }
+.col-right { border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 
 .panel { margin-bottom: 20px; }
 .panel:last-child { margin-bottom: 0; }
@@ -148,7 +156,7 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 .vital.pot .v { color: var(--cyan); }
 .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 
-.log { min-height: 420px; max-height: 560px; overflow: auto; border: 1px solid var(--border); background: rgba(0,0,0,.28); padding: 10px 12px; font-size: 12.5px; }
+.log { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); background: rgba(0,0,0,.28); padding: 10px 12px; font-size: 12.5px; }
 .log p { margin: 0 0 2px; display: flex; gap: 9px; }
 .log .t { color: var(--ghost); flex: none; width: 30px; text-align: right; }
 .log .g { flex: none; width: 12px; text-align: center; }
@@ -215,7 +223,12 @@ tr.you { background: rgba(255,180,84,.05); }
 .boundary pre.err { color: var(--red); }
 
 @media (max-width: 980px) {
-  .grid { grid-template-columns: 1fr; }
+  /* Stacked layout: drop the fixed height and let the page scroll naturally. */
+  .frame { height: auto; min-height: 0; max-height: none; }
+  .grid { grid-template-columns: 1fr; grid-template-rows: none; overflow: visible; }
+  .col-left, .col-center, .col-right { overflow: visible; }
+  .col-right { display: block; }
+  .log { max-height: 460px; }
   .col-left, .col-right { border: 0; border-top: 1px solid var(--border); }
   .title { font-size: 40px; }
 }
