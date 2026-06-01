@@ -159,7 +159,7 @@ saya-tee tee start --mock-prove \
   --settlement-account-private-key "$SAYA_PRIVATE_KEY" \
   --prover-private-key 0xdeadbeef \
   --db-dir "$RUN_DIR/saya-db" \
-  --batch-size 1 \
+  --batch-size "${SAYA_BATCH_SIZE:-10}" \
   --attestor-poll-interval-ms 1000 \
   > "$RUN_DIR/saya.log" 2>&1 &
 SAYA_PID=$!
