@@ -4,14 +4,17 @@ import {
   ArrowRight,
   Check,
   Coins,
+  Compass,
   Dices,
   ExternalLink,
   Info,
   Loader2,
+  MousePointerClick,
   Settings,
   Trophy,
   Vault,
   Wrench,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -67,6 +70,7 @@ export default function App() {
   const [rollDisplay, setRollDisplay] = useState<number | null>(null);
   const [settling, setSettling] = useState<Set<number>>(new Set());
   const [introOpen, setIntroOpen] = useState(true);
+  const [tourStep, setTourStep] = useState(-1); // -1 = tour closed
   const [hoodOpen, setHoodOpen] = useState(false);
   const [detail, setDetail] = useState<PlayRecord | null>(null);
   const rollStart = useRef(0); // plays.length when the current roll started
@@ -185,7 +189,19 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <IntroDialog open={introOpen} onOpenChange={setIntroOpen} />
+      <IntroDialog
+        open={introOpen}
+        onSkip={() => setIntroOpen(false)}
+        onStartTutorial={() => {
+          setIntroOpen(false);
+          setTourStep(0);
+        }}
+      />
+      <Tour
+        step={tourStep}
+        onStep={setTourStep}
+        state={{ online, available, playsLen: plays.length }}
+      />
       <PlayDetailDialog play={detail} settled={settled} onOpenChange={(o) => !o && setDetail(null)} />
       <HoodDialog open={hoodOpen} onOpenChange={setHoodOpen} online={online} />
 
@@ -208,7 +224,7 @@ export default function App() {
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <Button variant="ghost" size="icon" className="size-10 rounded-full" onClick={() => setHoodOpen(true)} aria-label="Under the hood" />
+                    <Button data-tour="hood" variant="ghost" size="icon" className="size-10 rounded-full" onClick={() => setHoodOpen(true)} aria-label="Under the hood" />
                   }
                 >
                   <Settings className="size-5 transition-transform duration-300 group-hover/button:rotate-90" />
@@ -221,7 +237,7 @@ export default function App() {
           {/* Game area */}
           <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1.35fr_1fr]">
             {/* Arcade (L2) */}
-            <Card className="relative overflow-hidden">
+            <Card data-tour="arcade" className="relative overflow-hidden">
               <CardContent className="flex min-h-0 flex-1 flex-col gap-5 p-5">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🕹️</span>
@@ -236,7 +252,7 @@ export default function App() {
                 {/* Dice + roll */}
                 <div className="flex flex-col items-center gap-4 py-2">
                   <Die value={rollDisplay} rolling={rolling} idle={!rolling && rollDisplay == null} />
-                  <Button size="lg" className="h-12 w-48 text-base" onClick={onRoll} disabled={rolling || available < 1 || !online}>
+                  <Button data-tour="roll" size="lg" className="h-12 w-48 text-base" onClick={onRoll} disabled={rolling || available < 1 || !online}>
                     {rolling ? <Loader2 className="size-5 animate-spin" /> : <Dices className="size-5" />}
                     {rolling ? "Rolling…" : available < 1 ? "No credits" : "Roll"}
                   </Button>
@@ -245,6 +261,7 @@ export default function App() {
                       <Coins className="size-3.5" /> {available} credit{available === 1 ? "" : "s"}
                     </span>
                     <Button
+                      data-tour="coin"
                       variant="outline"
                       size="sm"
                       className="ml-1 h-7 gap-1 px-2 text-xs"
@@ -258,7 +275,7 @@ export default function App() {
                 </div>
 
                 {/* Unbanked rolls */}
-                <div className="flex min-h-0 flex-1 flex-col">
+                <div data-tour="rolls" className="flex min-h-0 flex-1 flex-col">
                   <div className="mb-2 flex shrink-0 items-center justify-between text-xs text-muted-foreground">
                     <span>Rolls to bank</span>
                     {unbanked.length > 0 && <span>{unbanked.length} waiting</span>}
@@ -296,7 +313,7 @@ export default function App() {
             </Card>
 
             {/* Vault (L1) */}
-            <Card className="relative overflow-hidden border-green-600/30 bg-green-600/5">
+            <Card data-tour="vault" className="relative overflow-hidden border-green-600/30 bg-green-600/5">
               <CardContent className="flex min-h-0 flex-1 flex-col gap-5 p-5">
                 <div className="flex items-center gap-2">
                   <Vault className="size-5 text-green-600" />
@@ -345,7 +362,13 @@ export default function App() {
           </div>
 
           {/* saya status */}
-          <div className="mt-4 flex shrink-0 items-center justify-center">{online && <SayaGauge settled={settled} tip={tip} caughtUp={sayaCaughtUp} />}</div>
+          <div data-tour="saya" className="mt-4 flex shrink-0 items-center justify-center">
+            {online ? (
+              <SayaGauge settled={settled} tip={tip} caughtUp={sayaCaughtUp} />
+            ) : (
+              <span className="text-xs text-muted-foreground">saya: connecting…</span>
+            )}
+          </div>
         </div>
       </div>
     </TooltipProvider>
@@ -785,9 +808,17 @@ function PublishInfo() {
   );
 }
 
-function IntroDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function IntroDialog({
+  open,
+  onSkip,
+  onStartTutorial,
+}: {
+  open: boolean;
+  onSkip: () => void;
+  onStartTutorial: () => void;
+}) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => !o && onSkip()}>
       <DialogContent className="max-w-lg sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -823,14 +854,355 @@ function IntroDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
             </div>
           </div>
           <p className="text-muted-foreground">
-            Curious how it works? Hit <b>Under the hood</b> or the ⓘ icons to see the contracts, messages, and transactions
-            behind every action.
+            New to appchains? The tutorial walks through each action and shows what happens behind the stage — the chains,
+            contracts, and messages that make it work.
           </p>
         </div>
-        <Button className="w-full cursor-pointer" onClick={() => onOpenChange(false)}>
-          Let’s play
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row-reverse">
+          <Button className="w-full cursor-pointer sm:flex-1" onClick={onStartTutorial}>
+            <Compass className="size-4" /> Start tutorial
+          </Button>
+          <Button variant="outline" className="w-full cursor-pointer sm:flex-1" onClick={onSkip}>
+            I already know
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// --- Tutorial: a spotlight tour over the real UI ---
+//
+// Each step highlights a live element (by its data-tour attribute) and explains
+// what that operation does in appchain terms — not how to play the game.
+
+type TourState = { online: boolean; available: number; playsLen: number };
+
+type TourStep = {
+  sel: string; // data-tour value of the element to spotlight
+  tag: string;
+  tone: "primary" | "green" | "muted";
+  title: string;
+  body: React.ReactNode;
+  place?: "auto" | "left"; // popover placement relative to the target (default auto)
+  // Interactive step: the user performs the real action on the highlighted
+  // element; the tour drops its click-blocker and auto-advances once `done`
+  // flips true (a new credit minted, a new roll landed, …).
+  action?: { cta: React.ReactNode; done: (now: TourState, base: TourState) => boolean };
+};
+
+const TOUR_STEPS: TourStep[] = [
+  {
+    sel: "arcade",
+    tag: "Appchain · L2",
+    tone: "primary",
+    title: "The Arcade is your appchain",
+    body: (
+      <>
+        Everything you do here executes on a <b>Katana appchain</b> — a dedicated L2 with its own blocks. State lives in a
+        Dojo <b>world</b> (typed models), and a <b>Torii</b> indexer mirrors it so this UI can read it. Because it's your
+        own chain, playing is instant and free.
+      </>
+    ),
+  },
+  {
+    sel: "coin",
+    tag: "L1 → L2",
+    tone: "primary",
+    title: "Insert coin — a message from L1",
+    action: {
+      cta: (
+        <>
+          Click <b>Insert coin</b> — then watch the credit mint on L2.
+        </>
+      ),
+      done: (now, base) => now.available > base.available,
+    },
+    body: (
+      <TourFlow
+        steps={[
+          <>
+            Calls <Code>send_message_to_appchain</Code> on the <b>piltover core</b> (settlement / L1), emitting{" "}
+            <Code>MessageSent</Code>.
+          </>,
+          <>
+            The appchain (<Code>--messaging.enabled</Code>) relays it as an <b>L1-handler</b> transaction.
+          </>,
+          <>
+            <Code>mint_game</Code> runs on the appchain world and adds a credit. Instant — relayed by Katana, no prover
+            needed.
+          </>,
+        ]}
+      />
+    ),
+  },
+  {
+    sel: "roll",
+    tag: "On L2",
+    tone: "primary",
+    title: "Roll — play on the appchain",
+    action: {
+      cta: (
+        <>
+          Click <b>Roll</b> to play on the appchain.
+        </>
+      ),
+      done: (now, base) => now.playsLen > base.playsLen,
+    },
+    body: (
+      <>
+        <Code>play_game()</Code> spends a credit and rolls the score <i>on chain</i>. It writes the <Code>Stats</Code>{" "}
+        model, emits <Code>GamePlayed</Code>, and fires <Code>send_message_to_l1</Code> with your score — an outbound
+        message addressed to L1.
+      </>
+    ),
+  },
+  {
+    sel: "rolls",
+    tag: "L2 → L1 · pending",
+    tone: "muted",
+    title: "An unbanked message, waiting to settle",
+    body: (
+      <>
+        Each roll's score is now an L2 → L1 message that exists <b>on the appchain but not yet on L1</b>. L1 can't consume
+        it until the block it landed in is <i>settled</i> — which is the prover's job, next.
+      </>
+    ),
+  },
+  {
+    sel: "saya",
+    tag: "Settlement",
+    tone: "muted",
+    title: "saya proves & settles the block",
+    body: (
+      <>
+        <b>saya</b> proves each appchain block and submits <Code>update_state</Code> to the piltover core contract
+        (deployed on the L1), which <b>registers</b> the block's outbound message hashes. This gauge shows the settled
+        block height vs the appchain tip. Only after settlement can L1 consume your score.
+      </>
+    ),
+  },
+  {
+    sel: "vault",
+    tag: "L2 → L1 · done",
+    tone: "green",
+    place: "left",
+    title: "The Vault is the L1 record",
+    body: (
+      <>
+        <b>Bank</b> calls <Code>claim_score</Code> on the settlement world, which calls{" "}
+        <Code>consume_message_from_appchain</Code> on piltover — this succeeds only because saya settled the message. The
+        score is stored on L1 and <Code>ScoreClaimed</Code> is emitted. The run is now permanent.
+      </>
+    ),
+  },
+  {
+    sel: "hood",
+    tag: "Anytime",
+    tone: "primary",
+    title: "Peek under the hood",
+    body: (
+      <>
+        This opens the live plumbing: both Dojo <b>worlds</b>, the <b>piltover core</b>, and each chain's <b>Torii</b>{" "}
+        indexer this UI reads from. That's the whole round trip — L1 → L2 → settle → L1. Enjoy!
+      </>
+    ),
+  },
+];
+
+function TourFlow({ steps }: { steps: React.ReactNode[] }) {
+  return (
+    <ol className="space-y-1.5">
+      {steps.map((s, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-bold text-primary">
+            {i + 1}
+          </span>
+          <span className="flex-1 leading-snug">{s}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+type Rect = { top: number; left: number; width: number; height: number };
+
+function Tour({ step, onStep, state }: { step: number; onStep: (s: number) => void; state: TourState }) {
+  const open = step >= 0 && step < TOUR_STEPS.length;
+  const current = open ? TOUR_STEPS[step] : null;
+  const interactive = !!current?.action && state.online;
+  const [rect, setRect] = useState<Rect | null>(null);
+  const [popH, setPopH] = useState(0);
+  const popRef = useRef<HTMLDivElement>(null);
+  const baseRef = useRef<TourState>(state); // game-state snapshot when the step began
+
+  // Snapshot the baseline when the step changes, so an interactive step can tell
+  // when the user's real action has landed (a new credit, a new roll, …).
+  useEffect(() => {
+    baseRef.current = state;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  // Auto-advance an interactive step once its action completes on chain.
+  useEffect(() => {
+    if (!current?.action || !state.online) return;
+    if (current.action.done(state, baseRef.current)) onStep(step + 1);
+  }, [state, current, step, onStep]);
+
+  useEffect(() => {
+    if (!current) return;
+    const sel = current.sel;
+    const measure = () => {
+      const el = document.querySelector(`[data-tour="${sel}"]`);
+      const r = el ? (el.getBoundingClientRect() as DOMRect) : null;
+      // Only update when the rect actually moved, so the 250ms poll doesn't
+      // re-render (and re-animate) the popover every tick.
+      setRect((prev) => {
+        if (!r) return prev === null ? prev : null;
+        if (prev && Math.abs(prev.top - r.top) < 0.5 && Math.abs(prev.left - r.left) < 0.5 &&
+          Math.abs(prev.width - r.width) < 0.5 && Math.abs(prev.height - r.height) < 0.5) return prev;
+        return { top: r.top, left: r.left, width: r.width, height: r.height };
+      });
+    };
+    document.querySelector(`[data-tour="${sel}"]`)?.scrollIntoView({ block: "nearest" });
+    measure();
+    const id = setInterval(measure, 250);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [current]);
+
+  // Measure the popover so we can keep it fully on-screen for tall targets.
+  useEffect(() => {
+    if (popRef.current) setPopH(popRef.current.offsetHeight);
+  }, [step, rect]);
+
+  if (!open || !current) return null;
+
+  const last = step === TOUR_STEPS.length - 1;
+  const pad = 10;
+  const toneText =
+    current.tone === "green" ? "text-green-600" : current.tone === "muted" ? "text-muted-foreground" : "text-primary";
+  const toneBg =
+    current.tone === "green" ? "bg-green-600/10" : current.tone === "muted" ? "bg-muted" : "bg-primary/10";
+
+  // Position the popover relative to the highlight: to the left if requested,
+  // else below/above the target, clamped into the viewport. Centered if gone.
+  const W = 340;
+  let popStyle: React.CSSProperties;
+  let highlight: React.ReactNode = null;
+  if (rect) {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (current.place === "left") {
+      // Sit to the left of the target, vertically centered (clamped on-screen).
+      const left = Math.max(12, rect.left - pad - 12 - W);
+      const top = Math.max(12, Math.min(rect.top + rect.height / 2 - popH / 2, vh - 12 - popH));
+      popStyle = { top, left, width: W };
+    } else {
+      const left = Math.max(12, Math.min(rect.left + rect.width / 2 - W / 2, vw - 12 - W));
+      const below = rect.top + rect.height / 2 < vh / 2;
+      // Prefer below/above the target, then clamp into the viewport so a tall
+      // target (e.g. a full-height card) can't push the popover off-screen.
+      const wanted = below ? rect.top + rect.height + pad + 12 : rect.top - pad - 12 - popH;
+      const top = Math.max(12, Math.min(wanted, vh - 12 - popH));
+      popStyle = { top, left, width: W };
+    }
+    highlight = (
+      <div
+        className={cn(
+          "pointer-events-none fixed z-[61] rounded-xl ring-2 ring-primary ring-offset-2 ring-offset-background transition-all duration-200",
+          interactive && "animate-pulse",
+        )}
+        style={{
+          top: rect.top - pad,
+          left: rect.left - pad,
+          width: rect.width + pad * 2,
+          height: rect.height + pad * 2,
+          boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
+        }}
+      />
+    );
+  } else {
+    popStyle = { top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: W };
+  }
+
+  return (
+    // The container is click-through; only the blocker (non-interactive) and the
+    // popover re-enable pointer events. This lets an interactive step's real
+    // highlighted button receive the user's click.
+    <div className="pointer-events-none fixed inset-0 z-[60]">
+      {/* Dim + (for non-interactive steps) swallow page clicks. On interactive
+          steps we drop the blocker so the user can click the real highlighted
+          element; the box-shadow highlight still dims everything else. */}
+      {(!interactive || !rect) && <div className={cn("pointer-events-auto absolute inset-0", !rect && "bg-black/55")} />}
+      {highlight}
+      <motion.div
+        ref={popRef}
+        key={step}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.18 }}
+        style={popStyle}
+        className="pointer-events-auto fixed z-[62] max-h-[80vh] overflow-y-auto rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/10"
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className={cn("rounded-full px-2 py-0.5 font-mono text-[10px] font-medium", toneBg, toneText)}>
+            {current.tag}
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              {step + 1} / {TOUR_STEPS.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => onStep(-1)}
+              aria-label="Close tutorial"
+              className="cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+        <h3 className="mb-1.5 font-semibold">{current.title}</h3>
+        <div className="leading-snug text-muted-foreground [&_b]:text-foreground">{current.body}</div>
+        {interactive && (
+          <div className="mt-3 flex items-center gap-2 rounded-md bg-primary/10 p-2 text-xs font-medium text-primary [&_b]:text-primary">
+            <MousePointerClick className="size-4 shrink-0 animate-pulse" />
+            <span>{current.action!.cta}</span>
+          </div>
+        )}
+        <div className="mt-4 flex items-center justify-between">
+          <div className="flex gap-1">
+            {TOUR_STEPS.map((_, i) => (
+              <span
+                key={i}
+                className={cn("size-1.5 rounded-full transition-colors", i === step ? "bg-primary" : "bg-muted-foreground/30")}
+              />
+            ))}
+          </div>
+          <div className="flex gap-2">
+            {step > 0 && (
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onStep(step - 1)}>
+                <ArrowLeft className="size-3.5" /> Back
+              </Button>
+            )}
+            {interactive ? (
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => onStep(step + 1)}>
+                Skip
+              </Button>
+            ) : (
+              <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => onStep(last ? -1 : step + 1)}>
+                {last ? "Done" : "Next"} {!last && <ArrowRight className="size-3.5" />}
+              </Button>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 }
