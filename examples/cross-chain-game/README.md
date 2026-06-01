@@ -2,11 +2,13 @@
 
 A small game that demonstrates **two-way Katana messaging** between a settlement
 layer ("L1") and an appchain ("L2"), built on the **Dojo framework** and indexed
-by **Torii**. The whole game lives in two Dojo worlds:
+by **Torii**. The whole game lives in three Dojo worlds (`store` + `score` on L1,
+`game` on L2):
 
-1. **Buy games (L1 → L2).** *Insert coin* on the settlement layer sends a message
-   from the piltover core that Katana relays into the appchain game world's
-   `mint_game` `#[l1_handler]`, adding a credit to the playable pool.
+1. **Buy games (L1 → L2).** *Insert coin* calls `buy_game` on the L1 `store`
+   contract, which runs the store's rules and then messages the appchain via the
+   piltover core. Katana relays it into the game world's `mint_game` `#[l1_handler]`,
+   adding a credit to the playable pool.
 2. **Play a game (L2).** *Roll* calls the game system's `play_game` — the appchain
    rolls a score on-chain, consumes one credit, and finishes the game.
 3. **Bank the score (L2 → L1).** `play_game` emits the score to L1 via
@@ -30,7 +32,7 @@ calls contract views), and rebuilds its feeds from Dojo events.
    │  Settlement Katana :5050   │  relayed as L1-handler  │   Appchain Katana :5051   │
    │   (SN_SEPOLIA, the "L1")   │                         │  (rollup, --tee mock, L2) │
    │  • piltover core           │ ◄───────────────────── │  • game world             │
-   │  • score world             │  score (L2 → L1) + saya │    (mint / play / publish)│
+   │  • store + score worlds    │  score (L2 → L1) + saya │    (mint / play / publish)│
    └───────────────────────────┘                         └──────────────────────────┘
         │ torii :8081                                          │ torii :8082
         └──────────────────── React app :3001 ◄────────────────┘
@@ -80,17 +82,19 @@ hash in the UI deep-links to the right node's explorer.
 | Path | Role |
 | --- | --- |
 | `cairo/game/src/lib.cairo` | Appchain game world (Dojo): `mint_game` l1_handler, `play_game`, `Stats`/`GameConfig` models, `GameMinted`/`GamePlayed` events |
+| `cairo/store/src/lib.cairo` | Settlement store world (Dojo): `buy_game` runs the store's rules then `send_message_to_appchain` (the L1 storefront) |
 | `cairo/score/src/lib.cairo` | Settlement score world (Dojo): `claim_score` (consumes the settled message), `Leaderboard`/`PlayerScore` models, `ScoreClaimed` event |
-| `scripts/deploy.ts` | `sozo migrate` both worlds (score first, then game with the score system address), records addresses in `deployments.json` |
+| `scripts/deploy.ts` | `sozo migrate` the three worlds (score → game → store) and record addresses in `deployments.json` |
 | `app/` | React + Vite + TS + [shadcn/ui](https://ui.shadcn.com) frontend; reads via Torii SQL (`app/src/chain.ts`) |
 | `saya-patch/` | The required saya-tee fix + rationale |
 | `up.sh` / `down.sh` | Start / stop the whole stack (2 Katanas + saya-tee + 2 Torii + frontend) |
 
 ## How the messaging works
 
-**Buy → mint (L1 → L2, instant):** `piltover.send_message_to_appchain(game, mint_game, [game_id])`
-emits `MessageSent`; the appchain (`--messaging.enabled`) relays it as an `L1HandlerTx`
-that runs the game world's `mint_game` l1_handler, incrementing the `Stats.available` model.
+**Buy → mint (L1 → L2, instant):** the client calls `store.buy_game(game_id)`, which
+calls `piltover.send_message_to_appchain(game, mint_game, [game_id])` and emits `MessageSent`;
+the appchain (`--messaging.enabled`) relays it as an `L1HandlerTx` that runs the game
+world's `mint_game` l1_handler, incrementing the `Stats.available` model.
 
 **Play → publish (L2 → L1, settled by saya):** the game system's `play_game()` rolls a
 score, then calls `send_message_to_l1(score_system, [player, score])` in the same tx.
@@ -109,7 +113,7 @@ straight from the settlement RPC so the "pending mint" state shows before the re
 - The settlement node runs `--dev.no-fee`, the appchain runs `--dev --dev.no-fee`
   (fees off, mirroring the saya-tee test harness). Dev keys are throwaway local
   keys — never reuse with real funds.
-- Dojo worlds are deterministic in their seed (`ccg_game` / `ccg_score`), so a
+- Dojo worlds are deterministic in their seed (`ccg_game` / `ccg_score` / `ccg_store`), so a
   re-migration onto a fresh chain lands at the same world address.
 - The on-chain roll is a Poseidon-based pseudo-random in `1..=100` — fine for a demo,
   not secure randomness.

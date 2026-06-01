@@ -4,8 +4,8 @@
 
 This chapter shows how to write the contracts: the Dojo building blocks, then
 each cross-chain direction, then the wiring and the gotchas. Snippets are from the
-demo's two worlds — `cairo/game/src/lib.cairo` (appchain) and
-`cairo/score/src/lib.cairo` (settlement).
+demo's worlds — `cairo/game/src/lib.cairo` (appchain) and
+`cairo/score/src/lib.cairo` + `cairo/store/src/lib.cairo` (settlement).
 
 ## Dojo building blocks
 
@@ -68,8 +68,12 @@ fn mint_game(ref self: ContractState, from_address: felt252, game_id: felt252) {
 ```
 [`cairo/game/src/lib.cairo:93`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/cairo/game/src/lib.cairo#L93)
 
-On the client side, the L1 call that triggers this is
-`piltover.send_message_to_appchain(appchain_system, mint_game_selector, payload)`.
+In the demo the client doesn't call piltover directly — the player calls
+`buy_game` on the L1 `store` contract, which runs the store's rules and then makes
+this `send_message_to_appchain` call. So `mint_game`'s `from_address` on L2 is the
+store contract (provenance L2 can trust), not the buyer. See
+[deciding what goes where](./architecture.md#deciding-what-goes-where) for why a
+purchase belongs on L1.
 
 ## L2 → L1: send on the appchain, consume on the settlement layer
 
@@ -100,7 +104,7 @@ and the consume reverts. Here both sides agree on `[player, score]`, and
 `from_address` is the appchain system's address. Define this payload shape once
 and keep both ends in lockstep.
 
-## Wiring the two worlds together
+## Wiring the worlds together
 
 Each side needs the other's address, but they're deployed on different chains at
 different times. Resolve it by **ordering the deploys** and passing the dependency
@@ -112,7 +116,9 @@ through `dojo_init`:
 
 The reverse dependency (the settlement consumer needs the appchain sender's
 address) is supplied by the **client at call time** as `from_address`, so there's
-no circular deploy. [deployment.md](./deployment.md) shows the two-pass script.
+no circular deploy. The `store` world is wired the same way — it takes the game
+system address at init so `buy_game` knows where to send. [deployment.md](./deployment.md)
+shows the full deploy order.
 
 ## Events as an append log (so Torii keeps every one)
 
