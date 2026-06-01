@@ -2,9 +2,9 @@
 // the real contract code while clicking through the app.
 //
 // Pinned to a commit SHA (a true permalink: exact lines, survives the PR merge /
-// branch deletion). The two Cairo contract files this maps into are not edited
-// after this point, so the line numbers stay accurate. If the contracts change,
-// bump SOURCE_REF and re-check the line numbers below.
+// branch deletion). The Cairo contract files this maps into are stable, so the
+// line numbers stay accurate. If the contracts change, bump SOURCE_REF and
+// re-check the line numbers below.
 
 // The demo's own contracts, pinned to a katana commit (see note above).
 export const SOURCE_REF = "ae0e4ee74dc915b5db3b810eefc9c9b1452ca379";
