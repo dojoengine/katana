@@ -27,21 +27,40 @@ SETTLE_ADDR="0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec"
 SETTLE_PK="0xc5b2fcab997346f3ea1c00b002ecf6f382c5f9c9659a3894eb783c5320f912"
 TEE_REGISTRY_SALT="0x7ee"
 
+# ── Preflight ─────────────────────────────────────────────────────────────────
+# up.sh is the one-click entry point. It auto-installs the deps it safely can
+# (the Dojo toolchain via asdf, then JS deps below), and fails fast with the
+# exact command for the heavy prerequisites it won't build for you: the katana
+# binary and the patched saya. See README.md "Prerequisites".
+DOJO_DIR="$REPO_ROOT/../dojo"
+fail() { echo "error: $1" >&2; exit 1; }
+
+echo "→ preflight…"
+# Dojo toolchain (sozo/torii/scarb), pinned in .tool-versions. Idempotent —
+# installs only what's missing. Best-effort: the command checks below are the
+# real gate, so a hiccup here (e.g. an asdf plugin not added) doesn't abort.
+if command -v asdf >/dev/null 2>&1; then
+  ( cd "$DEMO_DIR" && asdf install ) || echo "  warning: 'asdf install' had issues; verifying tools below…" >&2
+else
+  echo "  warning: asdf not found — install it, or put sozo/torii/scarb on PATH (see .tool-versions)." >&2
+fi
+
+# katana — built from this repo.
 if [[ -x "$REPO_ROOT/target/release/katana" ]]; then KATANA="$REPO_ROOT/target/release/katana"
 elif [[ -x "$REPO_ROOT/target/debug/katana" ]]; then KATANA="$REPO_ROOT/target/debug/katana"
 elif command -v katana >/dev/null 2>&1; then KATANA="$(command -v katana)"
-else echo "error: katana binary not found. Run 'cargo build --release' first." >&2; exit 1; fi
+else fail "katana binary not found. Build it:  ( cd \"$REPO_ROOT\" && cargo build --release )"; fi
 
+# saya — must be the PATCHED v0.4.0 (L1->L2 Poseidon hash fix).
 for bin in saya-ops saya-tee; do
-  command -v "$bin" >/dev/null 2>&1 || {
-    echo "error: '$bin' not found on PATH. Install from cartridge-gg/saya (v0.4.0)." >&2; exit 1; }
+  command -v "$bin" >/dev/null 2>&1 || fail "'$bin' not found on PATH. Install the patched saya v0.4.0 — see ./saya-patch/README.md."
 done
-# Dojo toolchain: sozo migrates the worlds, torii indexes them. Pinned in
-# .tool-versions (sozo 1.8.7, torii 1.8.16) — install with `asdf install`.
-for bin in sozo torii; do
-  command -v "$bin" >/dev/null 2>&1 || {
-    echo "error: '$bin' not found on PATH. Run 'asdf install' in this directory (see .tool-versions)." >&2; exit 1; }
+
+# Dojo toolchain + the sibling dojo checkout the cairo packages depend on by path.
+for bin in sozo torii scarb; do
+  command -v "$bin" >/dev/null 2>&1 || fail "'$bin' not found on PATH. Run 'asdf install' in this directory (see .tool-versions)."
 done
+[[ -d "$DOJO_DIR/crates/dojo/core" ]] || fail "dojo checkout not found at $DOJO_DIR — the cairo packages depend on it by path. Clone it as a sibling of katana:  ( cd \"$REPO_ROOT/..\" && git clone https://github.com/dojoengine/dojo )  then check out the sozo-matching ref (sozo/v1.8.7)."
 echo "→ katana: $KATANA"
 echo "→ saya-tee: $(command -v saya-tee)"
 echo "→ sozo: $(sozo --version 2>&1 | head -1)   torii: $(torii --version 2>&1 | head -1)"

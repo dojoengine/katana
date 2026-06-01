@@ -61,10 +61,14 @@ cd examples/cross-chain-game
 ./up.sh
 ```
 
-`up.sh` starts the settlement Katana, deploys a mock TEE registry (`saya-ops`) +
+`up.sh` is the one-click entry point. It first **preflights the toolchain** —
+auto-installing the Dojo tools (`sozo`/`torii`/`scarb` via `asdf install`) and the
+JS deps, and failing fast with the exact command if a heavy prerequisite is
+missing (the `katana` binary, the patched `saya`, or the sibling `dojo` checkout).
+It then starts the settlement Katana, deploys a mock TEE registry (`saya-ops`) +
 the piltover core (`katana init rollup --tee`), starts the appchain rollup + the
-`saya-tee` sidecar, **migrates the two Dojo worlds with `sozo`** (score world on
-the settlement layer, then the game world on the appchain — wired with each
+`saya-tee` sidecar, **migrates the Dojo worlds with `sozo`** (the settlement-side
+`store` and `score` worlds, then the appchain `game` world — wired with each
 other's addresses), starts a **Torii indexer per chain**, and serves the UI. Open
 **http://localhost:3001**. Ctrl-C (or `./down.sh`) tears everything down.
 
