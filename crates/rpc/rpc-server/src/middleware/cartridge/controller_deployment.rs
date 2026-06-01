@@ -19,7 +19,8 @@ use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::cartridge::CartridgeApiError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::{BroadcastedTx, BroadcastedTxWithChainId};
-use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate};
+use katana_rpc_types::trace::SimulatedTransactionsResponse;
+use katana_rpc_types::{BroadcastedInvokeTx, FeeEstimate, SimulationFlag};
 use starknet::core::types::SimulationFlagForEstimateFee;
 use starknet::macros::selector;
 use starknet::signers::local_wallet::SignError;
@@ -29,8 +30,9 @@ use tracing::{debug, trace};
 
 use super::utils::{
     parse_params, AddExecuteOutsideParams, AddExecuteOutsideRequestParams, EstimateFeeParams,
-    EstimateFeeRequestParams, CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE,
-    CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX, STARKNET_ESTIMATE_FEE,
+    EstimateFeeRequestParams, SimulateTransactionsParams, SimulateTransactionsRequestParams,
+    CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE, CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX,
+    STARKNET_ESTIMATE_FEE, STARKNET_SIMULATE_TRANSACTIONS,
 };
 use crate::cartridge::encode_calls;
 use crate::starknet::{PendingBlockProvider, StarknetApi};
@@ -177,6 +179,23 @@ where
         Ok(new_request)
     }
 
+    fn build_simulate_transactions_request<'a>(
+        request: &Request<'a>,
+        block_id: BlockIdOrTag,
+        transactions: Vec<BroadcastedTx>,
+        simulation_flags: Vec<SimulationFlag>,
+    ) -> Result<Request<'a>, CartridgeApiError> {
+        let params = rpc_params!(block_id, transactions, simulation_flags);
+        let params = params
+            .to_rpc_params()
+            .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
+
+        let mut new_request = request.clone();
+        new_request.params = params.map(Cow::Owned);
+
+        Ok(new_request)
+    }
+
     async fn starknet_estimate_fee<'a>(
         &self,
         params: EstimateFeeParams,
@@ -184,6 +203,18 @@ where
     ) -> S::MethodResponse {
         let request_id = request.id().clone();
         match self.starknet_estimate_fee_inner(params, request).await {
+            Ok(response) => response,
+            Err(err) => MethodResponse::error(request_id, ErrorObjectOwned::from(err)),
+        }
+    }
+
+    async fn starknet_simulate_transactions<'a>(
+        &self,
+        params: SimulateTransactionsParams,
+        request: Request<'a>,
+    ) -> S::MethodResponse {
+        let request_id = request.id().clone();
+        match self.starknet_simulate_transactions_inner(params, request).await {
             Ok(response) => response,
             Err(err) => MethodResponse::error(request_id, ErrorObjectOwned::from(err)),
         }
@@ -273,6 +304,90 @@ where
 
                 let og_estimates = estimates[deploy_txs_len..].to_vec();
                 let payload = ResponsePayload::success(og_estimates);
+
+                Ok(MethodResponse::response(request.id().clone(), payload.into(), usize::MAX))
+            }
+
+            ResponsePayload::Error(..) => Ok(response),
+        }
+    }
+
+    async fn starknet_simulate_transactions_inner<'a>(
+        &self,
+        params: SimulateTransactionsParams,
+        request: Request<'a>,
+    ) -> Result<S::MethodResponse, CartridgeApiError> {
+        let SimulateTransactionsParams { block_id, simulation_flags, transactions } = params;
+        let candidate_addresses =
+            self.estimate_fee_candidate_addresses(block_id, &transactions).await?;
+
+        let deployer_nonce = self
+            .context
+            .starknet
+            .nonce_at(block_id, self.context.deployer_address)
+            .await
+            .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
+
+        let deploy_controller_txs = self
+            .get_controller_deployment_txs(candidate_addresses, deployer_nonce)
+            .await
+            .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
+
+        // No Controller to deploy, simply forward the request.
+        if deploy_controller_txs.is_empty() {
+            trace!(target: "middleware::cartridge", "No controller to deploy - forwarding request.");
+            return Ok(self.service.call(request).await);
+        }
+
+        let og_txs_len = transactions.len();
+        let deploy_txs_len = deploy_controller_txs.len();
+        trace!(target: "middleware::cartridge", deployment_count = deploy_txs_len, "Prepending controller deployment transactions to simulate transactions.");
+
+        // Build a new simulateTransactions request with the deploy controller transactions
+        // prepended.
+        let new_simulate_txs = [deploy_controller_txs, transactions].concat();
+        let updated_request = Self::build_simulate_transactions_request(
+            &request,
+            block_id,
+            new_simulate_txs,
+            simulation_flags,
+        )?;
+
+        // Call the inner service with the updated request.
+        let response = self.service.call(updated_request).await;
+
+        // IMPORTANT:
+        //
+        // Beyond this point, we assume the response is a valid starknet_simulateTransactions
+        // response. It's up to the devs to make sure this middleware is wrapped around valid
+        // Starknet JSON-RPC service and no other middlewares are installed that modify the
+        // response body.
+
+        // Extract the response body to remove the simulation results for the deploy controller
+        // transactions before returning the response to the caller.
+        //
+        // This is done to respect the semantics of the starknet_simulateTransactions response,
+        // which specifies that the results are only for transactions that are included in the
+        // original request.
+        let response_body = response.as_json().get();
+        let res =
+            serde_json::from_str::<Response<'_, SimulatedTransactionsResponse>>(response_body)
+                .map_err(|err| CartridgeApiError::ControllerDeployment { error: Box::new(err) })?;
+
+        match res.payload {
+            ResponsePayload::Success(simulated) => {
+                let results_len = simulated.transactions.len();
+                let new_txs_len = deploy_txs_len + og_txs_len;
+                assert_eq!(
+                    results_len, new_txs_len,
+                    "unexpected simulateTransactions response length: expected {new_txs_len}, got \
+                     {results_len}"
+                );
+
+                let og_results = simulated.transactions[deploy_txs_len..].to_vec();
+                let payload = ResponsePayload::success(SimulatedTransactionsResponse {
+                    transactions: og_results,
+                });
 
                 Ok(MethodResponse::response(request.id().clone(), payload.into(), usize::MAX))
             }
@@ -440,6 +555,15 @@ where
                         .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
                     {
                         return this.starknet_estimate_fee(params.into(), request).await;
+                    }
+                }
+
+                STARKNET_SIMULATE_TRANSACTIONS => {
+                    trace!(target: "middleware::cartridge::controller", %method, "Intercepting JSON-RPC method.");
+                    if let Ok(params) = parse_params::<SimulateTransactionsRequestParams>(&request)
+                        .inspect_err(|error| debug!(target: "middleware::cartridge", %method, %error, "Failed to parse params."))
+                    {
+                        return this.starknet_simulate_transactions(params.into(), request).await;
                     }
                 }
 
