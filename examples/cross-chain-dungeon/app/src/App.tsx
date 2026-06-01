@@ -99,6 +99,7 @@ function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: ()
 
   const txUrl = chain.explorerTxUrl(chain.APPCHAIN_EXPLORER, action.txHash);
   const rows: [string, ReactNode][] = [
+    ["run", `#${action.runNo}`],
     ["action", `#${action.actionNo}`],
     ["kind", action.kind],
     ["outcome", action.outcome],
@@ -514,6 +515,7 @@ export default function App() {
                       onClick={() => setSelected(a)}
                       title="click for details + tx"
                     >
+                      <span className="run" title={`run #${a.runNo}`}>r{a.runNo}</span>
                       <span className="t">d{a.depth}</span>
                       <span className="g">{KIND_GLYPH[a.kind] ?? "·"}</span>
                       <span className="m">

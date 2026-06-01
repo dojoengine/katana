@@ -164,7 +164,8 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 
 .log { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); background: rgba(0,0,0,.28); padding: 10px 12px; font-size: 12.5px; }
 .log p { margin: 0 0 2px; display: flex; gap: 9px; }
-.log .t { color: var(--ghost); flex: none; width: 30px; text-align: right; }
+.log .run { color: var(--cyan); opacity: 0.75; flex: none; width: 26px; }
+.log .t { color: var(--ghost); flex: none; width: 26px; text-align: right; }
 .log .g { flex: none; width: 12px; text-align: center; }
 .log .m { flex: 1; display: flex; gap: 12px; white-space: nowrap; overflow: hidden; }
 /* fixed-width (ch) columns so kind / outcome / hp / gold align across rows */
