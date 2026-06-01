@@ -200,7 +200,7 @@ export default function App() {
       <Tour
         step={tourStep}
         onStep={setTourStep}
-        state={{ online, available, playsLen: plays.length }}
+        state={{ online, available, playsLen: plays.length, bankedLen: banked.length }}
       />
       <PlayDetailDialog play={detail} settled={settled} onOpenChange={(o) => !o && setDetail(null)} />
       <HoodDialog open={hoodOpen} onOpenChange={setHoodOpen} online={online} />
@@ -429,6 +429,7 @@ function UnbankedRoll({
       </button>
       <Button
         size="sm"
+        data-tour="bank"
         className="h-8 shrink-0 gap-1.5 bg-green-600 text-xs text-white hover:bg-green-600/90"
         disabled={settling || !sayaReady}
         onClick={onBank}
@@ -876,7 +877,7 @@ function IntroDialog({
 // Each step highlights a live element (by its data-tour attribute) and explains
 // what that operation does in appchain terms — not how to play the game.
 
-type TourState = { online: boolean; available: number; playsLen: number };
+type TourState = { online: boolean; available: number; playsLen: number; bankedLen: number };
 
 type TourStep = {
   sel: string; // data-tour value of the element to spotlight
@@ -983,16 +984,38 @@ const TOUR_STEPS: TourStep[] = [
     ),
   },
   {
+    sel: "bank",
+    tag: "L2 → L1 · consume",
+    tone: "green",
+    title: "Bank the roll to L1",
+    action: {
+      cta: (
+        <>
+          Once it's settled, click <b>Bank</b> to send the roll to L1.
+        </>
+      ),
+      done: (now, base) => now.bankedLen > base.bankedLen,
+    },
+    body: (
+      <>
+        <b>Bank</b> calls <Code>claim_score</Code> on the settlement world, which calls{" "}
+        <Code>consume_message_from_appchain</Code> on the piltover core — this succeeds only because saya settled the
+        message. The button stays disabled until then. On success the score is stored on L1 and <Code>ScoreClaimed</Code>{" "}
+        is emitted.
+      </>
+    ),
+  },
+  {
     sel: "vault",
-    tag: "L2 → L1 · done",
+    tag: "On L1 · permanent",
     tone: "green",
     place: "left",
     title: "The Vault is the L1 record",
     body: (
       <>
-        <b>Bank</b> calls <Code>claim_score</Code> on the settlement world, which calls{" "}
-        <Code>consume_message_from_appchain</Code> on piltover — this succeeds only because saya settled the message. The
-        score is stored on L1 and <Code>ScoreClaimed</Code> is emitted. The run is now permanent.
+        Your banked run now lives on L1 — stored in the settlement world's <Code>Leaderboard</Code> model and shown here.
+        It's the permanent, settled record of what happened on the appchain. That's the full L1 → L2 → settle → L1 round
+        trip.
       </>
     ),
   },
@@ -1003,8 +1026,8 @@ const TOUR_STEPS: TourStep[] = [
     title: "Peek under the hood",
     body: (
       <>
-        This opens the live plumbing: both Dojo <b>worlds</b>, the <b>piltover core</b>, and each chain's <b>Torii</b>{" "}
-        indexer this UI reads from. That's the whole round trip — L1 → L2 → settle → L1. Enjoy!
+        Open this anytime to see the live plumbing: both Dojo <b>worlds</b>, the <b>piltover core</b>, and each chain's{" "}
+        <b>Torii</b> indexer this UI reads from. That's the whole stack — enjoy!
       </>
     ),
   },
@@ -1191,11 +1214,10 @@ function Tour({ step, onStep, state }: { step: number; onStep: (s: number) => vo
                 <ArrowLeft className="size-3.5" /> Back
               </Button>
             )}
-            {interactive ? (
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => onStep(step + 1)}>
-                Skip
-              </Button>
-            ) : (
+            {/* Interactive steps have no "Next"/"Skip" — the user must perform
+                the action, which auto-advances the tour. (The header ✕ still
+                exits the whole tutorial.) */}
+            {!interactive && (
               <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => onStep(last ? -1 : step + 1)}>
                 {last ? "Done" : "Next"} {!last && <ArrowRight className="size-3.5" />}
               </Button>
