@@ -97,6 +97,7 @@ function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: ()
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const txUrl = chain.explorerTxUrl(chain.APPCHAIN_EXPLORER, action.txHash);
   const rows: [string, ReactNode][] = [
     ["action", `#${action.actionNo}`],
     ["kind", action.kind],
@@ -105,9 +106,14 @@ function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: ()
     ["hp", String(action.hp)],
     ["gold", String(action.gold)],
     ["appchain block", String(action.block)],
-    ["tx hash", action.txHash],
+    [
+      "tx hash",
+      // The hash itself is the link to the action's tx on the appchain explorer.
+      <a className="tx-link" href={txUrl} target="_blank" rel="noreferrer" title="view on appchain explorer">
+        {action.txHash} ↗
+      </a>,
+    ],
   ];
-  const txUrl = chain.explorerTxUrl(chain.APPCHAIN_EXPLORER, action.txHash);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -128,9 +134,6 @@ function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: ()
             </div>
           ))}
         </dl>
-        <a className="modal-link" href={txUrl} target="_blank" rel="noreferrer">
-          view tx on appchain explorer ↗
-        </a>
       </div>
     </div>
   );
