@@ -389,62 +389,66 @@ export default function App() {
 
             {/* CENTER: dungeon */}
             <section className="col-center">
-              <div className="stage">
-                <div className="stage-h">
-                  <span>
-                    DUNGEON · <span className="kind">{run ? chain.roomLabel(run.roomKind) : "— idle —"}</span>
-                  </span>
-                  <span>{stats.activeRuns} active</span>
+              <div className="arena">
+                <div className="stage">
+                  <div className="stage-h">
+                    <span>
+                      DUNGEON · <span className="kind">{run ? chain.roomLabel(run.roomKind) : "— idle —"}</span>
+                    </span>
+                    <span>{stats.activeRuns} active</span>
+                  </div>
+                  <DungeonMap run={run} />
+                  {!run && (b("enter") || !lastEnded?.died) && (
+                    <div className="veil">
+                      {b("enter") ? (
+                        <div>entering… (relaying L1→L2 mint_run)</div>
+                      ) : (
+                        <>
+                          <div>no active run</div>
+                          <div>
+                            get <b>GME</b>, then <b>ENTER DUNGEON</b> to descend
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <DungeonMap run={run} />
-                {!run && (
-                  <div className={`veil${b("enter") ? "" : lastEnded?.died ? " veil-death" : ""}`}>
-                    {b("enter") ? (
-                      <div>entering… (relaying L1→L2 mint_run)</div>
-                    ) : lastEnded?.died ? (
-                      <>
-                        <div className="death-skull">☠</div>
-                        <div className="death-title">YOU DIED</div>
-                        <div>
-                          depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
-                        </div>
-                        <div className="death-sub">
-                          nothing settled to L1 — the haul is lost. <b>ENTER DUNGEON</b> to try again.
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div>no active run</div>
-                        <div>
-                          get <b>GME</b>, then <b>ENTER DUNGEON</b> to descend
-                        </div>
-                      </>
-                    )}
+
+                <div className="vitals">
+                  <div className="vital hp">
+                    <div className="k">HP</div>
+                    <div className="v">{run ? `${run.hp}/${run.maxHp}` : "—"}</div>
+                    <div className="meter">{run ? hpBar : ""}</div>
+                  </div>
+                  <div className="vital gold">
+                    <div className="k">Gold</div>
+                    <div className="v">{run ? run.gold.toLocaleString() : "—"}</div>
+                    <div className="meter">haul on L2</div>
+                  </div>
+                  <div className="vital depth">
+                    <div className="k">Depth</div>
+                    <div className="v">{run ? run.depth : "—"}</div>
+                    <div className="meter">rooms down</div>
+                  </div>
+                  <div className="vital pot">
+                    <div className="k">Potions</div>
+                    <div className="v">{run ? run.potions : "—"}</div>
+                    <div className="meter">heals +35</div>
+                  </div>
+                </div>
+
+                {!run && !b("enter") && lastEnded?.died && (
+                  <div className="veil veil-death arena-veil">
+                    <div className="death-skull">☠</div>
+                    <div className="death-title">YOU DIED</div>
+                    <div>
+                      depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
+                    </div>
+                    <div className="death-sub">
+                      the haul is lost. <b>ENTER DUNGEON</b> to try again.
+                    </div>
                   </div>
                 )}
-              </div>
-
-              <div className="vitals">
-                <div className="vital hp">
-                  <div className="k">HP</div>
-                  <div className="v">{run ? `${run.hp}/${run.maxHp}` : "—"}</div>
-                  <div className="meter">{run ? hpBar : ""}</div>
-                </div>
-                <div className="vital gold">
-                  <div className="k">Gold</div>
-                  <div className="v">{run ? run.gold.toLocaleString() : "—"}</div>
-                  <div className="meter">haul on L2</div>
-                </div>
-                <div className="vital depth">
-                  <div className="k">Depth</div>
-                  <div className="v">{run ? run.depth : "—"}</div>
-                  <div className="meter">rooms down</div>
-                </div>
-                <div className="vital pot">
-                  <div className="k">Potions</div>
-                  <div className="v">{run ? run.potions : "—"}</div>
-                  <div className="meter">heals +35</div>
-                </div>
               </div>
 
               <div className="actions">
