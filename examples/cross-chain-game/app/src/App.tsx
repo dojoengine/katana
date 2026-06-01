@@ -11,6 +11,7 @@ import {
   Loader2,
   MousePointerClick,
   Settings,
+  ShieldCheck,
   Trophy,
   Vault,
   Wrench,
@@ -954,6 +955,14 @@ function IntroDialog({
             New to appchains? The tutorial walks through each action and shows what happens behind the stage — the chains,
             contracts, and messages that make it work.
           </p>
+          <div className="flex items-start gap-2.5 rounded-lg border bg-muted/50 p-3 text-xs text-muted-foreground">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-green-600" />
+            <p>
+              The appchain settles to L1 with <b>TEE proving</b>. This demo runs it in <b>mock mode</b> for local dev
+              (<Code>--tee mock</Code> / <Code>--mock-prove</Code>) — it exercises the real messaging &amp; settlement
+              flow, not actual proof or enclave attestation.
+            </p>
+          </div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row-reverse">
           <Button className="w-full cursor-pointer sm:flex-1" onClick={onStartTutorial}>
@@ -1076,6 +1085,13 @@ const TOUR_STEPS: TourStep[] = [
         <b>saya</b> proves each appchain block and submits <Code>update_state</Code> to the piltover core contract
         (deployed on the L1), which <b>registers</b> the block's outbound message hashes. This gauge shows the settled
         block height vs the appchain tip. Only after settlement can L1 consume your score.
+        <span className="mt-2 flex items-start gap-1.5 text-left text-xs text-muted-foreground/80">
+          <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-green-600" />
+          <span>
+            The proving mode here is <b>TEE</b>, run in <b>mock</b> mode for this demo — a real TEE prover plugs in here
+            unchanged.
+          </span>
+        </span>
       </>
     ),
   },
