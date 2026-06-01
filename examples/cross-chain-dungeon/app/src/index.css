@@ -88,7 +88,7 @@ body {
 .gauge .n { color: var(--ink); }
 .gauge .lag { color: var(--amber); }
 
-.grid { display: grid; grid-template-columns: 272px 1fr 352px; gap: 0; }
+.grid { display: grid; grid-template-columns: 272px 1fr 440px; gap: 0; }
 .grid > section { padding: 16px 18px; }
 .col-left { border-right: 1px solid var(--border); }
 .col-right { border-left: 1px solid var(--border); }
@@ -152,7 +152,7 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 .log p { margin: 0 0 2px; display: flex; gap: 9px; }
 .log .t { color: var(--ghost); flex: none; width: 30px; text-align: right; }
 .log .g { flex: none; width: 12px; text-align: center; }
-.log .m { flex: 1; }
+.log .m { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .log .move .g { color: var(--amber); } .log .move .m { color: var(--ink); }
 .log .attack .g, .log .combat .g { color: var(--red); } .log .attack .m, .log .combat .m { color: #ffb0a8; }
 .log .loot .g { color: var(--gold); } .log .loot .m { color: #ffe7a3; }
