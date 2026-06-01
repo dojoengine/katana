@@ -20,7 +20,7 @@ pub struct RunState {
     #[key] pub player: felt252,   // the settlement-layer player (from the entry message)
     pub alive: bool, pub depth: u32, pub hp: u32, pub max_hp: u32,
     pub gold: u64, pub room_kind: u8, pub enemy_hp: u32, pub potions: u32,
-    pub seed: felt252, pub action_count: u64,
+    pub seed: felt252, pub action_count: u64, pub run_no: u64,
 }
 ```
 
@@ -35,7 +35,8 @@ entry message and the extract payload both carry it.
 (monster 45% / treasure 25% / trap 15% / shrine 10% / empty 5%); combat, traps, and
 loot scale with depth. Randomness is `poseidon(seed, action_count)` — deterministic
 per run (a future upgrade is Cartridge VRF). Every action emits an `ActionTaken`
-event (the message feed) keyed by a global sequence.
+event (the message feed) keyed by a global sequence, and carries the run's
+`run_no` so the client can group the feed by run without correlating events.
 
 **How a run ends — the cross-chain lesson:**
 

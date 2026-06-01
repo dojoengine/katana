@@ -220,43 +220,17 @@ const feltToStr = (v: string | number): string => {
 };
 
 export async function getActionFeed(limit = 40): Promise<ActionRow[]> {
-  const [rows, starts] = await Promise.all([
-    toriiSql<Record<string, string | number>>(
-      TORII_GAME,
-      `SELECT action_no, player, kind, outcome, depth, hp, gold, internal_event_id FROM "game-ActionTaken" ORDER BY action_no DESC LIMIT ${limit}`,
-    ),
-    // RunStarted marks each run's first block — used to attribute actions to a run.
-    toriiSql<Record<string, string | number>>(
-      TORII_GAME,
-      `SELECT run_no, player, internal_event_id FROM "game-RunStarted" ORDER BY run_no`,
-    ),
-  ]);
-
-  // Per player, the (block → run_no) starts in block order. An action belongs to
-  // the run whose RunStarted is the latest one at or before the action's block.
-  const startsByPlayer = new Map<string, { block: number; runNo: number }[]>();
-  for (const s of starts) {
-    const key = BigInt(s.player).toString();
-    const list = startsByPlayer.get(key) ?? [];
-    list.push({ block: parseEventId(String(s.internal_event_id)).block, runNo: num(s.run_no) });
-    startsByPlayer.set(key, list);
-  }
-  for (const list of startsByPlayer.values()) list.sort((a, b) => a.block - b.block);
-  const runOf = (player: string | number, block: number): number => {
-    const list = startsByPlayer.get(BigInt(player).toString()) ?? [];
-    let runNo = 0;
-    for (const s of list) {
-      if (s.block <= block) runNo = s.runNo;
-      else break;
-    }
-    return runNo;
-  };
-
+  // `run_no` is an authoritative field on the ActionTaken event (set from the
+  // run's RunState), so each action carries its run id directly.
+  const rows = await toriiSql<Record<string, string | number>>(
+    TORII_GAME,
+    `SELECT action_no, run_no, kind, outcome, depth, hp, gold, internal_event_id FROM "game-ActionTaken" ORDER BY action_no DESC LIMIT ${limit}`,
+  );
   return rows.map((r) => {
     const { block, txHash } = parseEventId(String(r.internal_event_id));
     return {
       actionNo: num(r.action_no),
-      runNo: runOf(r.player, block),
+      runNo: num(r.run_no),
       kind: feltToStr(r.kind),
       outcome: feltToStr(r.outcome),
       depth: num(r.depth),

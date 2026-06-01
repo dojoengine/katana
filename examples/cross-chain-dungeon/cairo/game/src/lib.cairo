@@ -106,6 +106,7 @@ pub mod game {
         pub potions: u32,
         pub seed: felt252,
         pub action_count: u64,
+        pub run_no: u64,
     }
 
     /// Emitted when an entry message is relayed from L1 and a run begins. Keyed by
@@ -127,6 +128,7 @@ pub mod game {
         #[key]
         pub action_no: u64,
         pub player: felt252,
+        pub run_no: u64,
         pub kind: felt252,
         pub outcome: felt252,
         pub depth: u32,
@@ -191,6 +193,7 @@ pub mod game {
                     potions: 1,
                     seed,
                     action_count: 0,
+                    run_no: stats.total_runs,
                 },
             );
 
@@ -401,6 +404,7 @@ pub mod game {
                     @ActionTaken {
                         action_no,
                         player,
+                        run_no: run.run_no,
                         kind,
                         outcome,
                         depth: run.depth,

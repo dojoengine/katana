@@ -58,7 +58,7 @@ async function main() {
   console.log("[deploy] migrating score world on Sepolia (piltover:", d.settlement.piltover, ")");
   const score = migrateWorld({
     pkg: "score",
-    seed: "ccd_score",
+    seed: "ccd_score2",
     namespace: "score",
     systemTag: "score-score",
     rpcUrl: d.settlement.rpcUrl,
@@ -74,7 +74,7 @@ async function main() {
   console.log("[deploy] migrating game world on appchain (registry:", score.system, ")");
   const game = migrateWorld({
     pkg: "game",
-    seed: "ccd_game",
+    seed: "ccd_game2",
     namespace: "game",
     systemTag: "game-game",
     rpcUrl: d.appchain.rpcUrl,
