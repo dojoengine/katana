@@ -78,31 +78,38 @@ echo "→ installing JS dependencies…"
 ( cd "$DEMO_DIR" && bun install >/dev/null )
 ( cd "$DEMO_DIR/app" && bun install >/dev/null )
 
-# 1. Mock TEE registry on Sepolia (permissive attestation verifier). Operator pays.
-echo "→ deploying mock TEE registry on Sepolia (saya-ops)…"
-REG_OUT=$(SETTLEMENT_RPC_URL="$SEPOLIA_RPC_URL" \
-  SETTLEMENT_ACCOUNT_ADDRESS="$OPERATOR_ADDRESS" \
-  SETTLEMENT_ACCOUNT_PRIVATE_KEY="$OPERATOR_PRIVATE_KEY" \
-  SETTLEMENT_CHAIN_ID=SN_SEPOLIA \
-  saya-ops core-contract declare-and-deploy-tee-registry-mock --salt "$TEE_REGISTRY_SALT" 2>&1)
-TEE_REGISTRY=$(echo "$REG_OUT" | sed -nE 's/.*TEE registry mock address:[[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | tail -1)
-[[ -n "$TEE_REGISTRY" ]] || { echo "error: could not parse TEE registry address:" >&2; echo "$REG_OUT" >&2; exit 1; }
-echo "   tee_registry=$TEE_REGISTRY"
+# 1+2. Mock TEE registry + piltover core on Sepolia — both gas-costing real
+#      deploys. Skip them if a previous run already bootstrapped this chain dir
+#      (set FRESH=1 to force a fresh bootstrap). saya is the piltover operator
+#      (the only update_state caller) and must differ from the operator account.
+if [[ -z "${FRESH:-}" && -f "$CHAIN_DIR/config.toml" && -f "$RUN_DIR/tee_registry" ]]; then
+  echo "→ reusing existing Sepolia bootstrap (set FRESH=1 to redeploy)…"
+  TEE_REGISTRY=$(cat "$RUN_DIR/tee_registry")
+else
+  echo "→ deploying mock TEE registry on Sepolia (saya-ops)…"
+  REG_OUT=$(SETTLEMENT_RPC_URL="$SEPOLIA_RPC_URL" \
+    SETTLEMENT_ACCOUNT_ADDRESS="$OPERATOR_ADDRESS" \
+    SETTLEMENT_ACCOUNT_PRIVATE_KEY="$OPERATOR_PRIVATE_KEY" \
+    SETTLEMENT_CHAIN_ID=SN_SEPOLIA \
+    saya-ops core-contract declare-and-deploy-tee-registry-mock --salt "$TEE_REGISTRY_SALT" 2>&1)
+  TEE_REGISTRY=$(echo "$REG_OUT" | sed -nE 's/.*TEE registry mock address:[[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | tail -1)
+  [[ -n "$TEE_REGISTRY" ]] || { echo "error: could not parse TEE registry address:" >&2; echo "$REG_OUT" >&2; exit 1; }
+  echo "$TEE_REGISTRY" > "$RUN_DIR/tee_registry"
 
-# 2. piltover core on Sepolia + rollup chain config. saya account is the piltover
-#    operator (the only allowed update_state caller) and must differ from operator.
-echo "→ deploying piltover core + generating rollup config (katana init rollup --tee)…"
-rm -rf "$CHAIN_DIR"
-"$KATANA" init rollup \
-  --id DUNGEON \
-  --settlement-chain "$SEPOLIA_RPC_URL" \
-  --settlement-account-address "$SAYA_ADDRESS" \
-  --settlement-account-private-key "$SAYA_PRIVATE_KEY" \
-  --tee \
-  --tee-registry-address "$TEE_REGISTRY" \
-  --output-path "$CHAIN_DIR" > "$RUN_DIR/init.log" 2>&1
+  echo "→ deploying piltover core + generating rollup config (katana init rollup --tee)…"
+  rm -rf "$CHAIN_DIR"
+  "$KATANA" init rollup \
+    --id DUNGEON \
+    --settlement-chain "$SEPOLIA_RPC_URL" \
+    --settlement-account-address "$SAYA_ADDRESS" \
+    --settlement-account-private-key "$SAYA_PRIVATE_KEY" \
+    --tee \
+    --tee-registry-address "$TEE_REGISTRY" \
+    --output-path "$CHAIN_DIR" > "$RUN_DIR/init.log" 2>&1
+fi
+echo "   tee_registry=$TEE_REGISTRY"
 PILTOVER=$(sed -nE 's/^core_contract = "(0x[0-9a-fA-F]+)".*/\1/p' "$CHAIN_DIR/config.toml")
-[[ -n "$PILTOVER" ]] || { echo "error: could not parse piltover address from config.toml" >&2; cat "$RUN_DIR/init.log" >&2; exit 1; }
+[[ -n "$PILTOVER" ]] || { echo "error: could not parse piltover address from config.toml" >&2; cat "$RUN_DIR/init.log" 2>/dev/null >&2; exit 1; }
 echo "   piltover=$PILTOVER"
 
 # 3. Base deployments.json (Sepolia + appchain rpc/accounts, piltover, USDC). The
@@ -132,7 +139,7 @@ node -e '
   "$DEMO_DIR/app/src/deployments.json"
 
 # 4. Appchain rollup node, settling to piltover on Sepolia, L1→L2 messaging on.
-echo "→ starting appchain node on :$APPCHAIN_PORT…"
+echo "→ starting appchain node on :${APPCHAIN_PORT}…"
 "$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --http.port "$APPCHAIN_PORT" \
   --http.cors_origins '*' --explorer --messaging.enabled \
   > "$RUN_DIR/appchain.log" 2>&1 &

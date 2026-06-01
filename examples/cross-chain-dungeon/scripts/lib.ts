@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Account, RpcProvider, type Calldata } from "starknet";
+import { Account, RpcProvider, hash, type Calldata } from "starknet";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -123,12 +123,27 @@ export function provider(rpcUrl: string): RpcProvider {
 }
 
 export function account(rpcUrl: string, kp: Keypair): Account {
-  return new Account(provider(rpcUrl), kp.address, kp.privateKey);
+  return new Account({ provider: provider(rpcUrl), address: kp.address, signer: kp.privateKey, cairoVersion: "1" });
+}
+
+/** `scarb build` a plain (non-Dojo) contract package so its artifacts exist. */
+export function buildPackage(pkg: string): void {
+  execFileSync("scarb", ["build"], {
+    cwd: resolve(CAIRO_DIR, pkg),
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+}
+
+/** The scarb package name (artifacts are prefixed with it, not the dir name). */
+function packageName(pkg: string): string {
+  const toml = readFileSync(resolve(CAIRO_DIR, pkg, "Scarb.toml"), "utf-8");
+  const m = toml.match(/name\s*=\s*"([^"]+)"/);
+  return m ? m[1] : pkg;
 }
 
 /** Read the sierra + casm artifacts scarb emitted for a contract module. */
 function artifacts(pkg: string, contract: string): { sierra: unknown; casm: unknown } {
-  const base = resolve(CAIRO_DIR, pkg, "target/dev", `${pkg}_${contract}`);
+  const base = resolve(CAIRO_DIR, pkg, "target/dev", `${packageName(pkg)}_${contract}`);
   return {
     sierra: loadJson(`${base}.contract_class.json`),
     casm: loadJson(`${base}.compiled_contract_class.json`),
@@ -146,8 +161,19 @@ export async function declareAndDeploy(
   constructorCalldata: Calldata | Record<string, unknown>,
 ): Promise<string> {
   const { sierra, casm } = artifacts(pkg, contract);
+  // Starknet >= 0.14.1 (Sepolia/mainnet) computes the compiled-class hash with
+  // Blake2s, not Poseidon (see dojoengine/katana#570). starknet.js 10.x's
+  // computeCompiledClassHash is Blake2s — compute it and pass it explicitly so
+  // the declare's compiled_class_hash matches what the sequencer derives.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await acc.declareAndDeploy({ contract: sierra as any, casm: casm as any, constructorCalldata: constructorCalldata as any });
+  const compiledClassHash = hash.computeCompiledClassHash(casm as any);
+  const res = await acc.declareAndDeploy({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    contract: sierra as any,
+    compiledClassHash,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructorCalldata: constructorCalldata as any,
+  });
   return res.deploy.contract_address;
 }
 
@@ -159,7 +185,8 @@ export async function invoke(
   calldata: Calldata,
 ): Promise<void> {
   const { transaction_hash } = await acc.execute({ contractAddress, entrypoint, calldata });
-  await acc.waitForTransaction(transaction_hash);
+  // starknet.js 10.x moved waitForTransaction off Account onto the provider.
+  await acc.provider.waitForTransaction(transaction_hash);
 }
 
 export async function waitForRpc(rpcUrl: string, timeoutMs = 30_000): Promise<void> {

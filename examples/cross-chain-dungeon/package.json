@@ -7,7 +7,7 @@
     "deploy": "bun run scripts/deploy.ts"
   },
   "dependencies": {
-    "starknet": "8.5.2"
+    "starknet": "10.0.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0"

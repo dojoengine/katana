@@ -18,6 +18,7 @@ import { cairo } from "starknet";
 import { config } from "./config.ts";
 import {
   account,
+  buildPackage,
   declareAndDeploy,
   invoke,
   loadDeployments,
@@ -39,6 +40,10 @@ async function main() {
   await Promise.all([waitForRpc(d.settlement.rpcUrl), waitForRpc(d.appchain.rpcUrl)]);
 
   const operator = account(d.settlement.rpcUrl, d.settlement.account);
+
+  // Build the plain token package so its sierra/casm artifacts exist.
+  console.log("[deploy] building token package (scarb)...");
+  buildPackage("token");
 
   // 1. GAME_TOKEN — owner is the operator (it controls minter grants).
   console.log("[deploy] declaring + deploying GAME_TOKEN on Sepolia...");
