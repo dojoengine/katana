@@ -80,10 +80,13 @@ hash in the UI deep-links to the right node's explorer.
 ## Using Controller (optional)
 
 By default the demo signs everything with a prefunded **dev account** — no wallet,
-no login, fully offline. The header **Login** button also lets you sign the **L1**
-actions (buy + bank) with a [Cartridge Controller](https://github.com/cartridge-gg/controller)
-instead (the appchain *roll* always stays on the dev key — it's the free, instant
-arcade layer).
+no login, fully offline. The header **Login** button also lets you sign with a
+[Cartridge Controller](https://github.com/cartridge-gg/controller) instead. The
+*same* Controller identity signs on **both chains** — buy + bank on L1 **and** the
+roll on the appchain — at the **same address** (a Controller is deployed
+deterministically from its username, so its address is chain-independent). That
+closes the attribution gap: `play_game`'s caller, the L2→L1 score message, and the
+leaderboard all key on your Controller, not a shared dev key.
 
 Controller is a hosted-keychain wallet, so it isn't offline. To enable it:
 
@@ -91,11 +94,13 @@ Controller is a hosted-keychain wallet, so it isn't offline. To enable it:
 CONTROLLER=1 ./up.sh
 ```
 
-This starts the settlement node Controller-capable (`--paymaster --cartridge.paymaster
+This starts **both** nodes Controller-capable (`--paymaster --cartridge.paymaster
 --cartridge.controllers`; katana fetches the `paymaster-service` sidecar if needed —
-see [`../../docs/cartridge.md`](../../docs/cartridge.md)) **and serves the app over
-trusted HTTPS** at `https://localhost:3001` (via `mkcert`). Then click **Login →
-Connect Controller** and sign in. Caveats:
+see [`../../docs/cartridge.md`](../../docs/cartridge.md)). The appchain is generated
+with `katana init rollup --cartridge-controllers`, which declares the Controller
+account classes in its genesis so the same Controller can deploy and sign there too.
+It also **serves the app over trusted HTTPS** at `https://localhost:3001` (via
+`mkcert`). Then click **Login → Connect Controller** and sign in. Caveats:
 
 - Needs internet + a Controller account (the keychain + Cartridge API own the identity).
 - **HTTPS is required for passkey login.** Controller's WebAuthn flow needs a secure
@@ -105,8 +110,10 @@ Connect Controller** and sign in. Caveats:
   `https://localhost:3001` is trusted.
 - The hosted keychain reaching `localhost` may still need Chrome's Private Network
   Access flag — enable `chrome://flags/#local-network-access-check` if connect stalls.
-- Session policies cover `store.buy_game` and `score_registry.claim_score`, so
-  buy/bank are gasless session calls (no per-tx popup).
+- Session policies cover `store.buy_game`, `score_registry.claim_score`, and
+  `game.play_game`, so buy/roll/bank are gasless session calls (no per-tx popup).
+  The roll switches the Controller to the appchain (chain id `GAMECHAIN`) for the
+  call, then switches back.
 
 Without `CONTROLLER=1`, choosing *Connect Controller* simply can't complete; the
 dev account keeps working.

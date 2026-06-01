@@ -11,6 +11,7 @@ import {
   Loader2,
   LogIn,
   MousePointerClick,
+  PlugZap,
   Settings,
   ShieldCheck,
   Trophy,
@@ -32,6 +33,7 @@ import {
   readScoreState,
   getPurchaseHistory,
   getPlayHistory,
+  subscribeToriiUpdates,
   purchaseGame,
   playGame,
   claimScore,
@@ -65,8 +67,57 @@ import { useWallet } from "./wallet.tsx";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// A pulsing placeholder shown in place of a value while the first read is in flight.
+function Skeleton({ className }: { className?: string }) {
+  return <span className={cn("inline-block animate-pulse rounded bg-muted-foreground/20 align-middle", className)} />;
+}
+
+// A stat reflects connection status: the real value when online, a skeleton while
+// the first read is loading, an em dash once we know the stack is unreachable.
+function stat(online: boolean, loading: boolean, value: React.ReactNode, skeleton = "h-3.5 w-6"): React.ReactNode {
+  if (online) return value;
+  if (loading) return <Skeleton className={skeleton} />;
+  return "—";
+}
+
+// Slim banner while the very first read is in flight (the stack may be booting).
+function ConnectingBanner() {
+  return (
+    <div className="mb-4 flex shrink-0 items-center gap-2.5 rounded-xl border bg-card px-4 py-2.5 text-sm text-muted-foreground">
+      <Loader2 className="size-4 animate-spin text-primary" />
+      Connecting to the local stack…
+    </div>
+  );
+}
+
+// Shown once a read has failed: the services aren't up. The poll keeps retrying,
+// so the banner clears itself when the stack comes back.
+function ServicesOffline() {
+  return (
+    <div className="mb-4 shrink-0 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <PlugZap className="mt-0.5 size-5 shrink-0 text-amber-600" />
+        <div className="space-y-1.5 text-sm">
+          <p className="font-semibold text-amber-700 dark:text-amber-500">Can't reach the local stack</p>
+          <p className="text-muted-foreground">
+            The game's services aren't responding. Start them and this page reconnects on its own:
+          </p>
+          <code className="inline-block rounded-md border bg-card px-2 py-1 font-mono text-xs text-foreground">
+            cd examples/cross-chain-game && ./up.sh
+          </code>
+          <p className="text-xs text-muted-foreground">
+            settlement <span className="font-mono">:5050</span> · appchain <span className="font-mono">:5051</span> · Torii{" "}
+            <span className="font-mono">:8081/:8082</span> · saya
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [online, setOnline] = useState(false);
+  const [loading, setLoading] = useState(true); // true until the first fetch settles (ok or fail)
   const [game, setGame] = useState<GameState | null>(null);
   const [, setScore] = useState<ScoreState | null>(null);
   const [settled, setSettled] = useState(-1);
@@ -88,6 +139,7 @@ export default function App() {
   const [detail, setDetail] = useState<PlayRecord | null>(null);
   const rollStart = useRef(0); // plays.length when the current roll started
   const rollToken = useRef(0); // invalidates a stale play_game() resolution
+  const refetch = useRef<() => void>(() => {}); // nudge the data layer after a write
 
   useEffect(() => {
     let active = true;
@@ -111,13 +163,39 @@ export default function App() {
         setOnline(true);
       } catch {
         if (active) setOnline(false);
+      } finally {
+        if (active) setLoading(false);
       }
     };
-    tick();
-    const h = setInterval(tick, 1500);
+
+    // Coalesce bursts of subscription pushes (a single tx fires both an entity
+    // and an event-message update) into one refetch.
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const ping = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => active && tick(), 120);
+    };
+    refetch.current = ping; // let write handlers nudge a refetch (RPC-only states)
+
+    tick(); // initial load
+
+    // Torii entity/event subscriptions drive the snappy gameplay state. A slow
+    // poll stays as a safety net and keeps the RPC-only reads fresh (saya-settled
+    // block + appchain tip have no Torii subscription to push them).
+    const slow = setInterval(tick, 4000);
+    let cleanupSub: (() => void) | undefined;
+    subscribeToriiUpdates(ping)
+      .then((cleanup) => {
+        if (active) cleanupSub = cleanup;
+        else cleanup();
+      })
+      .catch((e) => console.error("torii subscribe failed; falling back to poll", e));
+
     return () => {
       active = false;
-      clearInterval(h);
+      if (debounce) clearTimeout(debounce);
+      clearInterval(slow);
+      cleanupSub?.();
     };
   }, []);
 
@@ -151,6 +229,7 @@ export default function App() {
     setBuying(true);
     try {
       await purchaseGame(wallet.l1Account, purchases.length + 1);
+      refetch.current(); // surface the pending mint (piltover MessageSent is RPC-only)
     } catch (e) {
       console.error("buy failed", e);
     } finally {
@@ -166,7 +245,7 @@ export default function App() {
     rollStart.current = plays.length;
     setRolling(true);
     try {
-      const { score } = await playGame();
+      const { score } = await playGame(wallet.l2Account);
       if (rollToken.current === token) {
         setRollDisplay(score);
         setRolling(false);
@@ -184,6 +263,7 @@ export default function App() {
       for (let i = 0; i < 90; i++) {
         try {
           await claimScore(wallet.l1Account, PLAYER_ADDRESS, sc);
+          refetch.current(); // ScoreClaimed will also push, but don't wait on it
           break;
         } catch {
           await sleep(2000);
@@ -235,8 +315,8 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Hud icon={<Coins className="size-3.5 text-primary" />} label="Credits" value={online ? available : "…"} />
-              <Hud icon={<Trophy className="size-3.5 text-green-600" />} label="Best" value={online ? best : "…"} tone="green" />
+              <Hud icon={<Coins className="size-3.5 text-primary" />} label="Credits" value={stat(online, loading, available)} />
+              <Hud icon={<Trophy className="size-3.5 text-green-600" />} label="Best" value={stat(online, loading, best)} tone="green" />
               <Button
                 variant="outline"
                 className="h-10 gap-1.5 rounded-full px-3 text-xs"
@@ -268,6 +348,13 @@ export default function App() {
               </Tooltip>
             </div>
           </header>
+
+          {/* Connection status: connecting → offline → (gone once online) */}
+          {loading ? (
+            <ConnectingBanner />
+          ) : !online ? (
+            <ServicesOffline />
+          ) : null}
 
           {/* Game area */}
           <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1.35fr_1fr]">
@@ -366,11 +453,11 @@ export default function App() {
 
                 <div className="text-center">
                   <div className="text-xs tracking-wide text-muted-foreground uppercase">Best banked score</div>
-                  <div className="text-5xl font-bold tabular-nums text-green-600">{online ? best : "…"}</div>
+                  <div className="text-5xl font-bold tabular-nums text-green-600">{stat(online, loading, best, "h-10 w-20")}</div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <VaultStat label="Runs banked" value={online ? banked.length : "…"} />
-                  <VaultStat label="Total points" value={online ? totalPoints : "…"} />
+                  <VaultStat label="Runs banked" value={stat(online, loading, banked.length, "h-5 w-8")} />
+                  <VaultStat label="Total points" value={stat(online, loading, totalPoints, "h-5 w-8")} />
                 </div>
 
                 <div className="flex min-h-0 flex-1 flex-col">
@@ -406,7 +493,7 @@ export default function App() {
             {online ? (
               <SayaGauge settled={settled} tip={tip} caughtUp={sayaCaughtUp} />
             ) : (
-              <span className="text-xs text-muted-foreground">saya: connecting…</span>
+              <span className="text-xs text-muted-foreground">saya: {loading ? "connecting…" : "offline"}</span>
             )}
           </div>
         </div>
@@ -873,6 +960,7 @@ function WalletDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
           <WalletOption
             active={onController}
             busy={wallet.connecting}
+            disabled={!wallet.controllerAvailable && !onController}
             icon={<Wallet className="size-5 text-primary" />}
             title="Cartridge Controller"
             subtitle={
@@ -881,12 +969,15 @@ function WalletDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
                   {wallet.username ? <b className="text-foreground">{wallet.username}</b> : "Connected"} ·{" "}
                   <span className="font-mono">{shortHex(wallet.l1Address, 6, 4)}</span>
                 </>
-              ) : (
+              ) : wallet.controllerAvailable ? (
                 "Connect a passkey/social wallet"
+              ) : (
+                "Unavailable — start the stack first (./up.sh)"
               )
             }
             onClick={() => {
-              if (!onController) wallet.connectController().catch((e) => console.error("controller connect failed", e));
+              if (!onController && wallet.controllerAvailable)
+                wallet.connectController().catch((e) => console.error("controller connect failed", e));
             }}
           />
         </div>
@@ -902,6 +993,7 @@ function WalletDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
 function WalletOption(props: {
   active: boolean;
   busy?: boolean;
+  disabled?: boolean;
   icon: React.ReactNode;
   title: string;
   subtitle: React.ReactNode;
@@ -911,8 +1003,10 @@ function WalletOption(props: {
     <button
       type="button"
       onClick={props.onClick}
+      disabled={props.disabled}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50",
+        "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+        props.disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted/50",
         props.active && "border-primary/50 bg-primary/5",
       )}
     >

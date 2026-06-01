@@ -4,7 +4,8 @@
 
 The client's job splits cleanly (see [architecture.md](./architecture.md#read-path-vs-write-path)):
 **send transactions** to systems/piltover, **read state** from Torii. The demo's
-whole data layer is `app/src/chain.ts`; the poll loop is in `app/src/App.tsx`.
+whole data layer is `app/src/chain.ts`; the subscribe-and-refetch loop is in
+`app/src/App.tsx`.
 
 ## The read model: Torii, not the chain
 
@@ -15,7 +16,8 @@ The client never decodes contract storage. It reads from Torii, where:
   (because the event is keyed by a unique sequence — [contracts.md](./contracts.md#events-as-an-append-log)).
 
 Reads are **eventually consistent**: a write lands on-chain, Torii indexes it a
-beat later, the client polls and re-renders. Design for the lag (below).
+beat later, Torii pushes a subscription update, the client refetches and
+re-renders. Design for the lag (below).
 
 ## Torii SQL over HTTP
 
@@ -99,44 +101,64 @@ Two practical notes from the demo:
 ## Wallets (optional Controller)
 
 By default the client signs with the demo's hardcoded **dev accounts**. The header
-**Login** button can swap the **L1** signer (buy + bank) to a
-[Cartridge Controller](https://github.com/cartridge-gg/controller) — a
-hosted-keychain wallet wired via `@cartridge/connector` + `@starknet-react/core`
-in `app/src/wallet.tsx`, with the active account injected into `purchaseGame` /
-`claimScore`. The appchain **roll** always uses the local dev key (the appchain
-isn't Controller-capable, and play is meant to be frictionless).
+**Login** button can swap to a [Cartridge Controller](https://github.com/cartridge-gg/controller)
+— a hosted-keychain wallet wired via `@cartridge/connector` + `@starknet-react/core`
+in `app/src/wallet.tsx`, with the active account injected into `purchaseGame`,
+`claimScore`, and `playGame`. The **same** Controller signs on **both chains**: buy
++ bank on L1 and the roll on the appchain, at the **same address** (a Controller is
+UDC-deployed deterministically from its username, so the address is
+chain-independent). For the roll the connector switches the Controller to the
+appchain (chain id `GAMECHAIN`), executes `play_game`, then switches back.
 
-Controller is opt-in: the stack must be started with `CONTROLLER=1 ./up.sh`
-(Controller-capable settlement node + paymaster, app served over trusted HTTPS for
-the passkey login). See the demo's [README](../README.md) → "Using Controller".
-This is an early integration — the Controller is the L1 *signer*, but gameplay
-identity (the leaderboard `player`) is still the dev appchain account for now.
+Controller is opt-in: the stack must be started with `CONTROLLER=1 ./up.sh` — that
+makes **both** nodes Controller-capable (paymaster + the appchain generated with
+`katana init rollup --cartridge-controllers`, which declares the Controller classes
+in its genesis) and serves the app over trusted HTTPS for the passkey login. See the
+demo's [README](../README.md) → "Using Controller". Because the same Controller is
+now the caller on the appchain, `play_game`'s `get_caller_address()`, the L2→L1 score
+message, and the leaderboard `player` all key on the Controller.
 
-## Tying it to the UI: poll + derive
+## Tying it to the UI: subscribe + derive
 
-The client keeps no authoritative state of its own. One interval re-reads
-everything from Torii (and the few RPC facts) and the UI derives from that:
+The client keeps no authoritative state of its own. A single `tick()` re-reads
+everything from Torii (and the few RPC facts) and the UI derives from that. Rather
+than run `tick()` on a fixed interval, the client **subscribes** to Torii and
+refetches only when there's new data:
 
 ```ts
-const [g, sc, ph, plh, sb, tp] = await Promise.all([
-  readGameState(), readScoreState(), getPurchaseHistory(),
-  getPlayHistory(), settledBlock(), appchainBlock(),
-]);
-// …setState; const h = setInterval(tick, 1500)
+const cleanup = await subscribeToriiUpdates(ping); // ping = debounced tick()
+const slow = setInterval(tick, 4000);              // safety net + RPC-only reads
 ```
-[`app/src/App.tsx:90`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/App.tsx#L90)
+[`app/src/App.tsx:135`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/App.tsx#L135)
 
-Everything shown is then derived from those reads — e.g. unbanked vs banked runs
-are just a filter over the joined play list:
+`subscribeToriiUpdates` opens a gRPC subscription (`@dojoengine/torii-wasm`'s
+`ToriiClient`) on **both** worlds — `onEntityUpdated` for models (`game-Stats`,
+`score-Leaderboard`) and `onEventMessageUpdated` for the emitted feeds
+(`GameMinted` / `GamePlayed` / `ScoreClaimed`). Any push triggers a debounced
+refetch, so a roll or bank shows up the moment Torii indexes it instead of up to
+an interval later:
+
+```ts
+subs.push(await client.onEntityUpdated(null, null, () => onUpdate()));
+subs.push(await client.onEventMessageUpdated(null, null, () => onUpdate()));
+```
+[`app/src/chain.ts:107`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L107)
+
+The slow interval stays as a safety net and to refresh the few facts Torii can't
+push: the saya-settled block and the appchain tip are read straight from RPC, and
+the piltover `MessageSent` purchase log is RPC too (so a buy also nudges a refetch
+explicitly). Everything shown is then derived from the reads — e.g. unbanked vs
+banked runs are just a filter over the joined play list:
 
 ```ts
 const unbanked = plays.filter((p) => !p.claimTxHash);   // still on L2
 const banked   = plays.filter((p) =>  p.claimTxHash);    // settled to L1
 ```
-[`app/src/App.tsx:138`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/App.tsx#L138)
+[`app/src/App.tsx:170`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/App.tsx#L170)
 
-Because the feeds are rebuilt from Torii every tick, the UI is **refresh-proof**:
-reload the page and the same state reappears, since it was never only in React.
+Because the feeds are rebuilt from Torii on each refetch, the UI is
+**refresh-proof**: reload the page and the same state reappears, since it was never
+only in React.
 
 ---
 

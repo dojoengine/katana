@@ -75,17 +75,18 @@ echo "→ katana: $KATANA"
 echo "→ saya-tee: $(command -v saya-tee)"
 echo "→ sozo: $(sozo --version 2>&1 | head -1)   torii: $(torii --version 2>&1 | head -1)"
 
-# Optional: Cartridge Controller wallet for the L1 identity (buy + bank). The
-# default run uses the dev account only (no paymaster, fully offline). With
-# `CONTROLLER=1 ./up.sh` the settlement node is started Controller-capable so the
-# frontend's "Connect Controller" option works. The appchain (roll) always uses
-# the dev key. See README → "Using Controller (optional)".
-CONTROLLER_FLAGS=""
+# Optional: Cartridge Controller wallet. The default run uses the dev account only
+# (no paymaster, fully offline). With `CONTROLLER=1 ./up.sh` both nodes are started
+# Controller-capable (settlement for buy/bank, appchain for roll) so the same
+# Controller signs on both chains. See README → "Using Controller (optional)".
+CONTROLLER_FLAGS=""        # run-node flags: enable the cartridge middleware + paymaster
+CONTROLLER_INIT_FLAGS=""   # init-rollup flag: declare controller classes in the appchain genesis
 if [[ "${CONTROLLER:-}" == "1" ]]; then
   CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
+  CONTROLLER_INIT_FLAGS="--cartridge-controllers"
   command -v paymaster-service >/dev/null 2>&1 \
     || echo "  note: 'paymaster-service' not on PATH — katana will try to fetch it (cartridge-gg/paymaster); see docs/cartridge.md." >&2
-  echo "→ Controller mode ON: settlement node Controller-capable. Needs a Controller login + (Chrome) the local-network-access flag."
+  echo "→ Controller mode ON: both nodes Controller-capable. Needs a Controller login + (Chrome) the local-network-access flag."
 fi
 
 # Torii ports (settlement indexes the score world + piltover; appchain indexes
@@ -138,6 +139,7 @@ rm -rf "$CHAIN_DIR"
   --settlement-account-private-key "$SAYA_PK" \
   --tee \
   --tee-registry-address "$TEE_REGISTRY" \
+  $CONTROLLER_INIT_FLAGS \
   --output-path "$CHAIN_DIR" > "$RUN_DIR/init.log" 2>&1
 PILTOVER=$(sed -nE 's/^core_contract = "(0x[0-9a-fA-F]+)".*/\1/p' "$CHAIN_DIR/config.toml")
 [[ -n "$PILTOVER" ]] || { echo "error: could not parse piltover address from config.toml" >&2; cat "$RUN_DIR/init.log" >&2; exit 1; }
@@ -172,7 +174,7 @@ echo "→ starting appchain node on :5051…"
 # harness' fee:false config); without it, fee estimation on the near-empty
 # rollup produces resource bounds below the actual gas price and txs revert.
 "$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --http.port 5051 \
-  --http.cors_origins '*' --explorer --messaging.enabled \
+  --http.cors_origins '*' --explorer --messaging.enabled $CONTROLLER_FLAGS \
   > "$RUN_DIR/appchain.log" 2>&1 &
 APPCHAIN_PID=$!
 until curl -s -o /dev/null http://localhost:5051/ 2>/dev/null; do sleep 0.5; done

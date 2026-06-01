@@ -13,6 +13,7 @@
 // so the "pending mint" state survives even before the appchain relays.
 
 import { Account, type AccountInterface, RpcProvider, hash } from "starknet";
+import { ToriiClient } from "@dojoengine/torii-wasm";
 import deployments from "./deployments.json";
 
 export const SETTLEMENT_RPC = deployments.settlement.rpcUrl;
@@ -57,12 +58,17 @@ export const settlementAccount = new Account({
   signer: deployments.settlement.account.privateKey,
   cairoVersion: "1",
 });
-const appchainAccount = new Account({
+// Default L2 signer (roll). The wallet layer can swap in a Controller account.
+export const appchainAccount = new Account({
   provider: appchainProvider,
   address: deployments.appchain.account.address,
   signer: deployments.appchain.account.privateKey,
   cairoVersion: "1",
 });
+
+/** Minimal signer interface — anything that can submit a tx (a starknet.js
+ *  Account, or a Controller account wrapped to target a specific chain). */
+export type Signer = Pick<AccountInterface, "execute">;
 
 // Purchases and score-claims are both signed by the settlement account, so they
 // must not race on the nonce. Serialize them through a promise-chain mutex.
@@ -83,6 +89,53 @@ async function toriiSql<T = Record<string, string | number>>(base: string, sql: 
   const res = await fetch(`${base}/sql?query=${encodeURIComponent(sql)}`);
   if (!res.ok) throw new Error(`torii sql ${res.status}: ${await res.text()}`);
   return (await res.json()) as T[];
+}
+
+// --- Torii subscriptions (gRPC) ---
+
+/** Subscribe to live updates from both Torii worlds and call `onUpdate` whenever
+ *  something changes — a model is set (`game-Stats`, `score-Leaderboard`) or an
+ *  event is emitted (`GameMinted` / `GamePlayed` / `ScoreClaimed`). This replaces
+ *  fixed-interval Torii polling: the UI refetches only when there's actually new
+ *  data. We pass a `null` clause to each subscription (every entity/event in the
+ *  world) and ignore the payload — the caller re-reads via the typed SQL helpers,
+ *  which keep the cross-table joins (play↔claim, mint↔message) in one place.
+ *
+ *  Returns an async cleanup that cancels the subscriptions. If a client can't
+ *  connect, it throws — the caller keeps a slow poll as a safety net (and for the
+ *  RPC-only reads, which have no Torii subscription). */
+export async function subscribeToriiUpdates(onUpdate: () => void): Promise<() => void> {
+  const subs: { cancel: () => void }[] = [];
+  const clients: ToriiClient[] = [];
+
+  const connect = async (toriiUrl: string, worldAddress: string) => {
+    // NB: despite its `.d.ts`, the wasm `ToriiClient` constructor is async — it
+    // returns a Promise that resolves to the connected client, so it's awaited.
+    const client = await (new ToriiClient({ toriiUrl, worldAddress }) as unknown as Promise<ToriiClient>);
+    clients.push(client);
+    // Models are entities; the per-action feeds are event messages — watch both.
+    subs.push(await client.onEntityUpdated(null, null, () => onUpdate()));
+    subs.push(await client.onEventMessageUpdated(null, null, () => onUpdate()));
+  };
+
+  await Promise.all([connect(TORII_GAME, GAME_WORLD), connect(TORII_SCORE, SCORE_WORLD)]);
+
+  return () => {
+    for (const s of subs) {
+      try {
+        s.cancel();
+      } catch {
+        // already gone — fine
+      }
+    }
+    for (const c of clients) {
+      try {
+        c.free();
+      } catch {
+        // already freed — fine
+      }
+    }
+  };
 }
 
 /** Torii stamps each event-message row with `internal_event_id` formatted as
@@ -251,9 +304,9 @@ export async function getPlayHistory(): Promise<PlayRecord[]> {
 /** Play one available game. Rolls on chain and emits the score to L1. Returns
  *  the L2 tx hash, the block it landed in, and the rolled score (read back from
  *  the game world's `Stats` once Torii has indexed the play). */
-export async function playGame(): Promise<{ txHash: string; block: number; score: number }> {
+export async function playGame(account: Signer): Promise<{ txHash: string; block: number; score: number }> {
   const before = await readGameState();
-  const { transaction_hash } = await appchainAccount.execute({
+  const { transaction_hash } = await account.execute({
     contractAddress: GAME,
     entrypoint: "play_game",
     calldata: [],
