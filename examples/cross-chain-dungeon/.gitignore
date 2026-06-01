@@ -1,0 +1,10 @@
+node_modules/
+app/node_modules/
+cairo/**/target/
+cairo/**/Scarb.lock
+# Generated per-run by scripts/deploy.ts from deployments.json
+cairo/**/dojo_dev.toml
+cairo/**/manifest_dev.json
+.run/
+app/tsconfig.tsbuildinfo
+app/dist/

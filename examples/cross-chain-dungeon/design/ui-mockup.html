@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cross-chain-dungeon // terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0907;
+    --bg-soft:#100d09;
+    --ink:#f3c982;          /* primary phosphor text */
+    --amber:#ffb454;        /* headings / glow */
+    --amber-hi:#ffd9a0;
+    --dim:#a87c38;          /* labels */
+    --faint:#5e481f;        /* floor / hairlines */
+    --ghost:#3a2d14;        /* unlit */
+    --red:#ff6b5e;
+    --gold:#ffd45e;
+    --green:#73e6a0;
+    --cyan:#6cc6ff;
+    --border:rgba(255,180,84,.22);
+    --border-hi:rgba(255,180,84,.45);
+    --panel:rgba(255,180,84,.018);
+    --glow:0 0 1px rgba(255,182,90,.55), 0 0 9px rgba(255,150,50,.18);
+    --glow-strong:0 0 2px rgba(255,200,120,.7), 0 0 16px rgba(255,150,50,.35);
+  }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(120% 90% at 50% 0%, #14100a 0%, var(--bg) 55%, #050403 100%);
+    color:var(--ink);
+    font-family:"IBM Plex Mono", ui-monospace, monospace;
+    font-size:14px;
+    line-height:1.45;
+    letter-spacing:.2px;
+    text-shadow:var(--glow);
+    -webkit-font-smoothing:antialiased;
+    padding:26px 22px 40px;
+    min-height:100vh;
+  }
+
+  /* ---- CRT overlays ---- */
+  .scanlines, .vignette, .grain{position:fixed;inset:0;pointer-events:none;z-index:9000;}
+  .scanlines{
+    background:repeating-linear-gradient(to bottom,
+      rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px,
+      rgba(0,0,0,.16) 3px, rgba(0,0,0,.16) 4px);
+    mix-blend-mode:multiply;opacity:.6;
+  }
+  .vignette{background:radial-gradient(120% 100% at 50% 45%, transparent 55%, rgba(0,0,0,.55) 100%);}
+  .grain{
+    opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  @keyframes flicker{
+    0%,19%,21%,55%,57%,100%{opacity:1;}
+    20%{opacity:.93;}56%{opacity:.96;}
+  }
+  .crt{animation:flicker 7s linear infinite;}
+
+  /* ---- frame ---- */
+  .frame{
+    max-width:1280px;margin:0 auto;
+    border:1px solid var(--border-hi);
+    background:linear-gradient(180deg, rgba(255,180,84,.03), transparent 30%);
+    box-shadow:0 0 0 1px rgba(0,0,0,.6) inset, 0 0 60px rgba(255,140,40,.06) inset, 0 30px 80px rgba(0,0,0,.6);
+  }
+  .titlebar{
+    display:flex;align-items:center;gap:14px;
+    padding:8px 14px;border-bottom:1px solid var(--border);
+    color:var(--dim);font-size:12.5px;
+    background:rgba(255,180,84,.03);
+  }
+  .dots{display:flex;gap:7px;}
+  .dots i{width:10px;height:10px;border-radius:50%;border:1px solid var(--border-hi);display:block;}
+  .dots i:nth-child(1){background:#3a2a18;}
+  .dots i:nth-child(2){background:#3a2a18;}
+  .dots i:nth-child(3){background:#3a2a18;}
+  .titlebar .path{color:var(--amber);}
+  .titlebar .spacer{flex:1;}
+  .titlebar .clock{color:var(--dim);}
+
+  /* ---- masthead ---- */
+  .banner{
+    display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;
+    padding:18px 22px 12px;border-bottom:1px solid var(--border);
+    background:
+      repeating-linear-gradient(90deg, rgba(255,180,84,.05) 0 1px, transparent 1px 7px);
+  }
+  .title{font-family:"VT323", monospace;font-size:58px;line-height:.82;color:var(--amber-hi);
+    text-shadow:var(--glow-strong);letter-spacing:1px;margin:0;}
+  .title .x{color:var(--red);}
+  .subtitle{color:var(--dim);font-size:12.5px;margin-top:8px;letter-spacing:.6px;}
+  .subtitle b{color:var(--ink);font-weight:600;}
+  .chips{display:flex;flex-direction:column;gap:7px;align-items:flex-end;}
+  .chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border);
+    padding:3px 9px;font-size:11.5px;color:var(--dim);letter-spacing:.5px;}
+  .chip .led{width:7px;height:7px;border-radius:50%;background:var(--ghost);box-shadow:none;}
+  .chip.on{color:var(--ink);border-color:var(--border-hi);}
+  .chip.on .led{background:var(--green);box-shadow:0 0 8px var(--green);}
+  .chip.wallet{color:var(--amber);}
+  @keyframes blink{50%{opacity:0;}}
+  .cur{display:inline-block;width:9px;height:1.05em;background:var(--amber-hi);
+    vertical-align:-2px;margin-left:3px;animation:blink 1.05s step-end infinite;box-shadow:var(--glow);}
+
+  /* ---- settlement gauge ---- */
+  .gauge{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:9px 22px;border-bottom:1px solid var(--border);
+    font-size:12.5px;color:var(--dim);background:rgba(0,0,0,.18);
+  }
+  .gauge .lbl{color:var(--cyan);letter-spacing:1px;}
+  .gauge .bar{font-family:"IBM Plex Mono";letter-spacing:-1px;white-space:pre;}
+  .gauge .bar .fill{color:var(--green);text-shadow:0 0 8px rgba(115,230,160,.5);}
+  .gauge .bar .empty{color:var(--ghost);}
+  .gauge .n{color:var(--ink);}
+  .gauge .lag{color:var(--amber);}
+
+  /* ---- main grid ---- */
+  .grid{display:grid;grid-template-columns:268px 1fr 348px;gap:0;}
+  .grid > section{padding:16px 18px;}
+  .col-left{border-right:1px solid var(--border);}
+  .col-right{border-left:1px solid var(--border);}
+
+  /* ---- panels ---- */
+  .panel{margin-bottom:20px;}
+  .panel:last-child{margin-bottom:0;}
+  .panel-h{display:flex;align-items:center;gap:8px;margin-bottom:11px;color:var(--amber);
+    font-size:11.5px;font-weight:600;letter-spacing:2px;text-transform:uppercase;}
+  .panel-h::before{content:"▌";color:var(--amber);}
+  .panel-h .rule{flex:1;border-bottom:1px dashed var(--border);transform:translateY(-3px);}
+
+  /* ---- funding ---- */
+  .bal{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px dotted var(--ghost);}
+  .bal .k{color:var(--dim);font-size:12px;}
+  .bal .v{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
+  .bal .v small{color:var(--dim);font-weight:400;}
+  .bal.usdc .v{color:var(--cyan);}
+  .bal.game .v{color:var(--gold);text-shadow:0 0 8px rgba(255,212,94,.35);}
+  .fund-actions{display:flex;gap:8px;margin-top:12px;}
+
+  /* ---- buttons ---- */
+  button{
+    font-family:inherit;font-size:12.5px;letter-spacing:.6px;cursor:pointer;
+    background:transparent;color:var(--amber);border:1px solid var(--border-hi);
+    padding:7px 10px;text-transform:uppercase;text-shadow:var(--glow);
+    display:inline-flex;align-items:center;gap:7px;transition:all .08s linear;flex:1;justify-content:center;
+  }
+  button kbd{font:inherit;font-size:10.5px;color:var(--bg);background:var(--dim);
+    padding:0 4px;border-radius:1px;text-shadow:none;line-height:1.4;}
+  button:hover:not(:disabled){background:var(--amber);color:var(--bg);border-color:var(--amber);
+    text-shadow:none;box-shadow:0 0 14px rgba(255,170,60,.45);}
+  button:hover:not(:disabled) kbd{background:var(--bg);color:var(--amber);}
+  button:active:not(:disabled){transform:translateY(1px);}
+  button:disabled{opacity:.28;cursor:not-allowed;}
+  button.danger{border-color:rgba(255,107,94,.5);color:var(--red);}
+  button.danger:hover:not(:disabled){background:var(--red);color:var(--bg);border-color:var(--red);box-shadow:0 0 14px rgba(255,107,94,.5);}
+  button.good{border-color:rgba(115,230,160,.5);color:var(--green);}
+  button.good:hover:not(:disabled){background:var(--green);color:var(--bg);border-color:var(--green);box-shadow:0 0 14px rgba(115,230,160,.5);}
+
+  /* ---- dungeon map ---- */
+  .stage{border:1px solid var(--border);background:
+      radial-gradient(120% 120% at 50% 18%, rgba(255,180,84,.05), transparent 60%), rgba(0,0,0,.25);
+    position:relative;}
+  .stage-h{display:flex;justify-content:space-between;align-items:center;
+    padding:6px 12px;border-bottom:1px solid var(--border);color:var(--dim);font-size:11px;letter-spacing:1.5px;}
+  .stage-h .kind{color:var(--amber-hi);}
+  #map{margin:0;padding:14px 16px;font-size:15.5px;line-height:1.18;letter-spacing:2px;white-space:pre;}
+  #map .wall{color:var(--faint);}
+  #map .floor{color:var(--ghost);}
+  #map .me{color:var(--amber-hi);text-shadow:var(--glow-strong);font-weight:700;}
+  #map .mob{color:var(--red);text-shadow:0 0 8px rgba(255,107,94,.5);font-weight:700;}
+  #map .loot{color:var(--gold);text-shadow:0 0 8px rgba(255,212,94,.5);}
+  #map .trap{color:var(--red);opacity:.85;}
+  #map .shrine{color:var(--cyan);text-shadow:0 0 8px rgba(108,198,255,.5);}
+  #map .door{color:var(--dim);}
+  .idle-veil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;gap:8px;background:rgba(8,6,4,.78);color:var(--dim);text-align:center;
+    font-size:13px;letter-spacing:1px;}
+  .idle-veil b{color:var(--amber);}
+
+  /* ---- vitals ---- */
+  .vitals{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;margin-top:14px;
+    border:1px solid var(--border);background:var(--border);}
+  .vital{background:var(--bg);padding:9px 11px;}
+  .vital .k{color:var(--dim);font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;}
+  .vital .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px;}
+  .vital .meter{letter-spacing:-1px;font-size:12px;margin-top:3px;white-space:pre;}
+  .vital.hp .v{color:var(--red);} .vital.hp .meter .on{color:var(--red);} .vital.hp .meter .off{color:var(--ghost);}
+  .vital.gold .v{color:var(--gold);}
+  .vital.depth .v{color:var(--amber-hi);}
+  .vital.pot .v{color:var(--cyan);}
+
+  .actions{display:flex;gap:8px;margin-top:14px;}
+
+  /* ---- log ---- */
+  .log{height:100%;min-height:420px;max-height:560px;overflow:auto;
+    border:1px solid var(--border);background:rgba(0,0,0,.28);padding:10px 12px;font-size:12.5px;}
+  .log p{margin:0 0 2px;display:flex;gap:9px;}
+  .log .t{color:var(--ghost);flex:none;width:34px;text-align:right;}
+  .log .g{flex:none;width:12px;text-align:center;}
+  .log .m{flex:1;}
+  .log .sys .g{color:var(--cyan);} .log .sys .m{color:var(--dim);}
+  .log .move .g{color:var(--amber);} .log .move .m{color:var(--ink);}
+  .log .combat .g{color:var(--red);} .log .combat .m{color:#ffb0a8;}
+  .log .loot .g{color:var(--gold);} .log .loot .m{color:#ffe7a3;}
+  .log .good .g{color:var(--green);} .log .good .m{color:#b6f3cf;}
+  .log .bad .g{color:var(--red);} .log .bad .m{color:var(--red);}
+  .log::-webkit-scrollbar{width:8px;}
+  .log::-webkit-scrollbar-thumb{background:var(--ghost);}
+
+  /* ---- leaderboard ---- */
+  table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums;}
+  th{color:var(--dim);text-align:left;font-weight:500;letter-spacing:1px;font-size:10px;
+    text-transform:uppercase;padding:0 6px 6px 0;border-bottom:1px solid var(--border);}
+  td{padding:4px 6px 4px 0;border-bottom:1px dotted var(--ghost);color:var(--ink);}
+  td.r{color:var(--dim);}
+  td.score{color:var(--gold);text-align:right;}
+  td.rw{color:var(--green);text-align:right;}
+  tr.you td{color:var(--amber-hi);} tr.you td.r{color:var(--amber);}
+  tr.you{background:rgba(255,180,84,.05);}
+
+  /* ---- statusline ---- */
+  .statusline{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+    padding:8px 16px;border-top:1px solid var(--border);background:rgba(255,180,84,.03);
+    color:var(--dim);font-size:11.5px;letter-spacing:.4px;}
+  .statusline .keys b{color:var(--amber);}
+  .statusline .spacer{flex:1;}
+  .statusline .prompt{color:var(--ink);}
+  .legend{color:var(--ghost);font-size:11px;padding:8px 18px 0;}
+  .legend b{color:var(--dim);}
+  @media (max-width:980px){.grid{grid-template-columns:1fr;} .col-left,.col-right{border:0;border-top:1px solid var(--border);} .title{font-size:42px;}}
+</style>
+</head>
+<body>
+<div class="crt">
+  <div class="frame">
+
+    <div class="titlebar">
+      <span class="dots"><i></i><i></i><i></i></span>
+      <span class="path">diver@gamechain</span><span>:</span><span>~/dungeon/run</span>
+      <span class="spacer"></span>
+      <span>tee: mock</span><span>·</span><span>saya: live</span><span>·</span>
+      <span class="clock" id="clock">--:--:--</span>
+    </div>
+
+    <div class="banner">
+      <div>
+        <h1 class="title">CROSS<span class="x">-</span>CHAIN<br>DUNGEON<span class="cur"></span></h1>
+        <div class="subtitle">a push-your-luck roguelite · play on <b>GAMECHAIN</b> · settle on <b>STARKNET SEPOLIA</b></div>
+      </div>
+      <div class="chips">
+        <span class="chip on"><span class="led"></span>SEPOLIA · settlement</span>
+        <span class="chip on"><span class="led"></span>GAMECHAIN · appchain</span>
+        <span class="chip wallet"><span class="led" style="background:var(--gold);box-shadow:0 0 8px var(--gold)"></span>controller: ember-knight.ctrl</span>
+      </div>
+    </div>
+
+    <div class="gauge">
+      <span class="lbl">SAYA SETTLEMENT</span>
+      <span>settled <span class="n" id="g-settled">0142</span></span>
+      <span class="bar" id="g-bar"></span>
+      <span>tip <span class="n" id="g-tip">0147</span></span>
+      <span class="lag" id="g-lag">5 blocks unsettled</span>
+    </div>
+
+    <main class="grid">
+
+      <!-- LEFT: funding + leaderboard -->
+      <section class="col-left">
+        <div class="panel">
+          <div class="panel-h">Funding<span class="rule"></span></div>
+          <div class="bal usdc"><span class="k">USDC</span><span class="v" id="b-usdc">25.00 <small>USDC</small></span></div>
+          <div class="bal game"><span class="k">GAME_TOKEN</span><span class="v" id="b-game">0 <small>GME</small></span></div>
+          <div class="fund-actions">
+            <button id="btn-buy"><kbd>b</kbd>Buy GME</button>
+            <button id="btn-mint"><kbd>g</kbd>Dev-mint</button>
+          </div>
+          <div class="legend">1 USDC → 100 GME · entry costs <b>50 GME</b></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">Leaderboard · Sepolia<span class="rule"></span></div>
+          <table id="board">
+            <thead><tr><th>#</th><th>diver</th><th style="text-align:right">depth</th><th style="text-align:right">score</th><th style="text-align:right">reward</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="legend">banked runs only · deaths never settle</div>
+        </div>
+      </section>
+
+      <!-- CENTER: dungeon -->
+      <section class="col-center">
+        <div class="stage">
+          <div class="stage-h">
+            <span>DUNGEON · <span class="kind" id="room-kind">— idle —</span></span>
+            <span>seed <span id="seed">0x00</span></span>
+          </div>
+          <pre id="map"></pre>
+          <div class="idle-veil" id="veil">
+            <div>no active run</div>
+            <div>buy / mint <b>GME</b>, then <b>ENTER DUNGEON</b> to descend</div>
+          </div>
+        </div>
+
+        <div class="vitals">
+          <div class="vital hp"><div class="k">HP</div><div class="v" id="v-hp">—</div><div class="meter" id="m-hp"></div></div>
+          <div class="vital gold"><div class="k">Gold</div><div class="v" id="v-gold">—</div><div class="meter">haul on L2</div></div>
+          <div class="vital depth"><div class="k">Depth</div><div class="v" id="v-depth">—</div><div class="meter">rooms down</div></div>
+          <div class="vital pot"><div class="k">Potions</div><div class="v" id="v-pot">—</div><div class="meter">heals +35</div></div>
+        </div>
+
+        <div class="actions">
+          <button id="a-enter" class="good"><kbd>↵</kbd>Enter Dungeon</button>
+          <button id="a-move" disabled><kbd>m</kbd>Move</button>
+          <button id="a-attack" disabled><kbd>a</kbd>Attack</button>
+          <button id="a-loot" disabled><kbd>l</kbd>Loot</button>
+          <button id="a-use" disabled><kbd>u</kbd>Use</button>
+          <button id="a-extract" class="danger" disabled><kbd>e</kbd>Extract</button>
+        </div>
+      </section>
+
+      <!-- RIGHT: log -->
+      <section class="col-right">
+        <div class="panel-h">Message Log<span class="rule"></span></div>
+        <div class="log" id="log"></div>
+      </section>
+
+    </main>
+
+    <footer class="statusline">
+      <span class="keys"><b>[m]</b>ove <b>[a]</b>ttack <b>[l]</b>oot <b>[u]</b>se <b>[e]</b>xtract · <b>[b]</b>uy <b>[g]</b>mint</span>
+      <span class="spacer"></span>
+      <span class="prompt">dungeon$ <span class="cur"></span></span>
+    </footer>
+  </div>
+</div>
+
+<div class="scanlines"></div>
+<div class="grain"></div>
+<div class="vignette"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const ri = (a,b) => a + Math.floor(Math.random()*(b-a+1));
+  const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+
+  // ---- economy / config ----
+  const FEE=50, RATE=100, MAXHP=100, DEPTH_WEIGHT=80, REWARD_RATE=0.1;
+
+  const ROOMS=[
+    {k:'monster', w:45}, {k:'treasure', w:25}, {k:'trap', w:15},
+    {k:'shrine', w:10}, {k:'empty', w:5},
+  ];
+  const MOBS=['goblin','skeleton','cave bat','ghoul','wraith','troll','basilisk'];
+  const KIND_LABEL={monster:'MONSTER ROOM',treasure:'TREASURE ROOM',trap:'TRAP ROOM',shrine:'SHRINE',empty:'EMPTY HALL',entrance:'ENTRANCE'};
+
+  let S=null;            // run state, null = idle
+  let usdc=25.00, game=0;
+  let settled=142, tip=147;
+  let turn=0;
+
+  // ---------- log ----------
+  const logEl=$('log');
+  function log(msg,type='sys',glyph){
+    const g={sys:'›',move:'»',combat:'⚔',loot:'$',good:'✦',bad:'☠'}[type]||'·';
+    const p=document.createElement('p');p.className=type;
+    const tag = S? 'd'+S.depth : '--';
+    p.innerHTML=`<span class="t">${tag}</span><span class="g">${glyph||g}</span><span class="m">${msg}</span>`;
+    logEl.appendChild(p);logEl.scrollTop=logEl.scrollHeight;
+  }
+
+  // ---------- map render ----------
+  const W=34,H=9;
+  function drawMap(){
+    const map=$('map');
+    if(!S){map.innerHTML='';return;}
+    // build grid
+    const rows=[];
+    for(let y=0;y<H;y++){
+      let cells=[];
+      for(let x=0;x<W;x++){
+        let ch='·',cls='floor';
+        const edge = x===0||x===W-1||y===0||y===H-1;
+        if(edge){ ch = (x===0||x===W-1)?'║':'═'; cls='wall';
+          if(y===0&&x===0)ch='╔'; if(y===0&&x===W-1)ch='╗';
+          if(y===H-1&&x===0)ch='╚'; if(y===H-1&&x===W-1)ch='╝';
+        }
+        cells.push({ch,cls});
+      }
+      rows.push(cells);
+    }
+    // scatter rubble
+    for(let i=0;i<10;i++){const x=ri(2,W-3),y=ri(2,H-3);rows[y][x]={ch:pick([',','·','`',"'"]),cls:'floor'};}
+    // door on right wall
+    rows[Math.floor(H/2)][W-1]={ch:'╣',cls:'door'};
+    // player
+    const py=Math.floor(H/2),px=Math.floor(W/2)-3;
+    rows[py][px]={ch:'@',cls:'me'};
+    // feature
+    const fx=px+ri(5,9), fy=py+ri(-2,2);
+    const F={monster:['M','mob'],treasure:['$','loot'],trap:['^','trap'],shrine:['+','shrine']}[S.room_kind];
+    if(F && rows[fy] && rows[fy][fx] && rows[fy][fx].cls==='floor'){rows[fy][fx]={ch:F[0],cls:F[1]};}
+    if(S.room_kind==='monster'){ // a couple of bones near mob
+      const bx=fx-1; if(rows[fy]&&rows[fy][bx]&&rows[fy][bx].cls==='floor')rows[fy][bx]={ch:'%',cls:'floor'};
+    }
+    map.innerHTML = rows.map(r=>r.map(c=>`<span class="${c.cls}">${c.ch}</span>`).join('')).join('\n');
+  }
+
+  // ---------- HUD ----------
+  function bar(v,max,n,onc,offc){
+    const f=Math.max(0,Math.round(v/max*n));
+    return `<span class="${onc}">${'█'.repeat(f)}</span><span class="${offc}">${'░'.repeat(n-f)}</span>`;
+  }
+  function render(){
+    $('b-usdc').innerHTML=`${usdc.toFixed(2)} <small>USDC</small>`;
+    $('b-game').innerHTML=`${game.toLocaleString()} <small>GME</small>`;
+    const active=!!S;
+    $('veil').style.display=active?'none':'flex';
+    $('room-kind').textContent=active?KIND_LABEL[S.room_kind]:'— idle —';
+    $('seed').textContent=active?S.seed:'0x00';
+    $('v-hp').textContent=active?`${S.hp}/${MAXHP}`:'—';
+    $('v-gold').textContent=active?S.gold.toLocaleString():'—';
+    $('v-depth').textContent=active?S.depth:'—';
+    $('v-pot').textContent=active?S.potions:'—';
+    $('m-hp').innerHTML=active?bar(S.hp,MAXHP,11,'on','off'):'';
+    // buttons
+    const inCombat=active&&S.enemy_hp>0;
+    $('a-enter').disabled=active||game<FEE;
+    $('a-move').disabled=!active;
+    $('a-attack').disabled=!inCombat;
+    $('a-loot').disabled=!(active&&(S.room_kind==='treasure')&&!S.looted);
+    $('a-use').disabled=!(active&&S.potions>0&&S.hp<MAXHP);
+    $('a-extract').disabled=!(active&&!inCombat);
+    drawMap();
+    renderGauge();
+  }
+
+  function renderGauge(){
+    const n=18, lag=tip-settled;
+    const f=Math.round((settled/tip)*n);
+    $('g-bar').innerHTML=`▕<span class="fill">${'█'.repeat(f)}</span><span class="empty">${'░'.repeat(n-f)}</span>▏`;
+    $('g-settled').textContent=String(settled).padStart(4,'0');
+    $('g-tip').textContent=String(tip).padStart(4,'0');
+    $('g-lag').textContent=lag>0?`${lag} block${lag>1?'s':''} unsettled`:'fully settled';
+  }
+
+  // ---------- room entry effects ----------
+  function enterRoom(){
+    const total=ROOMS.reduce((a,r)=>a+r.w,0); let n=ri(1,total),k='empty';
+    for(const r of ROOMS){if(n<=r.w){k=r.k;break;}n-=r.w;}
+    S.room_kind=k; S.looted=false; S.enemy_hp=0; S.mob='';
+    if(k==='monster'){S.mob=pick(MOBS);S.enemy_hp=20+8*S.depth;
+      log(`a ${S.mob} blocks the way (hp ${S.enemy_hp})`,'combat','✦');}
+    else if(k==='treasure')log('a glint of gold in the dark','loot','$');
+    else if(k==='trap'){const d=8+3*S.depth+ri(-2,2);S.hp-=d;
+      log(`a dart trap! −${d} hp`,'bad','!'); if(S.hp<=0)return death();}
+    else if(k==='shrine'){const h=ri(10,25);S.hp=Math.min(MAXHP,S.hp+h);
+      log(`a shrine restores +${h} hp`,'good','+');}
+    else log('an empty hall · a safe place to extract','move','·');
+  }
+
+  // ---------- actions ----------
+  function enter(){
+    if(S||game<FEE)return;
+    game-=FEE;
+    S={hp:MAXHP,gold:0,depth:0,potions:1,room_kind:'entrance',enemy_hp:0,looted:false,
+       seed:'0x'+ri(0x1000,0xffff).toString(16),mob:''};
+    log(`paid ${FEE} GME on Sepolia · entry message relayed to GAMECHAIN`,'sys','⇣');
+    log('you descend into the dungeon','move','»');
+    S.depth=1; enterRoom(); render();
+  }
+  function move(){
+    if(!S)return;
+    if(S.enemy_hp>0){ // flee attempt
+      if(Math.random()<0.55){log(`you slip past the ${S.mob}`,'move','»');S.enemy_hp=0;}
+      else{const d=(6+2*S.depth)+ri(-2,3);S.hp-=d;log(`the ${S.mob} catches you fleeing −${d} hp`,'combat','✖');
+        if(S.hp<=0)return death(); render();return;}
+    }
+    S.depth++; enterRoom(); turn++;
+    if(S) render();
+  }
+  function attack(){
+    if(!S||S.enemy_hp<=0)return;
+    const dmg=ri(12,20); S.enemy_hp-=dmg;
+    if(S.enemy_hp<=0){const g=5+4*S.depth+ri(0,6);S.gold+=g;S.enemy_hp=0;
+      log(`you strike for ${dmg} · the ${S.mob} falls · +${g} gold`,'loot','⚔');S.room_kind='empty';}
+    else{const back=(6+2*S.depth)+ri(-2,3);S.hp-=back;
+      log(`you hit for ${dmg} · ${S.mob} bites back −${back} hp`,'combat','⚔');
+      if(S.hp<=0)return death();}
+    render();
+  }
+  function loot(){
+    if(!S||S.room_kind!=='treasure'||S.looted)return;
+    S.looted=true;
+    if(Math.random()<0.18){const d=10+2*S.depth;S.hp-=d;log(`a mimic! the chest bites −${d} hp`,'bad','!');
+      if(S.hp<=0)return death();}
+    else{const g=10+5*S.depth+ri(0,8);S.gold+=g;let extra='';
+      if(Math.random()<0.4){S.potions++;extra=' · +1 potion';}
+      log(`you loot +${g} gold${extra}`,'loot','$');}
+    render();
+  }
+  function use(){
+    if(!S||S.potions<1||S.hp>=MAXHP)return;
+    S.potions--; const h=35; S.hp=Math.min(MAXHP,S.hp+h);
+    log(`you quaff a potion +${h} hp`,'good','+'); render();
+  }
+  function extract(){
+    if(!S||S.enemy_hp>0)return;
+    const score=DEPTH_WEIGHT*S.depth+S.gold;
+    const reward=Math.round(score*REWARD_RATE);
+    log(`you climb out alive · depth ${S.depth} · ${S.gold} gold`,'move','»');
+    log(`EXTRACT → sending L2→L1 message [you, ${score}, ${S.gold}]`,'sys','⇡');
+    const banked=Object.assign({},S);
+    S=null; render();
+    // simulate settlement, then reward
+    const target=tip+1; tip=target;
+    log(`appchain block ${target} sealed · awaiting saya…`,'sys','▒');
+    setTimeout(()=>{
+      settled=target; renderGauge();
+      game+=reward;
+      log(`block ${target} SETTLED on Sepolia`,'good','✓');
+      log(`claim_run consumed · +${reward} GME reward minted · leaderboard updated`,'good','✦');
+      bumpBoard(banked.depth,score,reward); render();
+    },2600);
+  }
+  function death(){
+    log(`you die at depth ${S.depth} · ${S.gold} gold forfeited`,'bad','☠');
+    log('nothing settles to Sepolia — the haul stays lost on L2','sys','✖');
+    S=null; render();
+  }
+
+  function buy(){ if(usdc<1){log('not enough USDC','bad','!');return;}
+    const spend=Math.min(usdc,5); usdc-=spend; const got=spend*RATE; game+=got;
+    log(`approved USDC · bought ${got} GME for ${spend.toFixed(2)} USDC`,'sys','⇄'); render(); }
+  function mint(){ game+=200; log('dev-mint · +200 GME','sys','✚'); render(); }
+
+  // ---------- leaderboard ----------
+  let board=[
+    {n:'pixelwizard',d:11,s:3100,rw:310},
+    {n:'0x9f..3a',d:9,s:2580,rw:258},
+    {n:'grimlock.ctrl',d:8,s:2240,rw:224},
+    {n:'spelunky64',d:7,s:1960,rw:196},
+    {n:'0x4c..d1',d:6,s:1410,rw:141},
+  ];
+  let youBest={n:'ember-knight (you)',d:0,s:0,rw:0,you:true};
+  function bumpBoard(d,s,rw){ if(s>youBest.s){youBest.d=d;youBest.s=s;youBest.rw=rw;} renderBoard(); }
+  function renderBoard(){
+    const all=[...board, ...(youBest.s>0?[youBest]:[])].sort((a,b)=>b.s-a.s).slice(0,7);
+    $('board').querySelector('tbody').innerHTML=all.map((r,i)=>
+      `<tr class="${r.you?'you':''}"><td class="r">${String(i+1).padStart(2,'0')}</td><td>${r.n}</td>`+
+      `<td style="text-align:right">${r.d}</td><td class="score">${r.s.toLocaleString()}</td>`+
+      `<td class="rw">${r.rw} GME</td></tr>`).join('');
+  }
+
+  // ---------- wire ----------
+  $('a-enter').onclick=enter; $('a-move').onclick=move; $('a-attack').onclick=attack;
+  $('a-loot').onclick=loot; $('a-use').onclick=use; $('a-extract').onclick=extract;
+  $('btn-buy').onclick=buy; $('btn-mint').onclick=mint;
+  addEventListener('keydown',e=>{
+    if(e.target.tagName==='INPUT')return;
+    const k=e.key.toLowerCase();
+    const m={m:move,a:attack,l:loot,u:use,e:extract,b:buy,g:mint};
+    if(k==='enter')return enter();
+    if(m[k]){const btn={m:'a-move',a:'a-attack',l:'a-loot',u:'a-use',e:'a-extract'}[k];
+      if(btn&&$(btn).disabled)return; m[k]();}
+  });
+
+  // clock + idle settlement drift
+  function clock(){const d=new Date();$('clock').textContent=d.toTimeString().slice(0,8);}
+  clock();setInterval(clock,1000);
+  setInterval(()=>{ if(!S){return;} },4000);
+  // ambient: tip slowly advances while playing, saya catches up
+  setInterval(()=>{
+    if(S){ tip++; }
+    if(settled<tip && Math.random()<0.6){ settled++; }
+    renderGauge();
+  },3200);
+
+  // boot log
+  log('booting cross-chain-dungeon…','sys','▸');
+  log('connected · GAMECHAIN rpc :5061 · Sepolia settlement','sys','◇');
+  log('controller session active on Sepolia','good','✓');
+  log('dev-mint or buy GME, then ENTER DUNGEON','move','»');
+  renderBoard(); render();
+})();
+</script>
+</body>
+</html>
