@@ -7,7 +7,7 @@
 // bump SOURCE_REF and re-check the line numbers below.
 
 // The demo's own contracts, pinned to a katana commit (see note above).
-export const SOURCE_REF = "279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc";
+export const SOURCE_REF = "d5682078ab8c62ca57dad7b1ba927f893261d431";
 const DEMO_BASE = `https://github.com/dojoengine/katana/blob/${SOURCE_REF}/examples/cross-chain-game`;
 
 // The piltover core is an external contract (cartridge-gg/piltover), pulled in
