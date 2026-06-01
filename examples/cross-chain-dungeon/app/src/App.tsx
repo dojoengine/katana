@@ -152,6 +152,7 @@ export default function App() {
   const [settled, setSettled] = useState(0);
   const [tip, setTip] = useState(0);
   const [pending, setPending] = useState<chain.ExtractRow | null>(null);
+  const [lastEnded, setLastEnded] = useState<chain.RunEndRow | null>(null);
   const [selected, setSelected] = useState<chain.ActionRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -163,7 +164,7 @@ export default function App() {
     if (!ready || inFlight.current) return;
     inFlight.current = true;
     try {
-      const [r, st, fd, lb, gb, ub, sb, tp, ex, bc] = await Promise.all([
+      const [r, st, fd, lb, gb, ub, sb, tp, ex, bc, le] = await Promise.all([
         chain.readRun(player),
         chain.readStats(),
         chain.getActionFeed(),
@@ -174,6 +175,7 @@ export default function App() {
         chain.appchainBlock(),
         chain.getExtracts(player),
         chain.getBankCount(player),
+        chain.getLastRunEnded(player),
       ]);
       setRun(r);
       setStats(st);
@@ -184,6 +186,7 @@ export default function App() {
       setSettled(sb);
       setTip(tp);
       setPending(ex.length > bc ? ex[bc] : null);
+      setLastEnded(le);
       setErr(null);
     } catch (e) {
       setErr(String((e as Error).message || e));
@@ -394,9 +397,20 @@ export default function App() {
                 </div>
                 <DungeonMap run={run} />
                 {!run && (
-                  <div className="veil">
+                  <div className={`veil${b("enter") ? "" : lastEnded?.died ? " veil-death" : ""}`}>
                     {b("enter") ? (
                       <div>entering… (relaying L1→L2 mint_run)</div>
+                    ) : lastEnded?.died ? (
+                      <>
+                        <div className="death-skull">☠</div>
+                        <div className="death-title">YOU DIED</div>
+                        <div>
+                          depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
+                        </div>
+                        <div className="death-sub">
+                          nothing settled to L1 — the haul is lost. <b>ENTER DUNGEON</b> to try again.
+                        </div>
+                      </>
                     ) : (
                       <>
                         <div>no active run</div>

@@ -282,6 +282,24 @@ export async function getBankCount(player: string): Promise<number> {
   return num(rows[0]?.c ?? 0);
 }
 
+// Mirror of the appchain contract's DEPTH_WEIGHT — on death, RunEnded.score is
+// exactly DEPTH_WEIGHT * depth (no gold), so depth = score / DEPTH_WEIGHT.
+export const DEPTH_WEIGHT = 80;
+
+export type RunEndRow = { endNo: number; depth: number; loot: number; died: boolean };
+
+/** The player's most recent run ending (death or extract), for showing the
+ *  outcome once the run clears. On death `loot` is the forfeited gold. */
+export async function getLastRunEnded(player: string): Promise<RunEndRow | null> {
+  const rows = await toriiSql<Record<string, string | number>>(
+    TORII_GAME,
+    `SELECT end_no, score, loot, died FROM "game-RunEnded" WHERE player = "${player}" ORDER BY end_no DESC LIMIT 1`,
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return { endNo: num(r.end_no), depth: Math.round(num(r.score) / DEPTH_WEIGHT), loot: num(r.loot), died: !!num(r.died) };
+}
+
 // --- raw RPC reads ---
 
 function u256FromParts(parts: string[]): bigint {

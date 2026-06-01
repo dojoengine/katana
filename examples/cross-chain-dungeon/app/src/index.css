@@ -144,6 +144,12 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 .map .shrine { color: var(--cyan); }
 .veil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; background: rgba(8,6,4,.82); color: var(--dim); text-align: center; font-size: 13px; padding: 12px; }
 .veil b { color: var(--amber); }
+/* death outcome shown in the dungeon view once the run clears */
+.veil-death { background: rgba(20, 4, 3, 0.86); color: #ffb0a8; }
+.veil-death b { color: var(--red); }
+.death-skull { font-size: 40px; color: var(--red); text-shadow: 0 0 16px rgba(255, 107, 94, 0.6); line-height: 1; }
+.death-title { font-family: "VT323", monospace; font-size: 38px; letter-spacing: 3px; color: var(--red); text-shadow: 0 0 16px rgba(255, 107, 94, 0.5); margin: 2px 0 4px; }
+.death-sub { color: var(--dim); font-size: 12px; max-width: 340px; }
 
 .vitals { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1px; margin-top: 14px; border: 1px solid var(--border); background: var(--border); }
 .vital { background: var(--bg); padding: 9px 11px; }
