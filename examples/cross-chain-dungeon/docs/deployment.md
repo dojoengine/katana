@@ -77,6 +77,14 @@ cp .env.example .env && ./up.sh     # Ctrl-C / ./down.sh tears down the local pr
 - The **Poseidon saya patch** is required (see [contracts.md](./contracts.md#the-message-hash-gotcha)).
 - `init rollup` against Sepolia needs the chain id (`SN_SEPOLIA`) and a funded
   account; a balance/chain-id mismatch fails the deploy.
+- **Blake2s compiled-class hash (Starknet ≥ 0.14.1).** Sepolia/mainnet compute the
+  `compiled_class_hash` with **Blake2s**, not Poseidon, and reject a declare that
+  sends the old hash with `Mismatch compiled class hash`. So the deploy scripts pin
+  **starknet.js 10.x** (whose `computeCompiledClassHash` is Blake2s); 8.x's Poseidon
+  hash is rejected. `sozo 1.8.7` and the `katana` binary (dojoengine/katana#570)
+  already emit Blake2s, so the worlds and `init rollup` are fine. A local Katana
+  settlement layer accepts either, which is why `cross-chain-game` never hit this.
+  The cairo **compiler** version is unrelated — scarb stays 2.13.1.
 
 ## Verify each stage
 
