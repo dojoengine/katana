@@ -160,6 +160,35 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 .log .sys .g { color: var(--cyan); } .log .sys .m { color: var(--dim); }
 .log::-webkit-scrollbar { width: 8px; }
 .log::-webkit-scrollbar-thumb { background: var(--ghost); }
+.log .logrow { cursor: pointer; }
+.log .logrow:hover { background: rgba(255, 180, 84, 0.08); }
+.log .logrow:hover .m { text-shadow: var(--glow); }
+
+/* action-detail modal */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center;
+  background: rgba(5, 4, 3, 0.7);
+}
+.modal {
+  width: min(680px, 94vw);
+  border: 1px solid var(--border-hi); background: var(--bg);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 20px 60px rgba(0,0,0,.6), 0 0 40px rgba(255,140,40,.08) inset;
+}
+.modal-h {
+  display: flex; align-items: center; justify-content: space-between; padding: 9px 12px;
+  border-bottom: 1px solid var(--border); color: var(--amber); text-transform: uppercase;
+  letter-spacing: 1.5px; font-size: 12px;
+}
+.modal-x { all: unset; cursor: pointer; color: var(--dim); padding: 0 6px; font-size: 13px; }
+.modal-x:hover { color: var(--red); }
+.kv { margin: 0; padding: 10px 12px; }
+.kv-row { display: flex; gap: 12px; padding: 4px 0; border-bottom: 1px dotted var(--ghost); }
+.kv-row dt { color: var(--dim); width: 110px; flex: none; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+.kv-row dd { margin: 0; color: var(--ink); flex: 1; }
+/* tx hash on a single line (modal is sized to fit the full 0x… hash) */
+.kv-row dd.mono-wrap { white-space: nowrap; font-size: 12px; color: var(--amber-hi); }
+.modal-link { display: block; padding: 10px 12px; border-top: 1px solid var(--border); color: var(--cyan); text-decoration: none; }
+.modal-link:hover { color: var(--amber-hi); text-shadow: var(--glow); }
 
 table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 th { color: var(--dim); text-align: left; font-weight: 500; letter-spacing: 1px; font-size: 10px; text-transform: uppercase; padding: 0 6px 6px 0; border-bottom: 1px solid var(--border); }

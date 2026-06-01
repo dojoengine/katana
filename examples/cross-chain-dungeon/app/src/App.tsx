@@ -89,6 +89,53 @@ function Gauge({ settled, tip }: { settled: number; tip: number }) {
   );
 }
 
+/** Detail modal for a clicked message-log entry, with a link to its appchain tx. */
+function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const rows: [string, ReactNode][] = [
+    ["action", `#${action.actionNo}`],
+    ["kind", action.kind],
+    ["outcome", action.outcome],
+    ["depth", String(action.depth)],
+    ["hp", String(action.hp)],
+    ["gold", String(action.gold)],
+    ["appchain block", String(action.block)],
+    ["tx hash", action.txHash],
+  ];
+  const txUrl = chain.explorerTxUrl(chain.APPCHAIN_EXPLORER, action.txHash);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-h">
+          <span>
+            {KIND_GLYPH[action.kind] ?? "·"} action #{action.actionNo}
+          </span>
+          <button className="modal-x" onClick={onClose} aria-label="close">
+            ✕
+          </button>
+        </div>
+        <dl className="kv">
+          {rows.map(([k, v]) => (
+            <div className="kv-row" key={k}>
+              <dt>{k}</dt>
+              <dd className={k === "tx hash" ? "mono-wrap" : ""}>{v}</dd>
+            </div>
+          ))}
+        </dl>
+        <a className="modal-link" href={txUrl} target="_blank" rel="noreferrer">
+          view tx on appchain explorer ↗
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const wallet = useWallet();
   const player = wallet.player;
@@ -102,6 +149,7 @@ export default function App() {
   const [settled, setSettled] = useState(0);
   const [tip, setTip] = useState(0);
   const [pending, setPending] = useState<chain.ExtractRow | null>(null);
+  const [selected, setSelected] = useState<chain.ActionRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -421,7 +469,12 @@ export default function App() {
                   </p>
                 ) : (
                   [...feed].reverse().map((a) => (
-                    <p key={a.actionNo} className={KIND_CLASS[a.kind] ?? "sys"}>
+                    <p
+                      key={a.actionNo}
+                      className={`logrow ${KIND_CLASS[a.kind] ?? "sys"}`}
+                      onClick={() => setSelected(a)}
+                      title="click for details + tx"
+                    >
                       <span className="t">d{a.depth}</span>
                       <span className="g">{KIND_GLYPH[a.kind] ?? "·"}</span>
                       <span className="m">
@@ -443,6 +496,7 @@ export default function App() {
           </footer>
         </div>
       </div>
+      {selected && <ActionModal action={selected} onClose={() => setSelected(null)} />}
       <div className="scanlines" />
       <div className="vignette" />
     </>
