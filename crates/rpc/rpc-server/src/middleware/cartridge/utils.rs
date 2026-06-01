@@ -2,12 +2,13 @@ use jsonrpsee::types::{ErrorObjectOwned, Request};
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::broadcasted::BroadcastedTx;
-use katana_rpc_types::{FeeSource, OutsideExecution};
+use katana_rpc_types::{FeeSource, OutsideExecution, SimulationFlag};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use starknet::core::types::SimulationFlagForEstimateFee;
 
 pub(super) const STARKNET_ESTIMATE_FEE: &str = "starknet_estimateFee";
+pub(super) const STARKNET_SIMULATE_TRANSACTIONS: &str = "starknet_simulateTransactions";
 pub(super) const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE: &str = "cartridge_addExecuteFromOutside";
 pub(super) const CARTRIDGE_ADD_EXECUTE_FROM_OUTSIDE_TX: &str =
     "cartridge_addExecuteOutsideTransaction";
@@ -86,6 +87,40 @@ impl From<EstimateFeeRequestParams> for EstimateFeeParams {
             EstimateFeeRequestParams::Named(params) => params,
             EstimateFeeRequestParams::Positional(params) => {
                 Self { transactions: params.0, simulation_flags: params.1, block_id: params.2 }
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub(super) struct SimulateTransactionsParams {
+    #[serde(alias = "blockId")]
+    pub block_id: BlockIdOrTag,
+    pub transactions: Vec<BroadcastedTx>,
+    #[serde(alias = "simulationFlags")]
+    pub simulation_flags: Vec<SimulationFlag>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct SimulateTransactionsPositionalParams(
+    BlockIdOrTag,
+    Vec<BroadcastedTx>,
+    Vec<SimulationFlag>,
+);
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(super) enum SimulateTransactionsRequestParams {
+    Named(SimulateTransactionsParams),
+    Positional(SimulateTransactionsPositionalParams),
+}
+
+impl From<SimulateTransactionsRequestParams> for SimulateTransactionsParams {
+    fn from(value: SimulateTransactionsRequestParams) -> Self {
+        match value {
+            SimulateTransactionsRequestParams::Named(params) => params,
+            SimulateTransactionsRequestParams::Positional(params) => {
+                Self { block_id: params.0, transactions: params.1, simulation_flags: params.2 }
             }
         }
     }
