@@ -31,9 +31,10 @@ const SYMBOLS: Record<string, { file: string; line: number; repo?: "piltover" }>
   consume_message_from_appchain: { file: "cairo/score/src/lib.cairo", line: 99 },
   Leaderboard: { file: "cairo/score/src/lib.cairo", line: 42 },
   ScoreClaimed: { file: "cairo/score/src/lib.cairo", line: 73 },
-  // piltover core (external) — the L1 messaging mailbox
+  // piltover core (external) — the L1 messaging mailbox + settled state
   send_message_to_appchain: { file: "src/messaging/component.cairo", line: 165, repo: "piltover" },
   MessageSent: { file: "src/messaging/component.cairo", line: 88, repo: "piltover" },
+  update_state: { file: "src/appchain.cairo", line: 140, repo: "piltover" },
 };
 
 /** GitHub permalink for a referenced symbol, or null if it isn't one we map
