@@ -42,6 +42,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sepoliaProvider = new RpcProvider({ nodeUrl: SEPOLIA_RPC });
 const appchainProvider = new RpcProvider({ nodeUrl: APPCHAIN_RPC });
 
+// The local appchain mines a block per tx instantly, but starknet.js's
+// waitForTransaction defaults to a 5s poll interval — so each appchain action
+// would block ~5s on a confirmation that's actually ready in milliseconds. Poll
+// fast instead. (Sepolia keeps the default; its blocks are genuinely slow.)
+const APPCHAIN_TX_WAIT = { retryInterval: 200 };
+
 // Default signers. The operator is a real funded Sepolia account (from
 // deployments.json); the wallet layer can swap a Controller in for L1 ops. The
 // appchain account is the rollup dev account and always signs the play actions.
@@ -386,7 +392,7 @@ async function appchainAction(entrypoint: string, player: string): Promise<strin
     entrypoint,
     calldata: [player],
   });
-  await appchainProvider.waitForTransaction(transaction_hash);
+  await appchainProvider.waitForTransaction(transaction_hash, APPCHAIN_TX_WAIT);
   // Give Torii a beat to index the resulting model/event write.
   await sleep(150);
   return transaction_hash;
@@ -404,7 +410,7 @@ export async function extract(player: string): Promise<string> {
     entrypoint: "extract",
     calldata: [player],
   });
-  await appchainProvider.waitForTransaction(transaction_hash);
+  await appchainProvider.waitForTransaction(transaction_hash, APPCHAIN_TX_WAIT);
   await sleep(150);
   return transaction_hash;
 }
