@@ -198,7 +198,9 @@ echo "    appchain RPC   : http://localhost:$APPCHAIN_PORT   explorer: http://lo
 echo "    saya-tee       : running (.run/saya.log)"
 echo "    torii (score)  : http://localhost:$TORII_SCORE_HTTP/sql   (.run/torii-score.log)"
 echo "    torii (game)   : http://localhost:$TORII_GAME_HTTP/sql    (.run/torii-game.log)"
-echo "    frontend       : http://localhost:$FRONTEND_PORT"
+# Frontend is HTTPS by default (mkcert); set HTTP=1 to serve plain http.
+APP_SCHEME=https; [[ "${HTTP:-}" == "1" ]] && APP_SCHEME=http
+echo "    frontend       : $APP_SCHEME://localhost:$FRONTEND_PORT"
 echo ""
 
 # 8. Frontend (foreground; Ctrl-C stops everything).
