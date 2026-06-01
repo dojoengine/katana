@@ -24,7 +24,7 @@ public chain — and adds a token economy on top of an external contract.
 | Economy | none | **USDC → GAME_TOKEN**, charged per entry, reward on bank |
 | External dependency | — | **Circle USDC on Sepolia** |
 | Gameplay | one roll | **a dungeon run, one tx per action** |
-| Ports | 5050/5051/8081/8082/3001 | **5061/8091/8092/3002** |
+| Ports | 5050/5051/8081/8082/3001 | **5070/8091/8092/3002** |
 | Controller | both chains | **Sepolia only** |
 
 ## Prerequisites
@@ -45,7 +45,7 @@ This is *not* fully one-click — settling to a real chain needs real accounts.
 
 ```bash
 cp .env.example .env     # fill in SEPOLIA_RPC_URL, operator + saya accounts, USDC
-./up.sh                  # appchain :5061, saya → Sepolia, torii ×2, frontend :3002
+./up.sh                  # appchain :5070, saya → Sepolia, torii ×2, frontend :3002
 ```
 
 `up.sh` deploys the mock TEE registry + piltover core on Sepolia, starts the

@@ -13,8 +13,8 @@
     "scoreSystem": "0x0"
   },
   "appchain": {
-    "rpcUrl": "http://localhost:5061",
-    "explorer": "http://localhost:5061/explorer",
+    "rpcUrl": "http://localhost:5070",
+    "explorer": "http://localhost:5070/explorer",
     "torii": "http://localhost:8092",
     "account": { "address": "0x0", "privateKey": "0x0" },
     "gameWorld": "0x0",

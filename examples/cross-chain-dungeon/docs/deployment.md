@@ -59,7 +59,7 @@ game world before `entry` (which addresses it); the grants last.
 3. **piltover core + rollup config** via `katana init rollup --tee` against Sepolia
    (saya account = piltover operator).
 4. **Base `deployments.json`** — Sepolia + appchain rpc/accounts, piltover, USDC.
-5. **Appchain Katana** (`:5061`, `--tee mock --messaging.enabled`).
+5. **Appchain Katana** (`:5070`, `--tee mock --messaging.enabled`).
 6. **saya-tee** (`--mock-prove`, settling to Sepolia).
 7. **Deploy economy + worlds** (`scripts/deploy.ts`).
 8. **Two Torii instances** — Sepolia `score` (`:8091`), appchain `game` (`:8092`).

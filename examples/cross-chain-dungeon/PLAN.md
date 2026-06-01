@@ -69,7 +69,7 @@ changes only what the new requirements force.
 
   | Service | Port |
   |---|---|
-  | Appchain Katana RPC (+ `/explorer`) | `5061` |
+  | Appchain Katana RPC (+ `/explorer`) | `5070` |
   | Torii — Sepolia `score` world (HTTP / gRPC / relay) | `8091` / `50091` / `9191` |
   | Torii — appchain `game` world (HTTP / gRPC / relay) | `8092` / `50092` / `9194` |
   | Frontend (Vite) | `3002` |
@@ -342,7 +342,7 @@ is a deliberate demo simplification (the dev key can act on any run); document i
 | Task | Description | Output |
 |------|-------------|--------|
 | D.1 | `scripts/deploy.ts` + `scripts/lib.ts`: deploy `GameToken`→`TokenSale`→`score` world, migrate appchain `game` world (init `registry`=score system), then `Entry` (needs appchain game system + piltover); grant GAME minter to `TokenSale` + `score` claim; record all addresses. | deploy script |
-| D.2 | `up.sh`: preflight → mock TEE registry (Sepolia) → `init rollup --tee` (Sepolia) → base `deployments.json` → appchain Katana (`:5061`, `--tee mock --dev --dev.no-fee --messaging.enabled`) → saya-tee (`--mock-prove`, settlement = Sepolia) → migrate (D.1) → Torii ×2 (Sepolia score `:8091`, appchain game `:8092`) → client (`:3002`). Ports per the distinct band above (no local settlement node). | `up.sh` |
+| D.2 | `up.sh`: preflight → mock TEE registry (Sepolia) → `init rollup --tee` (Sepolia) → base `deployments.json` → appchain Katana (`:5070`, `--tee mock --dev --dev.no-fee --messaging.enabled`) → saya-tee (`--mock-prove`, settlement = Sepolia) → migrate (D.1) → Torii ×2 (Sepolia score `:8091`, appchain game `:8092`) → client (`:3002`). Ports per the distinct band above (no local settlement node). | `up.sh` |
 | D.3 | `down.sh` + run dir/log hygiene; clear messaging on the appchain not needed (fresh chain each run). | `down.sh` |
 
 ---
@@ -380,7 +380,7 @@ is a deliberate demo simplification (the dev key can act on any run); document i
   immutable test artifacts (note their addresses; redeploy on schema change).
 
 ## Verification Checklist
-- [ ] `examples/cross-chain-dungeon/up.sh` brings up: appchain `:5061`, saya, Torii
+- [ ] `examples/cross-chain-dungeon/up.sh` brings up: appchain `:5070`, saya, Torii
       `:8091`/`:8092`, client `:3002`; piltover + mock TEE live on Sepolia. No port
       clash with `cross-chain-game` running concurrently.
 - [ ] `deployments.json` has real addresses for piltover, GameToken, TokenSale,

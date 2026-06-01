@@ -6,7 +6,7 @@
 #     + piltover core         (deployed by `katana init rollup --tee`)
 #     + mock TEE registry     (deployed by `saya-ops`)
 #     + GAME_TOKEN / TokenSale / Entry / score world  (deployed by scripts/deploy.ts)
-#   appchain Katana (:5061, rollup, --tee mock) settling to piltover on Sepolia
+#   appchain Katana (:5070, rollup, --tee mock) settling to piltover on Sepolia
 #   saya-tee --mock-prove sidecar (proves appchain blocks → update_state on Sepolia)
 #   two torii indexers (Sepolia score :8091, appchain game :8092)
 #   React frontend (:3002)
@@ -24,7 +24,7 @@ CHAIN_DIR="$RUN_DIR/chain-config"
 mkdir -p "$RUN_DIR"
 
 # Ports — distinct from cross-chain-game (5051/8081/8082/3001) so both can run.
-APPCHAIN_PORT=5061
+APPCHAIN_PORT=5070
 TORII_SCORE_HTTP=8091; TORII_SCORE_GRPC=50091; TORII_SCORE_RELAY=9191
 TORII_GAME_HTTP=8092;  TORII_GAME_GRPC=50092;  TORII_GAME_RELAY=9194
 FRONTEND_PORT=3002

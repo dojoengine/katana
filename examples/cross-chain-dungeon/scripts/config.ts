@@ -22,8 +22,8 @@ export const config = {
 };
 
 // Local appchain endpoints (distinct port band from cross-chain-game — see PLAN.md).
-export const APPCHAIN_RPC = "http://localhost:5061";
+export const APPCHAIN_RPC = "http://localhost:5070";
 export const SEPOLIA_EXPLORER = "https://sepolia.voyager.online";
-export const APPCHAIN_EXPLORER = "http://localhost:5061/explorer";
+export const APPCHAIN_EXPLORER = "http://localhost:5070/explorer";
 export const TORII_SCORE = "http://localhost:8091";
 export const TORII_GAME = "http://localhost:8092";
