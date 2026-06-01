@@ -33,6 +33,8 @@ import {
   readScoreState,
   getPurchaseHistory,
   getPlayHistory,
+  probeServices,
+  type ServiceId,
   subscribeToriiUpdates,
   purchaseGame,
   playGame,
@@ -90,10 +92,78 @@ function ConnectingBanner() {
   );
 }
 
+// --- Per-service status indicators ---
+
+type SvcStatus = "up" | "down" | "settling" | "stalled" | "unknown";
+type SvcItem = { label: string; detail: string; status: SvcStatus };
+
+const SVC_DOT: Record<SvcStatus, string> = {
+  up: "bg-green-500",
+  settling: "bg-amber-500 animate-pulse",
+  stalled: "bg-red-500",
+  down: "bg-red-500",
+  unknown: "bg-muted-foreground/40",
+};
+const SVC_WORD: Record<SvcStatus, string> = {
+  up: "running",
+  settling: "settling",
+  stalled: "stalled",
+  down: "not running",
+  unknown: "unknown",
+};
+
+function ServiceDot({ status }: { status: SvcStatus }) {
+  return <span className={cn("size-2 shrink-0 rounded-full", SVC_DOT[status])} />;
+}
+
+// The four directly-probeable network services. `services === null` (first load)
+// shows them as unknown.
+function networkServiceItems(services: Record<ServiceId, boolean> | null): SvcItem[] {
+  const st = (up: boolean | undefined): SvcStatus => (services == null ? "unknown" : up ? "up" : "down");
+  return [
+    { label: "Settlement node", detail: ":5050", status: st(services?.settlement) },
+    { label: "Appchain node", detail: ":5051", status: st(services?.appchain) },
+    { label: "Torii · score", detail: ":8081", status: st(services?.toriiScore) },
+    { label: "Torii · game", detail: ":8082", status: st(services?.toriiGame) },
+  ];
+}
+
+// Compact always-visible row (bottom of the page). saya is shown by <SayaGauge>.
+function ServiceStatusBar({ items }: { items: SvcItem[] }) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-3.5 gap-y-1.5 text-xs text-muted-foreground">
+      {items.map((s) => (
+        <span key={s.label} className="flex items-center gap-1.5" title={`${s.detail} · ${SVC_WORD[s.status]}`}>
+          <ServiceDot status={s.status} />
+          {s.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Detailed list for the offline modal: every service, including the saya settler.
+function ServiceStatusList({ items }: { items: SvcItem[] }) {
+  return (
+    <div className="space-y-1.5">
+      {items.map((s) => (
+        <div key={s.label} className="flex items-center justify-between rounded-md border px-2.5 py-1.5 text-xs">
+          <span className="flex items-center gap-2 font-medium">
+            <ServiceDot status={s.status} /> {s.label}
+          </span>
+          <span className="font-mono text-muted-foreground">
+            {s.detail} · {SVC_WORD[s.status]}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Shown once a read has failed: the services aren't up. Stands in for the intro
 // modal. Non-dismissible (no close button, ignores Escape/backdrop) and bound to
 // `open={offline}`, so it clears itself the moment the poll reconnects.
-function OfflineDialog({ open }: { open: boolean }) {
+function OfflineDialog({ open, services }: { open: boolean; services: SvcItem[] }) {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent showCloseButton={false} className="max-w-md sm:max-w-md">
@@ -102,17 +172,14 @@ function OfflineDialog({ open }: { open: boolean }) {
             <PlugZap className="size-5 text-amber-600" /> Can't reach the local stack
           </DialogTitle>
           <DialogDescription>
-            The game's services aren't responding. Start them and this dialog closes on its own.
+            Some services aren't responding (see below). Start the stack and this dialog closes on its own.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <ServiceStatusList items={services} />
           <pre className="rounded-lg border bg-muted px-3 py-2 font-mono text-xs">
             cd examples/cross-chain-game{"\n"}./up.sh
           </pre>
-          <p className="text-xs text-muted-foreground">
-            Brings up settlement <span className="font-mono">:5050</span> · appchain{" "}
-            <span className="font-mono">:5051</span> · Torii <span className="font-mono">:8081/:8082</span> · saya.
-          </p>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin text-primary" /> Waiting for services — reconnects automatically.
           </div>
@@ -125,6 +192,7 @@ function OfflineDialog({ open }: { open: boolean }) {
 export default function App() {
   const [online, setOnline] = useState(false);
   const [loading, setLoading] = useState(true); // true until the first fetch settles (ok or fail)
+  const [services, setServices] = useState<Record<ServiceId, boolean> | null>(null);
   const [game, setGame] = useState<GameState | null>(null);
   const [, setScore] = useState<ScoreState | null>(null);
   const [settled, setSettled] = useState(-1);
@@ -147,11 +215,19 @@ export default function App() {
   const rollStart = useRef(0); // plays.length when the current roll started
   const rollToken = useRef(0); // invalidates a stale play_game() resolution
   const refetch = useRef<() => void>(() => {}); // nudge the data layer after a write
+  const sayaProgress = useRef({ last: -1, stalls: 0 }); // detect a stalled settler
 
   useEffect(() => {
     let active = true;
     const tick = async () => {
+      // Probe each service independently first, so the UI can show exactly which
+      // one is down rather than a single all-or-nothing flag.
+      const health = await probeServices();
+      if (!active) return;
+      setServices(health);
+      const reachable = health.settlement && health.appchain && health.toriiScore && health.toriiGame;
       try {
+        if (!reachable) throw new Error("offline");
         const [g, sc, ph, plh, sb, tp] = await Promise.all([
           readGameState(),
           readScoreState(),
@@ -167,6 +243,12 @@ export default function App() {
         setPlays(plh);
         setSettled(sb);
         setTip(tp);
+        // Track settler progress to tell "settling" (advancing) from "stalled"
+        // (behind and not moving — saya likely down).
+        const p = sayaProgress.current;
+        if (sb > p.last) p.stalls = 0;
+        else if (tp > sb) p.stalls += 1;
+        p.last = sb;
         setOnline(true);
       } catch {
         if (active) setOnline(false);
@@ -224,6 +306,24 @@ export default function App() {
   }, [plays, rolling]);
 
   const offline = !loading && !online; // first read failed → services aren't up
+
+  // Per-service status. The four network services come straight from the probe;
+  // saya has no endpoint, so it's inferred: caught up → running, behind but
+  // advancing → settling, behind and stuck → stalled (likely not running).
+  const sayaStatus: SvcStatus = !online
+    ? "unknown"
+    : settled >= 0 && settled >= tip
+      ? "up"
+      : sayaProgress.current.stalls >= 3
+        ? "stalled"
+        : "settling";
+  const networkItems = networkServiceItems(services);
+  const sayaItem: SvcItem = {
+    label: "saya settler",
+    detail: online && settled >= 0 ? `settled ${settled}/${tip}` : "L2→L1 settler",
+    status: sayaStatus,
+  };
+
   const available = game?.available ?? 0;
   const pendingMints = purchases.filter((p) => !p.mintTxHash).length;
   const coinLoading = buying || pendingMints > 0; // submitting on L1 or still minting on L2
@@ -292,7 +392,7 @@ export default function App() {
     <TooltipProvider>
       {/* When the stack is down, the offline modal stands in for the intro. The
           intro only opens once we're connected, so the two never collide. */}
-      <OfflineDialog open={offline} />
+      <OfflineDialog open={offline} services={[...networkItems, sayaItem]} />
       <IntroDialog
         open={introOpen && online}
         onSkip={() => setIntroOpen(false)}
@@ -496,12 +596,16 @@ export default function App() {
             </Card>
           </div>
 
-          {/* saya status */}
-          <div data-tour="saya" className="mt-4 flex shrink-0 items-center justify-center">
+          {/* System status: per-service dots + the saya settler gauge */}
+          <div data-tour="saya" className="mt-4 flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2">
+            <ServiceStatusBar items={networkItems} />
+            <span className="hidden h-4 w-px bg-border sm:block" />
             {online ? (
-              <SayaGauge settled={settled} tip={tip} caughtUp={sayaCaughtUp} />
+              <SayaGauge settled={settled} tip={tip} caughtUp={sayaCaughtUp} stalled={sayaStatus === "stalled"} />
             ) : (
-              <span className="text-xs text-muted-foreground">saya: {loading ? "connecting…" : "offline"}</span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ServiceDot status={sayaStatus} /> saya: {loading ? "connecting…" : "offline"}
+              </span>
             )}
           </div>
         </div>
@@ -599,11 +703,22 @@ function VaultStat(props: { label: string; value: React.ReactNode }) {
   );
 }
 
-function SayaGauge({ settled, tip, caughtUp }: { settled: number; tip: number; caughtUp: boolean }) {
+function SayaGauge({ settled, tip, caughtUp, stalled }: { settled: number; tip: number; caughtUp: boolean; stalled?: boolean }) {
   return (
     <Tooltip>
-      <TooltipTrigger className="flex cursor-help items-center gap-1.5 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground decoration-dotted underline-offset-2 hover:underline">
-        {caughtUp ? <Check className="size-3.5 text-green-600" /> : <Loader2 className="size-3.5 animate-spin text-primary" />}
+      <TooltipTrigger
+        className={cn(
+          "flex cursor-help items-center gap-1.5 rounded-full border bg-card px-3 py-1 text-xs decoration-dotted underline-offset-2 hover:underline",
+          stalled ? "border-red-500/40 text-red-600" : "text-muted-foreground",
+        )}
+      >
+        {stalled ? (
+          <PlugZap className="size-3.5 text-red-600" />
+        ) : caughtUp ? (
+          <Check className="size-3.5 text-green-600" />
+        ) : (
+          <Loader2 className="size-3.5 animate-spin text-primary" />
+        )}
         saya: settled <span className="font-mono text-foreground">{Math.max(settled, 0)}</span> / tip{" "}
         <span className="font-mono text-foreground">{tip}</span>
       </TooltipTrigger>
@@ -613,9 +728,16 @@ function SayaGauge({ settled, tip, caughtUp }: { settled: number; tip: number; c
             <b>saya</b> proves each appchain block and settles it onto L1. A roll can only be <b>banked</b> once its block
             is settled.
           </p>
-          <p>
-            <b>settled = tip</b> means saya is fully caught up — every roll is ready to bank.
-          </p>
+          {stalled ? (
+            <p>
+              <b className="text-red-600">Stalled</b> — the settled height is stuck below the tip. saya may have stopped;
+              check its log.
+            </p>
+          ) : (
+            <p>
+              <b>settled = tip</b> means saya is fully caught up — every roll is ready to bank.
+            </p>
+          )}
         </div>
       </TooltipContent>
     </Tooltip>

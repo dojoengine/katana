@@ -91,6 +91,32 @@ async function toriiSql<T = Record<string, string | number>>(base: string, sql: 
   return (await res.json()) as T[];
 }
 
+// --- Per-service health ---
+
+/** The independently-probeable network services (saya has no endpoint of its own
+ *  — its health is inferred from settlement progress in the UI). */
+export type ServiceId = "settlement" | "appchain" | "toriiScore" | "toriiGame";
+
+/** Ping each service in parallel and report which are reachable. Each probe is
+ *  isolated, so one service being down never hides the status of the others. */
+export async function probeServices(): Promise<Record<ServiceId, boolean>> {
+  const ok = async (p: Promise<unknown>): Promise<boolean> => {
+    try {
+      await p;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const [settlement, appchain, toriiScore, toriiGame] = await Promise.all([
+    ok(settlementProvider.getBlockNumber()),
+    ok(appchainProvider.getBlockNumber()),
+    ok(toriiSql(TORII_SCORE, "SELECT 1")),
+    ok(toriiSql(TORII_GAME, "SELECT 1")),
+  ]);
+  return { settlement, appchain, toriiScore, toriiGame };
+}
+
 // --- Torii subscriptions (gRPC) ---
 
 /** Subscribe to live updates from both Torii worlds and call `onUpdate` whenever
