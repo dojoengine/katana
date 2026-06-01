@@ -481,7 +481,10 @@ export default function App() {
                       <span className="t">d{a.depth}</span>
                       <span className="g">{KIND_GLYPH[a.kind] ?? "·"}</span>
                       <span className="m">
-                        {a.kind} · {a.outcome} · hp {a.hp} · gold {a.gold}
+                        <span className="c-kind">{a.kind}</span>
+                        <span className="c-out">{a.outcome}</span>
+                        <span className="c-hp">hp {a.hp}</span>
+                        <span className="c-gold">gold {a.gold}</span>
                       </span>
                     </p>
                   ))
