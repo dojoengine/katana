@@ -194,8 +194,30 @@ export default function App() {
 
   useEffect(() => {
     tick();
-    const h = setInterval(tick, 1500);
-    return () => clearInterval(h);
+    // Push updates: refetch the instant a model/event changes in either world.
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+    chain
+      .subscribeToriiUpdates(() => tick())
+      .then((c) => {
+        // eslint-disable-next-line no-console
+        console.log("[torii] live subscriptions connected (game + score worlds)");
+        if (cancelled) c();
+        else cleanup = c;
+      })
+      .catch((e) => {
+        // couldn't connect (stack down / not deployed) — the slow poll covers it.
+        // eslint-disable-next-line no-console
+        console.warn("[torii] subscription unavailable, falling back to polling:", e);
+      });
+    // Slow fallback + the RPC-only facts (token balances, settled height, tip)
+    // that have no Torii subscription.
+    const h = setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(h);
+      cleanup?.();
+    };
   }, [tick]);
 
   const act = (name: string, fn: () => Promise<unknown>) => async () => {

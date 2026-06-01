@@ -11,6 +11,7 @@
   "dependencies": {
     "@cartridge/connector": "0.13.12",
     "@cartridge/controller": "0.13.12",
+    "@dojoengine/torii-wasm": "1.8.2",
     "@starknet-react/chains": "5.0.3",
     "@starknet-react/core": "5.0.3",
     "react": "^18.3.1",
@@ -24,6 +25,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
-    "vite-plugin-mkcert": "^2.0.0"
+    "vite-plugin-mkcert": "^2.0.0",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0"
   }
 }

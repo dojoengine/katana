@@ -8,9 +8,14 @@ transactions** to systems / piltover / the token contracts, **read state** from
 Torii (plus a few raw RPC facts). The whole data layer is `app/src/chain.ts`; the
 poll loop and UI are in `app/src/App.tsx`; the wallet is `app/src/wallet.tsx`.
 
-This app is intentionally lean compared to cross-chain-game: **hand-written terminal
-CSS** (no tailwind/shadcn), and Torii is read by **SQL polling over `fetch`** (no
-`torii-wasm` subscriptions). Same architecture, less surface.
+This app keeps the **hand-written terminal CSS** (no tailwind/shadcn) but uses the
+same **live Torii subscriptions** as cross-chain-game: `subscribeToriiUpdates`
+(`chain.ts`) connects a `@dojoengine/torii-wasm` `ToriiClient` to both worlds
+(`game` on the appchain, `score` on Sepolia) and refetches the instant a model is
+set or an event is emitted (`onEntityUpdated` / `onEventMessageUpdated`). A slow
+5s interval remains as a fallback and for the RPC-only facts that have no
+subscription (token balances, the piltover settled height, the appchain tip). If
+the wasm client can't connect, it logs a warning and the slow poll carries the UI.
 
 ## The read model: Torii tables + RPC facts
 

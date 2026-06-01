@@ -11,6 +11,7 @@
 // reads (token balances, piltover settled height, appchain tip).
 
 import { Account, type AccountInterface, CallData, RpcProvider, cairo, hash } from "starknet";
+import { ToriiClient } from "@dojoengine/torii-wasm";
 import deployments from "./deployments.json";
 
 export const SEPOLIA_RPC = deployments.settlement.rpcUrl;
@@ -28,6 +29,8 @@ export const TOKEN_SALE = deployments.settlement.tokenSale;
 export const ENTRY = deployments.settlement.entry;
 export const SCORE_SYSTEM = deployments.settlement.scoreSystem;
 export const GAME_SYSTEM = deployments.appchain.gameSystem;
+export const SCORE_WORLD = deployments.settlement.scoreWorld; // Sepolia score world
+export const GAME_WORLD = deployments.appchain.gameWorld; // appchain game world
 
 // Decimals: GAME_TOKEN is a standard OZ ERC20 (18); USDC on Sepolia is 6.
 export const GAME_DECIMALS = 18;
@@ -71,6 +74,49 @@ async function toriiSql<T = Record<string, string | number>>(base: string, sql: 
   const res = await fetch(`${base}/sql?query=${encodeURIComponent(sql)}`);
   if (!res.ok) throw new Error(`torii sql ${res.status}: ${await res.text()}`);
   return (await res.json()) as T[];
+}
+
+/**
+ * Subscribe to live updates from both Torii worlds (game on the appchain, score
+ * on Sepolia) and call `onUpdate` whenever a model is set or an event is emitted.
+ * This replaces fixed-interval Torii polling: the UI refetches only when there's
+ * new data. We pass `null` clauses (every entity/event) and ignore the payload —
+ * the caller re-reads via the typed SQL helpers, keeping the cross-table logic in
+ * one place. Returns an async cleanup that cancels the subscriptions. Throws if a
+ * client can't connect (e.g. the stack is down or worlds aren't deployed yet) —
+ * the caller keeps a slow poll as a safety net (and for the RPC-only reads).
+ */
+export async function subscribeToriiUpdates(onUpdate: () => void): Promise<() => void> {
+  const subs: { cancel: () => void }[] = [];
+  const clients: ToriiClient[] = [];
+
+  const connect = async (toriiUrl: string, worldAddress: string) => {
+    // NB: despite its `.d.ts`, the wasm `ToriiClient` constructor is async — it
+    // returns a Promise that resolves to the connected client.
+    const client = await (new ToriiClient({ toriiUrl, worldAddress }) as unknown as Promise<ToriiClient>);
+    clients.push(client);
+    subs.push(await client.onEntityUpdated(null, null, () => onUpdate()));
+    subs.push(await client.onEventMessageUpdated(null, null, () => onUpdate()));
+  };
+
+  await Promise.all([connect(TORII_GAME, GAME_WORLD), connect(TORII_SCORE, SCORE_WORLD)]);
+
+  return () => {
+    for (const s of subs) {
+      try {
+        s.cancel();
+      } catch {
+        // already gone — fine
+      }
+    }
+    for (const c of clients) {
+      try {
+        c.free();
+      } catch {
+        // already freed — fine
+      }
+    }
+  };
 }
 
 function parseEventId(internalEventId: string): { block: number; txHash: string } {
