@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Trophy,
   Vault,
+  Workflow,
   Wrench,
   X,
 } from "lucide-react";
@@ -77,6 +78,7 @@ export default function App() {
   const [tourStep, setTourStep] = useState(-1); // -1 = tour closed
   const [hoodOpen, setHoodOpen] = useState(false);
   const [coinsOpen, setCoinsOpen] = useState(false);
+  const [flowOpen, setFlowOpen] = useState(false);
   const [detail, setDetail] = useState<PlayRecord | null>(null);
   const rollStart = useRef(0); // plays.length when the current roll started
   const rollToken = useRef(0); // invalidates a stale play_game() resolution
@@ -210,6 +212,7 @@ export default function App() {
       <CoinMessagesDialog open={coinsOpen} onOpenChange={setCoinsOpen} purchases={purchases} />
       <PlayDetailDialog play={detail} settled={settled} onOpenChange={(o) => !o && setDetail(null)} />
       <HoodDialog open={hoodOpen} onOpenChange={setHoodOpen} online={online} />
+      <FlowDialog open={flowOpen} onOpenChange={setFlowOpen} />
 
       <div className="flex h-screen min-h-[44rem] flex-col bg-background bg-[radial-gradient(1100px_560px_at_85%_-12%,oklch(0.72_0.13_285/0.16),transparent_58%)] text-foreground">
         <div className="mx-auto flex w-full max-w-5xl min-h-0 flex-1 flex-col px-5 py-7">
@@ -227,6 +230,16 @@ export default function App() {
             <div className="flex items-center gap-2">
               <Hud icon={<Coins className="size-3.5 text-primary" />} label="Credits" value={online ? available : "…"} />
               <Hud icon={<Trophy className="size-3.5 text-green-600" />} label="Best" value={online ? best : "…"} tone="green" />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button variant="ghost" size="icon" className="size-10 rounded-full" onClick={() => setFlowOpen(true)} aria-label="Contract flow" />
+                  }
+                >
+                  <Workflow className="size-5" />
+                </TooltipTrigger>
+                <TooltipContent>Contract flow</TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -542,6 +555,96 @@ function HoodDialog({ open, onOpenChange, online }: { open: boolean; onOpenChang
           />
         </div>
         {!online && <p className="text-center text-xs text-amber-600">Not connected — start the stack with ./up.sh</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// A box for one contract inside a chain zone of the flow diagram.
+function FlowBox(props: { name: string; fns?: string[]; desc?: string; tone: "green" | "primary" }) {
+  const ring = props.tone === "green" ? "border-green-600/30 bg-green-600/5" : "border-primary/30 bg-primary/5";
+  return (
+    <div className={cn("rounded-lg border px-3 py-2", ring)}>
+      <div className="font-mono text-xs font-semibold">{props.name}</div>
+      {props.fns && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {props.fns.map((f) => (
+            <Code key={f}>{f}</Code>
+          ))}
+        </div>
+      )}
+      {props.desc && <div className="mt-0.5 text-[11px] text-muted-foreground">{props.desc}</div>}
+    </div>
+  );
+}
+
+// One cross-chain message direction in the flow diagram.
+function FlowHop(props: { tag: string; tone: "green" | "primary"; dir: "right" | "left"; children: React.ReactNode }) {
+  const tagCls = props.tone === "green" ? "bg-green-600/10 text-green-600" : "bg-primary/10 text-primary";
+  const Arrow = props.dir === "right" ? ArrowRight : ArrowLeft;
+  return (
+    <div className="rounded-lg border bg-card p-2.5 text-center">
+      <div className="mb-1 flex items-center justify-center gap-1.5">
+        {props.dir === "left" && <Arrow className={cn("size-4", props.tone === "green" ? "text-green-600" : "text-primary")} />}
+        <span className={cn("rounded-full px-2 py-0.5 font-mono text-[10px] font-medium", tagCls)}>{props.tag}</span>
+        {props.dir === "right" && <Arrow className={cn("size-4", props.tone === "green" ? "text-green-600" : "text-primary")} />}
+      </div>
+      <div className="text-left text-[11px] leading-snug text-muted-foreground [&_b]:text-foreground">{props.children}</div>
+    </div>
+  );
+}
+
+function FlowDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Workflow className="size-5 text-primary" /> Contract flow
+          </DialogTitle>
+          <DialogDescription>
+            Two chains, four contracts, two message directions — how one round trip moves between them. Tap any function
+            to open its source.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid items-stretch gap-3 md:grid-cols-[1fr_1.25fr_1fr]">
+          {/* Settlement (L1) */}
+          <div className="flex flex-col gap-2 rounded-xl border border-green-600/30 bg-green-600/[0.04] p-3">
+            <div className="text-center text-xs font-semibold tracking-wide text-green-600 uppercase">Settlement · L1</div>
+            <FlowBox tone="green" name="store" fns={["buy_game"]} />
+            <FlowBox tone="green" name="piltover core" desc="mailbox + settled state" />
+            <FlowBox tone="green" name="score" fns={["claim_score"]} />
+          </div>
+
+          {/* Messages between the chains */}
+          <div className="flex flex-col justify-center gap-3">
+            <FlowHop tag="L1 → L2" tone="primary" dir="right">
+              <b>store</b> runs its rules, then calls <Code>send_message_to_appchain</Code> on the piltover core. Katana
+              relays it into <Code>mint_game</Code> — instant, no prover.
+            </FlowHop>
+            <FlowHop tag="L2 → L1" tone="green" dir="left">
+              <Code>play_game</Code> emits <Code>send_message_to_l1</Code>. <b>saya</b> proves the block and{" "}
+              <Code>update_state</Code>s piltover; then <Code>claim_score</Code> calls{" "}
+              <Code>consume_message_from_appchain</Code> — settled.
+            </FlowHop>
+          </div>
+
+          {/* Appchain (L2) */}
+          <div className="flex flex-col gap-2 rounded-xl border border-primary/30 bg-primary/[0.04] p-3">
+            <div className="text-center text-xs font-semibold tracking-wide text-primary uppercase">Appchain · L2</div>
+            <FlowBox tone="primary" name="game" fns={["mint_game", "play_game"]} desc="mint_game is an l1_handler" />
+          </div>
+        </div>
+
+        <div className="flex items-start gap-2.5 rounded-lg border bg-muted/50 p-3 text-xs text-muted-foreground [&_b]:text-foreground">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-green-600" />
+          <p>
+            <b>saya</b> bridges L2 → L1: it proves each appchain block and submits <Code>update_state</Code>, which is what
+            lets the settlement layer consume a message. A <b>Torii</b> indexer per chain mirrors the worlds so this UI can
+            read them. (Proving runs in mock mode for this demo.)
+          </p>
+        </div>
       </DialogContent>
     </Dialog>
   );
