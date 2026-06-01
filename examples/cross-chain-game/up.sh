@@ -65,6 +65,19 @@ echo "→ katana: $KATANA"
 echo "→ saya-tee: $(command -v saya-tee)"
 echo "→ sozo: $(sozo --version 2>&1 | head -1)   torii: $(torii --version 2>&1 | head -1)"
 
+# Optional: Cartridge Controller wallet for the L1 identity (buy + bank). The
+# default run uses the dev account only (no paymaster, fully offline). With
+# `CONTROLLER=1 ./up.sh` the settlement node is started Controller-capable so the
+# frontend's "Connect Controller" option works. The appchain (roll) always uses
+# the dev key. See README → "Using Controller (optional)".
+CONTROLLER_FLAGS=""
+if [[ "${CONTROLLER:-}" == "1" ]]; then
+  CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
+  command -v paymaster-service >/dev/null 2>&1 \
+    || echo "  note: 'paymaster-service' not on PATH — katana will try to fetch it (cartridge-gg/paymaster); see docs/cartridge.md." >&2
+  echo "→ Controller mode ON: settlement node Controller-capable. Needs a Controller login + (Chrome) the local-network-access flag."
+fi
+
 # Torii ports (settlement indexes the score world + piltover; appchain indexes
 # the game world). Relay ports must be distinct per instance; chosen away from
 # the 8080/9090 defaults to avoid clashing with other local dojo projects.
@@ -90,7 +103,7 @@ echo "→ installing JS dependencies…"
 # 1. Settlement node (SN_SEPOLIA so saya-ops / init rollup chain id match).
 echo "→ starting settlement node on :5050…"
 "$KATANA" --dev --dev.no-fee --chain-id SN_SEPOLIA --http.port 5050 \
-  --http.cors_origins '*' --explorer > "$RUN_DIR/settlement.log" 2>&1 &
+  --http.cors_origins '*' --explorer $CONTROLLER_FLAGS > "$RUN_DIR/settlement.log" 2>&1 &
 SETTLEMENT_PID=$!
 until curl -s -o /dev/null http://localhost:5050/ 2>/dev/null; do sleep 0.5; done
 
@@ -207,8 +220,11 @@ echo "    appchain RPC   : http://localhost:5051   explorer: http://localhost:50
 echo "    saya-tee       : running (.run/saya.log)"
 echo "    torii (score)  : http://localhost:$TORII_SCORE_HTTP/sql   (.run/torii-score.log)"
 echo "    torii (game)   : http://localhost:$TORII_GAME_HTTP/sql    (.run/torii-game.log)"
-echo "    frontend       : http://localhost:3001"
+# Controller mode serves the app over trusted HTTPS (mkcert) so passkey login works.
+APP_URL="http://localhost:3001"; [[ "${CONTROLLER:-}" == "1" ]] && APP_URL="https://localhost:3001"
+echo "    frontend       : $APP_URL"
 echo ""
 
-# 8. Frontend (foreground; Ctrl-C stops everything).
+# 8. Frontend (foreground; Ctrl-C stops everything). vite.config switches to
+#    https when CONTROLLER=1 (inherited from the environment here).
 ( cd "$DEMO_DIR/app" && exec bun run dev )

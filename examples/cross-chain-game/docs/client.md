@@ -96,6 +96,22 @@ Two practical notes from the demo:
   the score — bridging the write path to the eventually-consistent read path.
   [`app/src/chain.ts:253`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/app/src/chain.ts#L253)
 
+## Wallets (optional Controller)
+
+By default the client signs with the demo's hardcoded **dev accounts**. The header
+**Login** button can swap the **L1** signer (buy + bank) to a
+[Cartridge Controller](https://github.com/cartridge-gg/controller) — a
+hosted-keychain wallet wired via `@cartridge/connector` + `@starknet-react/core`
+in `app/src/wallet.tsx`, with the active account injected into `purchaseGame` /
+`claimScore`. The appchain **roll** always uses the local dev key (the appchain
+isn't Controller-capable, and play is meant to be frictionless).
+
+Controller is opt-in: the stack must be started with `CONTROLLER=1 ./up.sh`
+(Controller-capable settlement node + paymaster, app served over trusted HTTPS for
+the passkey login). See the demo's [README](../README.md) → "Using Controller".
+This is an early integration — the Controller is the L1 *signer*, but gameplay
+identity (the leaderboard `player`) is still the dev appchain account for now.
+
 ## Tying it to the UI: poll + derive
 
 The client keeps no authoritative state of its own. One interval re-reads

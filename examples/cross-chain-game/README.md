@@ -77,6 +77,40 @@ other's addresses), starts a **Torii indexer per chain**, and serves the UI. Ope
 Each node serves Katana's block explorer (`--explorer`) at `/explorer`; every tx
 hash in the UI deep-links to the right node's explorer.
 
+## Using Controller (optional)
+
+By default the demo signs everything with a prefunded **dev account** — no wallet,
+no login, fully offline. The header **Login** button also lets you sign the **L1**
+actions (buy + bank) with a [Cartridge Controller](https://github.com/cartridge-gg/controller)
+instead (the appchain *roll* always stays on the dev key — it's the free, instant
+arcade layer).
+
+Controller is a hosted-keychain wallet, so it isn't offline. To enable it:
+
+```bash
+CONTROLLER=1 ./up.sh
+```
+
+This starts the settlement node Controller-capable (`--paymaster --cartridge.paymaster
+--cartridge.controllers`; katana fetches the `paymaster-service` sidecar if needed —
+see [`../../docs/cartridge.md`](../../docs/cartridge.md)) **and serves the app over
+trusted HTTPS** at `https://localhost:3001` (via `mkcert`). Then click **Login →
+Connect Controller** and sign in. Caveats:
+
+- Needs internet + a Controller account (the keychain + Cartridge API own the identity).
+- **HTTPS is required for passkey login.** Controller's WebAuthn flow needs a secure
+  context with a *trusted* cert — plain `http://localhost` or a self-signed cert fails
+  with *"WebAuthn is not supported on sites with TLS certificate errors"*. The first
+  `CONTROLLER=1` run installs a local `mkcert` CA (a one-time OS prompt); after that
+  `https://localhost:3001` is trusted.
+- The hosted keychain reaching `localhost` may still need Chrome's Private Network
+  Access flag — enable `chrome://flags/#local-network-access-check` if connect stalls.
+- Session policies cover `store.buy_game` and `score_registry.claim_score`, so
+  buy/bank are gasless session calls (no per-tx popup).
+
+Without `CONTROLLER=1`, choosing *Connect Controller* simply can't complete; the
+dev account keeps working.
+
 ## What's where
 
 | Path | Role |
@@ -85,7 +119,7 @@ hash in the UI deep-links to the right node's explorer.
 | `cairo/store/src/lib.cairo` | Settlement store world (Dojo): `buy_game` runs the store's rules then `send_message_to_appchain` (the L1 storefront) |
 | `cairo/score/src/lib.cairo` | Settlement score world (Dojo): `claim_score` (consumes the settled message), `Leaderboard`/`PlayerScore` models, `ScoreClaimed` event |
 | `scripts/deploy.ts` | `sozo migrate` the three worlds (score → game → store) and record addresses in `deployments.json` |
-| `app/` | React + Vite + TS + [shadcn/ui](https://ui.shadcn.com) frontend; reads via Torii SQL (`app/src/chain.ts`) |
+| `app/` | React + Vite + TS + [shadcn/ui](https://ui.shadcn.com) frontend; reads via Torii SQL (`app/src/chain.ts`); wallet picker (dev account / Controller) in `app/src/wallet.tsx` |
 | `saya-patch/` | The required saya-tee fix + rationale |
 | `up.sh` / `down.sh` | Start / stop the whole stack (2 Katanas + saya-tee + 2 Torii + frontend) |
 

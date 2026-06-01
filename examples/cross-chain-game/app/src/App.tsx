@@ -9,11 +9,13 @@ import {
   ExternalLink,
   Info,
   Loader2,
+  LogIn,
   MousePointerClick,
   Settings,
   ShieldCheck,
   Trophy,
   Vault,
+  Wallet,
   Workflow,
   Wrench,
   X,
@@ -56,8 +58,10 @@ import {
   TORII_SCORE,
   TORII_GAME,
   PLAYER_ADDRESS,
+  BUYER_ADDRESS,
 } from "./chain.ts";
 import { sourceUrl } from "./source.ts";
+import { useWallet } from "./wallet.tsx";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -79,6 +83,8 @@ export default function App() {
   const [hoodOpen, setHoodOpen] = useState(false);
   const [coinsOpen, setCoinsOpen] = useState(false);
   const [flowOpen, setFlowOpen] = useState(false);
+  const [walletOpen, setWalletOpen] = useState(false);
+  const wallet = useWallet();
   const [detail, setDetail] = useState<PlayRecord | null>(null);
   const rollStart = useRef(0); // plays.length when the current roll started
   const rollToken = useRef(0); // invalidates a stale play_game() resolution
@@ -144,7 +150,7 @@ export default function App() {
   async function onBuy() {
     setBuying(true);
     try {
-      await purchaseGame(purchases.length + 1);
+      await purchaseGame(wallet.l1Account, purchases.length + 1);
     } catch (e) {
       console.error("buy failed", e);
     } finally {
@@ -177,7 +183,7 @@ export default function App() {
     try {
       for (let i = 0; i < 90; i++) {
         try {
-          await claimScore(PLAYER_ADDRESS, sc);
+          await claimScore(wallet.l1Account, PLAYER_ADDRESS, sc);
           break;
         } catch {
           await sleep(2000);
@@ -213,6 +219,7 @@ export default function App() {
       <PlayDetailDialog play={detail} settled={settled} onOpenChange={(o) => !o && setDetail(null)} />
       <HoodDialog open={hoodOpen} onOpenChange={setHoodOpen} online={online} />
       <FlowDialog open={flowOpen} onOpenChange={setFlowOpen} />
+      <WalletDialog open={walletOpen} onOpenChange={setWalletOpen} />
 
       <div className="flex h-screen min-h-[44rem] flex-col bg-background bg-[radial-gradient(1100px_560px_at_85%_-12%,oklch(0.72_0.13_285/0.16),transparent_58%)] text-foreground">
         <div className="mx-auto flex w-full max-w-5xl min-h-0 flex-1 flex-col px-5 py-7">
@@ -230,6 +237,15 @@ export default function App() {
             <div className="flex items-center gap-2">
               <Hud icon={<Coins className="size-3.5 text-primary" />} label="Credits" value={online ? available : "…"} />
               <Hud icon={<Trophy className="size-3.5 text-green-600" />} label="Best" value={online ? best : "…"} tone="green" />
+              <Button
+                variant="outline"
+                className="h-10 gap-1.5 rounded-full px-3 text-xs"
+                onClick={() => setWalletOpen(true)}
+                aria-label="Wallet"
+              >
+                {wallet.method === "controller" ? <Wallet className="size-4 text-primary" /> : <LogIn className="size-4" />}
+                <span className="max-w-28 truncate">{wallet.method === "controller" ? wallet.label : "Login"}</span>
+              </Button>
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -829,6 +845,88 @@ function PlayDetailDialog({
         </ol>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function WalletDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const wallet = useWallet();
+  const onController = wallet.method === "controller";
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wallet className="size-5 text-primary" /> Wallet
+          </DialogTitle>
+          <DialogDescription>
+            Choose how the <b>L1</b> actions (buy + bank) are signed. The appchain roll always uses the local dev key.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2.5">
+          <WalletOption
+            active={!onController}
+            icon={<Coins className="size-5 text-muted-foreground" />}
+            title="Dev account"
+            subtitle={<>Prefunded local key · <span className="font-mono">{shortHex(BUYER_ADDRESS, 6, 4)}</span></>}
+            onClick={() => wallet.useDevAccount()}
+          />
+          <WalletOption
+            active={onController}
+            busy={wallet.connecting}
+            icon={<Wallet className="size-5 text-primary" />}
+            title="Cartridge Controller"
+            subtitle={
+              onController ? (
+                <>
+                  {wallet.username ? <b className="text-foreground">{wallet.username}</b> : "Connected"} ·{" "}
+                  <span className="font-mono">{shortHex(wallet.l1Address, 6, 4)}</span>
+                </>
+              ) : (
+                "Connect a passkey/social wallet"
+              )
+            }
+            onClick={() => {
+              if (!onController) wallet.connectController().catch((e) => console.error("controller connect failed", e));
+            }}
+          />
+        </div>
+        <p className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground [&_b]:text-foreground">
+          Controller is optional and needs the stack started with <Code>CONTROLLER=1 ./up.sh</Code> (plus a Controller
+          login). The default dev account works offline. See the README.
+        </p>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function WalletOption(props: {
+  active: boolean;
+  busy?: boolean;
+  icon: React.ReactNode;
+  title: string;
+  subtitle: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50",
+        props.active && "border-primary/50 bg-primary/5",
+      )}
+    >
+      <span className="shrink-0">{props.icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">{props.title}</div>
+        <div className="truncate text-xs text-muted-foreground">{props.subtitle}</div>
+      </div>
+      {props.busy ? (
+        <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+      ) : props.active ? (
+        <Check className="size-4 shrink-0 text-primary" />
+      ) : null}
+    </button>
   );
 }
 
