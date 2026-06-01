@@ -58,15 +58,50 @@ Because the two directions have different trust/latency, many apps put a **world
 on each chain**: the appchain world for live state, a small settlement world for
 the anchored record.
 
-**In the demo.** Two worlds:
+**In the demo.** Three worlds:
 
 | World | Chain | Holds | Why there |
 | --- | --- | --- | --- |
 | `game` | appchain (L2) | credits, plays, scores | play is free + instant |
+| `store` | settlement (L1) | the storefront (`buy_game`) | purchases are an L1 action |
 | `score` | settlement (L1) | banked runs, leaderboard | the permanent, anchored record |
 
 You buy a credit on L1 (it mints on L2), play on L2, then *bank* a score back to
 L1 where it's settled and recorded — a complete L1→L2→L1 loop.
+
+### Deciding what goes where
+
+For each operation or piece of state, run it through this checklist:
+
+**Keep it on L2 (the appchain)** if any of these hold:
+- It's **high-frequency or latency-sensitive** — it should feel instant.
+- It should be **cheap or free** to do (you control the fee market; the demo
+  runs the appchain fee-less).
+- **Only your app needs to trust it** — no outside contract or user has to verify
+  it independently. (Gameplay, in-progress scores, transient state.)
+
+**Put it on L1 (the settlement layer)** if any of these hold:
+- It must be **permanent and verifiable by outsiders** — other L1 contracts,
+  users, or services read it as ground truth. (Leaderboards, ownership, balances.)
+- It involves **real value or payment** (charging a token, minting an asset),
+  where you want L1's security and finality.
+- It's a **low-frequency "commit"** action — the moment a result becomes
+  official. (Banking a score, completing a purchase.)
+
+**Tie-breakers when an op could live on either side:**
+- **Latency tolerance** — an L2 → L1 result isn't usable on L1 until saya settles
+  the block (seconds+). If the op can't wait, keep it on L2.
+- **Who must verify it** — if the answer is "only the game," L2; if "anyone," L1.
+- **Cost vs security** — frequent/cheap leans L2; valuable/contested leans L1.
+
+Then connect the two sides with a message in the right direction: an **L1 action
+that should cause an L2 effect** is L1 → L2 (instant); an **L2 result that should
+become an L1 fact** is L2 → L1 (settled).
+
+Mapped onto the demo: rolling (`play_game`) is frequent, free, and only the game
+cares mid-flight → **L2**. Buying (the `store`, real "payment") and banking a
+score (the permanent leaderboard others read) are commit actions others must
+trust → **L1**.
 
 ## Read path vs write path
 
@@ -94,6 +129,7 @@ transactions and *reads* Torii, and never decodes a single contract storage slot
 | Concern | Lives in | File |
 | --- | --- | --- |
 | Appchain state + gameplay | `game` world | `cairo/game/src/lib.cairo` |
+| L1 storefront (purchase) | `store` world | `cairo/store/src/lib.cairo` |
 | Settlement record | `score` world | `cairo/score/src/lib.cairo` |
 | Cross-chain mailbox + settled state | piltover core | deployed by `katana init rollup` |
 | Indexing for the client | two Torii instances | started in `up.sh` |
