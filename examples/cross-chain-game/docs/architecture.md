@@ -34,7 +34,7 @@ gameplay functions, and `GameMinted` / `GamePlayed` events:
 #[dojo::model]
 pub struct Stats { #[key] pub id: u8, pub total_minted: u64, pub available: u64, /* … */ }
 ```
-`cairo/game/src/lib.cairo:35`
+[`cairo/game/src/lib.cairo:35`](https://github.com/dojoengine/katana/blob/279073a3d4fd6e99ada6ec40bd5c3e1f9bd28bbc/examples/cross-chain-game/cairo/game/src/lib.cairo#L35)
 
 ## The two-chain split: play on L2, anchor on L1
 

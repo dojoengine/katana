@@ -53,6 +53,7 @@ import {
   TORII_GAME,
   PLAYER_ADDRESS,
 } from "./chain.ts";
+import { sourceUrl } from "./source.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -597,7 +598,23 @@ function ChainCard(props: {
 // --- Detail + info dialogs ---
 
 function Code({ children }: { children: React.ReactNode }) {
-  return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">{children}</code>;
+  const cls = "rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]";
+  // If the snippet names one of our contract symbols, link it to the source.
+  const url = typeof children === "string" ? sourceUrl(children) : null;
+  if (url) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        title="View source on GitHub"
+        className={cn(cls, "text-primary underline decoration-dotted underline-offset-2 hover:bg-primary/10")}
+      >
+        {children}
+      </a>
+    );
+  }
+  return <code className={cls}>{children}</code>;
 }
 
 function withCode(text: string) {
