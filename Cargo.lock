@@ -6211,6 +6211,7 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",
+ "katana-slot-controller",
  "katana-starknet",
  "katana-utils",
  "piltover",
