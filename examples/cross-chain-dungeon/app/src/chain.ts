@@ -323,18 +323,32 @@ export async function getBankCount(player: string): Promise<number> {
 // exactly DEPTH_WEIGHT * depth (no gold), so depth = score / DEPTH_WEIGHT.
 export const DEPTH_WEIGHT = 80;
 
-export type RunEndRow = { endNo: number; depth: number; loot: number; died: boolean };
+export type RunEndRow = { endNo: number; depth: number; loot: number; died: boolean; hp: number; maxHp: number };
 
 /** The player's most recent run ending (death or extract), for showing the
- *  outcome once the run clears. On death `loot` is the forfeited gold. */
+ *  outcome once the run clears. On extract `loot` is the gold banked to the vault;
+ *  on death it's the forfeited gold. score = DEPTH_WEIGHT*depth + (gold on extract,
+ *  0 on death), so derive depth accordingly. The RunState row keeps the run's final
+ *  hp/max_hp after it ends (0 on death), so read those for the outcome screen. */
 export async function getLastRunEnded(player: string): Promise<RunEndRow | null> {
-  const rows = await toriiSql<Record<string, string | number>>(
-    TORII_GAME,
-    `SELECT end_no, score, loot, died FROM "game-RunEnded" WHERE player = "${player}" ORDER BY end_no DESC LIMIT 1`,
-  );
-  const r = rows[0];
+  const [ended, state] = await Promise.all([
+    toriiSql<Record<string, string | number>>(
+      TORII_GAME,
+      `SELECT end_no, score, loot, died FROM "game-RunEnded" WHERE player = "${player}" ORDER BY end_no DESC LIMIT 1`,
+    ),
+    toriiSql<Record<string, string | number>>(
+      TORII_GAME,
+      `SELECT hp, max_hp FROM "game-RunState" WHERE player = "${player}"`,
+    ),
+  ]);
+  const r = ended[0];
   if (!r) return null;
-  return { endNo: num(r.end_no), depth: Math.round(num(r.score) / DEPTH_WEIGHT), loot: num(r.loot), died: !!num(r.died) };
+  const score = num(r.score);
+  const loot = num(r.loot);
+  const died = !!num(r.died);
+  const depth = Math.round((died ? score : score - loot) / DEPTH_WEIGHT);
+  const s = state[0];
+  return { endNo: num(r.end_no), depth, loot, died, hp: num(s?.hp ?? 0), maxHp: num(s?.max_hp ?? 0) };
 }
 
 // --- raw RPC reads ---

@@ -822,14 +822,13 @@ export default function App() {
                     <span>{stats.activeRuns} active</span>
                   </div>
                   <DungeonMap run={run} />
-                  {!run && (b("enter") || !lastEnded?.died) && (
+                  {!run && (b("enter") || !lastEnded) && (
                     <div className="veil">
                       {b("enter") ? (
                         <div className="loading">
                           <div className="spinner" aria-hidden />
                           <div className="loading-title">entering the dungeon…</div>
                           <div className="loading-bar" aria-hidden />
-                          <div className="loading-sub">charging $GAME · relaying L1→L2</div>
                         </div>
                       ) : (
                         <>
@@ -875,6 +874,17 @@ export default function App() {
                     </div>
                     <div className="death-sub">
                       the haul is lost. <b>ENTER DUNGEON</b> to try again.
+                    </div>
+                  </div>
+                )}
+
+                {!run && !b("enter") && lastEnded && !lastEnded.died && (
+                  <div className="veil veil-extract arena-veil">
+                    <div className="extract-mark">✓</div>
+                    <div className="extract-title">EXTRACTED</div>
+                    <div className="extract-gold">+{lastEnded.loot.toLocaleString()} $GOLD</div>
+                    <div className="death-sub">
+                      depth <b>{lastEnded.depth}</b> · hp <b>{lastEnded.hp}/{lastEnded.maxHp}</b>
                     </div>
                   </div>
                 )}
@@ -971,10 +981,10 @@ export default function App() {
                 Bank your dungeon GOLD<span className="rule" />
               </div>
               <p className="bank-intro">
-                <b>GOLD</b> is earned in the dungeon (L2) but minted here on <b>{chain.SETTLEMENT_NAME} (L1)</b>.
-                Every extract banks a run's gold into your on-L2 <b>vault</b>; you bank the whole vault
-                to L1 in one go. <b>Withdraw</b> publishes a single L2→L1 message, and once saya settles
-                it onto the piltover core, <b>mint</b> consumes the message and mints that much GOLD here.
+                <b>$GOLD</b> is earned in the dungeon (L2) but minted on <b>{chain.SETTLEMENT_NAME} (L1)</b>.
+                Every extract banks a run's gold into your <b>vault</b> on the L2; you bank the whole vault
+                to L1 in one go. <b>WITHDRAW</b> publishes a single L2→L1 message, and once <b>saya</b> settles
+                it onto the piltover core, <b>mint</b> consumes the message and mints that much <b>$GOLD</b> here.
               </p>
 
               <div className="bal">
@@ -1011,11 +1021,11 @@ export default function App() {
                             : `Withdraw ${vault.toLocaleString()} $GOLD`}
                     </button>
                   </div>
-                  <div className="legend">
+                  {/*<div className="legend">
                     {bankInProgress
                       ? "banking in progress — click for the live phase breakdown"
                       : "one button: withdraws the whole vault, then auto-mints the GOLD on L1 once saya settles it"}
-                  </div>
+                  </div>*/}
                 </>
               ) : (
                 <></>

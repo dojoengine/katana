@@ -260,6 +260,13 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 .death-skull { font-size: 40px; color: var(--red); text-shadow: 0 0 16px rgba(255, 107, 94, 0.6); line-height: 1; }
 .death-title { font-family: "VT323", monospace; font-size: 38px; letter-spacing: 3px; color: var(--red); text-shadow: 0 0 16px rgba(255, 107, 94, 0.5); margin: 2px 0 4px; }
 .death-sub { color: var(--dim); font-size: 12px; max-width: 340px; }
+/* extract success veil — mirrors the death veil, in green */
+.veil-extract { background: rgba(6, 20, 12, 0.86); color: #b6f3cf; }
+.veil-extract b { color: var(--green); }
+.extract-mark { font-size: 40px; color: var(--green); text-shadow: 0 0 16px rgba(115, 230, 160, 0.6); line-height: 1; }
+.extract-title { font-family: "VT323", monospace; font-size: 38px; letter-spacing: 3px; color: var(--green); text-shadow: 0 0 16px rgba(115, 230, 160, 0.5); margin: 2px 0 4px; }
+/* the headline value — extracted GOLD on its own highlighted line */
+.extract-gold { font-family: "VT323", monospace; font-size: 34px; letter-spacing: 1px; color: var(--gold); text-shadow: 0 0 16px rgba(255, 212, 94, 0.55); margin: 2px 0 6px; }
 
 .vitals { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1px; margin-top: 14px; border: 1px solid var(--border); background: var(--border); }
 .vital { background: var(--bg); padding: 9px 11px; }

@@ -1,5 +1,7 @@
 {
   "settlement": {
+    "network": "sepolia",
+    "chainId": "SN_SEPOLIA",
     "rpcUrl": "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_9",
     "explorer": "https://sepolia.voyager.online",
     "torii": "http://localhost:8091",
