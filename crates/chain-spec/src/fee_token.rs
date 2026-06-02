@@ -31,6 +31,7 @@ use katana_primitives::Felt;
 ///
 /// The caller is responsible for inserting the contract class into `states.classes` and into the
 /// appropriate declared-classes set; this helper only handles per-token deployment + storage.
+#[allow(clippy::too_many_arguments)] // builder-style genesis helper; each arg is a distinct token field
 pub(crate) fn add_fee_token(
     states: &mut StateUpdatesWithClasses,
     name: &str,
