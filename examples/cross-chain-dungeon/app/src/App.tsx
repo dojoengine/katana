@@ -307,20 +307,31 @@ function LogViewer() {
   );
 }
 
-/** Draggable, min/maximizable floating window that hosts the log viewer. */
+/** Draggable, min/maximizable, resizable floating window that hosts the log viewer. */
 function LogWindow({ onClose }: { onClose: () => void }) {
   const [pos, setPos] = useState({ x: 14, y: 58 });
+  const [size, setSize] = useState({ w: Math.min(760, window.innerWidth - 28), h: 440 });
   const [min, setMin] = useState(false);
   const [max, setMax] = useState(false);
   const drag = useRef<{ dx: number; dy: number } | null>(null);
+  // resize: which edges are active ("e" = right, "s" = bottom) + start geometry.
+  const rz = useRef<{ e: boolean; s: boolean; x: number; y: number; w: number; h: number } | null>(null);
 
   useEffect(() => {
-    const move = (e: MouseEvent) => {
-      if (!drag.current) return;
-      setPos({ x: Math.max(0, e.clientX - drag.current.dx), y: Math.max(0, e.clientY - drag.current.dy) });
+    const move = (ev: MouseEvent) => {
+      if (drag.current) {
+        setPos({ x: Math.max(0, ev.clientX - drag.current.dx), y: Math.max(0, ev.clientY - drag.current.dy) });
+      } else if (rz.current) {
+        const r = rz.current;
+        setSize({
+          w: r.e ? Math.max(360, r.w + (ev.clientX - r.x)) : r.w,
+          h: r.s ? Math.max(180, r.h + (ev.clientY - r.y)) : r.h,
+        });
+      }
     };
     const up = () => {
       drag.current = null;
+      rz.current = null;
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -330,10 +341,16 @@ function LogWindow({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
+  const startResize = (e: boolean, s: boolean) => (ev: React.MouseEvent) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    rz.current = { e, s, x: ev.clientX, y: ev.clientY, w: size.w, h: size.h };
+  };
+
   return (
     <div
       className={`logwin${max ? " max" : ""}${min ? " min" : ""}`}
-      style={max ? undefined : { left: pos.x, top: pos.y }}
+      style={max ? undefined : { left: pos.x, top: pos.y, width: size.w, height: min ? undefined : size.h }}
     >
       <div
         className="logwin-bar"
@@ -356,6 +373,13 @@ function LogWindow({ onClose }: { onClose: () => void }) {
         </span>
       </div>
       {!min && <LogViewer />}
+      {!min && !max && (
+        <>
+          <div className="logwin-rz e" onMouseDown={startResize(true, false)} />
+          <div className="logwin-rz s" onMouseDown={startResize(false, true)} />
+          <div className="logwin-rz se" onMouseDown={startResize(true, true)} />
+        </>
+      )}
     </div>
   );
 }

@@ -128,13 +128,18 @@ body {
 }
 .logs-launcher:hover:not(:disabled) { background: var(--amber); color: var(--bg); border-color: var(--amber); }
 .logwin {
-  position: fixed; z-index: 8000; width: min(760px, 92vw); height: 440px;
-  display: flex; flex-direction: column; overflow: hidden; resize: both;
+  position: fixed; z-index: 8000; min-width: 360px; min-height: 180px;
+  display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid var(--border-hi); background: var(--bg);
   box-shadow: 0 24px 70px rgba(0,0,0,.65), 0 0 0 1px rgba(0,0,0,.6) inset;
 }
-.logwin.max { left: 8px !important; top: 8px !important; right: 8px; bottom: 8px; width: auto !important; height: auto !important; resize: none; }
-.logwin.min { height: auto !important; resize: none; }
+.logwin.max { left: 8px !important; top: 8px !important; right: 8px; bottom: 8px; width: auto !important; height: auto !important; }
+.logwin.min { height: auto !important; }
+/* resize handles: right edge, bottom edge, bottom-right corner */
+.logwin-rz { position: absolute; z-index: 4; }
+.logwin-rz.e { top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; }
+.logwin-rz.s { left: 0; bottom: 0; height: 6px; width: 100%; cursor: ns-resize; }
+.logwin-rz.se { right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; z-index: 5; }
 .logwin-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 6px 10px; border-bottom: 1px solid var(--border); background: rgba(255,180,84,.05);
