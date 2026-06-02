@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import * as chain from "./chain.ts";
 import { useWallet } from "./wallet.tsx";
+import { Tutorial } from "./tutorial.tsx";
 
 // Demo amounts. Buy 1 USDC worth of GAME; dev-mint 500 GAME.
 const BUY_USDC = 10n ** BigInt(chain.USDC_DECIMALS); // 1 USDC
@@ -494,6 +495,23 @@ export default function App() {
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
   const [logsOpen, setLogsOpen] = useState(false); // floating service-logs window
   const [configOpen, setConfigOpen] = useState(false); // floating deployment-config window
+  const [tutorial, setTutorial] = useState(false); // guided appchain-mechanics walkthrough
+  // Auto-open the tutorial on a first visit (per browser); the titlebar button reopens it.
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem("ccd_tutorial_seen")) setTutorial(true);
+    } catch {
+      /* storage unavailable (private mode) — skip auto-open */
+    }
+  }, []);
+  const closeTutorial = () => {
+    setTutorial(false);
+    try {
+      localStorage.setItem("ccd_tutorial_seen", "1");
+    } catch {
+      /* ignore */
+    }
+  };
   const [minting, setMinting] = useState(false); // auto-mint (L1) in flight after a withdraw
   const mintingRef = useRef(false);
   // Outcome screen only shows for a run that ends *this session*: baseline the last
@@ -721,6 +739,10 @@ export default function App() {
             <span>tee: mock</span>
             <span>·</span>
             <span>saya: live</span>
+            <span>·</span>
+            <button className="tut-launch" onClick={() => setTutorial(true)} title="how the appchain works">
+              tutorial
+            </button>
           </div>
 
           <div className="banner">
@@ -757,7 +779,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="tabs">
+          <div className="tabs" data-tut="tabs">
             <button className={`tab ${tab === "dungeon" ? "on" : ""}`} onClick={() => setTab("dungeon")}>
               ▸ Dungeon
             </button>
@@ -778,7 +800,7 @@ export default function App() {
           <main className="grid">
             {/* LEFT: funding + leaderboard */}
             <section className="col-left">
-              <div className="panel">
+              <div className="panel" data-tut="fund">
                 <div className="panel-h">
                   Funding<span className="rule" />
                 </div>
@@ -813,7 +835,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="panel">
+              <div className="panel" data-tut="leaderboard">
                 <div className="panel-h">
                   Leaderboard · Appchain<span className="rule" />
                 </div>
@@ -928,7 +950,7 @@ export default function App() {
                 )}
               </div>
 
-              <div className="actions">
+              <div className="actions" data-tut="play">
                 {!run ? (
                   <button className="good" disabled={anyBusy || !ready} onClick={onEnter}>
                     {b("enter")
@@ -960,7 +982,7 @@ export default function App() {
             </section>
 
             {/* RIGHT: message log */}
-            <section className="col-right">
+            <section className="col-right" data-tut="log">
               <div className="panel-h">
                 Message Log<span className="rule" />
               </div>
@@ -1012,7 +1034,7 @@ export default function App() {
 
           {tab === "bank" && (
           <main className="bank-page">
-            <section className="bank-card">
+            <section className="bank-card" data-tut="bank">
               <div className="bank-chain">
                 <span className="chip on">
                   <span className="led" />
@@ -1087,7 +1109,7 @@ export default function App() {
           </footer>
         </div>
       </div>
-      <div className="launchers">
+      <div className="launchers" data-tut="windows">
         <button className="launcher" onClick={() => setLogsOpen((o) => !o)} title="service logs">
           ▸ logs
         </button>
@@ -1123,6 +1145,7 @@ export default function App() {
           onClose={() => setBankModal(false)}
         />
       )}
+      {tutorial && <Tutorial onClose={closeTutorial} setTab={setTab} />}
       <div className="scanlines" />
       <div className="vignette" />
     </>
