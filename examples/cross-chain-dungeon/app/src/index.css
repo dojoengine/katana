@@ -137,7 +137,7 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 .stage { border: 1px solid var(--border); background: radial-gradient(120% 120% at 50% 18%, rgba(255,180,84,.05), transparent 60%), rgba(0,0,0,.25); position: relative; }
 .stage-h { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 11px; letter-spacing: 1.5px; }
 .stage-h .kind { color: var(--amber-hi); }
-.map { margin: 0; padding: 14px 16px; font-size: 15.5px; line-height: 1.18; letter-spacing: 2px; white-space: pre; font-family: inherit; }
+.map { margin: 0; padding: 14px 16px; font-size: 15.5px; line-height: 1.18; letter-spacing: 2px; white-space: pre; font-family: inherit; overflow: hidden; }
 .map .wall { color: var(--faint); }
 .map .floor { color: var(--ghost); }
 .map .me { color: var(--amber-hi); text-shadow: var(--glow-strong); font-weight: 700; }
@@ -167,15 +167,16 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 
 .log { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); background: rgba(0,0,0,.28); padding: 10px 12px; font-size: 12.5px; }
 .log p { margin: 0 0 2px; display: flex; gap: 9px; }
-.log .run { color: var(--cyan); opacity: 0.75; flex: none; width: 26px; }
+/* run id chip "[rN]" — fixed monospace width so the bracket + following columns align */
+.log .run { color: var(--cyan); opacity: 0.75; flex: none; width: 5ch; white-space: nowrap; }
+/* player identity — the connected account's address (stands in for a Controller username) */
+.log .who { color: var(--dim); flex: none; width: 11ch; white-space: nowrap; overflow: hidden; }
 .log .t { color: var(--ghost); flex: none; width: 26px; text-align: right; }
 .log .g { flex: none; width: 12px; text-align: center; }
 .log .m { flex: 1; display: flex; gap: 12px; white-space: nowrap; overflow: hidden; }
 /* fixed-width (ch) columns so kind / outcome / hp / gold align across rows */
 .log .c-kind { flex: none; width: 9ch; }
 .log .c-out { flex: none; width: 12ch; }
-.log .c-hp { flex: none; width: 7ch; }
-.log .c-gold { flex: none; }
 .log .move .g { color: var(--amber); } .log .move .m { color: var(--ink); }
 .log .attack .g, .log .combat .g { color: var(--red); } .log .attack .m, .log .combat .m { color: #ffb0a8; }
 .log .loot .g { color: var(--gold); } .log .loot .m { color: #ffe7a3; }

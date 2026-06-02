@@ -26,11 +26,49 @@ const KIND_CLASS: Record<string, string> = {
 };
 
 /** Render a small ASCII room from the run's current room kind. */
+// The dungeon room keeps its original 7-row height but stretches to fill the
+// container's width: we measure the <pre> and its character cell, then derive the
+// column count so the walls span the full stage and reflow on resize. (`.map` is
+// a block <pre>, so its width is container-driven — growing the grid never feeds
+// back into the observer.)
+const MAP_ROWS = 7;
 function DungeonMap({ run }: { run: chain.RunState | null }) {
-  const W = 30;
-  const H = 7;
-  const lines: ReactNode[] = [];
+  const H = MAP_ROWS;
+  const ref = useRef<HTMLPreElement>(null);
+  const [W, setW] = useState(30);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const cs = getComputedStyle(el);
+      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      // Measure one character's advance (font + letter-spacing) via a hidden probe.
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+      probe.style.fontFamily = cs.fontFamily;
+      probe.style.fontSize = cs.fontSize;
+      probe.style.fontWeight = cs.fontWeight;
+      probe.style.letterSpacing = cs.letterSpacing;
+      probe.textContent = "0".repeat(100);
+      el.appendChild(probe);
+      const charW = probe.getBoundingClientRect().width / 100;
+      el.removeChild(probe);
+      if (!charW) return;
+      const w = Math.max(16, Math.floor((el.clientWidth - padX) / charW));
+      setW((prev) => (prev === w ? prev : w));
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, []);
+
   const feature = run ? ROOM_GLYPH[run.roomKind] : undefined;
+  const midY = H >> 1;
+  const meX = Math.round(W * 0.27); // player ~quarter in
+  const featX = Math.round(W * 0.63); // room feature past center
+  const lines: ReactNode[] = [];
   for (let y = 0; y < H; y++) {
     const cells: ReactNode[] = [];
     for (let x = 0; x < W; x++) {
@@ -45,11 +83,11 @@ function DungeonMap({ run }: { run: chain.RunState | null }) {
         if (y === H - 1 && x === 0) ch = "╚";
         if (y === H - 1 && x === W - 1) ch = "╝";
       }
-      if (run && y === (H >> 1) && x === 8) {
+      if (run && y === midY && x === meX) {
         ch = "@";
         cls = "me";
       }
-      if (run && feature && y === (H >> 1) && x === 19) {
+      if (run && feature && y === midY && x === featX) {
         ch = feature.ch;
         cls = feature.cls;
       }
@@ -59,11 +97,13 @@ function DungeonMap({ run }: { run: chain.RunState | null }) {
         </span>,
       );
     }
-    lines.push(
-      <div key={y}>{cells}</div>,
-    );
+    lines.push(<div key={y}>{cells}</div>);
   }
-  return <pre className="map">{lines}</pre>;
+  return (
+    <pre className="map" ref={ref}>
+      {lines}
+    </pre>
+  );
 }
 
 function Gauge({ settled, tip }: { settled: number; tip: number }) {
@@ -101,6 +141,7 @@ function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: ()
   const rows: [string, ReactNode][] = [
     ["run", `#${action.runNo}`],
     ["action", `#${action.actionNo}`],
+    ["player", action.player],
     ["kind", action.kind],
     ["outcome", action.outcome],
     ["depth", String(action.depth)],
@@ -131,7 +172,7 @@ function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: ()
           {rows.map(([k, v]) => (
             <div className="kv-row" key={k}>
               <dt>{k}</dt>
-              <dd className={k === "tx hash" ? "mono-wrap" : ""}>{v}</dd>
+              <dd className={k === "tx hash" || k === "player" ? "mono-wrap" : ""}>{v}</dd>
             </div>
           ))}
         </dl>
@@ -519,14 +560,12 @@ export default function App() {
                       onClick={() => setSelected(a)}
                       title="click for details + tx"
                     >
-                      <span className="run" title={`run #${a.runNo}`}>r{a.runNo}</span>
-                      <span className="t">d{a.depth}</span>
+                      <span className="run" title={`run #${a.runNo}`}>[r{a.runNo}]</span>
+                      <span className="who" title={a.player}>{chain.shortAddr(a.player)}</span>
                       <span className="g">{KIND_GLYPH[a.kind] ?? "·"}</span>
                       <span className="m">
                         <span className="c-kind">{a.kind}</span>
                         <span className="c-out">{a.outcome}</span>
-                        <span className="c-hp">hp {a.hp}</span>
-                        <span className="c-gold">gold {a.gold}</span>
                       </span>
                     </p>
                   ))

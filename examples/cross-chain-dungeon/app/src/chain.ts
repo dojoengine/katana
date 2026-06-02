@@ -140,6 +140,14 @@ export function shortHex(value: string, lead = 6, tail = 4): string {
   if (value.length <= lead + tail + 2) return value;
   return `${value.slice(0, lead)}…${value.slice(-tail)}`;
 }
+/** Address as `0x` + first 3 and last 3 hex digits, after trimming leading zeros. */
+export function shortAddr(value: string): string {
+  if (!value) return "—";
+  const hex = value.replace(/^0x0*/i, "");
+  if (hex === "") return "0x0";
+  if (hex.length <= 6) return `0x${hex}`;
+  return `0x${hex.slice(0, 3)}…${hex.slice(-3)}`;
+}
 
 // --- room kinds (mirror cairo/game) ---
 export const ROOM = ["entrance", "monster", "treasure", "trap", "shrine", "empty"] as const;
@@ -197,6 +205,7 @@ export async function readStats(): Promise<Stats> {
 export type ActionRow = {
   actionNo: number;
   runNo: number;
+  player: string; // the run's player (will become a Controller username once integrated)
   kind: string;
   outcome: string;
   depth: number;
@@ -226,13 +235,14 @@ export async function getActionFeed(limit = 40): Promise<ActionRow[]> {
   // run's RunState), so each action carries its run id directly.
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
-    `SELECT action_no, run_no, kind, outcome, depth, hp, gold, internal_event_id FROM "game-ActionTaken" ORDER BY action_no DESC LIMIT ${limit}`,
+    `SELECT action_no, run_no, player, kind, outcome, depth, hp, gold, internal_event_id FROM "game-ActionTaken" ORDER BY action_no DESC LIMIT ${limit}`,
   );
   return rows.map((r) => {
     const { block, txHash } = parseEventId(String(r.internal_event_id));
     return {
       actionNo: num(r.action_no),
       runNo: num(r.run_no),
+      player: String(r.player),
       kind: feltToStr(r.kind),
       outcome: feltToStr(r.outcome),
       depth: num(r.depth),
