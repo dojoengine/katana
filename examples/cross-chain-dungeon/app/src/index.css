@@ -165,7 +165,16 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 .vital.pot .v { color: var(--cyan); }
 .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 
+.log-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .log { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); background: rgba(0,0,0,.28); padding: 10px 12px; font-size: 12.5px; }
+/* "new logs" jump button — floats over the bottom of the log when scrolled up */
+.log-new {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5;
+  flex: none; width: auto; padding: 4px 12px; font-size: 11px; letter-spacing: .5px;
+  color: var(--bg); background: var(--amber); border-color: var(--amber); text-shadow: none;
+  box-shadow: 0 2px 14px rgba(0,0,0,.55), 0 0 12px rgba(255,150,50,.35);
+}
+.log-new:hover:not(:disabled) { background: var(--amber-hi); border-color: var(--amber-hi); }
 .log p { margin: 0 0 2px; display: flex; gap: 9px; }
 /* run id chip "[rN]" — fixed monospace width so the bracket + following columns align */
 .log .run { color: var(--cyan); opacity: 0.75; flex: none; width: 5ch; white-space: nowrap; }

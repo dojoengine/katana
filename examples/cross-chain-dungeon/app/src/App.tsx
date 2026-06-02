@@ -200,6 +200,24 @@ export default function App() {
   const [err, setErr] = useState<string | null>(null);
   const inFlight = useRef(false);
 
+  // Message log scroll-follow: newest renders at the bottom, so "caught up" means
+  // scrolled to the bottom. When pinned there we auto-follow new entries; when the
+  // user has scrolled up we don't yank them, we just count the unseen ones and show
+  // a jump-to-latest button.
+  const logRef = useRef<HTMLDivElement>(null);
+  const seenActionRef = useRef(-1); // newest actionNo the user has caught up to
+  const [newLogs, setNewLogs] = useState(0); // unseen entries while scrolled up
+  const logAtBottom = () => {
+    const el = logRef.current;
+    return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
+  const catchUpLog = () => {
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    seenActionRef.current = feed.length ? feed[0].actionNo : seenActionRef.current;
+    setNewLogs(0);
+  };
+
   const ready = !!player && BigInt(player || "0x0") !== 0n && BigInt(chain.GAME_SYSTEM) !== 0n;
 
   const tick = useCallback(async () => {
@@ -264,6 +282,23 @@ export default function App() {
       cleanup?.();
     };
   }, [tick]);
+
+  // React to new log entries: follow if pinned to the bottom, else surface the count.
+  useEffect(() => {
+    const newest = feed.length ? feed[0].actionNo : -1;
+    if (newest < 0) return;
+    if (seenActionRef.current < 0 || logAtBottom()) {
+      // first load or caught up — stay pinned to the newest entry
+      seenActionRef.current = newest;
+      setNewLogs(0);
+      requestAnimationFrame(() => {
+        const el = logRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    } else {
+      setNewLogs(feed.filter((a) => a.actionNo > seenActionRef.current).length);
+    }
+  }, [feed]);
 
   const act = (name: string, fn: () => Promise<unknown>) => async () => {
     setBusy(name);
@@ -545,7 +580,17 @@ export default function App() {
               <div className="panel-h">
                 Message Log<span className="rule" />
               </div>
-              <div className="log">
+              <div className="log-wrap">
+              <div
+                className="log"
+                ref={logRef}
+                onScroll={() => {
+                  if (logAtBottom()) {
+                    seenActionRef.current = feed.length ? feed[0].actionNo : seenActionRef.current;
+                    setNewLogs(0);
+                  }
+                }}
+              >
                 {feed.length === 0 ? (
                   <p className="sys">
                     <span className="t">--</span>
@@ -569,6 +614,12 @@ export default function App() {
                       </span>
                     </p>
                   ))
+                )}
+              </div>
+                {newLogs > 0 && (
+                  <button className="log-new" onClick={catchUpLog} title="jump to latest">
+                    ↓ {newLogs} new {newLogs === 1 ? "log" : "logs"}
+                  </button>
                 )}
               </div>
             </section>
