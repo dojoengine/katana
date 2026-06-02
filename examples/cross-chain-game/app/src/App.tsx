@@ -326,8 +326,27 @@ export default function App() {
   const available = game?.available ?? 0;
   const pendingMints = purchases.filter((p) => !p.mintTxHash).length;
   const coinLoading = buying || pendingMints > 0; // submitting on L1 or still minting on L2
-  const unbanked = plays.filter((p) => !p.claimTxHash);
-  const banked = plays.filter((p) => p.claimTxHash);
+  // Show only the connected wallet's own rolls: a roll is keyed to whoever made it
+  // (GamePlayed.player), and you can only bank your own (claim_score consumes the
+  // message for that player). Compare by value — Torii pads the address.
+  let myPlayer: bigint | null = null;
+  try {
+    myPlayer = BigInt(wallet.playerAddress);
+  } catch {
+    myPlayer = null;
+  }
+  const mine =
+    myPlayer === null
+      ? []
+      : plays.filter((p) => {
+          try {
+            return BigInt(p.player) === myPlayer;
+          } catch {
+            return false;
+          }
+        });
+  const unbanked = mine.filter((p) => !p.claimTxHash);
+  const banked = mine.filter((p) => p.claimTxHash);
   const best = banked.reduce((m, p) => Math.max(m, p.score), 0);
   const totalPoints = banked.reduce((s, p) => s + p.score, 0);
 
@@ -364,12 +383,15 @@ export default function App() {
   }
 
   // Bank a roll to the Vault (settle L2 -> L1). Retries until saya has settled.
-  async function onBank(seq: number, sc: number) {
+  // `player` is the roll's own player (GamePlayed.player), not the connected
+  // wallet: claim_score consumes the L2→L1 message keyed to whoever rolled, and
+  // its consume isn't caller-restricted, so any connected L1 signer can settle it.
+  async function onBank(seq: number, sc: number, player: string) {
     setSettling((s) => new Set(s).add(seq));
     try {
       for (let i = 0; i < 90; i++) {
         try {
-          await claimScore(wallet.l1Account, wallet.playerAddress, sc);
+          await claimScore(wallet.l1Account, player, sc);
           refetch.current(); // ScoreClaimed will also push, but don't wait on it
           break;
         } catch {
@@ -534,7 +556,7 @@ export default function App() {
                               play={p}
                               settled={settled}
                               settling={settling.has(p.seq)}
-                              onBank={() => onBank(p.seq, p.score)}
+                              onBank={() => onBank(p.seq, p.score, p.player)}
                               onInspect={() => setDetail(p)}
                             />
                           </motion.div>

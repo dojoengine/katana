@@ -287,6 +287,7 @@ export async function getPurchaseHistory(): Promise<PurchaseRecord[]> {
 
 export type PlayRecord = {
   seq: number;
+  player: string; // who rolled (GamePlayed.player) — the address claim_score must consume for
   score: number;
   block: number; // appchain block the play landed in (gates settling on saya)
   l2TxHash: string; // play_game tx on the appchain
@@ -299,29 +300,33 @@ export type PlayRecord = {
  *  with its own tx. */
 export async function getPlayHistory(): Promise<PlayRecord[]> {
   const [played, claimed] = await Promise.all([
-    toriiSql<{ game_no: number; score: string | number; internal_event_id: string }>(
+    toriiSql<{ game_no: number; player: string; score: string | number; internal_event_id: string }>(
       TORII_GAME,
-      'SELECT game_no, score, internal_event_id FROM "game-GamePlayed" ORDER BY game_no',
+      'SELECT game_no, player, score, internal_event_id FROM "game-GamePlayed" ORDER BY game_no',
     ),
-    toriiSql<{ claim_no: number; score: string | number; internal_event_id: string }>(
+    toriiSql<{ claim_no: number; player: string; score: string | number; internal_event_id: string }>(
       TORII_SCORE,
-      'SELECT claim_no, score, internal_event_id FROM "score-ScoreClaimed" ORDER BY claim_no',
+      'SELECT claim_no, player, score, internal_event_id FROM "score-ScoreClaimed" ORDER BY claim_no',
     ),
   ]);
-  const claimsByScore = new Map<number, string[]>();
+  // Match a claim to its play by (player, score) so banks line up per-roller even
+  // when two players roll the same score. Normalize the player address (Torii pads
+  // it) so the keys compare equal regardless of leading zeros.
+  const norm = (a: string) => BigInt(a).toString();
+  const claimsByKey = new Map<string, string[]>();
   for (const c of claimed) {
-    const sc = num(c.score);
+    const key = `${norm(c.player)}:${num(c.score)}`;
     const tx = parseEventId(c.internal_event_id).txHash;
-    const q = claimsByScore.get(sc);
+    const q = claimsByKey.get(key);
     if (q) q.push(tx);
-    else claimsByScore.set(sc, [tx]);
+    else claimsByKey.set(key, [tx]);
   }
   return played.map((e, i) => {
     const score = num(e.score);
     const { block, txHash } = parseEventId(e.internal_event_id);
-    const q = claimsByScore.get(score);
+    const q = claimsByKey.get(`${norm(e.player)}:${score}`);
     const claimTxHash = q && q.length ? q.shift() : undefined;
-    return { seq: i + 1, score, block, l2TxHash: txHash, claimTxHash };
+    return { seq: i + 1, player: e.player, score, block, l2TxHash: txHash, claimTxHash };
   });
 }
 
