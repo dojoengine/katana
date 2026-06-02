@@ -181,6 +181,71 @@ function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: ()
   );
 }
 
+/** Live progress for a withdraw → settle → mint bank, shown while it's in flight. */
+function BankModal({
+  phase,
+  amount,
+  withdrawNo,
+  block,
+  settled,
+  tip,
+  onClose,
+}: {
+  phase: "withdraw" | "settle" | "mint" | "done";
+  amount: number;
+  withdrawNo?: number;
+  block?: number;
+  settled: number;
+  tip: number;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const order = ["withdraw", "settle", "mint"] as const;
+  const idx = phase === "done" ? 3 : order.indexOf(phase);
+  const steps = [
+    { title: "Withdraw vault · L2", detail: `send ${amount.toLocaleString()} gold as one L2→L1 message${withdrawNo != null ? ` (#${withdrawNo})` : ""}` },
+    { title: "Settle · saya → Sepolia", detail: block != null ? `prove + settle appchain block ${block} · settled ${settled} / tip ${tip}` : "saya proves the block and settles it onto the piltover core" },
+    { title: "Mint GOLD · L1", detail: `consume the message and mint ${amount.toLocaleString()} GOLD on Sepolia` },
+  ];
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-h">
+          <span>banking {amount.toLocaleString()} gold → GOLD</span>
+          <button className="modal-x" onClick={onClose} aria-label="close">
+            ✕
+          </button>
+        </div>
+        <ol className="steps">
+          {steps.map((s, i) => {
+            const state = i < idx ? "done" : i === idx ? "active" : "todo";
+            return (
+              <li key={s.title} className={`step ${state}`}>
+                <span className="step-mark">{state === "done" ? "✓" : state === "active" ? "▸" : "·"}</span>
+                <span className="step-body">
+                  <span className="step-title">{s.title}</span>
+                  <span className="step-detail">{s.detail}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="legend">
+          {phase === "done"
+            ? "done — GOLD minted on Sepolia"
+            : "this completes on its own — you can close this and keep playing"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const wallet = useWallet();
   const player = wallet.player;
@@ -199,6 +264,10 @@ export default function App() {
   const [lastEnded, setLastEnded] = useState<chain.RunEndRow | null>(null);
   const [selected, setSelected] = useState<chain.ActionRow | null>(null);
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
+  const [minting, setMinting] = useState(false); // auto-mint (L1) in flight after a withdraw
+  const mintingRef = useRef(false);
+  const [bankModal, setBankModal] = useState(false); // the withdraw/bank progress modal
+  const [bankAmount, setBankAmount] = useState(0); // gold being banked (for the modal/done state)
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -332,8 +401,12 @@ export default function App() {
   const onLoot = act("loot", () => chain.loot(player));
   const onUse = act("use", () => chain.useItem(player));
   const onExtract = act("extract", () => chain.extract(player));
+  // Banking is one user action ("Withdraw"): the withdraw empties the vault into an
+  // L2→L1 message; minting the GOLD on L1 then happens automatically once saya has
+  // settled it (see the auto-mint effect below), so the user never presses a second
+  // button. The mint runs off the poll loop, not a blocking await, so play isn't
+  // blocked while settlement catches up.
   const onWithdraw = act("withdraw", () => chain.withdraw(player));
-  const onClaim = act("claim", () => (pending ? chain.bankRun(wallet.l1Account, player, pending.amount, pending.withdrawNo) : Promise.resolve()));
 
   const hp = run ? run.hp : 0;
   const maxHp = run ? run.maxHp : 100;
@@ -352,6 +425,34 @@ export default function App() {
   // GOLD that can still be banked: gold sitting in the L2 vault (needs a withdraw)
   // plus any withdrawn-but-not-yet-banked amount (needs settle + bank on L1).
   const bankable = vault + (pending?.amount ?? 0);
+  // A bank is mid-flight from withdraw through auto-mint; the button becomes a
+  // "view progress" trigger and the modal shows which phase we're in.
+  const bankInProgress = b("withdraw") || !!pending || minting;
+  const bankPhase: "withdraw" | "settle" | "mint" | "done" = b("withdraw")
+    ? "withdraw"
+    : minting || (pending && claimReady)
+      ? "mint"
+      : pending
+        ? "settle"
+        : "done";
+
+  // Auto-mint: once a withdrawal has settled on L1, consume it and mint the GOLD
+  // without a second click. Runs off the poll loop (not a blocking await), so the
+  // user can keep playing while settlement catches up. The ref guards against
+  // double-firing across re-renders; on reload it also resumes any pending bank.
+  useEffect(() => {
+    if (!pending || !claimReady || mintingRef.current) return;
+    mintingRef.current = true;
+    setMinting(true);
+    chain
+      .bankRun(wallet.l1Account, player, pending.amount, pending.withdrawNo)
+      .then(() => tick())
+      .catch((e) => setErr(String((e as Error).message || e)))
+      .finally(() => {
+        mintingRef.current = false;
+        setMinting(false);
+      });
+  }, [pending, claimReady, wallet.l1Account, player, tick]);
 
   return (
     <>
@@ -668,28 +769,35 @@ export default function App() {
                 <span className="v">{chain.fmtToken(goldBal, chain.GOLD_DECIMALS, 0)} <small>GOLD</small></span>
               </div>
 
-              {pending ? (
+              {bankable > 0 ? (
                 <>
                   <div className="row-actions">
-                    <button className="good" disabled={anyBusy || !claimReady} onClick={onClaim}>
-                      {b("claim") ? "minting…" : claimReady ? `Mint ${pending.amount.toLocaleString()} GOLD on L1` : "awaiting saya…"}
+                    <button
+                      className="good"
+                      disabled={!bankInProgress && anyBusy}
+                      onClick={() => {
+                        if (bankInProgress) {
+                          setBankModal(true);
+                          return;
+                        }
+                        setBankAmount(vault);
+                        setBankModal(true);
+                        void onWithdraw();
+                      }}
+                    >
+                      {b("withdraw")
+                        ? "withdrawing…"
+                        : minting || (pending && claimReady)
+                          ? "minting GOLD…"
+                          : pending
+                            ? "awaiting saya…"
+                            : `Withdraw ${vault.toLocaleString()} gold → GOLD`}
                     </button>
                   </div>
                   <div className="legend">
-                    {claimReady
-                      ? `withdrawal #${pending.withdrawNo} settled — mint consumes the L2→L1 message and credits ${pending.amount.toLocaleString()} GOLD`
-                      : `withdrew ${pending.amount.toLocaleString()} gold — waiting for saya to settle block ${pending.block} (settled ${settled} / tip ${tip})`}
-                  </div>
-                </>
-              ) : vault > 0 ? (
-                <>
-                  <div className="row-actions">
-                    <button className="good" disabled={anyBusy} onClick={onWithdraw}>
-                      {b("withdraw") ? "withdrawing…" : `Withdraw ${vault.toLocaleString()} gold → L1`}
-                    </button>
-                  </div>
-                  <div className="legend">
-                    sends one L2→L1 message with your whole vault; mint the GOLD here once saya settles it
+                    {bankInProgress
+                      ? "banking in progress — click for the live phase breakdown"
+                      : "one button: withdraws the whole vault, then auto-mints the GOLD on L1 once saya settles it"}
                   </div>
                 </>
               ) : (
@@ -711,6 +819,17 @@ export default function App() {
         </div>
       </div>
       {selected && <ActionModal action={selected} onClose={() => setSelected(null)} />}
+      {bankModal && (
+        <BankModal
+          phase={bankPhase}
+          amount={pending?.amount ?? bankAmount}
+          withdrawNo={pending?.withdrawNo}
+          block={pending?.block}
+          settled={settled}
+          tip={tip}
+          onClose={() => setBankModal(false)}
+        />
+      )}
       <div className="scanlines" />
       <div className="vignette" />
     </>
