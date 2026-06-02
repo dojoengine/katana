@@ -22,9 +22,11 @@ pub trait IPiltoverSend<T> {
 
 #[starknet::interface]
 pub trait IStore<T> {
-    /// Buy one game: run the store's rules, then send the L1 → L2 message that
-    /// mints a credit on the appchain `game` world.
-    fn buy_game(ref self: T, game_id: felt252);
+    /// Buy one game for `player`: run the store's rules, then send the L1 → L2
+    /// message that credits `player` on the appchain `game` world. `player` is the
+    /// appchain address to credit — the L1 buyer and the L2 player can differ (the
+    /// dev account uses two keys; a Controller is the same address on both).
+    fn buy_game(ref self: T, player: felt252, game_id: felt252);
 }
 
 #[dojo::contract]
@@ -66,7 +68,7 @@ pub mod store {
 
     #[abi(embed_v0)]
     impl StoreImpl of IStore<ContractState> {
-        fn buy_game(ref self: ContractState, game_id: felt252) {
+        fn buy_game(ref self: ContractState, player: felt252, game_id: felt252) {
             let mut world = self.world_default();
 
             // --- the game's rules go here ---
@@ -78,10 +80,12 @@ pub mod store {
 
             // Only after the rules pass do we send the L1 -> L2 message. Because
             // the store contract is the caller, `mint_game`'s `from_address` on
-            // L2 is this contract — provenance the appchain can trust.
+            // L2 is this contract — provenance the appchain can trust. The buyer/
+            // player to credit travels in the payload (`from_address` is the store,
+            // not the player).
             let config: StoreConfig = world.read_model(SINGLETON);
             IPiltoverSendDispatcher { contract_address: config.piltover }
-                .send_message_to_appchain(config.game, MINT_GAME, array![game_id].span());
+                .send_message_to_appchain(config.game, MINT_GAME, array![player, game_id].span());
         }
     }
 

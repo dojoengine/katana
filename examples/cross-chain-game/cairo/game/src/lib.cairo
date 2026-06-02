@@ -52,6 +52,17 @@ pub mod game {
         pub registry: ContractAddress,
     }
 
+    /// Per-player playable-credit balance, keyed by the L2 player address. A
+    /// purchase credits the buyer (relayed from L1); a play consumes one of the
+    /// caller's own credits. Credits are owned, not a shared pool.
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::model]
+    pub struct Credits {
+        #[key]
+        pub player: felt252,
+        pub balance: u64,
+    }
+
     /// Emitted when a purchase is relayed from L1 and a game enters the pool.
     /// Keyed by the unique mint sequence so Torii keeps one row per mint
     /// (Dojo event-message tables upsert by key).
@@ -88,20 +99,25 @@ pub mod game {
             );
     }
 
-    /// Phase 1 — purchase relayed from L1. The messaging service prepends the
-    /// settlement-side buyer as `from_address`; `game_id` comes from the payload.
+    /// Phase 1 — purchase relayed from L1. `from_address` is the L1 store contract
+    /// that sent the message; the buyer/player to credit comes through the payload
+    /// (so it works whether the L1 and L2 accounts are the same or not). Credits
+    /// the player's own balance, not a shared pool.
     #[l1_handler]
-    fn mint_game(ref self: ContractState, from_address: felt252, game_id: felt252) {
+    fn mint_game(ref self: ContractState, from_address: felt252, player: felt252, game_id: felt252) {
         let mut world = self.world_default();
         let mut stats: Stats = world.read_model(SINGLETON);
         stats.total_minted += 1;
         stats.available += 1;
         world.write_model(@stats);
+        let mut credits: Credits = world.read_model(player);
+        credits.balance += 1;
+        world.write_model(@credits);
         world
             .emit_event(
                 @GameMinted {
                     mint_no: stats.total_minted,
-                    buyer: from_address,
+                    buyer: player,
                     game_id,
                     available: stats.available,
                 },
@@ -114,8 +130,14 @@ pub mod game {
         fn play_game(ref self: ContractState) -> u64 {
             let mut world = self.world_default();
 
+            // Spend one of the *caller's own* credits (not a shared pool).
+            let player: felt252 = get_caller_address().into();
+            let mut credits: Credits = world.read_model(player);
+            assert(credits.balance > 0, 'No credits to play');
+            credits.balance -= 1;
+            world.write_model(@credits);
+
             let mut stats: Stats = world.read_model(SINGLETON);
-            assert(stats.available > 0, 'No games available to play');
             stats.available -= 1;
             let game_no = stats.total_played + 1;
             stats.total_played = game_no;
@@ -127,7 +149,6 @@ pub mod game {
             // settlement `score_registry`; payload `[player, score]` must match
             // what `score_registry::claim_score` passes to the piltover core.
             let config: GameConfig = world.read_model(SINGLETON);
-            let player: felt252 = get_caller_address().into();
             send_message_to_l1_syscall(config.registry.into(), array![player, score.into()].span())
                 .unwrap_syscall();
 
