@@ -42,11 +42,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sepoliaProvider = new RpcProvider({ nodeUrl: SEPOLIA_RPC });
 const appchainProvider = new RpcProvider({ nodeUrl: APPCHAIN_RPC });
 
-// The local appchain mines a block per tx instantly, but starknet.js's
-// waitForTransaction defaults to a 5s poll interval — so each appchain action
-// would block ~5s on a confirmation that's actually ready in milliseconds. Poll
-// fast instead. (Sepolia keeps the default; its blocks are genuinely slow.)
+// starknet.js's waitForTransaction defaults to a 5s poll interval, so a tx that's
+// actually confirmed in well under a second still blocks for one or more 5s polls.
+// Poll fast on both chains. The appchain mines instantly; Sepolia confirms in ~1-2s
+// (measured) — far quicker than the 5s default, which was the bulk of the perceived
+// "entering…" / "banking…" latency. The interval is a poll cadence, not added work.
 const APPCHAIN_TX_WAIT = { retryInterval: 200 };
+const SEPOLIA_TX_WAIT = { retryInterval: 1000 };
 
 // Default signers. The operator is a real funded Sepolia account (from
 // deployments.json); the wallet layer can swap a Controller in for L1 ops. The
@@ -365,7 +367,7 @@ export async function devMint(account: Signer, amount: bigint): Promise<string> 
       entrypoint: "dev_mint",
       calldata: CallData.compile([cairo.uint256(amount)]),
     });
-    await sepoliaProvider.waitForTransaction(transaction_hash);
+    await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
     return transaction_hash;
   });
 }
@@ -377,7 +379,7 @@ export async function buyGame(account: Signer, usdcAmount: bigint): Promise<stri
       { contractAddress: USDC, entrypoint: "approve", calldata: CallData.compile([TOKEN_SALE, cairo.uint256(usdcAmount)]) },
       { contractAddress: TOKEN_SALE, entrypoint: "buy", calldata: CallData.compile([cairo.uint256(usdcAmount)]) },
     ]);
-    await sepoliaProvider.waitForTransaction(transaction_hash);
+    await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
     return transaction_hash;
   });
 }
@@ -391,7 +393,7 @@ export async function enterDungeon(account: Signer): Promise<string> {
       { contractAddress: GAME_TOKEN, entrypoint: "approve", calldata: CallData.compile([ENTRY, cairo.uint256(fee)]) },
       { contractAddress: ENTRY, entrypoint: "enter", calldata: [] },
     ]);
-    await sepoliaProvider.waitForTransaction(transaction_hash);
+    await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
     return transaction_hash;
   });
 }
@@ -405,7 +407,7 @@ export async function claimRun(account: Signer, player: string, score: number, l
       // claim_run(from_address = game system, player, score, loot)
       calldata: [GAME_SYSTEM, player, "0x" + score.toString(16), "0x" + loot.toString(16)],
     });
-    await sepoliaProvider.waitForTransaction(transaction_hash);
+    await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
     return transaction_hash;
   });
 }
