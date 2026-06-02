@@ -258,6 +258,7 @@ export default function App() {
   const [goldBal, setGoldBal] = useState(0n);
   const [usdcBal, setUsdcBal] = useState(0n);
   const [vault, setVault] = useState(0); // accumulated GOLD on L2 awaiting bank
+  const [fee, setFee] = useState(0n); // GAME entry fee
   const [settled, setSettled] = useState(0);
   const [tip, setTip] = useState(0);
   const [pending, setPending] = useState<chain.WithdrawalRow | null>(null); // unbanked withdrawal
@@ -296,7 +297,7 @@ export default function App() {
     if (!ready || inFlight.current) return;
     inFlight.current = true;
     try {
-      const [r, st, fd, lb, gb, gld, ub, vt, sb, tp, wd, bc, le] = await Promise.all([
+      const [r, st, fd, lb, gb, gld, ub, vt, ef, sb, tp, wd, bc, le] = await Promise.all([
         chain.readRun(player),
         chain.readStats(),
         chain.getActionFeed(),
@@ -305,6 +306,7 @@ export default function App() {
         chain.goldBalance(player),
         chain.usdcBalance(player),
         chain.readVault(player),
+        chain.entryFee(),
         chain.settledBlock(),
         chain.appchainBlock(),
         chain.getWithdrawals(player),
@@ -319,6 +321,7 @@ export default function App() {
       setGoldBal(gld);
       setUsdcBal(ub);
       setVault(vt);
+      setFee(ef);
       setSettled(sb);
       setTip(tp);
       setPending(wd.length > bc ? wd[bc] : null);
@@ -666,7 +669,7 @@ export default function App() {
               <div className="actions">
                 {!run ? (
                   <button className="good" disabled={anyBusy || !ready} onClick={onEnter}>
-                    {b("enter") ? "entering…" : "Enter Dungeon"}
+                    {b("enter") ? "entering…" : `Enter Dungeon · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
                   </button>
                 ) : (
                   <>
