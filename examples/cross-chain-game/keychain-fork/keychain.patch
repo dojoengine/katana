@@ -1,0 +1,143 @@
+diff --git a/packages/keychain/.env.dev b/packages/keychain/.env.dev
+index 990c0f5..f5a1c73 100644
+--- a/packages/keychain/.env.dev
++++ b/packages/keychain/.env.dev
+@@ -1,9 +1,9 @@
+-VITE_ORIGIN="http://localhost:3001"
++VITE_ORIGIN="https://localhost:3010"
+ VITE_RP_ID="localhost"
+ VITE_ADMIN_URL="http://localhost:3002"
+-VITE_CARTRIDGE_API_URL="http://localhost:8000"
+-VITE_RPC_MAINNET="http://localhost:8001/x/starknet/mainnet/rpc/v0_9"
+-VITE_RPC_SEPOLIA="http://localhost:8001/x/starknet/sepolia/rpc/v0_9"
++VITE_CARTRIDGE_API_URL="https://localhost:3010/__cartridge"
++VITE_RPC_MAINNET="https://api.cartridge.gg/x/starknet/mainnet/rpc/v0_9"
++VITE_RPC_SEPOLIA="http://localhost:5050"
+ VITE_POSTHOG_KEY=phc_UWaJajNQ00PjHhveZ81SJ2zVtBicKrzewdZHGiyavQQ
+ VITE_POSTHOG_HOST=https://x.cartridge.gg/ingest
+ VITE_STRIPE_PAYMENT="http://localhost:8000/stripe/payment-intent"
+diff --git a/packages/keychain/src/components/ExecutionContainer.tsx b/packages/keychain/src/components/ExecutionContainer.tsx
+index 529443d..707b173 100644
+--- a/packages/keychain/src/components/ExecutionContainer.tsx
++++ b/packages/keychain/src/components/ExecutionContainer.tsx
+@@ -58,13 +58,20 @@ export function ExecutionContainer({
+   const [isEstimating, setIsEstimating] = useState(true);
+   const [ctaState, setCTAState] = useState<"deploy" | "execute">("execute");
+ 
+-  // Prevent unnecessary estimate fee calls.
++  // Prevent unnecessary estimate fee calls. Track the controller too: on a chain
++  // switch a *new* Controller instance is created (bound to the new RPC), and the
++  // React context updates a render after the synchronous window.controller swap.
++  // Without re-estimating on that change, the modal keeps a stale fee error from
++  // the previous chain (e.g. "Contract not found" when the prior chain lacks the
++  // target contract).
+   const prevTransactionsRef = useRef<{
+     transactions: Call[] | undefined;
+     feeEstimate: FeeEstimate | undefined;
++    controller: typeof controller;
+   }>({
+     transactions: undefined,
+     feeEstimate: undefined,
++    controller: undefined,
+   });
+ 
+   const estimateFees = useCallback(
+@@ -108,20 +115,23 @@ export function ExecutionContainer({
+       return;
+     }
+ 
+-    // Only estimate if transactions have changed
+-    if (isEqual(prevTransactionsRef.current.transactions, transactions)) {
++    // Re-estimate when transactions change OR the controller (chain) changes.
++    if (
++      isEqual(prevTransactionsRef.current.transactions, transactions) &&
++      prevTransactionsRef.current.controller === controller
++    ) {
+       return;
+     }
+ 
+     // Update ref with current values
+-    prevTransactionsRef.current = { transactions, feeEstimate: maxFee };
++    prevTransactionsRef.current = { transactions, feeEstimate: maxFee, controller };
+ 
+     const estimateFeesAsync = async () => {
+       await estimateFees(transactions);
+     };
+ 
+     estimateFeesAsync();
+-  }, [transactions, estimateFees, maxFee]);
++  }, [transactions, estimateFees, maxFee, controller]);
+ 
+   useEffect(() => {
+     setCtrlError(executionError);
+diff --git a/packages/keychain/src/components/simulation/use-simulate.ts b/packages/keychain/src/components/simulation/use-simulate.ts
+index d1d0bf9..68440ce 100644
+--- a/packages/keychain/src/components/simulation/use-simulate.ts
++++ b/packages/keychain/src/components/simulation/use-simulate.ts
+@@ -55,7 +55,20 @@ export const useSimulateBalanceChanges = (
+           setSimulationEvents(events);
+           setIsError(false);
+         })
+-        .catch((error) => {
++        .catch(async (error) => {
++          // The preview simulates a tx FROM the controller. If the controller
++          // isn't deployed on this chain yet — it deploys on first execute, e.g.
++          // on an appchain — its sender account doesn't exist and the sim rejects
++          // with "Contract not found". That's a transient not-yet-deployed state,
++          // not a real failure: skip the preview rather than show a misleading
++          // "Simulation Error" (the actual execute deploys the controller first).
++          try {
++            await controller!.provider.getClassHashAt(controller!.address());
++          } catch {
++            setSimulationEvents([]);
++            setIsError(false);
++            return;
++          }
+           console.error("simulateTransactions error:", error);
+           setIsError(true);
+         })
+diff --git a/packages/keychain/vite.config.ts b/packages/keychain/vite.config.ts
+index 3d51dea..5df4aa4 100644
+--- a/packages/keychain/vite.config.ts
++++ b/packages/keychain/vite.config.ts
+@@ -1,3 +1,4 @@
++import fs from "node:fs";
+ import path from "node:path";
+ import { fileURLToPath } from "node:url";
+ import react from "@vitejs/plugin-react-swc";
+@@ -29,7 +30,34 @@ export default defineConfig(({ mode }) => ({
+       }),
+   ],
+   server: {
+-    port: mode === "development" ? 3001 : undefined,
++    // Self-hosted keychain for the katana cross-chain-game demo. Runs on 3010
++    // (the demo frontend owns 3001) over trusted HTTPS (mkcert) — WebAuthn needs a
++    // secure context, and it's loaded cross-origin as an iframe by the demo.
++    port: mode === "development" ? 3010 : undefined,
++    https:
++      mode === "development"
++        ? {
++            cert: fs.readFileSync(path.resolve(__dirname, ".certs/localhost.pem")),
++            key: fs.readFileSync(path.resolve(__dirname, ".certs/localhost-key.pem")),
++          }
++        : undefined,
++    // api.cartridge.gg only sends CORS headers for Cartridge-owned origins, so a
++    // browser fetch from this localhost keychain is blocked. Proxy the API through
++    // our own origin: the browser talks same-origin to vite, vite forwards to the
++    // real API server-side (no browser CORS), spoofing Origin to an allowed value.
++    // VITE_CARTRIDGE_API_URL is set to https://localhost:3010/__cartridge.
++    proxy:
++      mode === "development"
++        ? {
++            "/__cartridge": {
++              target: "https://api.cartridge.gg",
++              changeOrigin: true,
++              secure: true,
++              headers: { origin: "https://x.cartridge.gg" },
++              rewrite: (p) => p.replace(/^\/__cartridge/, ""),
++            },
++          }
++        : undefined,
+   },
+   resolve: {
+     dedupe: ["react", "react-dom"],
