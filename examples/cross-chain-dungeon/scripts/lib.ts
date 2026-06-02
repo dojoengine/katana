@@ -30,10 +30,11 @@ export type Deployments = {
     piltover: string;
     usdc: string;
     gameToken?: string;
+    goldToken?: string;
     tokenSale?: string;
     entry?: string;
-    scoreWorld?: string;
-    scoreSystem?: string;
+    bankWorld?: string;
+    bankSystem?: string;
   };
   appchain: {
     rpcUrl: string;

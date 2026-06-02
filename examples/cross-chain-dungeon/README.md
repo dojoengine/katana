@@ -2,11 +2,12 @@
 
 A Katana appchain example that **settles to real Starknet Sepolia** and **depends
 on an external settlement-layer contract (USDC)**. It's a push-your-luck dungeon
-roguelite: buy a game token with USDC, pay it to enter, descend with **one
-appchain transaction per action**, and either **extract** (settle your score to
-Sepolia and earn a token reward) or **die** (forfeit everything — nothing
-settles). That asymmetry is the point: appchain value is provisional until you
-commit it to the settlement layer.
+roguelite with a **two-token economy**: buy **GAME** with USDC and spend it to enter,
+descend with **one appchain transaction per action**, collect **GOLD**, and either
+**extract** (bank the run's gold into your on-L2 vault) or **die** (forfeit the
+in-progress haul). Then **bank once** — withdraw the whole vault to Sepolia, where
+GOLD is minted on L1. The point: appchain value is provisional until you commit it
+to the settlement layer.
 
 It's the sibling of [`../cross-chain-game`](../cross-chain-game). Where that demo
 runs two local Katanas, this one runs **one** (the appchain) and settles to a real
@@ -21,9 +22,9 @@ public chain — and adds a token economy on top of an external contract.
 | --- | --- | --- |
 | Settlement layer | local Katana (`SN_SEPOLIA`) | **real Starknet Sepolia** |
 | Local nodes | 2 Katanas | **1** (appchain only) |
-| Economy | none | **USDC → GAME_TOKEN**, charged per entry, reward on bank |
+| Economy | none | **two tokens: GAME (USDC→play) + GOLD (winnings, minted on bank)** |
 | External dependency | — | **Circle USDC on Sepolia** |
-| Gameplay | one roll | **a dungeon run, one tx per action** |
+| Gameplay | one roll | **a dungeon run, one tx per action; vault many runs, bank once** |
 | Ports | 5050/5051/8081/8082/3001 | **5070/8091/8092/3002** |
 | Controller | both chains | **Sepolia only** |
 
@@ -53,14 +54,15 @@ appchain and saya, deploys the economy + worlds (`scripts/deploy.ts`), starts bo
 Torii indexers, and serves the client. `./down.sh` stops the local processes.
 
 Then open `http://localhost:3002`, **Dev-mint** some GAME (or **Buy** it with
-USDC), **Enter Dungeon**, and play.
+USDC), **Enter Dungeon**, play, **Extract** to bank gold into your vault, then on the
+**Bank** tab withdraw the vault to Sepolia to mint **GOLD**.
 
 ## Funding & costs
 
 Every deploy and every `saya update_state` is a **real Sepolia transaction**:
 
-- The **operator** pays for the TEE registry, piltover, the token/sale/entry
-  contracts, and the score-world migration.
+- The **operator** pays for the TEE registry, piltover, the GAME/GOLD/sale/entry
+  contracts, and the bank-world migration.
 - **saya** pays for `update_state` on every settled batch (recurring) — give it a
   **dedicated** funded account, never shared with the operator (nonce contention
   stalls settlement).
@@ -81,9 +83,9 @@ play actions always use the local dev account. Passkey login needs trusted HTTPS
 
 | Path | What |
 | --- | --- |
-| `cairo/game` | appchain dungeon world (`game` namespace) — the run, the actions |
-| `cairo/score` | settlement world (`score` namespace) — leaderboard + reward mint |
-| `cairo/token` | `game_token` (ERC20), `token_sale` (USDC→GAME), `entry` (charge + L1→L2) |
+| `cairo/game` | appchain dungeon world (`game` namespace) — run, actions, GOLD vault, leaderboard |
+| `cairo/score` | settlement `bank` world (`bank` namespace) — mints GOLD when a withdrawal settles |
+| `cairo/token` | `game_token` (GAME), `gold_token` (GOLD), `token_sale` (USDC→GAME), `entry` (charge + L1→L2) |
 | `scripts/` | `deploy.ts` + `lib.ts` (deploy economy + migrate worlds) |
 | `app/` | React + Vite terminal client (`app/src/chain.ts`, `App.tsx`, `wallet.tsx`) |
 | `design/ui-mockup.html` | the standalone terminal-UI design mockup |

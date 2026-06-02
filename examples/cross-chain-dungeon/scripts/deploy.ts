@@ -3,16 +3,17 @@
 // Reads the base deployments.json written by up.sh (Sepolia + appchain rpc urls,
 // operator + appchain accounts, piltover core, USDC), then:
 //
-//   1. GAME_TOKEN (plain ERC20)                          on Sepolia
-//   2. score world  (init: piltover, GAME_TOKEN, reward) on Sepolia   [sozo]
-//   3. game world   (init: score system)                 on appchain  [sozo]
-//   4. TokenSale (USDC -> GAME)                           on Sepolia
-//   5. Entry (charge GAME + send mint_run to game system) on Sepolia
-//   6. grant GAME_TOKEN minter rights to TokenSale + the score system
+//   1. GAME token  (entry credit, plain ERC20)           on Sepolia
+//   2. GOLD token  (winnings, plain ERC20)               on Sepolia
+//   3. bank world  (init: piltover, GOLD, reward_per_gold) on Sepolia [sozo]
+//   4. game world  (init: bank system)                   on appchain  [sozo]
+//   5. TokenSale (USDC -> GAME)                           on Sepolia
+//   6. Entry (charge GAME + send mint_run to game system) on Sepolia
+//   7. grant GAME minter -> TokenSale; GOLD minter -> the bank system
 //
-// Order matters: the game world publishes extracted runs to the score system, so
-// score must exist first; Entry addresses the appchain game system, so the game
-// world must exist before Entry; the sale + score world must be granted minters.
+// Order matters: the game world withdraws to the bank system, so bank must exist
+// first; Entry addresses the appchain game system, so the game world must exist
+// before Entry; the sale (GAME) and the bank (GOLD) must each be granted as minters.
 
 import { cairo } from "starknet";
 import { config } from "./config.ts";
@@ -45,8 +46,8 @@ async function main() {
   console.log("[deploy] building token package (scarb)...");
   buildPackage("token");
 
-  // 1. GAME_TOKEN — owner is the operator (it controls minter grants).
-  console.log("[deploy] declaring + deploying GAME_TOKEN on Sepolia...");
+  // 1. GAME (entry credit) — owner is the operator (it controls minter grants).
+  console.log("[deploy] declaring + deploying GAME (entry credit) on Sepolia...");
   const gameToken = await declareAndDeploy(operator, "token", "game_token", {
     owner: d.settlement.account.address,
   });
@@ -54,39 +55,48 @@ async function main() {
   saveDeployments(d);
   console.log("  gameToken:", gameToken);
 
-  // 2. score world on Sepolia (consumes settled runs, mints the reward).
-  console.log("[deploy] migrating score world on Sepolia (piltover:", d.settlement.piltover, ")");
-  const score = migrateWorld({
+  // 2. GOLD (winnings) — minted on L1 when a player banks; owner is the operator.
+  console.log("[deploy] declaring + deploying GOLD (winnings) on Sepolia...");
+  const goldToken = await declareAndDeploy(operator, "token", "gold_token", {
+    owner: d.settlement.account.address,
+  });
+  d.settlement.goldToken = goldToken;
+  saveDeployments(d);
+  console.log("  goldToken:", goldToken);
+
+  // 3. bank world on Sepolia (consumes the settled withdrawal, mints GOLD).
+  console.log("[deploy] migrating bank world on Sepolia (piltover:", d.settlement.piltover, ")");
+  const bank = migrateWorld({
     pkg: "score",
-    seed: "ccd_score2",
-    namespace: "score",
-    systemTag: "score-score",
+    seed: "ccd_bank1",
+    namespace: "bank",
+    systemTag: "bank-bank",
     rpcUrl: d.settlement.rpcUrl,
     account: d.settlement.account,
-    initArgs: [d.settlement.piltover, gameToken, ...u256Args(config.rewardPerPoint)],
+    initArgs: [d.settlement.piltover, goldToken, ...u256Args(config.rewardPerGold)],
   });
-  d.settlement.scoreWorld = score.world;
-  d.settlement.scoreSystem = score.system;
+  d.settlement.bankWorld = bank.world;
+  d.settlement.bankSystem = bank.system;
   saveDeployments(d);
-  console.log("  scoreWorld:", score.world, "scoreSystem:", score.system);
+  console.log("  bankWorld:", bank.world, "bankSystem:", bank.system);
 
-  // 3. game world on the appchain (publishes extracted runs to the score system).
-  console.log("[deploy] migrating game world on appchain (registry:", score.system, ")");
+  // 4. game world on the appchain (withdraws the vault to the bank system).
+  console.log("[deploy] migrating game world on appchain (registry:", bank.system, ")");
   const game = migrateWorld({
     pkg: "game",
-    seed: "ccd_game2",
+    seed: "ccd_game3",
     namespace: "game",
     systemTag: "game-game",
     rpcUrl: d.appchain.rpcUrl,
     account: d.appchain.account,
-    initArgs: [score.system],
+    initArgs: [bank.system],
   });
   d.appchain.gameWorld = game.world;
   d.appchain.gameSystem = game.system;
   saveDeployments(d);
   console.log("  gameWorld:", game.world, "gameSystem:", game.system);
 
-  // 4. TokenSale — buy GAME with USDC at the fixed rate; USDC accrues to operator.
+  // 5. TokenSale — buy GAME with USDC at the fixed rate; USDC accrues to operator.
   console.log("[deploy] deploying TokenSale on Sepolia (usdc:", d.settlement.usdc, ")");
   const tokenSale = await declareAndDeploy(operator, "token", "token_sale", {
     usdc: d.settlement.usdc,
@@ -98,7 +108,7 @@ async function main() {
   saveDeployments(d);
   console.log("  tokenSale:", tokenSale);
 
-  // 5. Entry — charge GAME, then send mint_run to the appchain game system.
+  // 6. Entry — charge GAME, then send mint_run to the appchain game system.
   console.log("[deploy] deploying Entry on Sepolia (game system:", game.system, ")");
   const entry = await declareAndDeploy(operator, "token", "entry", {
     game_token: gameToken,
@@ -111,11 +121,11 @@ async function main() {
   saveDeployments(d);
   console.log("  entry:", entry);
 
-  // 6. Grant minter rights: the sale (mint-on-purchase) and the score world
-  //    (mint-on-bank) must both be able to mint GAME.
-  console.log("[deploy] granting GAME_TOKEN minter rights to TokenSale + score system...");
+  // 7. Grant minter rights: the sale mints GAME on purchase; the bank world mints
+  //    GOLD on settlement. Two tokens, two distinct minters.
+  console.log("[deploy] granting GAME minter -> TokenSale, GOLD minter -> bank system...");
   await invoke(operator, gameToken, "set_minter", [tokenSale, "0x1"]);
-  await invoke(operator, gameToken, "set_minter", [score.system, "0x1"]);
+  await invoke(operator, goldToken, "set_minter", [bank.system, "0x1"]);
 
   console.log("[deploy] done.");
 }

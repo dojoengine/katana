@@ -19,7 +19,7 @@ import {
   GAME_TOKEN,
   TOKEN_SALE,
   ENTRY,
-  SCORE_SYSTEM,
+  BANK_SYSTEM,
   operatorAccount,
   shortHex,
   type Signer,
@@ -51,7 +51,7 @@ const policies = {
     },
     [TOKEN_SALE]: { methods: [{ name: "Buy GAME", entrypoint: "buy" }] },
     [ENTRY]: { methods: [{ name: "Enter dungeon", entrypoint: "enter" }] },
-    [SCORE_SYSTEM]: { methods: [{ name: "Bank run", entrypoint: "claim_run" }] },
+    [BANK_SYSTEM]: { methods: [{ name: "Bank GOLD", entrypoint: "bank" }] },
   },
 };
 

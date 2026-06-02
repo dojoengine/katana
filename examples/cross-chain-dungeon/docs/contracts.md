@@ -2,12 +2,13 @@
 
 [← services](./services.md) · Next: [deployment →](./deployment.md)
 
-Two Dojo worlds (`cairo/game`, `cairo/score`) and three plain Starknet contracts
-(`cairo/token`: `game_token`, `token_sale`, `entry`). The Dojo building blocks
-(models, systems, `dojo_init`, writer permissions) are covered in the
+Two Dojo worlds (`cairo/game` on the appchain, `cairo/score` — the **bank** —
+on Sepolia) and four plain Starknet contracts (`cairo/token`: `game_token`,
+`gold_token`, `token_sale`, `entry`). The Dojo building blocks (models, systems,
+`dojo_init`, writer permissions) are covered in the
 [cross-chain-game contracts chapter](../../cross-chain-game/docs/contracts.md) — here
-we focus on what's specific to this demo: the dungeon, the economy, and the
-cross-chain wiring.
+we focus on what's specific to this demo: the dungeon, the two-token economy
+(**GAME** to play, **GOLD** to win), and the cross-chain wiring.
 
 ## The dungeon game
 
@@ -27,28 +28,37 @@ pub struct RunState {
 **Runs are keyed by the settlement-layer player, not the caller.** Appchain actions
 are signed by the local dev account, so each action takes a `player` argument and
 operates on that player's run. A deliberate demo simplification (the dev key can act
-on any run); the leaderboard and reward still key on the real player because the
-entry message and the extract payload both carry it.
+on any run); the vault, leaderboard, and bank still key on the real player because the
+entry message and the withdraw payload both carry it.
 
 **One transaction per action.** The `IDungeon` interface is `move_room`, `attack`,
-`loot`, `use_item`, `extract` — each its own appchain tx. Rooms are rolled on entry
-(monster 45% / treasure 25% / trap 15% / shrine 10% / empty 5%); combat, traps, and
-loot scale with depth. Randomness is `poseidon(seed, action_count)` — deterministic
-per run (a future upgrade is Cartridge VRF). Every action emits an `ActionTaken`
-event (the message feed) keyed by a global sequence, and carries the run's
+`loot`, `use_item`, `extract`, `withdraw` — each its own appchain tx. Rooms are
+rolled on entry (monster 45% / treasure 25% / trap 15% / shrine 10% / empty 5%);
+combat, traps, and loot scale with depth. Randomness is `poseidon(seed, action_count)`
+— deterministic per run (a future upgrade is Cartridge VRF). Every action emits an
+`ActionTaken` event (the message feed) keyed by a global sequence, carrying the run's
 `run_no` so the client can group the feed by run without correlating events.
+
+**The GOLD vault.** Gold collected in a run is realized only by **extracting**. Two
+per-player models hold the cross-run state on the appchain:
+
+```cairo
+#[dojo::model] pub struct Vault       { #[key] player: felt252, gold: u64, withdraw_no: u64 }
+#[dojo::model] pub struct Leaderboard { #[key] player: felt252, best_score: u64, runs: u64, total_gold: u64 }
+```
 
 **How a run ends — the cross-chain lesson:**
 
-- **`extract` (alive) settles.** It computes `score = DEPTH_WEIGHT*depth + gold`,
-  calls `send_message_to_l1([player, score, loot])`, emits `RunEnded { died: false }`,
-  and clears the run. This is the only path that reaches Sepolia.
-- **Death (HP → 0) is local.** A killing blow finalizes the run and emits
-  `RunEnded { died: true }` on the appchain **only** — no message, no reward, the
-  haul forfeited. The player is still out the entry fee.
+- **`extract` (alive) banks into the vault.** It adds `run.gold` to the player's
+  `Vault.gold` (L2, no message), records the run on the leaderboard, and emits
+  `RunEnded { died: false }`. Accumulates across many runs.
+- **Death (HP → 0) is local and forfeits.** A killing blow ends the run, emits
+  `RunEnded { died: true }`, and the in-progress gold is lost — it never reached the
+  vault. Already-extracted gold is safe. The player is still out the entry fee.
 
-So the L2→L1 commit *is* the gameplay decision: push deeper for more, or extract to
-make it real on Sepolia before a bad roll ends you.
+So **extract** is the push-your-luck decision (lock this run's gold into the vault, or
+push deeper and risk losing it). Committing the vault to L1 is a separate step —
+**withdraw** — so a player banks many runs at once.
 
 ## L1 → L2: start a run from an `#[l1_handler]`
 
@@ -64,62 +74,73 @@ fn mint_run(ref self: ContractState, from_address: felt252, player: felt252, see
 appchain can trust. `player` and `seed` come from the payload. The selector
 `mint_run` must match what `entry` sends (`selector!("mint_run")`).
 
-## L2 → L1: extract on the appchain, bank on Sepolia
+## L2 → L1: withdraw the vault, bank on Sepolia
 
-The settled direction, two halves. **Send** from the appchain:
+The settled direction, two halves — **but batched**: one withdrawal banks the whole
+accumulated vault, not one message per run. **Send** from the appchain (`withdraw`):
 
 ```cairo
 send_message_to_l1_syscall(config.registry.into(),
-    array![player, score.into(), gold.into()].span()).unwrap_syscall();
+    array![player, amount.into(), withdraw_no.into()].span()).unwrap_syscall();
+// then: vault.gold = 0; vault.withdraw_no += 1; emit Withdrawal{..}
 ```
 
-**Consume** in the `score` world (`cairo/score/src/lib.cairo`):
+`amount` is the entire `Vault.gold`; `withdraw_no` is a per-player nonce so each of a
+player's withdrawals is a distinct (consumable) message.
+
+**Consume** in the `bank` world (`cairo/score/src/lib.cairo`):
 
 ```cairo
-piltover.consume_message_from_appchain(from_address, array![player, score, loot].span());
-// then: mint the reward, and emit RunBanked (the per-run leaderboard entry)
-IGameTokenMintDispatcher { contract_address: config.game_token }.mint(to, reward);
+piltover.consume_message_from_appchain(from_address, array![player, amount, withdraw_no].span());
+// then: mint GOLD = amount * reward_per_gold; emit Banked{..}
+IGoldTokenMintDispatcher { contract_address: config.gold_token }.mint(to, minted);
 ```
 
-**The payload contract is sacred:** `[player, score, loot]` must be reconstructed
-exactly on both ends (and `from_address` is the appchain game system), or the
-consume reverts. The reward is `score * reward_per_point` in GAME_TOKEN base units.
+**The payload contract is sacred:** `[player, amount, withdraw_no]` must be
+reconstructed exactly on both ends (and `from_address` is the appchain game system),
+or the consume reverts. Minted GOLD is `amount * reward_per_gold` in GOLD base units
+(1 gold → 1 GOLD by default).
 
-**The leaderboard is per-run, not per-player.** Each banked run emits a `RunBanked`
-event keyed by the claim sequence (`claim_no`), so it's one row per banked run — the
-same player can appear many times. The client orders by the run's `score`, so the
-board ranks individual runs by how big a haul they banked (deaths never settle, so
-they never appear).
+**The leaderboard lives entirely on the appchain (L2).** It's a per-player
+`game-Leaderboard` model, updated on every run end with the run's `score`
+(`DEPTH_WEIGHT*depth + gold`); the client ranks players by `best_score`. The bank
+world holds no scoring — it's purely the settlement-side GOLD mint. The client
+reconciles each L2 `Withdrawal` against its L1 `Banked` (matched on `withdraw_no`) to
+drive the bank button.
 
-## The token economy
+## The token economy — two tokens
 
-Three plain Starknet contracts in `cairo/token/src/lib.cairo`:
+`cairo/token/src/lib.cairo` holds two ERC20s with distinct roles plus two plain
+contracts:
 
-- **`game_token`** — an OpenZeppelin ERC20 ("Dungeon Gold" / `DGOLD`). `mint` is
-  restricted to **authorized minters** (the sale and the score world, granted at
-  deploy); `set_minter` is owner-only; `dev_mint` is an open faucet (dev only).
+- **`game_token` (GAME, "Dungeon Credit")** — the **entry credit**. `mint` is
+  minter-only (the sale); `set_minter` owner-only; `dev_mint` is an open faucet
+  (dev only) so you can play without real USDC.
+- **`gold_token` (GOLD, "Dungeon Gold")** — the **winnings**. Minted on L1 only when
+  a player banks; the bank world is its sole minter. **No faucet** — GOLD is earned.
 - **`token_sale`** — `buy(usdc_amount)` does `USDC.transfer_from(buyer, treasury,
   usdc_amount)` then mints `usdc_amount * rate` GAME. This is the **external
   dependency**: USDC is a contract the demo references by address, never deploys.
 - **`entry`** — `enter()` charges `entry_fee` GAME via `transfer_from`, then sends
   the `mint_run` message to the appchain game system. The caller is the run's player.
 
-Because the score world and the sale both **mint** GAME, the deploy step grants
-both `set_minter` rights (see [deployment.md](./deployment.md)).
+So the loop is **spend GAME to play, earn GOLD to keep**: USDC → GAME (sale) → enter
+→ collect gold → extract (vault) → withdraw + bank → GOLD on L1.
 
 ## Wiring the worlds together
 
 The same ordering trick as cross-chain-game: a world's `dojo_init` that needs
 another's address goes later. Here:
 
-1. Deploy `game_token` (its address feeds the score world + sale).
-2. Migrate `score` on Sepolia — `dojo_init(piltover, game_token, reward_per_point)`.
-3. Migrate `game` on the appchain — `dojo_init(registry = score system)`, so
-   `extract` knows where to send.
-4. Deploy `entry` — needs piltover **and** the appchain game system address.
-5. Grant `game_token` minter rights to the sale and the score system.
+1. Deploy `game_token` (GAME) and `gold_token` (GOLD).
+2. Migrate `bank` on Sepolia — `dojo_init(piltover, gold_token, reward_per_gold)`.
+3. Migrate `game` on the appchain — `dojo_init(registry = bank system)`, so
+   `withdraw` knows where to send.
+4. Deploy `token_sale` (GAME, USDC) and `entry` — `entry` needs piltover **and** the
+   appchain game system address.
+5. Grant `game_token` minter → the sale; `gold_token` minter → the bank system.
 
-The reverse dependency (the score consumer needs the appchain sender's address) is
+The reverse dependency (the bank consumer needs the appchain sender's address) is
 supplied by the **client at call time** as `from_address`, so there's no deploy
 cycle. Full order in [deployment.md](./deployment.md).
 

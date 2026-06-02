@@ -159,7 +159,7 @@ saya-tee tee start --mock-prove \
   --settlement-account-private-key "$SAYA_PRIVATE_KEY" \
   --prover-private-key 0xdeadbeef \
   --db-dir "$RUN_DIR/saya-db" \
-  --batch-size "${SAYA_BATCH_SIZE:-10}" \
+  --batch-size "${SAYA_BATCH_SIZE:-1}" \
   --attestor-poll-interval-ms 1000 \
   > "$RUN_DIR/saya.log" 2>&1 &
 SAYA_PID=$!
@@ -167,15 +167,15 @@ SAYA_PID=$!
 # 6. Deploy the economy + worlds (GAME_TOKEN, score, game, TokenSale, Entry, grants).
 ( cd "$DEMO_DIR" && bun run scripts/deploy.ts )
 
-SCORE_WORLD=$(node -e 'console.log(require(process.argv[1]).settlement.scoreWorld)' "$DEMO_DIR/app/src/deployments.json")
+BANK_WORLD=$(node -e 'console.log(require(process.argv[1]).settlement.bankWorld)' "$DEMO_DIR/app/src/deployments.json")
 GAME_WORLD=$(node -e 'console.log(require(process.argv[1]).appchain.gameWorld)' "$DEMO_DIR/app/src/deployments.json")
 
-# 7. Torii indexers. The score world lives on Sepolia — torii resolves the world's
+# 7. Torii indexers. The bank world lives on Sepolia — torii resolves the world's
 #    deploy block from the contract, so it won't rescan all of Sepolia. The game
 #    world is on the local appchain.
-echo "→ starting torii (Sepolia: score world) on :${TORII_SCORE_HTTP}…"
+echo "→ starting torii (Sepolia: bank world) on :${TORII_SCORE_HTTP}…"
 rm -rf "$RUN_DIR/torii-score.db" "$RUN_DIR/torii-game.db"
-torii --rpc "$SEPOLIA_RPC_URL" --world "$SCORE_WORLD" \
+torii --rpc "$SEPOLIA_RPC_URL" --world "$BANK_WORLD" \
   --http.port "$TORII_SCORE_HTTP" --grpc.port "$TORII_SCORE_GRPC" \
   --relay.port "$TORII_SCORE_RELAY" --relay.webrtc_port $((TORII_SCORE_RELAY+1)) --relay.websocket_port $((TORII_SCORE_RELAY+2)) \
   --http.cors_origins '*' \

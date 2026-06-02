@@ -7,13 +7,16 @@
 //! 2. **Play** (L2): one transaction per action — `move_room`, `attack`, `loot`,
 //!    `use_item`. Each rolls a pseudo-random outcome and mutates the run. Risk and
 //!    reward both climb with depth.
-//! 3. **Extract** (L2 → L1): `extract` ends the run *alive* and publishes
-//!    `[player, score, loot]` to the settlement `score` world via
-//!    `send_message_to_l1`. This is the only path that pays.
+//! 3. **Extract** (L2): `extract` ends the run *alive* and banks its GOLD into the
+//!    player's on-chain **vault**, accumulating across many runs. No L1 message yet.
+//! 4. **Withdraw / bank** (L2 → L1): `withdraw` publishes one message carrying the
+//!    *whole* vault total to the settlement `bank` world, which mints that much GOLD
+//!    on L1, then resets the vault. Players bank once for many runs.
 //!
-//! **Death is local.** If HP hits 0 the run ends on the appchain only — no L2 → L1
-//! message, no reward. The haul is forfeit. That asymmetry is the whole lesson:
-//! appchain value is provisional until you commit it to the settlement layer.
+//! **Death is local.** If HP hits 0 the run ends on the appchain only — the
+//! in-progress run's gold is forfeit (it never reached the vault). Already-extracted
+//! gold is safe in the vault. That asymmetry is the lesson: appchain value is
+//! provisional until you commit it to L1 — here, by banking the vault.
 //!
 //! Runs are keyed by `player` (the settlement-layer address carried in the entry
 //! message), not by the caller — appchain actions are signed by the dev key here,
@@ -37,9 +40,14 @@ pub trait IDungeon<T> {
     fn loot(ref self: T, player: felt252);
     /// Quaff a potion to heal. Panics if you hold none or are already at full HP.
     fn use_item(ref self: T, player: felt252);
-    /// Climb out alive and bank the run: publishes `[player, score, loot]` to L1.
-    /// Panics if dead or mid-combat. Returns the banked score.
+    /// Climb out alive: bank this run's GOLD into the player's vault (accumulates
+    /// across runs) and record it on the leaderboard. Sends no L1 message. Panics if
+    /// dead or mid-combat. Returns the gold added to the vault.
     fn extract(ref self: T, player: felt252) -> u64;
+    /// Bank the vault to L1: send one message `[player, amount, withdraw_no]` to the
+    /// settlement `bank` world (which mints that much GOLD), then reset the vault.
+    /// Panics if the vault is empty. Returns the amount sent.
+    fn withdraw(ref self: T, player: felt252) -> u64;
 }
 
 #[dojo::contract]
@@ -80,13 +88,38 @@ pub mod game {
         pub total_ended: u64,
     }
 
-    /// Settlement `score` system this world publishes extracted runs to (set at init).
+    /// Settlement `bank` system this world withdraws to (set at init).
     #[derive(Copy, Drop, Serde)]
     #[dojo::model]
     pub struct GameConfig {
         #[key]
         pub id: u8,
         pub registry: ContractAddress,
+    }
+
+    /// Per-player GOLD vault: gold extracted from runs accumulates here (L2) until
+    /// the player banks it to L1 via `withdraw`. `withdraw_no` is a per-player nonce
+    /// that makes each withdraw's L2→L1 message unique.
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::model]
+    pub struct Vault {
+        #[key]
+        pub player: felt252,
+        pub gold: u64,
+        pub withdraw_no: u64,
+    }
+
+    /// Per-player leaderboard, lives entirely on the appchain (L2). Ranked off-chain
+    /// by `best_score` (a run's score = DEPTH_WEIGHT * depth + gold). Updated on
+    /// every run end (extract or death).
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::model]
+    pub struct Leaderboard {
+        #[key]
+        pub player: felt252,
+        pub best_score: u64,
+        pub runs: u64,
+        pub total_gold: u64,
     }
 
     /// One live run, keyed by the settlement-layer player address. `alive == false`
@@ -137,8 +170,8 @@ pub mod game {
     }
 
     /// Emitted when a run ends — both on extract (`died: false`) and on death
-    /// (`died: true`). Only extract also sends the L2 → L1 message. Keyed by the
-    /// unique end sequence.
+    /// (`died: true`). Extract banks `loot` gold into the vault; death forfeits it.
+    /// Keyed by the unique end sequence.
     #[derive(Copy, Drop, Serde)]
     #[dojo::event]
     pub struct RunEnded {
@@ -148,6 +181,20 @@ pub mod game {
         pub score: u64,
         pub loot: u64,
         pub died: bool,
+    }
+
+    /// Emitted when a player banks their vault to L1. Keyed by the global bank
+    /// sequence so Torii keeps one row per withdrawal. `withdraw_no` is the
+    /// per-player nonce carried in the L2→L1 payload (so the L1 bank can reconstruct
+    /// and consume the message).
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::event]
+    pub struct Withdrawal {
+        #[key]
+        pub bank_no: u64,
+        pub player: felt252,
+        pub amount: u64,
+        pub withdraw_no: u64,
     }
 
     /// Record the settlement `score` system address and seed the counters.
@@ -342,33 +389,62 @@ pub mod game {
             assert(run.alive, 'No active run');
             assert(run.enemy_hp == 0, 'Cannot extract in combat');
 
-            let score = DEPTH_WEIGHT * run.depth.into() + run.gold;
+            let gold = run.gold;
+            let score = DEPTH_WEIGHT * run.depth.into() + gold;
 
-            // Publish to L1. `to_address` is the settlement `score` system; payload
-            // `[player, score, loot]` must match what `score::claim_run` passes to
-            // the piltover core, or the consume reverts.
-            let config: GameConfig = world.read_model(SINGLETON);
-            send_message_to_l1_syscall(
-                config.registry.into(), array![player, score.into(), run.gold.into()].span(),
-            )
-                .unwrap_syscall();
+            // Bank this run's gold into the player's vault (L2, no L1 message yet).
+            let mut vault: Vault = world.read_model(player);
+            vault.gold += gold;
+            world.write_model(@vault);
 
             run.alive = false;
             world.write_model(@run);
 
             let mut stats: Stats = world.read_model(SINGLETON);
             stats.active_runs -= 1;
-            stats.total_banked += 1;
             stats.total_ended += 1;
+            world.write_model(@stats);
+
+            self.record_run(player, score, gold);
+            world
+                .emit_event(
+                    @RunEnded { end_no: stats.total_ended, player, score, loot: gold, died: false },
+                );
+            gold
+        }
+
+        fn withdraw(ref self: ContractState, player: felt252) -> u64 {
+            let mut world = self.world_default();
+            let mut vault: Vault = world.read_model(player);
+            assert(vault.gold > 0, 'Vault is empty');
+
+            let amount = vault.gold;
+            let withdraw_no = vault.withdraw_no;
+
+            // Publish one message to L1 carrying the whole vault. `to_address` is the
+            // settlement `bank` system; the payload `[player, amount, withdraw_no]`
+            // must match what `bank::bank` reconstructs, or the consume reverts. The
+            // nonce keeps each of a player's withdrawals a distinct message.
+            let config: GameConfig = world.read_model(SINGLETON);
+            send_message_to_l1_syscall(
+                config.registry.into(),
+                array![player, amount.into(), withdraw_no.into()].span(),
+            )
+                .unwrap_syscall();
+
+            vault.gold = 0;
+            vault.withdraw_no += 1;
+            world.write_model(@vault);
+
+            let mut stats: Stats = world.read_model(SINGLETON);
+            stats.total_banked += 1;
             world.write_model(@stats);
 
             world
                 .emit_event(
-                    @RunEnded {
-                        end_no: stats.total_ended, player, score, loot: run.gold, died: false,
-                    },
+                    @Withdrawal { bank_no: stats.total_banked, player, amount, withdraw_no },
                 );
-            score
+            amount
         }
     }
 
@@ -414,8 +490,22 @@ pub mod game {
                 );
         }
 
-        /// Finalize a dead run: forfeit the haul, end locally, **send no L2 → L1
-        /// message**. Records depth-based score for display only.
+        /// Record a finished run on the per-player leaderboard (L2): bump the run
+        /// count, add the gold kept (0 on death), and raise the best score.
+        fn record_run(self: @ContractState, player: felt252, score: u64, gold_kept: u64) {
+            let mut world = self.world_default();
+            let mut lb: Leaderboard = world.read_model(player);
+            lb.runs += 1;
+            lb.total_gold += gold_kept;
+            if score > lb.best_score {
+                lb.best_score = score;
+            }
+            world.write_model(@lb);
+        }
+
+        /// Finalize a dead run: forfeit the in-progress gold (it never reached the
+        /// vault), end locally, **send no L2 → L1 message**. Still recorded on the
+        /// leaderboard by its depth-based score.
         fn end_run_dead(self: @ContractState, player: felt252, mut run: RunState) {
             let mut world = self.world_default();
             run.alive = false;
@@ -428,6 +518,7 @@ pub mod game {
             world.write_model(@stats);
 
             let score = DEPTH_WEIGHT * run.depth.into();
+            self.record_run(player, score, 0);
             world
                 .emit_event(
                     @RunEnded {

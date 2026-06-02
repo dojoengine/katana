@@ -1,27 +1,44 @@
 //! Settlement-layer ("L1", Starknet Sepolia) plain Starknet contracts for the
 //! dungeon economy. None of these are Dojo worlds.
 //!
-//! - `game_token` — the GAME_TOKEN ERC20 (OpenZeppelin). Minting is restricted to
-//!   authorized minters (the sale + the settlement `score` world), plus an open
-//!   `dev_mint` faucet so the demo is playable without acquiring real USDC.
-//! - `token_sale` — buy GAME_TOKEN with **real Circle USDC** at a fixed rate. This
-//!   is the "depend on an external settlement-layer contract" showcase: it calls
-//!   USDC's `transfer_from`, then mints GAME to the buyer.
-//! - `entry` — charge a GAME_TOKEN entry fee, then send the L1→L2 message that
-//!   starts a dungeon run on the appchain (`mint_run`).
+//! Two ERC20s with distinct roles:
+//! - `game_token` — GAME, the entry credit ("Dungeon Credit"). Bought with USDC and
+//!   spent to enter the dungeon. Minting is restricted to authorized minters (the
+//!   sale), plus an open `dev_mint` faucet so the demo is playable without real USDC.
+//! - `gold_token` — GOLD ("Dungeon Gold"), the dungeon winnings. Collected on the
+//!   appchain (L2), accumulated, and **minted here on L1 when a player banks** — the
+//!   bank world is its only minter. No faucet: GOLD is earned, never granted.
+//!
+//! Plus two plain contracts:
+//! - `token_sale` — buy GAME with **real Circle USDC** at a fixed rate. This is the
+//!   "depend on an external settlement-layer contract" showcase: it calls USDC's
+//!   `transfer_from`, then mints GAME to the buyer.
+//! - `entry` — charge a GAME entry fee, then send the L1→L2 message that starts a
+//!   dungeon run on the appchain (`mint_run`).
 
 use starknet::ContractAddress;
 
-/// GAME_TOKEN's minting surface (beyond the standard ERC20 mixin).
+/// GAME (entry credit) minting surface (beyond the standard ERC20 mixin).
 #[starknet::interface]
 pub trait IGameToken<T> {
-    /// Mint to `to`. Caller must be an authorized minter (the sale / score world).
+    /// Mint to `to`. Caller must be an authorized minter (the sale).
     fn mint(ref self: T, to: ContractAddress, amount: u256);
     /// Owner-only: grant/revoke minting rights.
     fn set_minter(ref self: T, minter: ContractAddress, allowed: bool);
     /// Open dev faucet: mint `amount` to the caller. For local development only —
     /// lets you play without acquiring real USDC. Not for production.
     fn dev_mint(ref self: T, amount: u256);
+    fn is_minter(self: @T, account: ContractAddress) -> bool;
+}
+
+/// GOLD (dungeon winnings) minting surface. Like GAME but with no faucet — GOLD is
+/// only minted by the bank world when a player banks their accumulated haul.
+#[starknet::interface]
+pub trait IGoldToken<T> {
+    /// Mint to `to`. Caller must be an authorized minter (the bank world).
+    fn mint(ref self: T, to: ContractAddress, amount: u256);
+    /// Owner-only: grant/revoke minting rights.
+    fn set_minter(ref self: T, minter: ContractAddress, allowed: bool);
     fn is_minter(self: @T, account: ContractAddress) -> bool;
 }
 
@@ -90,7 +107,7 @@ pub mod game_token {
     #[constructor]
     fn constructor(ref self: ContractState, owner: ContractAddress) {
         self.ownable.initializer(owner);
-        self.erc20.initializer("Dungeon Gold", "DGOLD");
+        self.erc20.initializer("Dungeon Credit", "GAME");
     }
 
     #[abi(embed_v0)]
@@ -108,6 +125,68 @@ pub mod game_token {
         fn dev_mint(ref self: ContractState, amount: u256) {
             // Open faucet — local dev convenience only.
             self.erc20.mint(get_caller_address(), amount);
+        }
+
+        fn is_minter(self: @ContractState, account: ContractAddress) -> bool {
+            self.minters.read(account)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+#[starknet::contract]
+pub mod gold_token {
+    use openzeppelin::access::ownable::OwnableComponent;
+    use openzeppelin::token::erc20::{ERC20Component, ERC20HooksEmptyImpl};
+    use starknet::storage::{Map, StorageMapReadAccess, StorageMapWriteAccess};
+    use starknet::{ContractAddress, get_caller_address};
+    use super::IGoldToken;
+
+    component!(path: ERC20Component, storage: erc20, event: ERC20Event);
+    component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
+
+    #[abi(embed_v0)]
+    impl ERC20MixinImpl = ERC20Component::ERC20MixinImpl<ContractState>;
+    #[abi(embed_v0)]
+    impl OwnableMixinImpl = OwnableComponent::OwnableMixinImpl<ContractState>;
+    impl ERC20InternalImpl = ERC20Component::InternalImpl<ContractState>;
+    impl OwnableInternalImpl = OwnableComponent::InternalImpl<ContractState>;
+
+    #[storage]
+    struct Storage {
+        #[substorage(v0)]
+        erc20: ERC20Component::Storage,
+        #[substorage(v0)]
+        ownable: OwnableComponent::Storage,
+        minters: Map<ContractAddress, bool>,
+    }
+
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+        #[flat]
+        ERC20Event: ERC20Component::Event,
+        #[flat]
+        OwnableEvent: OwnableComponent::Event,
+    }
+
+    #[constructor]
+    fn constructor(ref self: ContractState, owner: ContractAddress) {
+        self.ownable.initializer(owner);
+        self.erc20.initializer("Dungeon Gold", "GOLD");
+    }
+
+    #[abi(embed_v0)]
+    impl GoldTokenImpl of IGoldToken<ContractState> {
+        fn mint(ref self: ContractState, to: ContractAddress, amount: u256) {
+            assert(self.minters.read(get_caller_address()), 'Not an authorized minter');
+            self.erc20.mint(to, amount);
+        }
+
+        fn set_minter(ref self: ContractState, minter: ContractAddress, allowed: bool) {
+            self.ownable.assert_only_owner();
+            self.minters.write(minter, allowed);
         }
 
         fn is_minter(self: @ContractState, account: ContractAddress) -> bool {

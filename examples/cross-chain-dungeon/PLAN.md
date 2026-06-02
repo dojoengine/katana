@@ -1,5 +1,14 @@
 # cross-chain-dungeon Implementation Plan
 
+> **Update — two-token economy + batched banking.** The shipped design evolved past
+> this spec: there are now **two** tokens — **GAME** (entry credit, bought with USDC)
+> and **GOLD** (winnings). Extracting banks a run's gold into an on-L2 **vault**
+> (accumulating across runs); a single **withdraw** sends the whole vault to L1, where
+> the `bank` world (the former `score` world, `cairo/score`, namespace `bank`) mints
+> GOLD. The leaderboard lives **entirely on the appchain** (per-player best score).
+> The authoritative description is in [`docs/`](./docs/) (architecture / contracts /
+> client); sections below reflect the original single-token, per-run-claim plan.
+
 ## Overview
 A second Katana appchain example (sibling to `examples/cross-chain-game`) that
 settles to **real Starknet Sepolia** instead of a local settlement Katana. It

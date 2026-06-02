@@ -19,21 +19,23 @@ export const APPCHAIN_RPC = deployments.appchain.rpcUrl;
 export const SEPOLIA_EXPLORER = deployments.settlement.explorer;
 export const APPCHAIN_EXPLORER = deployments.appchain.explorer;
 
-export const TORII_SCORE = deployments.settlement.torii; // Sepolia: score world
+export const TORII_BANK = deployments.settlement.torii; // Sepolia: bank world
 export const TORII_GAME = deployments.appchain.torii; // appchain: game world
 
 export const PILTOVER = deployments.settlement.piltover;
 export const USDC = deployments.settlement.usdc;
-export const GAME_TOKEN = deployments.settlement.gameToken;
+export const GAME_TOKEN = deployments.settlement.gameToken; // entry credit (L1)
+export const GOLD_TOKEN = deployments.settlement.goldToken; // winnings, minted on bank (L1)
 export const TOKEN_SALE = deployments.settlement.tokenSale;
 export const ENTRY = deployments.settlement.entry;
-export const SCORE_SYSTEM = deployments.settlement.scoreSystem;
+export const BANK_SYSTEM = deployments.settlement.bankSystem; // L1 bank (consumes withdrawal)
 export const GAME_SYSTEM = deployments.appchain.gameSystem;
-export const SCORE_WORLD = deployments.settlement.scoreWorld; // Sepolia score world
+export const BANK_WORLD = deployments.settlement.bankWorld; // Sepolia bank world
 export const GAME_WORLD = deployments.appchain.gameWorld; // appchain game world
 
-// Decimals: GAME_TOKEN is a standard OZ ERC20 (18); USDC on Sepolia is 6.
+// Decimals: GAME + GOLD are standard OZ ERC20s (18); USDC on Sepolia is 6.
 export const GAME_DECIMALS = 18;
+export const GOLD_DECIMALS = 18;
 export const USDC_DECIMALS = 6;
 
 const num = (v: string | number): number => (typeof v === "number" ? v : Number(BigInt(v)));
@@ -85,7 +87,7 @@ async function toriiSql<T = Record<string, string | number>>(base: string, sql: 
 }
 
 /**
- * Subscribe to live updates from both Torii worlds (game on the appchain, score
+ * Subscribe to live updates from both Torii worlds (game on the appchain, bank
  * on Sepolia) and call `onUpdate` whenever a model is set or an event is emitted.
  * This replaces fixed-interval Torii polling: the UI refetches only when there's
  * new data. We pass `null` clauses (every entity/event) and ignore the payload —
@@ -107,7 +109,7 @@ export async function subscribeToriiUpdates(onUpdate: () => void): Promise<() =>
     subs.push(await client.onEventMessageUpdated(null, null, () => onUpdate()));
   };
 
-  await Promise.all([connect(TORII_GAME, GAME_WORLD), connect(TORII_SCORE, SCORE_WORLD)]);
+  await Promise.all([connect(TORII_GAME, GAME_WORLD), connect(TORII_BANK, BANK_WORLD)]);
 
   return () => {
     for (const s of subs) {
@@ -254,50 +256,59 @@ export async function getActionFeed(limit = 40): Promise<ActionRow[]> {
   });
 }
 
-// --- leaderboard + bank feed (score world, on Sepolia) ---
+// --- leaderboard (game world, on the appchain) ---
 
-// The leaderboard is per-run: each banked run (a `score-RunBanked` event, keyed by
-// the claim sequence) is its own entry, so the same player can appear many times.
-// Ordered by the run's banked score (ties broken by claim order).
-export type LeaderRow = { claimNo: number; player: string; score: number; loot: number; reward: bigint };
+// The leaderboard lives entirely on L2: one row per player (`game-Leaderboard`),
+// ranked by their best run score (DEPTH_WEIGHT * depth + gold). Banking happens on
+// L1 and doesn't touch this board.
+export type LeaderRow = { player: string; bestScore: number; runs: number; totalGold: number };
 export async function readLeaderboard(limit = 10): Promise<LeaderRow[]> {
   const rows = await toriiSql<Record<string, string>>(
-    TORII_SCORE,
-    `SELECT claim_no, player, score, loot, reward FROM "score-RunBanked" ORDER BY score DESC, claim_no ASC LIMIT ${limit}`,
+    TORII_GAME,
+    `SELECT player, best_score, runs, total_gold FROM "game-Leaderboard" ORDER BY best_score DESC LIMIT ${limit}`,
   );
   return rows.map((r) => ({
-    claimNo: num(r.claim_no),
     player: r.player,
-    score: num(r.score),
-    loot: num(r.loot),
-    reward: BigInt(r.reward),
+    bestScore: num(r.best_score),
+    runs: num(r.runs),
+    totalGold: num(r.total_gold),
   }));
 }
 
-// --- extract / bank reconciliation (drives the "Bank" step) ---
+// --- vault (accumulated GOLD on L2, awaiting bank) ---
 
-export type ExtractRow = { endNo: number; score: number; loot: number; block: number };
-
-/** Extracted (alive) runs for a player, oldest-first. Each needs a `claim_run`
- *  on Sepolia once saya has settled the block it landed in. */
-export async function getExtracts(player: string): Promise<ExtractRow[]> {
+/** The player's unbanked GOLD accumulated on the appchain (0 if none). */
+export async function readVault(player: string): Promise<number> {
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
-    `SELECT end_no, score, loot, internal_event_id FROM "game-RunEnded" WHERE player = "${player}" AND died = 0 ORDER BY end_no`,
+    `SELECT gold FROM "game-Vault" WHERE player = "${player}"`,
+  );
+  return num(rows[0]?.gold ?? 0);
+}
+
+// --- withdrawal / bank reconciliation (drives the "Bank" step) ---
+
+export type WithdrawalRow = { withdrawNo: number; amount: number; block: number };
+
+/** This player's withdrawals (vault → L1), oldest-first. Each needs a `bank` on
+ *  Sepolia once saya has settled the block it landed in. */
+export async function getWithdrawals(player: string): Promise<WithdrawalRow[]> {
+  const rows = await toriiSql<Record<string, string | number>>(
+    TORII_GAME,
+    `SELECT withdraw_no, amount, internal_event_id FROM "game-Withdrawal" WHERE player = "${player}" ORDER BY withdraw_no`,
   );
   return rows.map((r) => ({
-    endNo: num(r.end_no),
-    score: num(r.score),
-    loot: num(r.loot),
+    withdrawNo: num(r.withdraw_no),
+    amount: num(r.amount),
     block: parseEventId(String(r.internal_event_id)).block,
   }));
 }
 
-/** How many of this player's extracts have already been banked on Sepolia. */
+/** How many of this player's withdrawals have already been banked on Sepolia. */
 export async function getBankCount(player: string): Promise<number> {
   const rows = await toriiSql<Record<string, string | number>>(
-    TORII_SCORE,
-    `SELECT COUNT(*) AS c FROM "score-RunBanked" WHERE player = "${player}"`,
+    TORII_BANK,
+    `SELECT COUNT(*) AS c FROM "bank-Banked" WHERE player = "${player}"`,
   );
   return num(rows[0]?.c ?? 0);
 }
@@ -334,6 +345,7 @@ async function erc20Balance(token: string, owner: string): Promise<bigint> {
   return u256FromParts(res as string[]);
 }
 export const gameBalance = (owner: string) => erc20Balance(GAME_TOKEN, owner);
+export const goldBalance = (owner: string) => erc20Balance(GOLD_TOKEN, owner);
 export const usdcBalance = (owner: string) => erc20Balance(USDC, owner);
 
 export async function entryFee(): Promise<bigint> {
@@ -408,14 +420,14 @@ export async function enterDungeon(account: Signer): Promise<string> {
   });
 }
 
-/** Bank a settled run on Sepolia: consume the L2→L1 message, mint the reward. */
-export async function claimRun(account: Signer, player: string, score: number, loot: number): Promise<string> {
+/** Bank a settled withdrawal on Sepolia: consume the L2→L1 message, mint GOLD. */
+export async function bankRun(account: Signer, player: string, amount: number, withdrawNo: number): Promise<string> {
   return withSettlementLock(async () => {
     const { transaction_hash } = await account.execute({
-      contractAddress: SCORE_SYSTEM,
-      entrypoint: "claim_run",
-      // claim_run(from_address = game system, player, score, loot)
-      calldata: [GAME_SYSTEM, player, "0x" + score.toString(16), "0x" + loot.toString(16)],
+      contractAddress: BANK_SYSTEM,
+      entrypoint: "bank",
+      // bank(from_address = game system, player, amount, withdraw_no)
+      calldata: [GAME_SYSTEM, player, "0x" + amount.toString(16), "0x" + withdrawNo.toString(16)],
     });
     await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
     return transaction_hash;
@@ -441,16 +453,11 @@ export const attack = (player: string) => appchainAction("attack", player);
 export const loot = (player: string) => appchainAction("loot", player);
 export const useItem = (player: string) => appchainAction("use_item", player);
 
-/** Extract: ends the run alive and publishes [player, score, loot] to L1. */
-export async function extract(player: string): Promise<string> {
-  const { transaction_hash } = await appchainAccount.execute({
-    contractAddress: GAME_SYSTEM,
-    entrypoint: "extract",
-    calldata: [player],
-  });
-  await appchainProvider.waitForTransaction(transaction_hash, APPCHAIN_TX_WAIT);
-  await sleep(150);
-  return transaction_hash;
-}
+/** Extract: ends the run alive and banks its gold into the player's L2 vault. */
+export const extract = (player: string) => appchainAction("extract", player);
+
+/** Withdraw: send the whole vault to L1 as one message (the first half of banking).
+ *  Signed by the appchain account; the second half is `bankRun` on Sepolia. */
+export const withdraw = (player: string) => appchainAction("withdraw", player);
 
 export { MESSAGE_SENT_KEY };

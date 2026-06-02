@@ -11,7 +11,7 @@ poll loop and UI are in `app/src/App.tsx`; the wallet is `app/src/wallet.tsx`.
 This app keeps the **hand-written terminal CSS** (no tailwind/shadcn) but uses the
 same **live Torii subscriptions** as cross-chain-game: `subscribeToriiUpdates`
 (`chain.ts`) connects a `@dojoengine/torii-wasm` `ToriiClient` to both worlds
-(`game` on the appchain, `score` on Sepolia) and refetches the instant a model is
+(`game` on the appchain, `bank` on Sepolia) and refetches the instant a model is
 set or an event is emitted (`onEntityUpdated` / `onEventMessageUpdated`). A slow
 5s interval remains as a fallback and for the RPC-only facts that have no
 subscription (token balances, the piltover settled height, the appchain tip). If
@@ -25,16 +25,18 @@ strings collapsed with `Number(BigInt(v))`):
 | What | Source |
 | --- | --- |
 | Live run (HP/gold/depth/room/potions) | `game-RunState` model, keyed by the player |
+| GOLD vault (accumulated, unbanked) | `game-Vault` model, keyed by the player |
+| Leaderboard (per player, best score) | `game-Leaderboard` model (appchain Torii), ordered by `best_score` |
 | World counters | `game-Stats` |
 | Action feed (the message log) | `game-ActionTaken` event table |
-| Leaderboard + banked runs (per run) | `score-RunBanked` event table (Sepolia Torii), ordered by `score` |
+| Withdrawals (L2) vs banks (L1) | `game-Withdrawal` vs `bank-Banked` event tables |
 
 `ActionTaken.kind`/`outcome` are short-string felts — the client decodes them back
 to ASCII for the log (`move`, `attack`, `kill`, `trap`, `shrine`, …).
 
 A few things aren't world state, so they bypass Torii and hit RPC directly:
 
-- **Token balances** — `USDC.balanceOf` / `GAME_TOKEN.balanceOf` on Sepolia.
+- **Token balances** — `USDC` / `GAME` / `GOLD` `balanceOf` on Sepolia.
 - **Settled height** — piltover `get_state()[1]` (drives the "settled N / tip M"
   gauge), and the appchain tip from `getBlockNumber`.
 - **Entry fee** — `entry.entry_fee()`.
@@ -49,10 +51,12 @@ signed by the wallet's L1 account; appchain actions by the local dev account:
 - **Dev-mint (Sepolia):** `devMint` — `game_token.dev_mint(amount)`, the no-USDC faucet.
 - **Enter (L1→L2):** `enterDungeon` — multicall `game_token.approve(entry, fee)` +
   `entry.enter()`. Starts the run for the L1 signer's address.
-- **Play (appchain):** `moveRoom` / `attack` / `loot` / `useItem` / `extract` — each
-  calls the `game` system with the player address, signed by the dev account.
-- **Bank (L2→L1):** `claimRun(player, score, loot)` — `score.claim_run` on Sepolia,
-  once settled.
+- **Play (appchain):** `moveRoom` / `attack` / `loot` / `useItem` / `extract` /
+  `withdraw` — each calls the `game` system with the player address, signed by the
+  dev account. `extract` banks the run's gold into the vault; `withdraw` sends the
+  whole vault to L1.
+- **Bank (L2→L1):** `bankRun(player, amount, withdrawNo)` — `bank.bank` on Sepolia,
+  once the withdrawal is settled; mints GOLD.
 
 Two practical notes carried over from cross-chain-game:
 
@@ -64,12 +68,19 @@ Two practical notes carried over from cross-chain-game:
 
 ## Driving the bank step
 
-`extract` clears the run on the appchain, so the score/loot to bank can't be read
-from `RunState` afterward. Instead the client reconciles two feeds: `game-RunEnded`
-(extracted runs, `died = 0`) against `score-RunBanked` (already-banked). The first
-extract beyond the banked count is the **pending** one; the **Bank** button enables
-once `settledBlock ≥` the extract's appchain block (saya has settled it). See
-`getExtracts` / `getBankCount` in `chain.ts`.
+Banking is **batched** and split across a dedicated **Bank tab** (framed as the L1
+operation). Players extract many runs into the `game-Vault`, then bank once:
+
+1. **Withdraw (L2):** when `Vault.gold > 0`, `withdraw` sends one message with the
+   whole vault and emits a `game-Withdrawal { amount, withdraw_no }`.
+2. **Settle:** saya proves and settles the withdrawal's appchain block onto piltover.
+3. **Bank (L1):** `bankRun` consumes the message and mints GOLD.
+
+The client reconciles `game-Withdrawal` (L2) against `bank-Banked` (L1): the first
+withdrawal beyond the banked count is the **pending** one, and the **Mint GOLD**
+button enables once `settledBlock ≥` its appchain block. The Bank-tab badge shows the
+bankable gold (amber while awaiting saya, green once a withdrawal is settled). See
+`readVault` / `getWithdrawals` / `getBankCount` in `chain.ts`.
 
 ## Wallets (operator default, optional Controller)
 
@@ -82,13 +93,13 @@ with the single Sepolia chain, and the appchain play actions always use the loca
 dev account. There's no `switchStarknetChain`, so this sidesteps the
 hosted-keychain-can't-switch-to-a-local-appchain limitation that cross-chain-game
 ran into. Session policies scope the Controller to the demo's Sepolia entrypoints
-(USDC/GAME `approve`, `buy`, `enter`, `claim_run`) so they're gasless session calls.
+(USDC/GAME `approve`, `buy`, `enter`, `bank`) so they're gasless session calls.
 
 ## Poll + derive
 
 The client keeps no authoritative state of its own: one 1.5s interval re-reads
-everything (run, stats, feed, leaderboard, balances, settled/tip, pending extract)
-and the UI derives from that — so a page reload reproduces the same state. The
+everything (run, stats, feed, leaderboard, balances, vault, settled/tip, pending
+withdrawal) and the UI derives from that — so a page reload reproduces the same state. The
 dungeon view, the vitals, the enabled/disabled action buttons (e.g. **Attack** only
 in combat, **Extract** only out of combat), and the message log are all functions of
 the latest read.

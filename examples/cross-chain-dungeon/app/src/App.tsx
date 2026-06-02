@@ -190,11 +190,12 @@ export default function App() {
   const [feed, setFeed] = useState<chain.ActionRow[]>([]);
   const [board, setBoard] = useState<chain.LeaderRow[]>([]);
   const [gameBal, setGameBal] = useState(0n);
+  const [goldBal, setGoldBal] = useState(0n);
   const [usdcBal, setUsdcBal] = useState(0n);
+  const [vault, setVault] = useState(0); // accumulated GOLD on L2 awaiting bank
   const [settled, setSettled] = useState(0);
   const [tip, setTip] = useState(0);
-  const [pending, setPending] = useState<chain.ExtractRow | null>(null);
-  const [pendingCount, setPendingCount] = useState(0); // settled runs awaiting bank (L1)
+  const [pending, setPending] = useState<chain.WithdrawalRow | null>(null); // unbanked withdrawal
   const [lastEnded, setLastEnded] = useState<chain.RunEndRow | null>(null);
   const [selected, setSelected] = useState<chain.ActionRow | null>(null);
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
@@ -226,16 +227,18 @@ export default function App() {
     if (!ready || inFlight.current) return;
     inFlight.current = true;
     try {
-      const [r, st, fd, lb, gb, ub, sb, tp, ex, bc, le] = await Promise.all([
+      const [r, st, fd, lb, gb, gld, ub, vt, sb, tp, wd, bc, le] = await Promise.all([
         chain.readRun(player),
         chain.readStats(),
         chain.getActionFeed(),
         chain.readLeaderboard(),
         chain.gameBalance(player),
+        chain.goldBalance(player),
         chain.usdcBalance(player),
+        chain.readVault(player),
         chain.settledBlock(),
         chain.appchainBlock(),
-        chain.getExtracts(player),
+        chain.getWithdrawals(player),
         chain.getBankCount(player),
         chain.getLastRunEnded(player),
       ]);
@@ -244,11 +247,12 @@ export default function App() {
       setFeed(fd);
       setBoard(lb);
       setGameBal(gb);
+      setGoldBal(gld);
       setUsdcBal(ub);
+      setVault(vt);
       setSettled(sb);
       setTip(tp);
-      setPending(ex.length > bc ? ex[bc] : null);
-      setPendingCount(Math.max(0, ex.length - bc));
+      setPending(wd.length > bc ? wd[bc] : null);
       setLastEnded(le);
       setErr(null);
     } catch (e) {
@@ -328,7 +332,8 @@ export default function App() {
   const onLoot = act("loot", () => chain.loot(player));
   const onUse = act("use", () => chain.useItem(player));
   const onExtract = act("extract", () => chain.extract(player));
-  const onClaim = act("claim", () => (pending ? chain.claimRun(wallet.l1Account, player, pending.score, pending.loot) : Promise.resolve()));
+  const onWithdraw = act("withdraw", () => chain.withdraw(player));
+  const onClaim = act("claim", () => (pending ? chain.bankRun(wallet.l1Account, player, pending.amount, pending.withdrawNo) : Promise.resolve()));
 
   const hp = run ? run.hp : 0;
   const maxHp = run ? run.maxHp : 100;
@@ -343,7 +348,10 @@ export default function App() {
     );
   })();
 
-  const claimReady = pending && settled >= pending.block;
+  const claimReady = !!pending && settled >= pending.block;
+  // GOLD that can still be banked: gold sitting in the L2 vault (needs a withdraw)
+  // plus any withdrawn-but-not-yet-banked amount (needs settle + bank on L1).
+  const bankable = vault + (pending?.amount ?? 0);
 
   return (
     <>
@@ -404,12 +412,12 @@ export default function App() {
             </button>
             <button className={`tab ${tab === "bank" ? "on" : ""}`} onClick={() => setTab("bank")}>
               ▸ Bank <span className="tab-sub">· L1 Sepolia</span>
-              {pendingCount > 0 && (
+              {bankable > 0 && (
                 <span
                   className={`tab-badge ${claimReady ? "ready" : "wait"}`}
-                  title={claimReady ? `${pendingCount} run${pendingCount > 1 ? "s" : ""} ready to bank` : "awaiting saya settlement"}
+                  title={claimReady ? `${pending?.amount} GOLD ready to bank` : `${bankable} GOLD to bank`}
                 >
-                  {pendingCount}
+                  {bankable}
                 </span>
               )}
             </button>
@@ -430,57 +438,63 @@ export default function App() {
                   </span>
                 </div>
                 <div className="bal game">
-                  <span className="k">GAME_TOKEN</span>
+                  <span className="k">GAME <small>entry credit</small></span>
                   <span className="v">
-                    {chain.fmtToken(gameBal, chain.GAME_DECIMALS, 0)} <small>DGOLD</small>
+                    {chain.fmtToken(gameBal, chain.GAME_DECIMALS, 0)} <small>GAME</small>
+                  </span>
+                </div>
+                <div className="bal gold">
+                  <span className="k">GOLD <small>winnings · L1</small></span>
+                  <span className="v">
+                    {chain.fmtToken(goldBal, chain.GOLD_DECIMALS, 0)} <small>GOLD</small>
                   </span>
                 </div>
                 <div className="row-actions">
                   <button disabled={anyBusy || !ready} onClick={onBuy}>
-                    {b("buy") ? "…" : "Buy GME"}
+                    {b("buy") ? "…" : "Buy GAME"}
                   </button>
                   <button disabled={anyBusy || !ready} onClick={onMint}>
                     {b("mint") ? "…" : "Dev-mint"}
                   </button>
                 </div>
                 <div className="legend">
-                  buy uses real USDC · dev-mint is the no-USDC faucet
+                  spend <b>GAME</b> to enter · earn <b>GOLD</b> by banking · buy uses real USDC
                 </div>
               </div>
 
               <div className="panel">
                 <div className="panel-h">
-                  Leaderboard · Sepolia<span className="rule" />
+                  Leaderboard · Appchain<span className="rule" />
                 </div>
                 <table>
                   <thead>
                     <tr>
                       <th>#</th>
                       <th>diver</th>
-                      <th style={{ textAlign: "right" }}>score</th>
-                      <th style={{ textAlign: "right" }}>reward</th>
+                      <th style={{ textAlign: "right" }}>best</th>
+                      <th style={{ textAlign: "right" }}>gold</th>
                     </tr>
                   </thead>
                   <tbody>
                     {board.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="r">
-                          no banked runs yet
+                          no runs yet
                         </td>
                       </tr>
                     ) : (
                       board.map((row, i) => (
-                        <tr key={row.claimNo} className={BigInt(row.player) === BigInt(player || "0x0") ? "you" : ""}>
+                        <tr key={row.player} className={BigInt(row.player) === BigInt(player || "0x0") ? "you" : ""}>
                           <td className="r">{String(i + 1).padStart(2, "0")}</td>
-                          <td>{chain.shortHex(row.player)}</td>
-                          <td className="score">{row.score.toLocaleString()}</td>
-                          <td className="rw">{chain.fmtToken(row.reward, chain.GAME_DECIMALS, 0)}</td>
+                          <td>{chain.shortAddr(row.player)}</td>
+                          <td className="score">{row.bestScore.toLocaleString()}</td>
+                          <td className="rw">{row.totalGold.toLocaleString()}</td>
                         </tr>
                       ))
                     )}
                   </tbody>
                 </table>
-                <div className="legend">banked runs only · deaths never settle</div>
+                <div className="legend">best run score per player · lives on L2</div>
               </div>
             </section>
 
@@ -636,36 +650,51 @@ export default function App() {
                 </span>
               </div>
               <div className="panel-h">
-                Bank a settled run<span className="rule" />
+                Bank your dungeon GOLD<span className="rule" />
               </div>
               <p className="bank-intro">
-                Banking happens on <b>Starknet Sepolia (L1)</b> — a different chain from the dungeon.
-                Your run was extracted on the <b>DUNGEON appchain (L2)</b>; banking consumes the L2→L1
-                message that saya proved and settled onto the piltover core, then mints your GAME reward
-                here on Sepolia. It unlocks only once settlement catches up to the run's block.
+                <b>GOLD</b> is earned in the dungeon (L2) but minted here on <b>Starknet Sepolia (L1)</b>.
+                Every extract banks a run's gold into your on-L2 <b>vault</b>; you bank the whole vault
+                to L1 in one go. <b>Withdraw</b> publishes a single L2→L1 message, and once saya settles
+                it onto the piltover core, <b>mint</b> consumes the message and mints that much GOLD here.
               </p>
+
+              <div className="bal">
+                <span className="k">vault · ready to bank <small>(L2)</small></span>
+                <span className="v">{vault.toLocaleString()} <small>gold</small></span>
+              </div>
+              <div className="bal gold">
+                <span className="k">GOLD balance <small>(L1)</small></span>
+                <span className="v">{chain.fmtToken(goldBal, chain.GOLD_DECIMALS, 0)} <small>GOLD</small></span>
+              </div>
+
               {pending ? (
                 <>
-                  <div className="bal">
-                    <span className="k">
-                      extracted · score {pending.score.toLocaleString()} · loot {pending.loot.toLocaleString()} · appchain block {pending.block}
-                    </span>
-                  </div>
                   <div className="row-actions">
                     <button className="good" disabled={anyBusy || !claimReady} onClick={onClaim}>
-                      {b("claim") ? "banking…" : claimReady ? "Bank → mint reward" : "awaiting saya…"}
+                      {b("claim") ? "minting…" : claimReady ? `Mint ${pending.amount.toLocaleString()} GOLD on L1` : "awaiting saya…"}
                     </button>
                   </div>
                   <div className="legend">
                     {claimReady
-                      ? "settled — consumes the L2→L1 message on Sepolia and mints the GAME reward"
-                      : `waiting for saya to settle block ${pending.block} (settled ${settled} / tip ${tip})`}
-                    {pendingCount > 1 ? ` · ${pendingCount - 1} more queued` : ""}
+                      ? `withdrawal #${pending.withdrawNo} settled — mint consumes the L2→L1 message and credits ${pending.amount.toLocaleString()} GOLD`
+                      : `withdrew ${pending.amount.toLocaleString()} gold — waiting for saya to settle block ${pending.block} (settled ${settled} / tip ${tip})`}
+                  </div>
+                </>
+              ) : vault > 0 ? (
+                <>
+                  <div className="row-actions">
+                    <button className="good" disabled={anyBusy} onClick={onWithdraw}>
+                      {b("withdraw") ? "withdrawing…" : `Withdraw ${vault.toLocaleString()} gold → L1`}
+                    </button>
+                  </div>
+                  <div className="legend">
+                    sends one L2→L1 message with your whole vault; mint the GOLD here once saya settles it
                   </div>
                 </>
               ) : (
                 <div className="bank-empty">
-                  no settled runs to bank — <b>extract</b> a run in the dungeon to send it to L1
+                  vault empty — <b>extract</b> a run in the dungeon to bank its gold here
                 </div>
               )}
             </section>

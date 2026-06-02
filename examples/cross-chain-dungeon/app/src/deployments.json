@@ -3,20 +3,27 @@
     "rpcUrl": "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_9",
     "explorer": "https://sepolia.voyager.online",
     "torii": "http://localhost:8091",
-    "account": { "address": "0x0", "privateKey": "0x0" },
+    "account": {
+      "address": "0x0",
+      "privateKey": "0x0"
+    },
     "piltover": "0x0",
     "usdc": "0x0",
     "gameToken": "0x0",
+    "goldToken": "0x0",
+    "bankWorld": "0x0",
+    "bankSystem": "0x0",
     "tokenSale": "0x0",
-    "entry": "0x0",
-    "scoreWorld": "0x0",
-    "scoreSystem": "0x0"
+    "entry": "0x0"
   },
   "appchain": {
     "rpcUrl": "http://localhost:5070",
     "explorer": "http://localhost:5070/explorer",
     "torii": "http://localhost:8092",
-    "account": { "address": "0x0", "privateKey": "0x0" },
+    "account": {
+      "address": "0x0",
+      "privateKey": "0x0"
+    },
     "gameWorld": "0x0",
     "gameSystem": "0x0"
   }

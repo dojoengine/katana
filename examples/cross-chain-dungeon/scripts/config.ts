@@ -18,7 +18,8 @@ export const config = {
   // Economy (base units, as bigint).
   rate: BigInt(process.env.GAME_RATE ?? "100000000000000"),
   entryFee: BigInt(process.env.ENTRY_FEE ?? "50000000000000000000"),
-  rewardPerPoint: BigInt(process.env.REWARD_PER_POINT ?? "100000000000000000"),
+  // GOLD minted per unit of dungeon gold banked (GOLD is 18-decimal): 1 gold = 1 GOLD.
+  rewardPerGold: BigInt(process.env.REWARD_PER_GOLD ?? "1000000000000000000"),
 };
 
 // Local appchain endpoints (distinct port band from cross-chain-game — see PLAN.md).

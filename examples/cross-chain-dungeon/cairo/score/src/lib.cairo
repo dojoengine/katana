@@ -1,19 +1,20 @@
-//! Settlement ("L1", Starknet Sepolia) score world for the L2 → L1 direction.
+//! Settlement ("L1", Starknet Sepolia) **bank** world for the L2 → L1 direction.
 //!
-//! `claim_run` consumes a message the appchain `game` world emitted on **extract**
-//! and saya settled onto the piltover core. Consumption only succeeds once the
-//! message has been registered by a settled state update, so this is the moment the
-//! cross-chain round trip completes. On success it records the run on the
-//! leaderboard and **mints a proportional GAME_TOKEN reward** to the player —
-//! closing the spend-to-enter / earn-on-win loop.
+//! `bank` consumes a message the appchain `game` world emitted on **withdraw** and
+//! saya settled onto the piltover core. Consumption only succeeds once the message
+//! has been registered by a settled state update, so this is the moment the
+//! cross-chain round trip completes. On success it **mints GOLD** to the player for
+//! the whole accumulated amount they withdrew — closing the play-on-L2 / own-on-L1
+//! loop.
 //!
-//! State lives in Dojo models (indexed by Torii) so the frontend can react to the
-//! settled run.
+//! Unlike the dungeon's leaderboard (which lives entirely on the appchain), this
+//! world holds no scoring: it is purely the settlement-side mint. State lives in
+//! Dojo models/events (indexed by Torii) so the frontend can react to each bank.
 
 use starknet::ContractAddress;
 
-/// Minimal view of the piltover core's messaging interface (the only method
-/// `score` needs). The full interface lives in the piltover crate.
+/// Minimal view of the piltover core's messaging interface (the only method the
+/// bank needs). The full interface lives in the piltover crate.
 #[starknet::interface]
 pub trait IPiltoverMessaging<T> {
     fn consume_message_from_appchain(
@@ -21,117 +22,124 @@ pub trait IPiltoverMessaging<T> {
     ) -> felt252;
 }
 
-/// The slice of GAME_TOKEN this world calls. `score` must be an authorized minter
-/// (granted at deploy) for the reward mint to succeed.
+/// The slice of GOLD this world calls. The bank must be an authorized GOLD minter
+/// (granted at deploy) for the mint to succeed.
 #[starknet::interface]
-pub trait IGameTokenMint<T> {
+pub trait IGoldTokenMint<T> {
     fn mint(ref self: T, to: ContractAddress, amount: u256);
 }
 
 #[starknet::interface]
-pub trait IScore<T> {
-    /// Consume the settled L2 → L1 message `(player, score, loot)` emitted by the
-    /// appchain `game` world at `from_address`, record it, and mint the reward.
+pub trait IBank<T> {
+    /// Consume the settled L2 → L1 message `(player, amount, withdraw_no)` emitted by
+    /// the appchain `game` world at `from_address`, then mint the player's GOLD.
     /// Reverts until the message has been settled onto the piltover core by saya.
-    fn claim_run(
-        ref self: T, from_address: ContractAddress, player: felt252, score: felt252, loot: felt252,
+    fn bank(
+        ref self: T,
+        from_address: ContractAddress,
+        player: felt252,
+        amount: felt252,
+        withdraw_no: felt252,
     );
 }
 
 #[dojo::contract]
-pub mod score {
+pub mod bank {
     use dojo::event::EventStorage;
     use dojo::model::ModelStorage;
     use dojo::world::WorldStorage;
     use starknet::ContractAddress;
     use super::{
-        IGameTokenMintDispatcher, IGameTokenMintDispatcherTrait, IPiltoverMessagingDispatcher,
-        IPiltoverMessagingDispatcherTrait, IScore,
+        IBank, IGoldTokenMintDispatcher, IGoldTokenMintDispatcherTrait,
+        IPiltoverMessagingDispatcher, IPiltoverMessagingDispatcherTrait,
     };
 
     const SINGLETON: u8 = 0;
 
-    /// Config + global claim counter (one row, keyed by `SINGLETON`).
+    /// Config + global bank counter (one row, keyed by `SINGLETON`).
     #[derive(Copy, Drop, Serde)]
     #[dojo::model]
-    pub struct ScoreConfig {
+    pub struct BankConfig {
         #[key]
         pub id: u8,
         pub piltover: ContractAddress,
-        pub game_token: ContractAddress,
-        /// Reward = score * reward_per_point, in GAME_TOKEN base units (so the
-        /// rate can carry the token's decimals — e.g. 1e17 = 0.1 GAME per point).
-        pub reward_per_point: u256,
-        pub total_claims: u64,
+        pub gold_token: ContractAddress,
+        /// Minted GOLD = amount * reward_per_gold, in GOLD base units (so the rate
+        /// can carry the token's decimals — e.g. 1e18 = 1 GOLD per gold collected).
+        pub reward_per_gold: u256,
+        pub total_banks: u64,
     }
 
-    /// Emitted when a settled run is banked. Keyed by the unique claim sequence so
-    /// Torii keeps one row per banked run — this is the per-run leaderboard: each
-    /// banked run is its own entry (a player can appear many times), ordered by
-    /// `score`.
+    /// Emitted when a withdrawal is banked on L1. Keyed by the unique bank sequence
+    /// so Torii keeps one row per bank. `withdraw_no` echoes the L2 nonce so the
+    /// client can reconcile each L2 `Withdrawal` against its L1 `Banked`.
     #[derive(Copy, Drop, Serde)]
     #[dojo::event]
-    pub struct RunBanked {
+    pub struct Banked {
         #[key]
-        pub claim_no: u64,
+        pub bank_no: u64,
         pub player: felt252,
-        pub score: u64,
-        pub loot: u64,
-        pub reward: u256,
+        pub amount: u64,
+        pub withdraw_no: u64,
+        pub minted: u256,
     }
 
-    /// Record the piltover core, the GAME_TOKEN, and the reward rate (basis points).
+    /// Record the piltover core, the GOLD token, and the mint rate.
     fn dojo_init(
         self: @ContractState,
         piltover: ContractAddress,
-        game_token: ContractAddress,
-        reward_per_point: u256,
+        gold_token: ContractAddress,
+        reward_per_gold: u256,
     ) {
         let mut world = self.world_default();
         world
             .write_model(
-                @ScoreConfig {
-                    id: SINGLETON, piltover, game_token, reward_per_point, total_claims: 0,
+                @BankConfig {
+                    id: SINGLETON, piltover, gold_token, reward_per_gold, total_banks: 0,
                 },
             );
     }
 
     #[abi(embed_v0)]
-    impl ScoreImpl of IScore<ContractState> {
-        fn claim_run(
+    impl BankImpl of IBank<ContractState> {
+        fn bank(
             ref self: ContractState,
             from_address: ContractAddress,
             player: felt252,
-            score: felt252,
-            loot: felt252,
+            amount: felt252,
+            withdraw_no: felt252,
         ) {
             let mut world = self.world_default();
-            let mut config: ScoreConfig = world.read_model(SINGLETON);
+            let mut config: BankConfig = world.read_model(SINGLETON);
 
-            // Consume the settled message. The (from_address, payload) pair plus
-            // this contract as the implicit `to_address` reconstruct the hash
-            // registered by the settled state update; reverts if not yet settled.
+            // Consume the settled message. The (from_address, payload) pair plus this
+            // contract as the implicit `to_address` reconstruct the hash registered by
+            // the settled state update; reverts if not yet settled.
             let piltover = IPiltoverMessagingDispatcher { contract_address: config.piltover };
-            piltover.consume_message_from_appchain(from_address, array![player, score, loot].span());
+            piltover
+                .consume_message_from_appchain(
+                    from_address, array![player, amount, withdraw_no].span(),
+                );
 
-            let score_u64: u64 = score.try_into().unwrap();
-            let loot_u64: u64 = loot.try_into().unwrap();
+            let amount_u64: u64 = amount.try_into().unwrap();
+            let withdraw_no_u64: u64 = withdraw_no.try_into().unwrap();
 
-            // Mint the reward to the player (this world must be an authorized minter).
-            let reward: u256 = score_u64.into() * config.reward_per_point;
+            // Mint GOLD to the player (this world must be an authorized GOLD minter).
+            let minted: u256 = amount_u64.into() * config.reward_per_gold;
             let to: ContractAddress = player.try_into().unwrap();
-            IGameTokenMintDispatcher { contract_address: config.game_token }.mint(to, reward);
+            IGoldTokenMintDispatcher { contract_address: config.gold_token }.mint(to, minted);
 
-            // Record the banked run. `RunBanked` (keyed by the claim sequence) is the
-            // per-run leaderboard: one entry per banked run, ordered off-chain by score.
-            config.total_claims += 1;
+            config.total_banks += 1;
             world.write_model(@config);
 
             world
                 .emit_event(
-                    @RunBanked {
-                        claim_no: config.total_claims, player, score: score_u64, loot: loot_u64,
-                        reward,
+                    @Banked {
+                        bank_no: config.total_banks,
+                        player,
+                        amount: amount_u64,
+                        withdraw_no: withdraw_no_u64,
+                        minted,
                     },
                 );
         }
@@ -139,9 +147,9 @@ pub mod score {
 
     #[generate_trait]
     impl InternalImpl of InternalTrait {
-        /// The score world uses the `"score"` namespace.
+        /// The bank world uses the `"bank"` namespace.
         fn world_default(self: @ContractState) -> WorldStorage {
-            self.world(@"score")
+            self.world(@"bank")
         }
     }
 }
