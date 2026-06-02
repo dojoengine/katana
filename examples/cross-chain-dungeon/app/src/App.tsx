@@ -307,10 +307,20 @@ function LogViewer() {
   );
 }
 
-/** Draggable, min/maximizable, resizable floating window that hosts the log viewer. */
-function LogWindow({ onClose }: { onClose: () => void }) {
-  const [pos, setPos] = useState({ x: 14, y: 58 });
-  const [size, setSize] = useState({ w: Math.min(760, window.innerWidth - 28), h: 440 });
+/** Draggable, min/maximizable, resizable floating window. Hosts arbitrary content. */
+function FloatingWindow({
+  title,
+  onClose,
+  initial,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  initial?: { x: number; y: number; w: number; h: number };
+  children: ReactNode;
+}) {
+  const [pos, setPos] = useState({ x: initial?.x ?? 14, y: initial?.y ?? 58 });
+  const [size, setSize] = useState({ w: initial?.w ?? Math.min(760, window.innerWidth - 28), h: initial?.h ?? 440 });
   const [min, setMin] = useState(false);
   const [max, setMax] = useState(false);
   const drag = useRef<{ dx: number; dy: number } | null>(null);
@@ -359,7 +369,7 @@ function LogWindow({ onClose }: { onClose: () => void }) {
         }}
         onDoubleClick={() => setMax((m) => !m)}
       >
-        <span className="logwin-title">▸ service logs</span>
+        <span className="logwin-title">▸ {title}</span>
         <span className="logwin-ctrls" onMouseDown={(e) => e.stopPropagation()}>
           <button onClick={() => setMin((m) => !m)} title={min ? "restore" : "minimize"}>
             {min ? "▢" : "—"}
@@ -372,7 +382,7 @@ function LogWindow({ onClose }: { onClose: () => void }) {
           </button>
         </span>
       </div>
-      {!min && <LogViewer />}
+      {!min && <div className="logwin-body">{children}</div>}
       {!min && !max && (
         <>
           <div className="logwin-rz e" onMouseDown={startResize(true, false)} />
@@ -380,6 +390,67 @@ function LogWindow({ onClose }: { onClose: () => void }) {
           <div className="logwin-rz se" onMouseDown={startResize(true, true)} />
         </>
       )}
+    </div>
+  );
+}
+
+/** Deployment configuration: service URLs, contract addresses, saya progress. */
+function ConfigPanel({ settled, tip }: { settled: number; tip: number }) {
+  // "empty" = falsy or a zero address; non-hex values (URLs) are never empty.
+  const z = (a: string) => {
+    if (!a) return true;
+    try {
+      return BigInt(a) === 0n;
+    } catch {
+      return false;
+    }
+  };
+  const Field = ({ label, value, href }: { label: string; value: string; href?: string }) => (
+    <div className="cfg-row">
+      <span className="cfg-k">{label}</span>
+      {z(value) ? (
+        <span className="cfg-v dim">—</span>
+      ) : href ? (
+        <a className="cfg-v tx-link" href={href} target="_blank" rel="noreferrer">
+          {value} ↗
+        </a>
+      ) : (
+        <span className="cfg-v">{value}</span>
+      )}
+    </div>
+  );
+  const l1 = (addr: string) => (z(addr) ? undefined : `${chain.SEPOLIA_EXPLORER}/contract/${addr}`);
+
+  return (
+    <div className="cfg">
+      <div className="cfg-sec">Services</div>
+      <Field label="Sepolia RPC" value={chain.SEPOLIA_RPC} href={chain.SEPOLIA_RPC} />
+      <Field label="Appchain RPC" value={chain.APPCHAIN_RPC} href={chain.APPCHAIN_RPC} />
+      <Field label="Torii · bank (L1)" value={chain.TORII_BANK} href={chain.TORII_BANK} />
+      <Field label="Torii · game (L2)" value={chain.TORII_GAME} href={chain.TORII_GAME} />
+      <Field label="Sepolia explorer" value={chain.SEPOLIA_EXPLORER} href={chain.SEPOLIA_EXPLORER} />
+      <Field label="Appchain explorer" value={chain.APPCHAIN_EXPLORER} href={chain.APPCHAIN_EXPLORER} />
+
+      <div className="cfg-sec">Sepolia (L1) contracts</div>
+      <Field label="piltover core" value={chain.PILTOVER} href={l1(chain.PILTOVER)} />
+      <Field label="USDC (external)" value={chain.USDC} href={l1(chain.USDC)} />
+      <Field label="GAME token" value={chain.GAME_TOKEN} href={l1(chain.GAME_TOKEN)} />
+      <Field label="GOLD token" value={chain.GOLD_TOKEN} href={l1(chain.GOLD_TOKEN)} />
+      <Field label="TokenSale" value={chain.TOKEN_SALE} href={l1(chain.TOKEN_SALE)} />
+      <Field label="Entry" value={chain.ENTRY} href={l1(chain.ENTRY)} />
+      <Field label="bank world" value={chain.BANK_WORLD} href={l1(chain.BANK_WORLD)} />
+      <Field label="bank system" value={chain.BANK_SYSTEM} href={l1(chain.BANK_SYSTEM)} />
+
+      <div className="cfg-sec">Appchain (L2) contracts</div>
+      <Field label="game world" value={chain.GAME_WORLD} />
+      <Field label="game system" value={chain.GAME_SYSTEM} />
+
+      <div className="cfg-sec">Accounts</div>
+      <Field label="settlement (operator)" value={chain.operatorAccount.address} href={l1(chain.operatorAccount.address)} />
+      <Field label="appchain (dev)" value={chain.appchainAccount.address} />
+
+      <div className="cfg-sec">Settlement · saya</div>
+      <Gauge settled={settled} tip={tip} />
     </div>
   );
 }
@@ -404,6 +475,7 @@ export default function App() {
   const [selected, setSelected] = useState<chain.ActionRow | null>(null);
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
   const [logsOpen, setLogsOpen] = useState(false); // floating service-logs window
+  const [configOpen, setConfigOpen] = useState(false); // floating deployment-config window
   const [minting, setMinting] = useState(false); // auto-mint (L1) in flight after a withdraw
   const mintingRef = useRef(false);
   const [bankModal, setBankModal] = useState(false); // the withdraw/bank progress modal
@@ -646,8 +718,6 @@ export default function App() {
               </span>
             </div>
           </div>
-
-          <Gauge settled={settled} tip={tip} />
 
           <div className="tabs">
             <button className={`tab ${tab === "dungeon" ? "on" : ""}`} onClick={() => setTab("dungeon")}>
@@ -959,10 +1029,28 @@ export default function App() {
           </footer>
         </div>
       </div>
-      <button className="logs-launcher" onClick={() => setLogsOpen((o) => !o)} title="service logs">
-        ▸ logs
-      </button>
-      {logsOpen && <LogWindow onClose={() => setLogsOpen(false)} />}
+      <div className="launchers">
+        <button className="launcher" onClick={() => setLogsOpen((o) => !o)} title="service logs">
+          ▸ logs
+        </button>
+        <button className="launcher" onClick={() => setConfigOpen((o) => !o)} title="deployment config">
+          ▸ config
+        </button>
+      </div>
+      {logsOpen && (
+        <FloatingWindow title="service logs" onClose={() => setLogsOpen(false)}>
+          <LogViewer />
+        </FloatingWindow>
+      )}
+      {configOpen && (
+        <FloatingWindow
+          title="deployment"
+          onClose={() => setConfigOpen(false)}
+          initial={{ x: 90, y: 92, w: Math.min(620, window.innerWidth - 28), h: 500 }}
+        >
+          <ConfigPanel settled={settled} tip={tip} />
+        </FloatingWindow>
+      )}
       {selected && <ActionModal action={selected} onClose={() => setSelected(null)} />}
       {bankModal && (
         <BankModal
