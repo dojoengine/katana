@@ -630,7 +630,14 @@ export default function App() {
 
   const onBuy = act("buy", () => chain.buyGame(wallet.l1Account, BUY_USDC));
   const onMint = act("mint", () => chain.devMint(wallet.l1Account, DEV_MINT));
-  const onEnter = act("enter", () => chain.enterDungeon(wallet.l1Account));
+  const enterRun = act("enter", () => chain.enterDungeon(wallet.l1Account));
+  const onEnter = () => {
+    if (gameBal < fee) {
+      setErr(`insufficient $GAME (need ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)}) — buy or dev-mint`);
+      return;
+    }
+    void enterRun();
+  };
   const onMove = act("move", () => chain.moveRoom(player));
   const onAttack = act("attack", () => chain.attack(player));
   const onLoot = act("loot", () => chain.loot(player));
@@ -917,7 +924,11 @@ export default function App() {
               <div className="actions">
                 {!run ? (
                   <button className="good" disabled={anyBusy || !ready} onClick={onEnter}>
-                    {b("enter") ? "entering…" : `Enter Dungeon · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
+                    {b("enter")
+                      ? "entering…"
+                      : gameBal < fee
+                        ? "insufficient $GAME"
+                        : `Enter Dungeon · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
                   </button>
                 ) : (
                   <>
