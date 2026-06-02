@@ -318,6 +318,10 @@ function LogViewer() {
   );
 }
 
+// Shared stacking counter so clicking a window brings it above the others (and above
+// the launcher buttons, which sit at z 8001).
+let floatingWinZ = 8001;
+
 /** Draggable, min/maximizable, resizable floating window. Hosts arbitrary content. */
 function FloatingWindow({
   title,
@@ -334,6 +338,8 @@ function FloatingWindow({
   const [size, setSize] = useState({ w: initial?.w ?? Math.min(760, window.innerWidth - 28), h: initial?.h ?? 440 });
   const [min, setMin] = useState(false);
   const [max, setMax] = useState(false);
+  const [z, setZ] = useState(() => (floatingWinZ += 1)); // newest window opens on top
+  const toFront = () => setZ((floatingWinZ += 1));
   const drag = useRef<{ dx: number; dy: number } | null>(null);
   // resize: which edges are active ("e" = right, "s" = bottom) + start geometry.
   const rz = useRef<{ e: boolean; s: boolean; x: number; y: number; w: number; h: number } | null>(null);
@@ -371,7 +377,8 @@ function FloatingWindow({
   return (
     <div
       className={`logwin${max ? " max" : ""}${min ? " min" : ""}`}
-      style={max ? undefined : { left: pos.x, top: pos.y, width: size.w, height: min ? undefined : size.h }}
+      onMouseDownCapture={toFront}
+      style={max ? { zIndex: z } : { zIndex: z, left: pos.x, top: pos.y, width: size.w, height: min ? undefined : size.h }}
     >
       <div
         className="logwin-bar"

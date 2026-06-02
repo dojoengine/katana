@@ -141,7 +141,7 @@ body {
 /* the saya gauge sits flush inside the config panel (no surrounding chrome) */
 .cfg .gauge { padding: 10px 0 2px; border-bottom: 0; background: none; }
 .logwin {
-  position: fixed; z-index: 8000; min-width: 360px; min-height: 180px;
+  position: fixed; z-index: 8002; min-width: 360px; min-height: 180px;
   display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid var(--border-hi); background: var(--bg);
   box-shadow: 0 24px 70px rgba(0,0,0,.65), 0 0 0 1px rgba(0,0,0,.6) inset;
