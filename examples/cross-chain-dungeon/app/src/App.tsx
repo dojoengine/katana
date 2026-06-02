@@ -194,8 +194,10 @@ export default function App() {
   const [settled, setSettled] = useState(0);
   const [tip, setTip] = useState(0);
   const [pending, setPending] = useState<chain.ExtractRow | null>(null);
+  const [pendingCount, setPendingCount] = useState(0); // settled runs awaiting bank (L1)
   const [lastEnded, setLastEnded] = useState<chain.RunEndRow | null>(null);
   const [selected, setSelected] = useState<chain.ActionRow | null>(null);
+  const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -246,6 +248,7 @@ export default function App() {
       setSettled(sb);
       setTip(tp);
       setPending(ex.length > bc ? ex[bc] : null);
+      setPendingCount(Math.max(0, ex.length - bc));
       setLastEnded(le);
       setErr(null);
     } catch (e) {
@@ -395,6 +398,24 @@ export default function App() {
 
           <Gauge settled={settled} tip={tip} />
 
+          <div className="tabs">
+            <button className={`tab ${tab === "dungeon" ? "on" : ""}`} onClick={() => setTab("dungeon")}>
+              ▸ Dungeon <span className="tab-sub">· L2 appchain</span>
+            </button>
+            <button className={`tab ${tab === "bank" ? "on" : ""}`} onClick={() => setTab("bank")}>
+              ▸ Bank <span className="tab-sub">· L1 Sepolia</span>
+              {pendingCount > 0 && (
+                <span
+                  className={`tab-badge ${claimReady ? "ready" : "wait"}`}
+                  title={claimReady ? `${pendingCount} run${pendingCount > 1 ? "s" : ""} ready to bank` : "awaiting saya settlement"}
+                >
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {tab === "dungeon" && (
           <main className="grid">
             {/* LEFT: funding + leaderboard */}
             <section className="col-left">
@@ -552,27 +573,6 @@ export default function App() {
                   </>
                 )}
               </div>
-
-              {pending && (
-                <div className="panel" style={{ marginTop: 16 }}>
-                  <div className="panel-h">
-                    Bank a settled run<span className="rule" />
-                  </div>
-                  <div className="bal">
-                    <span className="k">
-                      extracted · score {pending.score.toLocaleString()} · loot {pending.loot.toLocaleString()} · block {pending.block}
-                    </span>
-                  </div>
-                  <div className="row-actions">
-                    <button className="good" disabled={anyBusy || !claimReady} onClick={onClaim}>
-                      {b("claim") ? "banking…" : claimReady ? "Bank → mint reward" : "awaiting saya…"}
-                    </button>
-                  </div>
-                  <div className="legend">
-                    consumes the L2→L1 message on Sepolia once settled, mints the GAME reward
-                  </div>
-                </div>
-              )}
             </section>
 
             {/* RIGHT: message log */}
@@ -624,6 +624,53 @@ export default function App() {
               </div>
             </section>
           </main>
+          )}
+
+          {tab === "bank" && (
+          <main className="bank-page">
+            <section className="bank-card">
+              <div className="bank-chain">
+                <span className="chip on">
+                  <span className="led" />
+                  STARKNET SEPOLIA · L1
+                </span>
+              </div>
+              <div className="panel-h">
+                Bank a settled run<span className="rule" />
+              </div>
+              <p className="bank-intro">
+                Banking happens on <b>Starknet Sepolia (L1)</b> — a different chain from the dungeon.
+                Your run was extracted on the <b>DUNGEON appchain (L2)</b>; banking consumes the L2→L1
+                message that saya proved and settled onto the piltover core, then mints your GAME reward
+                here on Sepolia. It unlocks only once settlement catches up to the run's block.
+              </p>
+              {pending ? (
+                <>
+                  <div className="bal">
+                    <span className="k">
+                      extracted · score {pending.score.toLocaleString()} · loot {pending.loot.toLocaleString()} · appchain block {pending.block}
+                    </span>
+                  </div>
+                  <div className="row-actions">
+                    <button className="good" disabled={anyBusy || !claimReady} onClick={onClaim}>
+                      {b("claim") ? "banking…" : claimReady ? "Bank → mint reward" : "awaiting saya…"}
+                    </button>
+                  </div>
+                  <div className="legend">
+                    {claimReady
+                      ? "settled — consumes the L2→L1 message on Sepolia and mints the GAME reward"
+                      : `waiting for saya to settle block ${pending.block} (settled ${settled} / tip ${tip})`}
+                    {pendingCount > 1 ? ` · ${pendingCount - 1} more queued` : ""}
+                  </div>
+                </>
+              ) : (
+                <div className="bank-empty">
+                  no settled runs to bank — <b>extract</b> a run in the dungeon to send it to L1
+                </div>
+              )}
+            </section>
+          </main>
+          )}
 
           <footer className="statusline">
             <span className="keys">
