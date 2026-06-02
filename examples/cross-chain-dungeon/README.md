@@ -1,6 +1,7 @@
 # Cross-Chain Dungeon
 
-A Katana appchain example that **settles to real Starknet Sepolia** and **depends
+A Katana appchain example that **settles to a real Starknet network** (Sepolia by
+default, **mainnet supported** via `SETTLEMENT_NETWORK`) and **depends
 on an external settlement-layer contract (USDC)**. It's a push-your-luck dungeon
 roguelite with a **two-token economy**: buy **GAME** with USDC and spend it to enter,
 descend with **one appchain transaction per action**, collect **GOLD**, and either
@@ -20,7 +21,7 @@ public chain — and adds a token economy on top of an external contract.
 
 | | cross-chain-game | **cross-chain-dungeon** |
 | --- | --- | --- |
-| Settlement layer | local Katana (`SN_SEPOLIA`) | **real Starknet Sepolia** |
+| Settlement layer | local Katana (`SN_SEPOLIA`) | **real Starknet (Sepolia default, mainnet supported)** |
 | Local nodes | 2 Katanas | **1** (appchain only) |
 | Economy | none | **two tokens: GAME (USDC→play) + GOLD (winnings, minted on bank)** |
 | External dependency | — | **Circle USDC on Sepolia** |

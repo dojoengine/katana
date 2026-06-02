@@ -34,10 +34,23 @@ fail() { echo "error: $1" >&2; exit 1; }
 DOJO_DIR="$REPO_ROOT/../dojo"
 
 # ── Load .env ──────────────────────────────────────────────────────────────────
-[[ -f "$DEMO_DIR/.env" ]] || fail "no .env — copy .env.example to .env and fill in the Sepolia operator/saya accounts + USDC address."
+[[ -f "$DEMO_DIR/.env" ]] || fail "no .env — copy .env.example to .env and fill in the operator/saya accounts + USDC address."
 set -a; # shellcheck disable=SC1091
 source "$DEMO_DIR/.env"; set +a
-for v in SEPOLIA_RPC_URL OPERATOR_ADDRESS OPERATOR_PRIVATE_KEY SAYA_ADDRESS SAYA_PRIVATE_KEY USDC_ADDRESS; do
+
+# ── Settlement network (Sepolia by default; Mainnet supported) ──────────────────
+# The RPC + USDC come from .env (per network); the chain id, explorer, and display
+# name are derived here. SETTLEMENT_RPC_URL is preferred; SEPOLIA_RPC_URL still works.
+SETTLEMENT_NETWORK="${SETTLEMENT_NETWORK:-sepolia}"
+SETTLEMENT_RPC_URL="${SETTLEMENT_RPC_URL:-${SEPOLIA_RPC_URL:-}}"
+case "$SETTLEMENT_NETWORK" in
+  sepolia) SETTLEMENT_CHAIN_ID="SN_SEPOLIA"; SETTLEMENT_EXPLORER="https://sepolia.voyager.online"; SETTLEMENT_NAME="Starknet Sepolia" ;;
+  mainnet) SETTLEMENT_CHAIN_ID="SN_MAIN";    SETTLEMENT_EXPLORER="https://voyager.online";          SETTLEMENT_NAME="Starknet Mainnet" ;;
+  *) fail "SETTLEMENT_NETWORK must be 'sepolia' or 'mainnet' (got '$SETTLEMENT_NETWORK')." ;;
+esac
+
+[[ -n "$SETTLEMENT_RPC_URL" ]] || fail "set SETTLEMENT_RPC_URL (or SEPOLIA_RPC_URL) in .env."
+for v in OPERATOR_ADDRESS OPERATOR_PRIVATE_KEY SAYA_ADDRESS SAYA_PRIVATE_KEY USDC_ADDRESS; do
   [[ -n "${!v:-}" ]] || fail "missing $v in .env (see .env.example)."
 done
 
@@ -62,7 +75,7 @@ for bin in sozo torii scarb; do
 done
 [[ -d "$DOJO_DIR/crates/dojo/core" ]] || fail "dojo checkout not found at $DOJO_DIR — the cairo packages depend on it by path (clone it as a sibling, ref sozo/v1.8.7)."
 echo "→ katana: $KATANA"
-echo "→ settlement: Starknet Sepolia ($SEPOLIA_RPC_URL)"
+echo "→ settlement: $SETTLEMENT_NAME ($SETTLEMENT_RPC_URL)"
 
 APPCHAIN_PID=""; SAYA_PID=""; TORII_SCORE_PID=""; TORII_GAME_PID=""
 cleanup() {
@@ -86,11 +99,11 @@ if [[ -z "${FRESH:-}" && -f "$CHAIN_DIR/config.toml" && -f "$RUN_DIR/tee_registr
   echo "→ reusing existing Sepolia bootstrap (set FRESH=1 to redeploy)…"
   TEE_REGISTRY=$(cat "$RUN_DIR/tee_registry")
 else
-  echo "→ deploying mock TEE registry on Sepolia (saya-ops)…"
-  REG_OUT=$(SETTLEMENT_RPC_URL="$SEPOLIA_RPC_URL" \
+  echo "→ deploying mock TEE registry on $SETTLEMENT_NAME (saya-ops)…"
+  REG_OUT=$(SETTLEMENT_RPC_URL="$SETTLEMENT_RPC_URL" \
     SETTLEMENT_ACCOUNT_ADDRESS="$OPERATOR_ADDRESS" \
     SETTLEMENT_ACCOUNT_PRIVATE_KEY="$OPERATOR_PRIVATE_KEY" \
-    SETTLEMENT_CHAIN_ID=SN_SEPOLIA \
+    SETTLEMENT_CHAIN_ID="$SETTLEMENT_CHAIN_ID" \
     saya-ops core-contract declare-and-deploy-tee-registry-mock --salt "$TEE_REGISTRY_SALT" 2>&1)
   TEE_REGISTRY=$(echo "$REG_OUT" | sed -nE 's/.*TEE registry mock address:[[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | tail -1)
   [[ -n "$TEE_REGISTRY" ]] || { echo "error: could not parse TEE registry address:" >&2; echo "$REG_OUT" >&2; exit 1; }
@@ -100,7 +113,7 @@ else
   rm -rf "$CHAIN_DIR"
   "$KATANA" init rollup \
     --id DUNGEON \
-    --settlement-chain "$SEPOLIA_RPC_URL" \
+    --settlement-chain "$SETTLEMENT_RPC_URL" \
     --settlement-account-address "$SAYA_ADDRESS" \
     --settlement-account-private-key "$SAYA_PRIVATE_KEY" \
     --tee \
@@ -112,7 +125,7 @@ PILTOVER=$(sed -nE 's/^core_contract = "(0x[0-9a-fA-F]+)".*/\1/p' "$CHAIN_DIR/co
 [[ -n "$PILTOVER" ]] || { echo "error: could not parse piltover address from config.toml" >&2; cat "$RUN_DIR/init.log" 2>/dev/null >&2; exit 1; }
 echo "   piltover=$PILTOVER"
 
-# 3. Base deployments.json (Sepolia + appchain rpc/accounts, piltover, USDC). The
+# 3. Base deployments.json (settlement network/rpc/accounts, piltover, USDC). The
 #    appchain account comes from the generated rollup genesis.
 echo "→ writing base deployments.json…"
 node -e '
@@ -121,7 +134,8 @@ node -e '
   const [addr, acct] = Object.entries(g.accounts)[0];
   const d = {
     settlement: {
-      rpcUrl: process.argv[2], explorer: "https://sepolia.voyager.online",
+      network: process.argv[11], chainId: process.argv[12],
+      rpcUrl: process.argv[2], explorer: process.argv[10],
       torii: "http://localhost:" + process.argv[8],
       account: { address: process.argv[3], privateKey: process.argv[4] },
       piltover: process.argv[5], usdc: process.argv[6],
@@ -133,9 +147,10 @@ node -e '
       account: { address: addr, privateKey: acct.privateKey },
     },
   };
-  fs.writeFileSync(process.argv[10], JSON.stringify(d, null, 2) + "\n");
-' "$CHAIN_DIR/genesis.json" "$SEPOLIA_RPC_URL" "$OPERATOR_ADDRESS" "$OPERATOR_PRIVATE_KEY" \
+  fs.writeFileSync(process.argv[13], JSON.stringify(d, null, 2) + "\n");
+' "$CHAIN_DIR/genesis.json" "$SETTLEMENT_RPC_URL" "$OPERATOR_ADDRESS" "$OPERATOR_PRIVATE_KEY" \
   "$PILTOVER" "$USDC_ADDRESS" "$APPCHAIN_PORT" "$TORII_SCORE_HTTP" "$TORII_GAME_HTTP" \
+  "$SETTLEMENT_EXPLORER" "$SETTLEMENT_NETWORK" "$SETTLEMENT_CHAIN_ID" \
   "$DEMO_DIR/app/src/deployments.json"
 
 # 4. Appchain rollup node, settling to piltover on Sepolia, L1→L2 messaging on.
@@ -152,7 +167,7 @@ echo "→ starting saya-tee --mock-prove sidecar (settling to Sepolia)…"
 rm -rf "$RUN_DIR/saya-db"
 saya-tee tee start --mock-prove \
   --rollup-rpc "http://localhost:$APPCHAIN_PORT" \
-  --settlement-rpc "$SEPOLIA_RPC_URL" \
+  --settlement-rpc "$SETTLEMENT_RPC_URL" \
   --settlement-piltover-address "$PILTOVER" \
   --tee-registry-address "$TEE_REGISTRY" \
   --settlement-account-address "$SAYA_ADDRESS" \
@@ -173,9 +188,9 @@ GAME_WORLD=$(node -e 'console.log(require(process.argv[1]).appchain.gameWorld)' 
 # 7. Torii indexers. The bank world lives on Sepolia — torii resolves the world's
 #    deploy block from the contract, so it won't rescan all of Sepolia. The game
 #    world is on the local appchain.
-echo "→ starting torii (Sepolia: bank world) on :${TORII_SCORE_HTTP}…"
+echo "→ starting torii ($SETTLEMENT_NAME: bank world) on :${TORII_SCORE_HTTP}…"
 rm -rf "$RUN_DIR/torii-score.db" "$RUN_DIR/torii-game.db"
-torii --rpc "$SEPOLIA_RPC_URL" --world "$BANK_WORLD" \
+torii --rpc "$SETTLEMENT_RPC_URL" --world "$BANK_WORLD" \
   --http.port "$TORII_SCORE_HTTP" --grpc.port "$TORII_SCORE_GRPC" \
   --relay.port "$TORII_SCORE_RELAY" --relay.webrtc_port $((TORII_SCORE_RELAY+1)) --relay.websocket_port $((TORII_SCORE_RELAY+2)) \
   --http.cors_origins '*' \
@@ -193,7 +208,7 @@ until curl -s -o /dev/null "http://localhost:$TORII_GAME_HTTP/" 2>/dev/null; do 
 
 echo ""
 echo "✓ Demo is up:"
-echo "    settlement     : Starknet Sepolia ($SEPOLIA_RPC_URL)"
+echo "    settlement     : $SETTLEMENT_NAME ($SETTLEMENT_RPC_URL)"
 echo "    appchain RPC   : http://localhost:$APPCHAIN_PORT   explorer: http://localhost:$APPCHAIN_PORT/explorer"
 echo "    saya-tee       : running (.run/saya.log)"
 echo "    torii (score)  : http://localhost:$TORII_SCORE_HTTP/sql   (.run/torii-score.log)"

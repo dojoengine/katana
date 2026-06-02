@@ -13,8 +13,9 @@
 //! - `token_sale` — buy GAME with **real Circle USDC** at a fixed rate. This is the
 //!   "depend on an external settlement-layer contract" showcase: it calls USDC's
 //!   `transfer_from`, then mints GAME to the buyer.
-//! - `entry` — charge a GAME entry fee, then send the L1→L2 message that starts a
-//!   dungeon run on the appchain (`mint_run`).
+//! - `entry` — charge a GAME entry fee (**burned** — sent to the zero address, so it
+//!   leaves circulation), then send the L1→L2 message that starts a dungeon run on
+//!   the appchain (`mint_run`).
 
 use starknet::ContractAddress;
 
@@ -23,6 +24,9 @@ use starknet::ContractAddress;
 pub trait IGameToken<T> {
     /// Mint to `to`. Caller must be an authorized minter (the sale).
     fn mint(ref self: T, to: ContractAddress, amount: u256);
+    /// Burn `amount` from the caller's own balance (a transfer to the zero address —
+    /// it leaves circulation). Used by `entry` to sink the entry fee.
+    fn burn(ref self: T, amount: u256);
     /// Owner-only: grant/revoke minting rights.
     fn set_minter(ref self: T, minter: ContractAddress, allowed: bool);
     /// Open dev faucet: mint `amount` to the caller. For local development only —
@@ -115,6 +119,11 @@ pub mod game_token {
         fn mint(ref self: ContractState, to: ContractAddress, amount: u256) {
             assert(self.minters.read(get_caller_address()), 'Not an authorized minter');
             self.erc20.mint(to, amount);
+        }
+
+        fn burn(ref self: ContractState, amount: u256) {
+            // ERC20 burn = transfer to the zero address; total supply drops.
+            self.erc20.burn(get_caller_address(), amount);
         }
 
         fn set_minter(ref self: ContractState, minter: ContractAddress, allowed: bool) {
@@ -251,10 +260,13 @@ pub mod entry {
     use openzeppelin::token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
     use starknet::{
-        ContractAddress, get_block_timestamp, get_caller_address,
+        ContractAddress, get_block_timestamp, get_caller_address, get_contract_address,
     };
     use core::poseidon::poseidon_hash_span;
-    use super::{IEntry, IPiltoverSendDispatcher, IPiltoverSendDispatcherTrait};
+    use super::{
+        IEntry, IGameTokenDispatcher, IGameTokenDispatcherTrait, IPiltoverSendDispatcher,
+        IPiltoverSendDispatcherTrait,
+    };
 
     /// Selector of the appchain `game` world's `mint_run` l1_handler.
     const MINT_RUN: felt252 = selector!("mint_run");
@@ -263,7 +275,6 @@ pub mod entry {
     struct Storage {
         game_token: ContractAddress,
         entry_fee: u256,
-        sink: ContractAddress,
         piltover: ContractAddress,
         appchain_game: ContractAddress,
     }
@@ -273,13 +284,11 @@ pub mod entry {
         ref self: ContractState,
         game_token: ContractAddress,
         entry_fee: u256,
-        sink: ContractAddress,
         piltover: ContractAddress,
         appchain_game: ContractAddress,
     ) {
         self.game_token.write(game_token);
         self.entry_fee.write(entry_fee);
-        self.sink.write(sink);
         self.piltover.write(piltover);
         self.appchain_game.write(appchain_game);
     }
@@ -288,10 +297,15 @@ pub mod entry {
     impl EntryImpl of IEntry<ContractState> {
         fn enter(ref self: ContractState) {
             let player = get_caller_address();
+            let game = self.game_token.read();
+            let fee = self.entry_fee.read();
 
-            // Charge the entry fee in GAME_TOKEN (caller must approve first).
-            IERC20Dispatcher { contract_address: self.game_token.read() }
-                .transfer_from(player, self.sink.read(), self.entry_fee.read());
+            // Charge the entry fee in GAME and burn it — sent to the zero address, so
+            // the fee leaves circulation on entry. (Pull it in, then burn our balance;
+            // caller must `approve` this contract first.)
+            IERC20Dispatcher { contract_address: game }
+                .transfer_from(player, get_contract_address(), fee);
+            IGameTokenDispatcher { contract_address: game }.burn(fee);
 
             // Per-run seed: deterministic from the player + L1 block time.
             let player_felt: felt252 = player.into();

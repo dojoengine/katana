@@ -209,8 +209,8 @@ function BankModal({
   const idx = phase === "done" ? 3 : order.indexOf(phase);
   const steps = [
     { title: "Withdraw vault · L2", detail: `send ${amount.toLocaleString()} gold as one L2→L1 message${withdrawNo != null ? ` (#${withdrawNo})` : ""}` },
-    { title: "Settle · saya → Sepolia", detail: block != null ? `prove + settle appchain block ${block} · settled ${settled} / tip ${tip}` : "saya proves the block and settles it onto the piltover core" },
-    { title: "Mint GOLD · L1", detail: `consume the message and mint ${amount.toLocaleString()} GOLD on Sepolia` },
+    { title: `Settle · saya → ${chain.SETTLEMENT_NAME}`, detail: block != null ? `prove + settle appchain block ${block} · settled ${settled} / tip ${tip}` : "saya proves the block and settles it onto the piltover core" },
+    { title: "Mint GOLD · L1", detail: `consume the message and mint ${amount.toLocaleString()} GOLD on ${chain.SETTLEMENT_NAME}` },
   ];
 
   return (
@@ -238,7 +238,7 @@ function BankModal({
         </ol>
         <div className="legend">
           {phase === "done"
-            ? "done — GOLD minted on Sepolia"
+            ? `done — GOLD minted on ${chain.SETTLEMENT_NAME}`
             : "this completes on its own — you can close this and keep playing"}
         </div>
       </div>
@@ -419,19 +419,19 @@ function ConfigPanel({ settled, tip }: { settled: number; tip: number }) {
       )}
     </div>
   );
-  const l1 = (addr: string) => (z(addr) ? undefined : `${chain.SEPOLIA_EXPLORER}/contract/${addr}`);
+  const l1 = (addr: string) => (z(addr) ? undefined : `${chain.SETTLEMENT_EXPLORER}/contract/${addr}`);
 
   return (
     <div className="cfg">
-      <div className="cfg-sec">Services</div>
-      <Field label="Sepolia RPC" value={chain.SEPOLIA_RPC} href={chain.SEPOLIA_RPC} />
+      <div className="cfg-sec">Services · {chain.SETTLEMENT_NAME}</div>
+      <Field label="Settlement RPC" value={chain.SETTLEMENT_RPC} href={chain.SETTLEMENT_RPC} />
       <Field label="Appchain RPC" value={chain.APPCHAIN_RPC} href={chain.APPCHAIN_RPC} />
       <Field label="Torii · bank (L1)" value={chain.TORII_BANK} href={chain.TORII_BANK} />
       <Field label="Torii · game (L2)" value={chain.TORII_GAME} href={chain.TORII_GAME} />
-      <Field label="Sepolia explorer" value={chain.SEPOLIA_EXPLORER} href={chain.SEPOLIA_EXPLORER} />
+      <Field label="Settlement explorer" value={chain.SETTLEMENT_EXPLORER} href={chain.SETTLEMENT_EXPLORER} />
       <Field label="Appchain explorer" value={chain.APPCHAIN_EXPLORER} href={chain.APPCHAIN_EXPLORER} />
 
-      <div className="cfg-sec">Sepolia (L1) contracts</div>
+      <div className="cfg-sec">{chain.SETTLEMENT_NAME} (L1) contracts</div>
       <Field label="piltover core" value={chain.PILTOVER} href={l1(chain.PILTOVER)} />
       <Field label="USDC (external)" value={chain.USDC} href={l1(chain.USDC)} />
       <Field label="GAME token" value={chain.GAME_TOKEN} href={l1(chain.GAME_TOKEN)} />
@@ -691,13 +691,13 @@ export default function App() {
                 CROSS<span className="x">-</span>CHAIN DUNGEON<span className="cur" />
               </h1>
               <div className="subtitle">
-                push-your-luck roguelite · play on <b>DUNGEON</b> appchain · settle on <b>STARKNET SEPOLIA</b>
+                push-your-luck roguelite · play on <b>DUNGEON</b> appchain · settle on <b>{chain.SETTLEMENT_NAME.toUpperCase()}</b>
               </div>
             </div>
             <div className="chips">
               <span className="chip on">
                 <span className="led" />
-                SEPOLIA · settlement
+                {chain.SETTLEMENT_NETWORK.toUpperCase()} · settlement
               </span>
               <span className="chip on">
                 <span className="led" />
@@ -721,10 +721,10 @@ export default function App() {
 
           <div className="tabs">
             <button className={`tab ${tab === "dungeon" ? "on" : ""}`} onClick={() => setTab("dungeon")}>
-              ▸ Dungeon <span className="tab-sub">· L2 appchain</span>
+              ▸ Dungeon
             </button>
             <button className={`tab ${tab === "bank" ? "on" : ""}`} onClick={() => setTab("bank")}>
-              ▸ Bank <span className="tab-sub">· L1 Sepolia</span>
+              ▸ Bank
               {bankable > 0 && (
                 <span
                   className={`tab-badge ${claimReady ? "ready" : "wait"}`}
@@ -825,7 +825,12 @@ export default function App() {
                   {!run && (b("enter") || !lastEnded?.died) && (
                     <div className="veil">
                       {b("enter") ? (
-                        <div>entering…</div>
+                        <div className="loading">
+                          <div className="spinner" aria-hidden />
+                          <div className="loading-title">entering the dungeon…</div>
+                          <div className="loading-bar" aria-hidden />
+                          <div className="loading-sub">charging $GAME · relaying L1→L2</div>
+                        </div>
                       ) : (
                         <>
                           <div>no active run</div>
@@ -959,26 +964,27 @@ export default function App() {
               <div className="bank-chain">
                 <span className="chip on">
                   <span className="led" />
-                  STARKNET SEPOLIA · L1
+                  {chain.SETTLEMENT_NAME.toUpperCase()} · L1
                 </span>
               </div>
               <div className="panel-h">
                 Bank your dungeon GOLD<span className="rule" />
               </div>
               <p className="bank-intro">
-                <b>GOLD</b> is earned in the dungeon (L2) but minted here on <b>Starknet Sepolia (L1)</b>.
+                <b>GOLD</b> is earned in the dungeon (L2) but minted here on <b>{chain.SETTLEMENT_NAME} (L1)</b>.
                 Every extract banks a run's gold into your on-L2 <b>vault</b>; you bank the whole vault
                 to L1 in one go. <b>Withdraw</b> publishes a single L2→L1 message, and once saya settles
                 it onto the piltover core, <b>mint</b> consumes the message and mints that much GOLD here.
               </p>
 
               <div className="bal">
-                <span className="k">vault · ready to bank <small>(L2)</small></span>
-                <span className="v">{bankable.toLocaleString()} <small>gold</small></span>
+                {/*<span className="k">vault · ready to bank <small>(L2)</small></span>*/}
+                <span className="k">vault</span>
+                <span className="v">{bankable.toLocaleString()} <small>$GOLD</small></span>
               </div>
               <div className="bal gold">
-                <span className="k">GOLD balance <small>(L1)</small></span>
-                <span className="v">{chain.fmtToken(goldBal, chain.GOLD_DECIMALS, 0)} <small>GOLD</small></span>
+                <span className="k">account balance</span>
+                <span className="v">{chain.fmtToken(goldBal, chain.GOLD_DECIMALS, 0)} <small>$GOLD</small></span>
               </div>
 
               {bankable > 0 ? (
@@ -1012,9 +1018,7 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <div className="bank-empty">
-                  vault empty — <b>extract</b> a run in the dungeon to bank its gold here
-                </div>
+                <></>
               )}
             </section>
           </main>

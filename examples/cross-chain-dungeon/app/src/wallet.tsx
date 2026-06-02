@@ -14,7 +14,10 @@ import ControllerConnector from "@cartridge/connector/controller";
 import { StarknetConfig, jsonRpcProvider, useAccount, useConnect, useDisconnect } from "@starknet-react/core";
 import type { Chain } from "@starknet-react/chains";
 import {
-  SEPOLIA_RPC,
+  SETTLEMENT_RPC,
+  SETTLEMENT_CHAIN_ID,
+  SETTLEMENT_NETWORK,
+  SETTLEMENT_NAME,
   USDC,
   GAME_TOKEN,
   TOKEN_SALE,
@@ -25,23 +28,24 @@ import {
   type Signer,
 } from "./chain.ts";
 
-const SEPOLIA_CHAIN_ID = constants.StarknetChainId.SN_SEPOLIA;
+// Chain id felt for the configured settlement network (Sepolia by default, or mainnet).
+const CHAIN_ID = SETTLEMENT_CHAIN_ID === "SN_MAIN" ? constants.StarknetChainId.SN_MAIN : constants.StarknetChainId.SN_SEPOLIA;
 const STRK = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";
 
-const sepoliaChain: Chain = {
-  id: BigInt(SEPOLIA_CHAIN_ID),
-  network: "sepolia",
-  name: "Starknet Sepolia",
+const settlementChain: Chain = {
+  id: BigInt(CHAIN_ID),
+  network: SETTLEMENT_NETWORK,
+  name: SETTLEMENT_NAME,
   nativeCurrency: { name: "Stark", symbol: "STRK", decimals: 18, address: STRK },
-  rpcUrls: { default: { http: [SEPOLIA_RPC] }, public: { http: [SEPOLIA_RPC] } },
+  rpcUrls: { default: { http: [SETTLEMENT_RPC] }, public: { http: [SETTLEMENT_RPC] } },
   // starknet-react requires a paymaster provider per chain (its default reads
   // paymasterRpcUrls.avnu.http); the Controller runs its own, so point it at the rpc.
-  paymasterRpcUrls: { avnu: { http: [SEPOLIA_RPC] } },
+  paymasterRpcUrls: { avnu: { http: [SETTLEMENT_RPC] } },
 };
 
-const provider = jsonRpcProvider({ rpc: () => ({ nodeUrl: SEPOLIA_RPC }) });
+const provider = jsonRpcProvider({ rpc: () => ({ nodeUrl: SETTLEMENT_RPC }) });
 
-// Session policies: scope the Controller session to the demo's Sepolia entrypoints
+// Session policies: scope the Controller session to the demo's settlement entrypoints
 // so buy / enter / bank are gasless session calls (no per-tx popup).
 const policies = {
   contracts: {
@@ -60,8 +64,8 @@ const policies = {
 function createControllerConnector(): ControllerConnector | null {
   try {
     return new ControllerConnector({
-      chains: [{ rpcUrl: SEPOLIA_RPC }],
-      defaultChainId: SEPOLIA_CHAIN_ID,
+      chains: [{ rpcUrl: SETTLEMENT_RPC }],
+      defaultChainId: CHAIN_ID,
       url: import.meta.env.VITE_KEYCHAIN_URL || undefined,
       policies,
     });
@@ -158,7 +162,7 @@ function WalletInner({ children }: PropsWithChildren) {
 export function WalletProvider({ children }: PropsWithChildren) {
   const connectors = controllerConnector ? [controllerConnector] : [];
   return (
-    <StarknetConfig chains={[sepoliaChain]} connectors={connectors} provider={provider}>
+    <StarknetConfig chains={[settlementChain]} connectors={connectors} provider={provider}>
       <WalletInner>{children}</WalletInner>
     </StarknetConfig>
   );

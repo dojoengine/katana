@@ -11,7 +11,8 @@ function req(name: string): string {
 }
 
 export const config = {
-  sepoliaRpcUrl: req("SEPOLIA_RPC_URL"),
+  // Settlement RPC: SETTLEMENT_RPC_URL preferred, SEPOLIA_RPC_URL kept for back-compat.
+  settlementRpcUrl: process.env.SETTLEMENT_RPC_URL ?? req("SEPOLIA_RPC_URL"),
   operator: { address: req("OPERATOR_ADDRESS"), privateKey: req("OPERATOR_PRIVATE_KEY") },
   saya: { address: req("SAYA_ADDRESS"), privateKey: req("SAYA_PRIVATE_KEY") },
   usdc: req("USDC_ADDRESS"),

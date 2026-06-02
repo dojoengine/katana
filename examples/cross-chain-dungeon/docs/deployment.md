@@ -10,19 +10,23 @@ checkout). What's new here: **plain-contract deploys alongside the Dojo migratio
 
 ## Configuration (`.env`)
 
-Because settlement is a real chain, the accounts and the external USDC address come
-from the environment (`.env.example` → `.env`):
+Because settlement is a real chain, the network choice, accounts, and external USDC
+address come from the environment (`.env.example` → `.env`):
 
 ```
-SEPOLIA_RPC_URL=…
-OPERATOR_ADDRESS=…  OPERATOR_PRIVATE_KEY=…   # deploys contracts + migrates score
+SETTLEMENT_NETWORK=sepolia                  # sepolia (default) or mainnet
+SETTLEMENT_RPC_URL=…                        # RPC for that network (SEPOLIA_RPC_URL still works)
+OPERATOR_ADDRESS=…  OPERATOR_PRIVATE_KEY=…   # deploys contracts + migrates the bank world
 SAYA_ADDRESS=…      SAYA_PRIVATE_KEY=…       # piltover operator + update_state (dedicated!)
-USDC_ADDRESS=…                              # real Circle USDC on Sepolia (verify it)
-GAME_RATE=… ENTRY_FEE=… REWARD_PER_POINT=…   # economy (base units)
+USDC_ADDRESS=…                              # real Circle USDC for the chosen network (verify it)
+GAME_RATE=… ENTRY_FEE=… REWARD_PER_GOLD=…    # economy (base units)
 ```
 
-`scripts/config.ts` loads these; the economy values are base units (GAME_TOKEN has
-18 decimals, USDC 6) so the rate carries the decimal conversion.
+`SETTLEMENT_NETWORK` selects the chain id (`SN_SEPOLIA` / `SN_MAIN`), the explorer,
+and the display name; `up.sh` records all of these into `deployments.json` so the app
+is network-agnostic. The RPC and USDC must match the chosen network — **mainnet means
+real funds**. `scripts/config.ts` loads the economy values as base units (GAME/GOLD
+have 18 decimals, USDC 6) so the rate carries the decimal conversion.
 
 ## Two kinds of deploy
 
@@ -36,13 +40,14 @@ GAME_RATE=… ENTRY_FEE=… REWARD_PER_POINT=…   # economy (base units)
   directly, then configured with `invoke` (the minter grants).
 
 ```ts
-const gameToken = await declareAndDeploy(operator, "token", "game_token", { owner });
-const score = migrateWorld({ pkg: "score", … initArgs: [piltover, gameToken, ...u256(rewardPerPoint)] });
-const game  = migrateWorld({ pkg: "game",  … initArgs: [score.system] });
+const gameToken = await declareAndDeploy(operator, "token", "game_token", { owner }); // GAME
+const goldToken = await declareAndDeploy(operator, "token", "gold_token", { owner }); // GOLD
+const bank  = migrateWorld({ pkg: "score", namespace: "bank", … initArgs: [piltover, goldToken, ...u256(rewardPerGold)] });
+const game  = migrateWorld({ pkg: "game",  … initArgs: [bank.system] });
 const tokenSale = await declareAndDeploy(operator, "token", "token_sale", { usdc, game_token: gameToken, treasury, rate });
-const entry     = await declareAndDeploy(operator, "token", "entry", { game_token: gameToken, entry_fee, sink, piltover, appchain_game: game.system });
-await invoke(operator, gameToken, "set_minter", [tokenSale, "0x1"]);
-await invoke(operator, gameToken, "set_minter", [score.system, "0x1"]);
+const entry     = await declareAndDeploy(operator, "token", "entry", { game_token: gameToken, entry_fee, piltover, appchain_game: game.system });
+await invoke(operator, gameToken, "set_minter", [tokenSale, "0x1"]);   // sale mints GAME
+await invoke(operator, goldToken, "set_minter", [bank.system, "0x1"]); // bank mints GOLD
 ```
 
 (`scripts/deploy.ts`.) The order matters: the token before the world+sale that

@@ -68,7 +68,13 @@ async function main() {
   console.log("[deploy] migrating bank world on Sepolia (piltover:", d.settlement.piltover, ")");
   const bank = migrateWorld({
     pkg: "score",
-    seed: "ccd_bank1",
+    // Derive the seed from the piltover address so each fresh chain gets a fresh
+    // bank world. The bank world lives on persistent settlement (Sepolia/mainnet);
+    // a fixed seed would reuse the same world across FRESH redeploys, and sozo
+    // `migrate` upgrades it in place WITHOUT re-running `dojo_init` — leaving the
+    // stored piltover/gold_token pointing at the previous deploy. A piltover-keyed
+    // seed guarantees a new world (fresh `dojo_init`) whenever the chain changes.
+    seed: `ccd_bank_${d.settlement.piltover.slice(2, 12)}`,
     namespace: "bank",
     systemTag: "bank-bank",
     rpcUrl: d.settlement.rpcUrl,
@@ -113,7 +119,6 @@ async function main() {
   const entry = await declareAndDeploy(operator, "token", "entry", {
     game_token: gameToken,
     entry_fee: cairo.uint256(config.entryFee),
-    sink: d.settlement.account.address,
     piltover: d.settlement.piltover,
     appchain_game: game.system,
   });

@@ -14,12 +14,18 @@ import { Account, type AccountInterface, CallData, RpcProvider, cairo, hash } fr
 import { ToriiClient } from "@dojoengine/torii-wasm";
 import deployments from "./deployments.json";
 
-export const SEPOLIA_RPC = deployments.settlement.rpcUrl;
+// Settlement network: Sepolia by default, or mainnet — set via SETTLEMENT_NETWORK at
+// deploy time and recorded in deployments.json. Everything below is network-agnostic.
+export const SETTLEMENT_NETWORK = deployments.settlement.network; // "sepolia" | "mainnet"
+export const SETTLEMENT_CHAIN_ID = deployments.settlement.chainId; // "SN_SEPOLIA" | "SN_MAIN"
+export const SETTLEMENT_NAME = SETTLEMENT_NETWORK === "mainnet" ? "Starknet Mainnet" : "Starknet Sepolia";
+
+export const SETTLEMENT_RPC = deployments.settlement.rpcUrl;
 export const APPCHAIN_RPC = deployments.appchain.rpcUrl;
-export const SEPOLIA_EXPLORER = deployments.settlement.explorer;
+export const SETTLEMENT_EXPLORER = deployments.settlement.explorer;
 export const APPCHAIN_EXPLORER = deployments.appchain.explorer;
 
-export const TORII_BANK = deployments.settlement.torii; // Sepolia: bank world
+export const TORII_BANK = deployments.settlement.torii; // settlement: bank world
 export const TORII_GAME = deployments.appchain.torii; // appchain: game world
 
 export const PILTOVER = deployments.settlement.piltover;
@@ -41,7 +47,7 @@ export const USDC_DECIMALS = 6;
 const num = (v: string | number): number => (typeof v === "number" ? v : Number(BigInt(v)));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const sepoliaProvider = new RpcProvider({ nodeUrl: SEPOLIA_RPC });
+const settlementProvider = new RpcProvider({ nodeUrl: SETTLEMENT_RPC });
 const appchainProvider = new RpcProvider({ nodeUrl: APPCHAIN_RPC });
 
 // starknet.js's waitForTransaction defaults to a 5s poll interval, so a tx that's
@@ -50,13 +56,13 @@ const appchainProvider = new RpcProvider({ nodeUrl: APPCHAIN_RPC });
 // (measured) — far quicker than the 5s default, which was the bulk of the perceived
 // "entering…" / "banking…" latency. The interval is a poll cadence, not added work.
 const APPCHAIN_TX_WAIT = { retryInterval: 200 };
-const SEPOLIA_TX_WAIT = { retryInterval: 1000 };
+const SETTLEMENT_TX_WAIT = { retryInterval: 1000 };
 
 // Default signers. The operator is a real funded Sepolia account (from
 // deployments.json); the wallet layer can swap a Controller in for L1 ops. The
 // appchain account is the rollup dev account and always signs the play actions.
 export const operatorAccount = new Account({
-  provider: sepoliaProvider,
+  provider: settlementProvider,
   address: deployments.settlement.account.address,
   signer: deployments.settlement.account.privateKey,
   cairoVersion: "1",
@@ -341,7 +347,7 @@ function u256FromParts(parts: string[]): bigint {
 
 async function erc20Balance(token: string, owner: string): Promise<bigint> {
   if (BigInt(token) === 0n) return 0n;
-  const res = await sepoliaProvider.callContract({ contractAddress: token, entrypoint: "balanceOf", calldata: [owner] });
+  const res = await settlementProvider.callContract({ contractAddress: token, entrypoint: "balanceOf", calldata: [owner] });
   return u256FromParts(res as string[]);
 }
 export const gameBalance = (owner: string) => erc20Balance(GAME_TOKEN, owner);
@@ -350,7 +356,7 @@ export const usdcBalance = (owner: string) => erc20Balance(USDC, owner);
 
 export async function entryFee(): Promise<bigint> {
   if (BigInt(ENTRY) === 0n) return 0n;
-  const res = await sepoliaProvider.callContract({ contractAddress: ENTRY, entrypoint: "entry_fee", calldata: [] });
+  const res = await settlementProvider.callContract({ contractAddress: ENTRY, entrypoint: "entry_fee", calldata: [] });
   return u256FromParts(res as string[]);
 }
 
@@ -360,7 +366,7 @@ export async function appchainBlock(): Promise<number> {
 
 /** Block height settled onto the piltover core by saya (get_state()[1]). */
 export async function settledBlock(): Promise<number> {
-  const res = await sepoliaProvider.callContract({ contractAddress: PILTOVER, entrypoint: "get_state", calldata: [] });
+  const res = await settlementProvider.callContract({ contractAddress: PILTOVER, entrypoint: "get_state", calldata: [] });
   const bn = BigInt(res[1]);
   return bn > 0xffffffffffffffffn ? -1 : Number(bn);
 }
@@ -389,7 +395,7 @@ export async function devMint(account: Signer, amount: bigint): Promise<string> 
       entrypoint: "dev_mint",
       calldata: CallData.compile([cairo.uint256(amount)]),
     });
-    await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
+    await settlementProvider.waitForTransaction(transaction_hash, SETTLEMENT_TX_WAIT);
     return transaction_hash;
   });
 }
@@ -401,7 +407,7 @@ export async function buyGame(account: Signer, usdcAmount: bigint): Promise<stri
       { contractAddress: USDC, entrypoint: "approve", calldata: CallData.compile([TOKEN_SALE, cairo.uint256(usdcAmount)]) },
       { contractAddress: TOKEN_SALE, entrypoint: "buy", calldata: CallData.compile([cairo.uint256(usdcAmount)]) },
     ]);
-    await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
+    await settlementProvider.waitForTransaction(transaction_hash, SETTLEMENT_TX_WAIT);
     return transaction_hash;
   });
 }
@@ -415,7 +421,7 @@ export async function enterDungeon(account: Signer): Promise<string> {
       { contractAddress: GAME_TOKEN, entrypoint: "approve", calldata: CallData.compile([ENTRY, cairo.uint256(fee)]) },
       { contractAddress: ENTRY, entrypoint: "enter", calldata: [] },
     ]);
-    await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
+    await settlementProvider.waitForTransaction(transaction_hash, SETTLEMENT_TX_WAIT);
     return transaction_hash;
   });
 }
@@ -429,7 +435,7 @@ export async function bankRun(account: Signer, player: string, amount: number, w
       // bank(from_address = game system, player, amount, withdraw_no)
       calldata: [GAME_SYSTEM, player, "0x" + amount.toString(16), "0x" + withdrawNo.toString(16)],
     });
-    await sepoliaProvider.waitForTransaction(transaction_hash, SEPOLIA_TX_WAIT);
+    await settlementProvider.waitForTransaction(transaction_hash, SETTLEMENT_TX_WAIT);
     return transaction_hash;
   });
 }

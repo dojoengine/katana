@@ -40,7 +40,7 @@ USDC on Sepolia:
 - **`token_sale`** pulls real USDC and mints **GAME** at a fixed rate. This is the
   external dependency: the sale calls `USDC.transfer_from`, a contract the demo
   doesn't deploy. A `dev_mint` faucet on GAME lets you skip USDC during development.
-- **`entry`** charges a **GAME** fee and sends the L1→L2 message that starts a run.
+- **`entry`** charges a **GAME** fee (**burned** — sent to the zero address) and sends the L1→L2 message that starts a run.
 - The appchain accumulates collected gold into a per-player **vault** (on extract).
 - **`bank`** mints **GOLD** to the player when a withdrawal settles — closing a
   spend-GAME-to-play / earn-GOLD-to-keep loop. (`cairo/token/src/lib.cairo` holds the

@@ -236,6 +236,24 @@ button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); b
 .map .shrine { color: var(--cyan); }
 .veil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; background: rgba(8,6,4,.82); color: var(--dim); text-align: center; font-size: 13px; padding: 12px; }
 .veil b { color: var(--amber); }
+
+/* "entering the dungeon" loader: a braille spinner + an indeterminate scan bar. */
+.loading { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.loading-title { color: var(--amber-hi); letter-spacing: 1px; text-shadow: var(--glow); }
+.loading-sub { color: var(--faint); font-size: 11.5px; letter-spacing: .5px; }
+.spinner { font-family: inherit; font-size: 30px; line-height: 1; color: var(--amber-hi); text-shadow: var(--glow-strong); }
+.spinner::before { content: "⠋"; animation: braille 0.9s steps(1, end) infinite; }
+@keyframes braille {
+  0%   { content: "⠋"; } 10% { content: "⠙"; } 20% { content: "⠹"; } 30% { content: "⠸"; }
+  40%  { content: "⠼"; } 50% { content: "⠴"; } 60% { content: "⠦"; } 70% { content: "⠧"; }
+  80%  { content: "⠇"; } 90% { content: "⠏"; }
+}
+.loading-bar { position: relative; width: 150px; height: 3px; background: var(--ghost); overflow: hidden; }
+.loading-bar::after {
+  content: ""; position: absolute; top: 0; left: -45%; width: 45%; height: 100%;
+  background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: scan 1.1s ease-in-out infinite;
+}
+@keyframes scan { 0% { left: -45%; } 100% { left: 100%; } }
 /* death outcome shown in the dungeon view once the run clears */
 .veil-death { background: rgba(20, 4, 3, 0.86); color: #ffb0a8; }
 .veil-death b { color: var(--red); }

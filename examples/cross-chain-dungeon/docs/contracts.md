@@ -121,8 +121,10 @@ contracts:
 - **`token_sale`** — `buy(usdc_amount)` does `USDC.transfer_from(buyer, treasury,
   usdc_amount)` then mints `usdc_amount * rate` GAME. This is the **external
   dependency**: USDC is a contract the demo references by address, never deploys.
-- **`entry`** — `enter()` charges `entry_fee` GAME via `transfer_from`, then sends
-  the `mint_run` message to the appchain game system. The caller is the run's player.
+- **`entry`** — `enter()` pulls `entry_fee` GAME from the caller and **burns it**
+  (`game_token.burn`, i.e. a transfer to the zero address — the fee leaves
+  circulation), then sends the `mint_run` message to the appchain game system. The
+  caller is the run's player.
 
 So the loop is **spend GAME to play, earn GOLD to keep**: USDC → GAME (sale) → enter
 → collect gold → extract (vault) → withdraw + bank → GOLD on L1.
