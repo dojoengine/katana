@@ -784,7 +784,6 @@ export default function App() {
                           return;
                         }
                         setBankAmount(vault);
-                        setBankModal(true);
                         void onWithdraw();
                       }}
                     >
@@ -794,7 +793,7 @@ export default function App() {
                           ? "minting GOLD…"
                           : pending
                             ? "awaiting saya…"
-                            : `Withdraw ${vault.toLocaleString()} gold → GOLD`}
+                            : `Withdraw ${vault.toLocaleString()} $GOLD`}
                     </button>
                   </div>
                   <div className="legend">
