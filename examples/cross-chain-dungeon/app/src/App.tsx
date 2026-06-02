@@ -489,6 +489,10 @@ export default function App() {
   const [configOpen, setConfigOpen] = useState(false); // floating deployment-config window
   const [minting, setMinting] = useState(false); // auto-mint (L1) in flight after a withdraw
   const mintingRef = useRef(false);
+  // Outcome screen only shows for a run that ends *this session*: baseline the last
+  // RunEnded seen at load, then show the veil only when a newer one appears. A reload
+  // re-baselines, so a prior run's outcome doesn't reappear.
+  const baselineEndNoRef = useRef<number | null>(null);
   const [bankModal, setBankModal] = useState(false); // the withdraw/bank progress modal
   const [bankAmount, setBankAmount] = useState(0); // gold being banked (for the modal/done state)
   const [withdrawTx, setWithdrawTx] = useState<string | undefined>(); // L2 withdraw tx hash
@@ -550,6 +554,7 @@ export default function App() {
       setTip(tp);
       setPending(wd.length > bc ? wd[bc] : null);
       setLastEnded(le);
+      if (baselineEndNoRef.current === null) baselineEndNoRef.current = le ? le.endNo : -1;
       setErr(null);
     } catch (e) {
       setErr(String((e as Error).message || e));
@@ -617,6 +622,9 @@ export default function App() {
   };
 
   const inCombat = !!run && run.enemyHp > 0;
+  // A run that ended this session (newer than the load-time baseline) — drives the
+  // death / extract outcome veils, so they don't reappear on reload.
+  const freshOutcome = !!lastEnded && baselineEndNoRef.current !== null && lastEnded.endNo > baselineEndNoRef.current;
   const b = (n: string) => busy === n;
   const anyBusy = busy !== null;
 
@@ -838,7 +846,7 @@ export default function App() {
                     <span>{stats.activeRuns} active</span>
                   </div>
                   <DungeonMap run={run} />
-                  {!run && (b("enter") || !lastEnded) && (
+                  {!run && (b("enter") || !freshOutcome) && (
                     <div className="veil">
                       {b("enter") ? (
                         <div className="loading">
@@ -881,7 +889,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {!run && !b("enter") && lastEnded?.died && (
+                {!run && !b("enter") && freshOutcome && lastEnded?.died && (
                   <div className="veil veil-death arena-veil">
                     <div className="death-skull">☠</div>
                     <div className="death-title">YOU DIED</div>
@@ -894,7 +902,7 @@ export default function App() {
                   </div>
                 )}
 
-                {!run && !b("enter") && lastEnded && !lastEnded.died && (
+                {!run && !b("enter") && freshOutcome && lastEnded && !lastEnded.died && (
                   <div className="veil veil-extract arena-veil">
                     <div className="extract-mark">✓</div>
                     <div className="extract-title">EXTRACTED</div>
