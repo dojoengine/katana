@@ -189,6 +189,8 @@ function BankModal({
   block,
   settled,
   tip,
+  withdrawTx,
+  mintTx,
   onClose,
 }: {
   phase: "withdraw" | "settle" | "mint" | "done";
@@ -197,6 +199,8 @@ function BankModal({
   block?: number;
   settled: number;
   tip: number;
+  withdrawTx?: string;
+  mintTx?: string;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -208,9 +212,9 @@ function BankModal({
   const order = ["withdraw", "settle", "mint"] as const;
   const idx = phase === "done" ? 3 : order.indexOf(phase);
   const steps = [
-    { title: "Withdraw vault · L2", detail: `send ${amount.toLocaleString()} gold as one L2→L1 message${withdrawNo != null ? ` (#${withdrawNo})` : ""}` },
-    { title: `Settle · saya → ${chain.SETTLEMENT_NAME}`, detail: block != null ? `prove + settle appchain block ${block} · settled ${settled} / tip ${tip}` : "saya proves the block and settles it onto the piltover core" },
-    { title: "Mint GOLD · L1", detail: `consume the message and mint ${amount.toLocaleString()} GOLD on ${chain.SETTLEMENT_NAME}` },
+    { title: "Withdraw vault · L2", detail: `send ${amount.toLocaleString()} $GOLD as one L2→L1 message${withdrawNo != null ? ` (#${withdrawNo})` : ""}`, tx: withdrawTx, explorer: chain.APPCHAIN_EXPLORER },
+    { title: `Settle · saya → ${chain.SETTLEMENT_NAME}`, detail: block != null ? `prove + settle appchain block ${block} · settled ${settled} / tip ${tip}` : "saya proves the block and settles it onto the piltover core", tx: undefined as string | undefined, explorer: undefined as string | undefined },
+    { title: "Mint $GOLD · L1", detail: `consume the message and mint ${amount.toLocaleString()} $GOLD on ${chain.SETTLEMENT_NAME}`, tx: mintTx, explorer: chain.SETTLEMENT_EXPLORER },
   ];
 
   return (
@@ -227,10 +231,17 @@ function BankModal({
             const state = i < idx ? "done" : i === idx ? "active" : "todo";
             return (
               <li key={s.title} className={`step ${state}`}>
-                <span className="step-mark">{state === "done" ? "✓" : state === "active" ? "▸" : "·"}</span>
+                <span className="step-mark">
+                  {state === "done" ? "✓" : state === "active" ? <span className="spinner" aria-hidden /> : "·"}
+                </span>
                 <span className="step-body">
                   <span className="step-title">{s.title}</span>
                   <span className="step-detail">{s.detail}</span>
+                  {s.tx && s.explorer && (
+                    <a className="step-tx tx-link" href={chain.explorerTxUrl(s.explorer, s.tx)} target="_blank" rel="noreferrer">
+                      {chain.shortHex(s.tx, 10, 8)} ↗
+                    </a>
+                  )}
                 </span>
               </li>
             );
@@ -238,7 +249,7 @@ function BankModal({
         </ol>
         <div className="legend">
           {phase === "done"
-            ? `done — GOLD minted on ${chain.SETTLEMENT_NAME}`
+            ? `done — $GOLD minted on ${chain.SETTLEMENT_NAME}`
             : "this completes on its own — you can close this and keep playing"}
         </div>
       </div>
@@ -480,6 +491,8 @@ export default function App() {
   const mintingRef = useRef(false);
   const [bankModal, setBankModal] = useState(false); // the withdraw/bank progress modal
   const [bankAmount, setBankAmount] = useState(0); // gold being banked (for the modal/done state)
+  const [withdrawTx, setWithdrawTx] = useState<string | undefined>(); // L2 withdraw tx hash
+  const [mintTx, setMintTx] = useState<string | undefined>(); // L1 mint tx hash
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -620,7 +633,7 @@ export default function App() {
   // settled it (see the auto-mint effect below), so the user never presses a second
   // button. The mint runs off the poll loop, not a blocking await, so play isn't
   // blocked while settlement catches up.
-  const onWithdraw = act("withdraw", () => chain.withdraw(player));
+  const onWithdraw = act("withdraw", async () => setWithdrawTx(await chain.withdraw(player)));
 
   const hp = run ? run.hp : 0;
   const maxHp = run ? run.maxHp : 100;
@@ -660,7 +673,10 @@ export default function App() {
     setMinting(true);
     chain
       .bankRun(wallet.l1Account, player, pending.amount, pending.withdrawNo)
-      .then(() => tick())
+      .then((tx) => {
+        setMintTx(tx);
+        return tick();
+      })
       .catch((e) => setErr(String((e as Error).message || e)))
       .finally(() => {
         mintingRef.current = false;
@@ -771,7 +787,7 @@ export default function App() {
                   </button>
                 </div>
                 <div className="legend">
-                  spend <b>GAME</b> to enter · earn <b>GOLD</b> by banking · buy uses real USDC
+                  spend <b>$GAME</b> to enter · earn <b>$GOLD</b> by banking · buy uses real <b>$USDC</b>
                 </div>
               </div>
 
@@ -1009,6 +1025,8 @@ export default function App() {
                           return;
                         }
                         setBankAmount(vault);
+                        setWithdrawTx(undefined);
+                        setMintTx(undefined);
                         void onWithdraw();
                       }}
                     >
@@ -1074,6 +1092,8 @@ export default function App() {
           block={pending?.block}
           settled={settled}
           tip={tip}
+          withdrawTx={withdrawTx}
+          mintTx={mintTx}
           onClose={() => setBankModal(false)}
         />
       )}
