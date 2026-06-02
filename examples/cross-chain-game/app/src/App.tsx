@@ -10,6 +10,7 @@ import {
   Info,
   Loader2,
   LogIn,
+  LogOut,
   MousePointerClick,
   PlugZap,
   Settings,
@@ -31,6 +32,7 @@ import { cn } from "@/lib/utils";
 import {
   readGameState,
   readScoreState,
+  readCredits,
   getPurchaseHistory,
   getPlayHistory,
   probeServices,
@@ -192,12 +194,13 @@ export default function App() {
   const [online, setOnline] = useState(false);
   const [loading, setLoading] = useState(true); // true until the first fetch settles (ok or fail)
   const [services, setServices] = useState<Record<ServiceId, boolean> | null>(null);
-  const [game, setGame] = useState<GameState | null>(null);
+  const [, setGame] = useState<GameState | null>(null); // global stats read but credits are now per-player
   const [, setScore] = useState<ScoreState | null>(null);
   const [settled, setSettled] = useState(-1);
   const [tip, setTip] = useState(0);
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [plays, setPlays] = useState<PlayRecord[]>([]);
+  const [credits, setCredits] = useState<Map<string, number>>(new Map()); // per-player game credits
 
   const [buying, setBuying] = useState(false);
   const [rolling, setRolling] = useState(false);
@@ -227,13 +230,14 @@ export default function App() {
       const reachable = health.settlement && health.appchain && health.toriiScore && health.toriiGame;
       try {
         if (!reachable) throw new Error("offline");
-        const [g, sc, ph, plh, sb, tp] = await Promise.all([
+        const [g, sc, ph, plh, sb, tp, cr] = await Promise.all([
           readGameState(),
           readScoreState(),
           getPurchaseHistory(),
           getPlayHistory(),
           settledBlock(),
           appchainBlock(),
+          readCredits(),
         ]);
         if (!active) return;
         setGame(g);
@@ -242,6 +246,7 @@ export default function App() {
         setPlays(plh);
         setSettled(sb);
         setTip(tp);
+        setCredits(cr);
         // Track settler progress to tell "settling" (advancing) from "stalled"
         // (behind and not moving — saya likely down).
         const p = sayaProgress.current;
@@ -323,18 +328,20 @@ export default function App() {
     status: sayaStatus,
   };
 
-  const available = game?.available ?? 0;
   const pendingMints = purchases.filter((p) => !p.mintTxHash).length;
   const coinLoading = buying || pendingMints > 0; // submitting on L1 or still minting on L2
-  // Show only the connected wallet's own rolls: a roll is keyed to whoever made it
-  // (GamePlayed.player), and you can only bank your own (claim_score consumes the
-  // message for that player). Compare by value — Torii pads the address.
+  // The connected wallet's own credits + rolls. Credits are per-player; a roll is
+  // keyed to whoever made it (GamePlayed.player), and you can only bank your own
+  // (claim_score consumes the message for that player). Compare by value — Torii
+  // pads the address.
   let myPlayer: bigint | null = null;
   try {
     myPlayer = BigInt(wallet.playerAddress);
   } catch {
     myPlayer = null;
   }
+  // Credits the connected player owns (0 when disconnected, or none yet).
+  const available = wallet.connected && myPlayer !== null ? (credits.get(myPlayer.toString()) ?? 0) : 0;
   const mine =
     myPlayer === null
       ? []
@@ -352,9 +359,11 @@ export default function App() {
 
   // Insert coin → buy a credit (L1 -> L2 mint).
   async function onBuy() {
+    const acc = wallet.l1Account;
+    if (!acc) return setWalletOpen(true); // no wallet → prompt to connect
     setBuying(true);
     try {
-      await purchaseGame(wallet.l1Account, purchases.length + 1);
+      await purchaseGame(acc, wallet.playerAddress, purchases.length + 1);
       refetch.current(); // surface the pending mint (piltover MessageSent is RPC-only)
     } catch (e) {
       console.error("buy failed", e);
@@ -366,12 +375,14 @@ export default function App() {
   // Roll the dice (play on L2). Cycle numbers for juice, then land on the real
   // on-chain roll read from the GamePlayed event.
   async function onRoll() {
+    const l2 = wallet.l2Account;
+    if (!l2) return setWalletOpen(true); // no wallet → prompt to connect
     if (rolling || available < 1) return;
     const token = ++rollToken.current;
     rollStart.current = plays.length;
     setRolling(true);
     try {
-      const { score } = await playGame(wallet.l2Account);
+      const { score } = await playGame(l2);
       if (rollToken.current === token) {
         setRollDisplay(score);
         setRolling(false);
@@ -387,11 +398,13 @@ export default function App() {
   // wallet: claim_score consumes the L2→L1 message keyed to whoever rolled, and
   // its consume isn't caller-restricted, so any connected L1 signer can settle it.
   async function onBank(seq: number, sc: number, player: string) {
+    const acc = wallet.l1Account;
+    if (!acc) return setWalletOpen(true); // no wallet → prompt to connect
     setSettling((s) => new Set(s).add(seq));
     try {
       for (let i = 0; i < 90; i++) {
         try {
-          await claimScore(wallet.l1Account, player, sc);
+          await claimScore(acc, player, sc);
           refetch.current(); // ScoreClaimed will also push, but don't wait on it
           break;
         } catch {
@@ -453,10 +466,18 @@ export default function App() {
                 variant="outline"
                 className="h-10 gap-1.5 rounded-full px-3 text-xs"
                 onClick={() => setWalletOpen(true)}
-                aria-label="Wallet"
+                aria-label={wallet.connected ? "Account" : "Login"}
               >
-                {wallet.method === "controller" ? <Wallet className="size-4 text-primary" /> : <LogIn className="size-4" />}
-                <span className="max-w-28 truncate">{wallet.method === "controller" ? wallet.label : "Login"}</span>
+                {wallet.connected ? (
+                  wallet.method === "controller" ? (
+                    <Wallet className="size-4 text-primary" />
+                  ) : (
+                    <Coins className="size-4 text-primary" />
+                  )
+                ) : (
+                  <LogIn className="size-4" />
+                )}
+                <span className="max-w-28 truncate">{wallet.connected ? wallet.label : "Login"}</span>
               </Button>
               <Tooltip>
                 <TooltipTrigger
@@ -1086,55 +1107,89 @@ function PlayDetailDialog({
   );
 }
 
+// One dialog, two faces: when connected it shows the account profile (with a log
+// out button); when disconnected it shows the connect picker (dev / Controller).
 function WalletDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const wallet = useWallet();
-  const onController = wallet.method === "controller";
+
+  if (wallet.connected) {
+    const isCtrl = wallet.method === "controller";
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wallet className="size-5 text-primary" /> Account
+            </DialogTitle>
+            <DialogDescription>Connected wallet — signs buy, roll, and bank.</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-3 rounded-lg border p-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10">
+              {isCtrl ? <Wallet className="size-5 text-primary" /> : <Coins className="size-5 text-muted-foreground" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium">{isCtrl ? (wallet.username ?? "Controller") : "Dev account"}</div>
+              <div className="truncate font-mono text-xs text-muted-foreground">{shortHex(wallet.l1Address, 6, 4)}</div>
+            </div>
+            <Badge variant={isCtrl ? "default" : "secondary"} className="shrink-0">
+              {isCtrl ? "Controller" : "Dev"}
+            </Badge>
+          </div>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => {
+              wallet.disconnect().catch((e) => console.error("disconnect failed", e));
+              onOpenChange(false);
+            }}
+          >
+            <LogOut className="size-4" /> Log out
+          </Button>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Wallet className="size-5 text-primary" /> Wallet
+            <Wallet className="size-5 text-primary" /> Connect a wallet
           </DialogTitle>
           <DialogDescription>
-            Choose how the <b>L1</b> actions (buy + bank) are signed. The appchain roll always uses the local dev key.
+            Connect to play — choose how buy, roll, and bank are signed. Nothing is connected by default.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2.5">
           <WalletOption
-            active={!onController}
             icon={<Coins className="size-5 text-muted-foreground" />}
             title="Dev account"
             subtitle={<>Prefunded local key · <span className="font-mono">{shortHex(BUYER_ADDRESS, 6, 4)}</span></>}
-            onClick={() => wallet.useDevAccount()}
+            onClick={() => wallet.useDevAccount().then(() => onOpenChange(false)).catch((e) => console.error(e))}
           />
           <WalletOption
-            active={onController}
             busy={wallet.connecting}
-            disabled={!wallet.controllerAvailable && !onController}
+            disabled={!wallet.controllerAvailable}
             icon={<Wallet className="size-5 text-primary" />}
             title="Cartridge Controller"
             subtitle={
-              onController ? (
-                <>
-                  {wallet.username ? <b className="text-foreground">{wallet.username}</b> : "Connected"} ·{" "}
-                  <span className="font-mono">{shortHex(wallet.l1Address, 6, 4)}</span>
-                </>
-              ) : wallet.controllerAvailable ? (
-                "Connect a passkey/social wallet"
-              ) : (
-                "Unavailable — start the stack first (./up.sh)"
-              )
+              wallet.controllerAvailable
+                ? "Connect a passkey/social wallet"
+                : "Unavailable — start the stack first (./up.sh)"
             }
             onClick={() => {
-              if (!onController && wallet.controllerAvailable)
-                wallet.connectController().catch((e) => console.error("controller connect failed", e));
+              if (wallet.controllerAvailable)
+                wallet
+                  .connectController()
+                  .then(() => onOpenChange(false))
+                  .catch((e) => console.error("controller connect failed", e));
             }}
           />
         </div>
         <p className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground [&_b]:text-foreground">
           Controller is optional and needs the stack started with <Code>CONTROLLER=1 ./up.sh</Code> (plus a Controller
-          login). The default dev account works offline. See the README.
+          login). The dev account works offline. See the README.
         </p>
       </DialogContent>
     </Dialog>
@@ -1142,7 +1197,7 @@ function WalletDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
 }
 
 function WalletOption(props: {
-  active: boolean;
+  active?: boolean;
   busy?: boolean;
   disabled?: boolean;
   icon: React.ReactNode;

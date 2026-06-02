@@ -206,6 +206,19 @@ export async function readGameState(): Promise<GameState> {
   };
 }
 
+/** Per-player playable-credit balances (game world `Credits` model), keyed by the
+ *  normalized (value-compared) player address. A buy credits the player; a roll
+ *  spends one. Look up a connected player's balance with the normalized address. */
+export async function readCredits(): Promise<Map<string, number>> {
+  const rows = await toriiSql<{ player: string; balance: string | number }>(
+    TORII_GAME,
+    'SELECT player, balance FROM "game-Credits"',
+  );
+  const m = new Map<string, number>();
+  for (const r of rows) m.set(BigInt(r.player).toString(), num(r.balance));
+  return m;
+}
+
 // --- L1 published-score state (score world `Leaderboard` model) ---
 
 export type ScoreState = { lastPublished: number; totalPublished: number };
@@ -222,12 +235,14 @@ export async function readScoreState(): Promise<ScoreState> {
 /** L1 op: buy a game through the store contract, which runs the store's rules
  *  and then sends the L1 -> L2 message (via the piltover core) that mints a
  *  credit on L2. The client calls the game's own contract, not piltover directly. */
-export async function purchaseGame(account: AccountInterface, gameId: number): Promise<string> {
+export async function purchaseGame(account: Signer, player: string, gameId: number): Promise<string> {
   return withSettlementLock(async () => {
     const { transaction_hash } = await account.execute({
       contractAddress: STORE,
       entrypoint: "buy_game",
-      calldata: ["0x" + gameId.toString(16)],
+      // buy_game(player, game_id): `player` is the L2 address to credit (the L1
+      // buyer and the L2 player can differ — dev uses two keys, Controller one).
+      calldata: [player, "0x" + gameId.toString(16)],
     });
     return transaction_hash;
   });
@@ -375,7 +390,7 @@ export async function settledBlock(): Promise<number> {
 
 /** L1 op: consume the settled score on the settlement layer (banking a run). */
 export async function claimScore(
-  account: AccountInterface,
+  account: Signer,
   player: string,
   score: number,
 ): Promise<string> {

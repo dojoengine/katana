@@ -1,13 +1,11 @@
-// Wallet layer: lets the player pick how transactions are signed.
-//
-// Default is the hardcoded **dev accounts** (offline, one-click) — no connect
-// needed. A runtime "Login" choice can switch to a **Cartridge Controller**: one
-// identity that signs on BOTH chains (buy + bank on L1, roll on L2) at the same
-// address. Controller is a hosted-keychain wallet, so it needs the stack started
-// in Controller mode (`CONTROLLER=1 ./up.sh`) + a Controller login; see README.
+// Wallet layer: nothing is connected by default — the player must connect a
+// wallet before any operation. Two choices: the hardcoded **dev accounts**
+// (offline, one-click) or a **Cartridge Controller** (one identity that signs on
+// BOTH chains — buy + bank on L1, roll on L2 — at the same address; a
+// hosted-keychain wallet needing `CONTROLLER=1 ./up.sh` + a login; see README).
 
 import { createContext, useContext, useState, type PropsWithChildren } from "react";
-import { type AccountInterface, constants, shortString } from "starknet";
+import { constants, shortString } from "starknet";
 import ControllerConnector from "@cartridge/connector/controller";
 import { StarknetConfig, jsonRpcProvider, useAccount, useConnect, useDisconnect } from "@starknet-react/core";
 import type { Chain } from "@starknet-react/chains";
@@ -85,16 +83,20 @@ export const controllerConnector = createControllerConnector();
 export type WalletMethod = "dev" | "controller";
 
 type WalletCtx = {
-  method: WalletMethod;
-  /** L1 signer (buy + bank): dev account, or the Controller when connected. */
-  l1Account: AccountInterface;
-  /** L2 signer (roll): dev appchain account, or the Controller (on the appchain). */
-  l2Account: Signer;
+  /** null = no wallet connected (the default). */
+  method: WalletMethod | null;
+  /** True once a dev account or a Controller session is active. */
+  connected: boolean;
+  /** L1 signer (buy + bank): dev account or the Controller — null when disconnected. */
+  l1Account: Signer | null;
+  /** L2 signer (roll): dev appchain account or the Controller — null when disconnected. */
+  l2Account: Signer | null;
   l1Address: string;
   /** Address that `play_game` records as the player (and that `claim_score` must
    *  consume the L2→L1 message for): the dev appchain account, or the Controller
-   *  (same address on both chains). */
+   *  (same address on both chains). "" when disconnected. */
   playerAddress: string;
+  /** Connected-account display: Controller → username, dev → short address. "" when disconnected. */
   label: string;
   username?: string;
   connecting: boolean;
@@ -102,6 +104,7 @@ type WalletCtx = {
   controllerAvailable: boolean;
   connectController: () => Promise<void>;
   useDevAccount: () => Promise<void>;
+  disconnect: () => Promise<void>;
 };
 
 const Ctx = createContext<WalletCtx | null>(null);
@@ -116,7 +119,7 @@ function WalletInner({ children }: PropsWithChildren) {
   const { connectAsync } = useConnect();
   const { disconnectAsync } = useDisconnect();
   const { account: ctrlAccount, address: ctrlAddress } = useAccount();
-  const [method, setMethod] = useState<WalletMethod>("dev");
+  const [method, setMethod] = useState<WalletMethod | null>(null); // no wallet by default
   const [username, setUsername] = useState<string>();
   const [connecting, setConnecting] = useState(false);
 
@@ -137,7 +140,17 @@ function WalletInner({ children }: PropsWithChildren) {
   };
 
   const useDevAccount = async () => {
+    setUsername(undefined);
+    try {
+      await disconnectAsync();
+    } catch {
+      // not connected — fine
+    }
     setMethod("dev");
+  };
+
+  const disconnect = async () => {
+    setMethod(null);
     setUsername(undefined);
     try {
       await disconnectAsync();
@@ -146,16 +159,35 @@ function WalletInner({ children }: PropsWithChildren) {
     }
   };
 
-  // Controller is only the active signer once a method=controller session exists;
-  // otherwise everything defaults to the dev accounts.
+  // Nothing is connected by default. The Controller is the active signer once a
+  // method=controller session exists; the dev account once method=dev.
   const usingController = method === "controller" && !!ctrlAccount;
-  const l1Account = (usingController ? ctrlAccount : settlementAccount) as AccountInterface;
-  const l1Address = usingController ? (ctrlAddress ?? "") : settlementAccount.address;
+  const usingDev = method === "dev";
+  const connected = usingController || usingDev;
+
+  // L1 signer (buy + bank). For the Controller we switch it to the SETTLEMENT
+  // chain before executing — symmetric with the roll switching to GAMECHAIN. A
+  // prior roll (or any state) may have left the keychain on the appchain, where
+  // the L1 store/score contracts aren't deployed, so we can't rely on the keychain
+  // happening to be on settlement.
+  const l1Account: Signer | null = usingController
+    ? {
+        execute: async (calls) => {
+          const ctrl = controllerConnector!.controller;
+          await ctrl.switchStarknetChain(SETTLEMENT_CHAIN_ID);
+          return await (ctrl.account ?? ctrlAccount!).execute(calls);
+        },
+      }
+    : usingDev
+      ? settlementAccount
+      : null;
+  const l1Address = usingController ? (ctrlAddress ?? "") : usingDev ? settlementAccount.address : "";
   // The roll's caller: the Controller (same address on both chains) when connected,
   // else the dev appchain account. claim_score must consume the score message for
   // this address, not the L1 signer (which differs in dev mode).
-  const playerAddress = usingController ? (ctrlAddress ?? "") : appchainAccount.address;
-  const label = usingController ? (username ?? shortHex(l1Address)) : "Dev account";
+  const playerAddress = usingController ? (ctrlAddress ?? "") : usingDev ? appchainAccount.address : "";
+  // Connected-account display: Controller → username (fallback short address), dev → short address.
+  const label = usingController ? (username ?? shortHex(l1Address)) : usingDev ? shortHex(l1Address) : "";
 
   // L2 signer. The Controller's default chain is the settlement layer (for
   // buy/bank), so for a roll we switch it to the appchain, execute, then switch
@@ -166,7 +198,7 @@ function WalletInner({ children }: PropsWithChildren) {
   // *settlement* RPC, so its client-side fee estimate hits :5050 and fails for
   // the appchain game contract. ControllerAccount.execute delegates straight to
   // the keychain, which runs against whatever chain we just switched it to.
-  const l2Account: Signer = usingController
+  const l2Account: Signer | null = usingController
     ? {
         execute: async (calls) => {
           // usingController implies a live connection, so the connector exists.
@@ -179,12 +211,15 @@ function WalletInner({ children }: PropsWithChildren) {
           }
         },
       }
-    : appchainAccount;
+    : usingDev
+      ? appchainAccount
+      : null;
 
   return (
     <Ctx.Provider
       value={{
         method,
+        connected,
         l1Account,
         l2Account,
         l1Address,
@@ -195,6 +230,7 @@ function WalletInner({ children }: PropsWithChildren) {
         controllerAvailable: !!controllerConnector,
         connectController,
         useDevAccount,
+        disconnect,
       }}
     >
       {children}
