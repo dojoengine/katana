@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import mkcert from "vite-plugin-mkcert";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
+import { logStreamPlugin } from "./vite-plugin-logs.ts";
 
 // HTTPS by default — Cartridge Controller's passkey login (WebAuthn) needs a
 // trusted secure context, and serving https everywhere keeps dev/prod parity.
@@ -15,7 +16,7 @@ export default defineConfig({
   // wasm + topLevelAwait are needed by @dojoengine/torii-wasm (the Torii client
   // used for live entity/event subscriptions): its web build imports the `.wasm`
   // as an ES module and self-initializes at top level.
-  plugins: [wasm(), topLevelAwait(), react(), ...(useHttps ? [mkcert()] : [])],
+  plugins: [logStreamPlugin(), wasm(), topLevelAwait(), react(), ...(useHttps ? [mkcert()] : [])],
   // The wasm package ships its own glue; don't let esbuild pre-bundle it.
   optimizeDeps: { exclude: ["@dojoengine/torii-wasm"] },
   server: { port: 3002, strictPort: true },

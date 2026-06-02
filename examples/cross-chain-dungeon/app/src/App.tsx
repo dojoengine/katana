@@ -246,6 +246,120 @@ function BankModal({
   );
 }
 
+/** Live log viewer: tails a chosen service's .run/*.log over SSE (Vite plugin). */
+const LOG_SERVICES = [
+  { id: "appchain", label: "Appchain · Katana" },
+  { id: "saya", label: "Saya · settle" },
+  { id: "torii-game", label: "Torii · game (L2)" },
+  { id: "torii-bank", label: "Torii · bank (L1)" },
+] as const;
+
+function LogViewer() {
+  const [svc, setSvc] = useState<(typeof LOG_SERVICES)[number]["id"]>("saya");
+  const [lines, setLines] = useState<string[]>([]);
+  const [live, setLive] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
+  const atBottomRef = useRef(true);
+
+  useEffect(() => {
+    setLines([]);
+    setLive(false);
+    atBottomRef.current = true;
+    const es = new EventSource(`/api/logs/${svc}/stream`);
+    es.onopen = () => setLive(true);
+    es.onmessage = (e) => setLines((prev) => [...prev, e.data].slice(-2000));
+    es.onerror = () => setLive(false); // EventSource auto-reconnects
+    return () => es.close();
+  }, [svc]);
+
+  // Stick to the bottom unless the user has scrolled up.
+  useEffect(() => {
+    const el = preRef.current;
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+
+  return (
+    <section className="logview">
+      <div className="logview-bar">
+        <div className="logview-tabs">
+          {LOG_SERVICES.map((s) => (
+            <button key={s.id} className={`logtab ${svc === s.id ? "on" : ""}`} onClick={() => setSvc(s.id)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <span className="logview-status">
+          <span className={`led ${live ? "on" : ""}`} /> {live ? "streaming" : "connecting…"} · {lines.length} lines
+          <button className="logclear" onClick={() => setLines([])}>clear</button>
+        </span>
+      </div>
+      <pre
+        className="logout"
+        ref={preRef}
+        onScroll={() => {
+          const el = preRef.current;
+          if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+      >
+        {lines.join("\n")}
+      </pre>
+    </section>
+  );
+}
+
+/** Draggable, min/maximizable floating window that hosts the log viewer. */
+function LogWindow({ onClose }: { onClose: () => void }) {
+  const [pos, setPos] = useState({ x: 14, y: 58 });
+  const [min, setMin] = useState(false);
+  const [max, setMax] = useState(false);
+  const drag = useRef<{ dx: number; dy: number } | null>(null);
+
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!drag.current) return;
+      setPos({ x: Math.max(0, e.clientX - drag.current.dx), y: Math.max(0, e.clientY - drag.current.dy) });
+    };
+    const up = () => {
+      drag.current = null;
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, []);
+
+  return (
+    <div
+      className={`logwin${max ? " max" : ""}${min ? " min" : ""}`}
+      style={max ? undefined : { left: pos.x, top: pos.y }}
+    >
+      <div
+        className="logwin-bar"
+        onMouseDown={(e) => {
+          if (!max) drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+        }}
+        onDoubleClick={() => setMax((m) => !m)}
+      >
+        <span className="logwin-title">▸ service logs</span>
+        <span className="logwin-ctrls" onMouseDown={(e) => e.stopPropagation()}>
+          <button onClick={() => setMin((m) => !m)} title={min ? "restore" : "minimize"}>
+            {min ? "▢" : "—"}
+          </button>
+          <button onClick={() => { setMax((m) => !m); setMin(false); }} title={max ? "restore" : "maximize"}>
+            {max ? "❐" : "▣"}
+          </button>
+          <button onClick={onClose} title="close">
+            ✕
+          </button>
+        </span>
+      </div>
+      {!min && <LogViewer />}
+    </div>
+  );
+}
+
 export default function App() {
   const wallet = useWallet();
   const player = wallet.player;
@@ -265,6 +379,7 @@ export default function App() {
   const [lastEnded, setLastEnded] = useState<chain.RunEndRow | null>(null);
   const [selected, setSelected] = useState<chain.ActionRow | null>(null);
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
+  const [logsOpen, setLogsOpen] = useState(false); // floating service-logs window
   const [minting, setMinting] = useState(false); // auto-mint (L1) in flight after a withdraw
   const mintingRef = useRef(false);
   const [bankModal, setBankModal] = useState(false); // the withdraw/bank progress modal
@@ -765,7 +880,7 @@ export default function App() {
 
               <div className="bal">
                 <span className="k">vault · ready to bank <small>(L2)</small></span>
-                <span className="v">{vault.toLocaleString()} <small>gold</small></span>
+                <span className="v">{bankable.toLocaleString()} <small>gold</small></span>
               </div>
               <div className="bal gold">
                 <span className="k">GOLD balance <small>(L1)</small></span>
@@ -820,6 +935,10 @@ export default function App() {
           </footer>
         </div>
       </div>
+      <button className="logs-launcher" onClick={() => setLogsOpen((o) => !o)} title="service logs">
+        ▸ logs
+      </button>
+      {logsOpen && <LogWindow onClose={() => setLogsOpen(false)} />}
       {selected && <ActionModal action={selected} onClose={() => setSelected(null)} />}
       {bankModal && (
         <BankModal
