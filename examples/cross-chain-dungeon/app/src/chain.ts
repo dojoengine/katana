@@ -163,9 +163,12 @@ export function roomLabel(kind: number): string {
   return (ROOM[kind] ?? "unknown").toUpperCase();
 }
 
-// --- live run state (game world `RunState`, keyed by the L1 player) ---
+// --- live run state (game world `RunState`, keyed by run_no) ---
+// Runs are keyed by a unique run_no, so a player can have many unfinished runs at
+// once. `readRun` reads one by id; `listRuns` lists a player's still-alive runs.
 
 export type RunState = {
+  runNo: number;
   alive: boolean;
   depth: number;
   hp: number;
@@ -176,23 +179,42 @@ export type RunState = {
   potions: number;
 };
 
-export async function readRun(player: string): Promise<RunState | null> {
+const RUN_COLS = "run_no, alive, depth, hp, max_hp, gold, room_kind, enemy_hp, potions";
+const toRun = (r: Record<string, string | number>): RunState => ({
+  runNo: num(r.run_no),
+  alive: !!num(r.alive),
+  depth: num(r.depth),
+  hp: num(r.hp),
+  maxHp: num(r.max_hp),
+  gold: num(r.gold),
+  roomKind: num(r.room_kind),
+  enemyHp: num(r.enemy_hp),
+  potions: num(r.potions),
+});
+
+// Torii stores a u64 `#[key]` as a 0x-prefixed, 16-hex-digit text string
+// (e.g. run_no 1 → "0x0000000000000001"), so an integer `WHERE run_no = 1`
+// never matches — the key must be compared as that exact hex string.
+const runKey = (runNo: number) => `0x${runNo.toString(16).padStart(16, "0")}`;
+
+/** A single run by id; null if it doesn't exist or has ended. */
+export async function readRun(runNo: number): Promise<RunState | null> {
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
-    `SELECT alive, depth, hp, max_hp, gold, room_kind, enemy_hp, potions FROM "game-RunState" WHERE player = "${player}"`,
+    `SELECT ${RUN_COLS} FROM "game-RunState" WHERE run_no = "${runKey(runNo)}"`,
   );
   const r = rows[0];
   if (!r || !num(r.alive)) return null;
-  return {
-    alive: !!num(r.alive),
-    depth: num(r.depth),
-    hp: num(r.hp),
-    maxHp: num(r.max_hp),
-    gold: num(r.gold),
-    roomKind: num(r.room_kind),
-    enemyHp: num(r.enemy_hp),
-    potions: num(r.potions),
-  };
+  return toRun(r);
+}
+
+/** A player's still-unfinished runs, newest first — the dungeon "lobby" list. */
+export async function listRuns(player: string): Promise<RunState[]> {
+  const rows = await toriiSql<Record<string, string | number>>(
+    TORII_GAME,
+    `SELECT ${RUN_COLS} FROM "game-RunState" WHERE player = "${player}" AND alive = 1 ORDER BY run_no DESC`,
+  );
+  return rows.map(toRun);
 }
 
 export type Stats = { totalRuns: number; activeRuns: number; totalActions: number; totalBanked: number };
@@ -323,32 +345,30 @@ export async function getBankCount(player: string): Promise<number> {
 // exactly DEPTH_WEIGHT * depth (no gold), so depth = score / DEPTH_WEIGHT.
 export const DEPTH_WEIGHT = 80;
 
-export type RunEndRow = { endNo: number; depth: number; loot: number; died: boolean; hp: number; maxHp: number };
+export type RunEndRow = { endNo: number; runNo: number; depth: number; loot: number; died: boolean; hp: number; maxHp: number };
 
-/** The player's most recent run ending (death or extract), for showing the
- *  outcome once the run clears. On extract `loot` is the gold banked to the vault;
- *  on death it's the forfeited gold. score = DEPTH_WEIGHT*depth + (gold on extract,
- *  0 on death), so derive depth accordingly. The RunState row keeps the run's final
- *  hp/max_hp after it ends (0 on death), so read those for the outcome screen. */
+/** The player's most recent run ending (death or extract), for the outcome screen.
+ *  On extract `loot` is the gold banked to the vault; on death it's the forfeited
+ *  gold. score = DEPTH_WEIGHT*depth + (gold on extract, 0 on death), so derive depth
+ *  accordingly. The RunState row (keyed by run_no) keeps the run's final hp/max_hp. */
 export async function getLastRunEnded(player: string): Promise<RunEndRow | null> {
-  const [ended, state] = await Promise.all([
-    toriiSql<Record<string, string | number>>(
-      TORII_GAME,
-      `SELECT end_no, score, loot, died FROM "game-RunEnded" WHERE player = "${player}" ORDER BY end_no DESC LIMIT 1`,
-    ),
-    toriiSql<Record<string, string | number>>(
-      TORII_GAME,
-      `SELECT hp, max_hp FROM "game-RunState" WHERE player = "${player}"`,
-    ),
-  ]);
+  const ended = await toriiSql<Record<string, string | number>>(
+    TORII_GAME,
+    `SELECT end_no, run_no, score, loot, died FROM "game-RunEnded" WHERE player = "${player}" ORDER BY end_no DESC LIMIT 1`,
+  );
   const r = ended[0];
   if (!r) return null;
+  const runNo = num(r.run_no);
   const score = num(r.score);
   const loot = num(r.loot);
   const died = !!num(r.died);
   const depth = Math.round((died ? score : score - loot) / DEPTH_WEIGHT);
+  const state = await toriiSql<Record<string, string | number>>(
+    TORII_GAME,
+    `SELECT hp, max_hp FROM "game-RunState" WHERE run_no = "${runKey(runNo)}"`,
+  );
   const s = state[0];
-  return { endNo: num(r.end_no), depth, loot, died, hp: num(s?.hp ?? 0), maxHp: num(s?.max_hp ?? 0) };
+  return { endNo: num(r.end_no), runNo, depth, loot, died, hp: num(s?.hp ?? 0), maxHp: num(s?.max_hp ?? 0) };
 }
 
 // --- raw RPC reads ---
@@ -456,28 +476,30 @@ export async function bankRun(account: Signer, player: string, amount: number, w
 
 // --- writes: appchain play actions (signed by the dev account) ---
 
-async function appchainAction(entrypoint: string, player: string): Promise<string> {
+/** Run a one-felt appchain entrypoint and wait for it (+ a beat for Torii). */
+async function appchainCall(entrypoint: string, arg: string): Promise<string> {
   const { transaction_hash } = await appchainAccount.execute({
     contractAddress: GAME_SYSTEM,
     entrypoint,
-    calldata: [player],
+    calldata: [arg],
   });
   await appchainProvider.waitForTransaction(transaction_hash, APPCHAIN_TX_WAIT);
-  // Give Torii a beat to index the resulting model/event write.
-  await sleep(150);
+  await sleep(150); // give Torii a beat to index the resulting model/event write
   return transaction_hash;
 }
 
-export const moveRoom = (player: string) => appchainAction("move_room", player);
-export const attack = (player: string) => appchainAction("attack", player);
-export const loot = (player: string) => appchainAction("loot", player);
-export const useItem = (player: string) => appchainAction("use_item", player);
+// Play actions target a specific run by its run_no.
+const action = (entrypoint: string, runNo: number) => appchainCall(entrypoint, "0x" + runNo.toString(16));
+export const moveRoom = (runNo: number) => action("move_room", runNo);
+export const attack = (runNo: number) => action("attack", runNo);
+export const loot = (runNo: number) => action("loot", runNo);
+export const useItem = (runNo: number) => action("use_item", runNo);
 
-/** Extract: ends the run alive and banks its gold into the player's L2 vault. */
-export const extract = (player: string) => appchainAction("extract", player);
+/** Extract run `runNo`: ends it alive and banks its gold into the player's L2 vault. */
+export const extract = (runNo: number) => action("extract", runNo);
 
 /** Withdraw: send the whole vault to L1 as one message (the first half of banking).
- *  Signed by the appchain account; the second half is `bankRun` on Sepolia. */
-export const withdraw = (player: string) => appchainAction("withdraw", player);
+ *  Keyed by player (the vault spans all runs); the second half is `bankRun` on L1. */
+export const withdraw = (player: string) => appchainCall("withdraw", player);
 
 export { MESSAGE_SENT_KEY };

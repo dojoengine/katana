@@ -18,9 +18,11 @@
 //! gold is safe in the vault. That asymmetry is the lesson: appchain value is
 //! provisional until you commit it to L1 — here, by banking the vault.
 //!
-//! Runs are keyed by `player` (the settlement-layer address carried in the entry
-//! message), not by the caller — appchain actions are signed by the dev key here,
-//! so the client passes which player's run to act on. A deliberate demo
+//! Runs are keyed by a unique `run_no`, not by player — so a player can have many
+//! concurrent unfinished runs at once (start a new one without losing the others).
+//! Each run records its `player` (the settlement-layer address from the entry
+//! message) for vault/leaderboard attribution. Appchain actions are signed by the
+//! dev key here, so the client passes which `run_no` to act on. A deliberate demo
 //! simplification (the dev key can act on any run); see PLAN.md "Identity mapping".
 //!
 //! State lives in Dojo models (indexed by Torii); progress is reported through
@@ -28,25 +30,25 @@
 
 #[starknet::interface]
 pub trait IDungeon<T> {
-    /// Descend one room. If a monster blocks the way this is a *flee attempt*
-    /// (may fail and cost HP). Otherwise advances a depth and rolls the new room,
-    /// applying on-entry effects (trap damage, shrine heal, monster ambush).
-    fn move_room(ref self: T, player: felt252);
-    /// Strike the blocking monster. It strikes back. Repeat until it dies (drops
-    /// gold) or your HP reaches 0 (death — forfeit). Panics if not in combat.
-    fn attack(ref self: T, player: felt252);
+    /// Descend one room in run `run_no`. If a monster blocks the way this is a *flee
+    /// attempt* (may fail and cost HP). Otherwise advances a depth and rolls the new
+    /// room, applying on-entry effects (trap damage, shrine heal, monster ambush).
+    fn move_room(ref self: T, run_no: u64);
+    /// Strike the blocking monster in run `run_no`. It strikes back. Repeat until it
+    /// dies (drops gold) or your HP reaches 0 (death — forfeit). Panics if not in combat.
+    fn attack(ref self: T, run_no: u64);
     /// Grab the loot in a treasure room (small mimic chance bites back). Panics if
-    /// the current room holds no treasure.
-    fn loot(ref self: T, player: felt252);
+    /// the run's current room holds no treasure.
+    fn loot(ref self: T, run_no: u64);
     /// Quaff a potion to heal. Panics if you hold none or are already at full HP.
-    fn use_item(ref self: T, player: felt252);
+    fn use_item(ref self: T, run_no: u64);
     /// Climb out alive: bank this run's GOLD into the player's vault (accumulates
     /// across runs) and record it on the leaderboard. Sends no L1 message. Panics if
     /// dead or mid-combat. Returns the gold added to the vault.
-    fn extract(ref self: T, player: felt252) -> u64;
+    fn extract(ref self: T, run_no: u64) -> u64;
     /// Bank the vault to L1: send one message `[player, amount, withdraw_no]` to the
     /// settlement `bank` world (which mints that much GOLD), then reset the vault.
-    /// Panics if the vault is empty. Returns the amount sent.
+    /// Keyed by player (the vault spans all of a player's runs). Returns the amount.
     fn withdraw(ref self: T, player: felt252) -> u64;
 }
 
@@ -122,12 +124,14 @@ pub mod game {
         pub total_gold: u64,
     }
 
-    /// One live run, keyed by the settlement-layer player address. `alive == false`
-    /// (the default for an unseen key) means "no active run".
+    /// One run, keyed by its unique `run_no` — so a player can hold many at once.
+    /// `player` records who it belongs to (vault/leaderboard attribution). An unseen
+    /// run_no defaults to `alive == false`.
     #[derive(Copy, Drop, Serde)]
     #[dojo::model]
     pub struct RunState {
         #[key]
+        pub run_no: u64,
         pub player: felt252,
         pub alive: bool,
         pub depth: u32,
@@ -139,7 +143,6 @@ pub mod game {
         pub potions: u32,
         pub seed: felt252,
         pub action_count: u64,
-        pub run_no: u64,
     }
 
     /// Emitted when an entry message is relayed from L1 and a run begins. Keyed by
@@ -177,6 +180,7 @@ pub mod game {
     pub struct RunEnded {
         #[key]
         pub end_no: u64,
+        pub run_no: u64,
         pub player: felt252,
         pub score: u64,
         pub loot: u64,
@@ -216,7 +220,8 @@ pub mod game {
 
     /// Phase 1 — entry relayed from L1. The messaging service prepends the
     /// settlement-side `Entry` contract as `from_address`; `player` and `seed`
-    /// come from the payload. Starts (or restarts) the player's run at the entrance.
+    /// come from the payload. Mints a **new** run (its own `run_no`) at the entrance —
+    /// the player's existing runs are untouched, so unfinished ones stay playable.
     #[l1_handler]
     fn mint_run(ref self: ContractState, from_address: felt252, player: felt252, seed: felt252) {
         let mut world = self.world_default();
@@ -225,10 +230,12 @@ pub mod game {
         stats.total_runs += 1;
         stats.active_runs += 1;
         world.write_model(@stats);
+        let run_no = stats.total_runs;
 
         world
             .write_model(
                 @RunState {
+                    run_no,
                     player,
                     alive: true,
                     depth: 0,
@@ -240,18 +247,17 @@ pub mod game {
                     potions: 1,
                     seed,
                     action_count: 0,
-                    run_no: stats.total_runs,
                 },
             );
 
-        world.emit_event(@RunStarted { run_no: stats.total_runs, player, seed });
+        world.emit_event(@RunStarted { run_no, player, seed });
     }
 
     #[abi(embed_v0)]
     impl DungeonImpl of IDungeon<ContractState> {
-        fn move_room(ref self: ContractState, player: felt252) {
+        fn move_room(ref self: ContractState, run_no: u64) {
             let mut world = self.world_default();
-            let mut run: RunState = world.read_model(player);
+            let mut run: RunState = world.read_model(run_no);
             assert(run.alive, 'No active run');
             run.action_count += 1;
             let action_no = self.bump_actions();
@@ -263,13 +269,13 @@ pub mod game {
                 } else {
                     let dmg = enemy_dmg(run.depth, run.seed, run.action_count);
                     if dmg >= run.hp {
-                        self.end_run_dead(player, run);
+                        self.end_run_dead(run);
                         return;
                     }
                     run.hp -= dmg;
                     run.room_kind = MONSTER;
                     world.write_model(@run);
-                    self.log(action_no, player, 'move', 'flee_fail', run);
+                    self.log(action_no, 'move', 'flee_fail', run);
                     return;
                 }
             }
@@ -286,7 +292,7 @@ pub mod game {
             } else if kind == TRAP {
                 let dmg = trap_dmg(run.depth, run.seed, run.action_count);
                 if dmg >= run.hp {
-                    self.end_run_dead(player, run);
+                    self.end_run_dead(run);
                     return;
                 }
                 run.hp -= dmg;
@@ -300,12 +306,12 @@ pub mod game {
             }
 
             world.write_model(@run);
-            self.log(action_no, player, 'move', outcome, run);
+            self.log(action_no, 'move', outcome, run);
         }
 
-        fn attack(ref self: ContractState, player: felt252) {
+        fn attack(ref self: ContractState, run_no: u64) {
             let mut world = self.world_default();
-            let mut run: RunState = world.read_model(player);
+            let mut run: RunState = world.read_model(run_no);
             assert(run.alive, 'No active run');
             assert(run.enemy_hp > 0, 'Nothing to attack');
             run.action_count += 1;
@@ -319,7 +325,7 @@ pub mod game {
                 run.room_kind = EMPTY;
                 run.gold += kill_gold(run.depth, run.seed, run.action_count);
                 world.write_model(@run);
-                self.log(action_no, player, 'attack', 'kill', run);
+                self.log(action_no, 'attack', 'kill', run);
                 return;
             }
             run.enemy_hp -= hit;
@@ -327,17 +333,17 @@ pub mod game {
             // It strikes back.
             let back = enemy_dmg(run.depth, run.seed, run.action_count + 1);
             if back >= run.hp {
-                self.end_run_dead(player, run);
+                self.end_run_dead(run);
                 return;
             }
             run.hp -= back;
             world.write_model(@run);
-            self.log(action_no, player, 'attack', 'trade', run);
+            self.log(action_no, 'attack', 'trade', run);
         }
 
-        fn loot(ref self: ContractState, player: felt252) {
+        fn loot(ref self: ContractState, run_no: u64) {
             let mut world = self.world_default();
-            let mut run: RunState = world.read_model(player);
+            let mut run: RunState = world.read_model(run_no);
             assert(run.alive, 'No active run');
             assert(run.room_kind == TREASURE, 'No treasure here');
             run.action_count += 1;
@@ -348,12 +354,12 @@ pub mod game {
                 let dmg = 10 + 2 * run.depth;
                 run.room_kind = EMPTY;
                 if dmg >= run.hp {
-                    self.end_run_dead(player, run);
+                    self.end_run_dead(run);
                     return;
                 }
                 run.hp -= dmg;
                 world.write_model(@run);
-                self.log(action_no, player, 'loot', 'mimic', run);
+                self.log(action_no, 'loot', 'mimic', run);
                 return;
             }
 
@@ -365,12 +371,12 @@ pub mod game {
             }
             run.room_kind = EMPTY; // looted once
             world.write_model(@run);
-            self.log(action_no, player, 'loot', outcome, run);
+            self.log(action_no, 'loot', outcome, run);
         }
 
-        fn use_item(ref self: ContractState, player: felt252) {
+        fn use_item(ref self: ContractState, run_no: u64) {
             let mut world = self.world_default();
-            let mut run: RunState = world.read_model(player);
+            let mut run: RunState = world.read_model(run_no);
             assert(run.alive, 'No active run');
             assert(run.potions > 0, 'No potions');
             assert(run.hp < run.max_hp, 'Already at full HP');
@@ -380,12 +386,12 @@ pub mod game {
             run.potions -= 1;
             run.hp = cap(run.hp + 35, run.max_hp);
             world.write_model(@run);
-            self.log(action_no, player, 'use_item', 'heal', run);
+            self.log(action_no, 'use_item', 'heal', run);
         }
 
-        fn extract(ref self: ContractState, player: felt252) -> u64 {
+        fn extract(ref self: ContractState, run_no: u64) -> u64 {
             let mut world = self.world_default();
-            let mut run: RunState = world.read_model(player);
+            let mut run: RunState = world.read_model(run_no);
             assert(run.alive, 'No active run');
             assert(run.enemy_hp == 0, 'Cannot extract in combat');
 
@@ -393,7 +399,7 @@ pub mod game {
             let score = DEPTH_WEIGHT * run.depth.into() + gold;
 
             // Bank this run's gold into the player's vault (L2, no L1 message yet).
-            let mut vault: Vault = world.read_model(player);
+            let mut vault: Vault = world.read_model(run.player);
             vault.gold += gold;
             world.write_model(@vault);
 
@@ -405,10 +411,13 @@ pub mod game {
             stats.total_ended += 1;
             world.write_model(@stats);
 
-            self.record_run(player, score, gold);
+            self.record_run(run.player, score, gold);
             world
                 .emit_event(
-                    @RunEnded { end_no: stats.total_ended, player, score, loot: gold, died: false },
+                    @RunEnded {
+                        end_no: stats.total_ended, run_no: run.run_no, player: run.player, score,
+                        loot: gold, died: false,
+                    },
                 );
             gold
         }
@@ -469,7 +478,6 @@ pub mod game {
         fn log(
             self: @ContractState,
             action_no: u64,
-            player: felt252,
             kind: felt252,
             outcome: felt252,
             run: RunState,
@@ -479,7 +487,7 @@ pub mod game {
                 .emit_event(
                     @ActionTaken {
                         action_no,
-                        player,
+                        player: run.player,
                         run_no: run.run_no,
                         kind,
                         outcome,
@@ -506,7 +514,7 @@ pub mod game {
         /// Finalize a dead run: forfeit the in-progress gold (it never reached the
         /// vault), end locally, **send no L2 → L1 message**. Still recorded on the
         /// leaderboard by its depth-based score.
-        fn end_run_dead(self: @ContractState, player: felt252, mut run: RunState) {
+        fn end_run_dead(self: @ContractState, mut run: RunState) {
             let mut world = self.world_default();
             run.alive = false;
             run.hp = 0;
@@ -518,11 +526,12 @@ pub mod game {
             world.write_model(@stats);
 
             let score = DEPTH_WEIGHT * run.depth.into();
-            self.record_run(player, score, 0);
+            self.record_run(run.player, score, 0);
             world
                 .emit_event(
                     @RunEnded {
-                        end_no: stats.total_ended, player, score, loot: run.gold, died: true,
+                        end_no: stats.total_ended, run_no: run.run_no, player: run.player, score,
+                        loot: run.gold, died: true,
                     },
                 );
         }

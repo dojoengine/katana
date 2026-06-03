@@ -24,7 +24,7 @@ strings collapsed with `Number(BigInt(v))`):
 
 | What | Source |
 | --- | --- |
-| Live run (HP/gold/depth/room/potions) | `game-RunState` model, keyed by the player |
+| Live run (HP/gold/depth/room/potions) | `game-RunState` model, keyed by `run_no` (a player can have several open; the lobby lists the unfinished ones by `player`) |
 | GOLD vault (accumulated, unbanked) | `game-Vault` model, keyed by the player |
 | Leaderboard (per player, best score) | `game-Leaderboard` model (appchain Torii), ordered by `best_score` |
 | World counters | `game-Stats` |
@@ -49,12 +49,14 @@ signed by the wallet's L1 account; appchain actions by the local dev account:
 - **Buy GAME (Sepolia):** `buyGame` — a multicall of `USDC.approve(sale, amt)` +
   `token_sale.buy(amt)`.
 - **Dev-mint (Sepolia):** `devMint` — `game_token.dev_mint(amount)`, the no-USDC faucet.
-- **Enter (L1→L2):** `enterDungeon` — multicall `game_token.approve(entry, fee)` +
-  `entry.enter()`. Starts the run for the L1 signer's address.
-- **Play (appchain):** `moveRoom` / `attack` / `loot` / `useItem` / `extract` /
-  `withdraw` — each calls the `game` system with the player address, signed by the
-  dev account. `extract` banks the run's gold into the vault; `withdraw` sends the
-  whole vault to L1.
+- **New game (L1→L2):** `enterDungeon` — multicall `game_token.approve(entry, fee)` +
+  `entry.enter()`. Mints a fresh run (its own `run_no`) for the L1 signer's address;
+  the lobby auto-selects it once it appears. A player can keep several runs open and
+  resume any of them — `listRuns(player)` feeds the lobby's continue list.
+- **Play (appchain):** `moveRoom` / `attack` / `loot` / `useItem` / `extract` — each
+  calls the `game` system with the **`run_no`** being played, signed by the dev
+  account; `withdraw(player)` sends the whole vault to L1. `extract` banks the run's
+  gold into the vault; `withdraw` sends the whole vault to L1.
 - **Bank (L2→L1):** `bankRun(player, amount, withdrawNo)` — `bank.bank` on Sepolia,
   once the withdrawal is settled; mints GOLD.
 

@@ -90,7 +90,7 @@ async function main() {
   console.log("[deploy] migrating game world on appchain (registry:", bank.system, ")");
   const game = migrateWorld({
     pkg: "game",
-    seed: "ccd_game3",
+    seed: "ccd_game4",
     namespace: "game",
     systemTag: "game-game",
     rpcUrl: d.appchain.rpcUrl,

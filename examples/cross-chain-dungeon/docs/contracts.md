@@ -13,23 +13,27 @@ we focus on what's specific to this demo: the dungeon, the two-token economy
 ## The dungeon game
 
 The appchain world (`cairo/game/src/lib.cairo`, namespace `game`) is a push-your-luck
-roguelite. State is one model per player:
+roguelite. Each run is its own model, keyed by a unique `run_no`:
 
 ```cairo
 #[dojo::model]
 pub struct RunState {
-    #[key] pub player: felt252,   // the settlement-layer player (from the entry message)
+    #[key] pub run_no: u64,        // unique per run — a player can hold many at once
+    pub player: felt252,          // the settlement-layer player (from the entry message)
     pub alive: bool, pub depth: u32, pub hp: u32, pub max_hp: u32,
     pub gold: u64, pub room_kind: u8, pub enemy_hp: u32, pub potions: u32,
-    pub seed: felt252, pub action_count: u64, pub run_no: u64,
+    pub seed: felt252, pub action_count: u64,
 }
 ```
 
-**Runs are keyed by the settlement-layer player, not the caller.** Appchain actions
-are signed by the local dev account, so each action takes a `player` argument and
-operates on that player's run. A deliberate demo simplification (the dev key can act
-on any run); the vault, leaderboard, and bank still key on the real player because the
-entry message and the withdraw payload both carry it.
+**Runs are keyed by `run_no`, not by player — a player can have several unfinished
+runs open at once.** `mint_run` assigns the next `run_no` from a global counter and
+stamps the run with its `player`. Appchain actions are signed by the local dev account,
+so each action takes a `run_no` argument and operates on that run (the run's own
+`player` field is the authority for the vault and leaderboard). A deliberate demo
+simplification: the dev key can act on any run. The vault, leaderboard, and bank still
+key on the real player — derived from the run's `player` field — because the entry
+message and the withdraw payload both carry it.
 
 **One transaction per action.** The `IDungeon` interface is `move_room`, `attack`,
 `loot`, `use_item`, `extract`, `withdraw` — each its own appchain tx. Rooms are

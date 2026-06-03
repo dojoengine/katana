@@ -55,8 +55,9 @@ appchain and saya, deploys the economy + worlds (`scripts/deploy.ts`), starts bo
 Torii indexers, and serves the client. `./down.sh` stops the local processes.
 
 Then open `http://localhost:3002`, **Dev-mint** some GAME (or **Buy** it with
-USDC), **Enter Dungeon**, play, **Extract** to bank gold into your vault, then on the
-**Bank** tab withdraw the vault to Sepolia to mint **GOLD**.
+USDC), start a **New Game** (each dive is its own run — you can keep several open and
+continue any of them from the lobby), play, **Extract** to bank gold into your vault,
+then on the **Bank** tab withdraw the vault to Sepolia to mint **GOLD**.
 
 ## Funding & costs
 

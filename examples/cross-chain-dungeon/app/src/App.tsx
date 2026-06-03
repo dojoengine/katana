@@ -478,7 +478,10 @@ export default function App() {
   const wallet = useWallet();
   const player = wallet.player;
 
-  const [run, setRun] = useState<chain.RunState | null>(null);
+  const [run, setRun] = useState<chain.RunState | null>(null); // the selected run's live state
+  const [runs, setRuns] = useState<chain.RunState[]>([]); // the player's unfinished runs (lobby)
+  const [selectedRun, setSelectedRun] = useState<number | null>(null); // run_no being played, or lobby
+  const enteringRef = useRef<number | null>(null); // total_runs at "New game" click; auto-selects the mint
   const [stats, setStats] = useState<chain.Stats>({ totalRuns: 0, activeRuns: 0, totalActions: 0, totalBanked: 0 });
   const [feed, setFeed] = useState<chain.ActionRow[]>([]);
   const [board, setBoard] = useState<chain.LeaderRow[]>([]);
@@ -538,8 +541,9 @@ export default function App() {
     if (!ready || inFlight.current) return;
     inFlight.current = true;
     try {
-      const [r, st, fd, lb, gb, gld, ub, vt, ef, sb, tp, wd, bc, le] = await Promise.all([
-        chain.readRun(player),
+      const [rl, r, st, fd, lb, gb, gld, ub, vt, ef, sb, tp, wd, bc, le] = await Promise.all([
+        chain.listRuns(player),
+        selectedRun != null ? chain.readRun(selectedRun) : Promise.resolve(null),
         chain.readStats(),
         chain.getActionFeed(),
         chain.readLeaderboard(),
@@ -554,7 +558,19 @@ export default function App() {
         chain.getBankCount(player),
         chain.getLastRunEnded(player),
       ]);
+      setRuns(rl);
       setRun(r);
+      // The selected run ended (death or extract): drop back to the lobby so the
+      // outcome veil shows and the run leaves the continue list.
+      if (selectedRun != null && r && !r.alive) setSelectedRun(null);
+      // After "New game", auto-select the freshly minted run once it appears.
+      if (enteringRef.current != null) {
+        const fresh = rl.find((x) => x.runNo > enteringRef.current!);
+        if (fresh) {
+          setSelectedRun(fresh.runNo);
+          enteringRef.current = null;
+        }
+      }
       setStats(st);
       setFeed(fd);
       setBoard(lb);
@@ -574,7 +590,7 @@ export default function App() {
     } finally {
       inFlight.current = false;
     }
-  }, [player, ready]);
+  }, [player, ready, selectedRun]);
 
   useEffect(() => {
     tick();
@@ -634,6 +650,7 @@ export default function App() {
     }
   };
 
+  const playing = selectedRun != null;
   const inCombat = !!run && run.enemyHp > 0;
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
@@ -650,23 +667,32 @@ export default function App() {
     return () => clearTimeout(id);
   }, [outcomeEndNo]);
   const b = (n: string) => busy === n;
+  // True from the New-game click until the freshly minted run is selected — covers both
+  // the L1 tx (busy "enter") and the L1→L2 relay wait (enteringRef still pending).
+  const entering = b("enter") || enteringRef.current != null;
   const anyBusy = busy !== null;
 
   const onBuy = act("buy", () => chain.buyGame(wallet.l1Account, BUY_USDC));
   const onMint = act("mint", () => chain.devMint(wallet.l1Account, DEV_MINT));
   const enterRun = act("enter", () => chain.enterDungeon(wallet.l1Account));
-  const onEnter = () => {
+  // "New game": charge $GAME on L1, fire the L1→L2 mint_run, and remember the run
+  // count at click time so the tick can auto-select the freshly minted run once it
+  // shows up on the appchain.
+  const onNewGame = () => {
     if (gameBal < fee) {
       setErr(`insufficient $GAME (need ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)}) — buy or dev-mint`);
       return;
     }
+    enteringRef.current = stats ? stats.totalRuns : 0;
     void enterRun();
   };
-  const onMove = act("move", () => chain.moveRoom(player));
-  const onAttack = act("attack", () => chain.attack(player));
-  const onLoot = act("loot", () => chain.loot(player));
-  const onUse = act("use", () => chain.useItem(player));
-  const onExtract = act("extract", () => chain.extract(player));
+  const onContinue = (runNo: number) => setSelectedRun(runNo);
+  const onLeave = () => setSelectedRun(null);
+  const onMove = act("move", () => chain.moveRoom(selectedRun!));
+  const onAttack = act("attack", () => chain.attack(selectedRun!));
+  const onLoot = act("loot", () => chain.loot(selectedRun!));
+  const onUse = act("use", () => chain.useItem(selectedRun!));
+  const onExtract = act("extract", () => chain.extract(selectedRun!));
   // Banking is one user action ("Withdraw"): the withdraw empties the vault into an
   // L2→L1 message; minting the GOLD on L1 then happens automatically once saya has
   // settled it (see the auto-mint effect below), so the user never presses a second
@@ -872,7 +898,7 @@ export default function App() {
 
             {/* CENTER: dungeon */}
             <section className="col-center">
-              <div className="arena">
+              <div className="arena" data-tut="play">
                 <div className="stage">
                   <div className="stage-h">
                     <span>
@@ -881,50 +907,71 @@ export default function App() {
                     <span>{stats.activeRuns} active</span>
                   </div>
                   <DungeonMap run={run} />
-                  {!run && (b("enter") || !freshOutcome) && (
+                  {!playing && entering && (
                     <div className="veil">
-                      {b("enter") ? (
-                        <div className="loading">
-                          <div className="spinner" aria-hidden />
-                          <div className="loading-title">entering the dungeon…</div>
-                          <div className="loading-bar" aria-hidden />
-                        </div>
-                      ) : (
-                        <>
-                          <div>no active run</div>
-                          <div>
-                            get <b>$GAME</b>, then <b>ENTER DUNGEON</b> to descend
-                          </div>
-                        </>
-                      )}
+                      <div className="loading">
+                        <div className="spinner" aria-hidden />
+                        <div className="loading-title">entering the dungeon…</div>
+                        <div className="loading-bar" aria-hidden />
+                      </div>
+                    </div>
+                  )}
+                  {!playing && !entering && !freshOutcome && (
+                    <div className="veil veil-lobby">
+                      <button className="good" disabled={anyBusy || !ready} onClick={onNewGame}>
+                        {gameBal < fee
+                          ? "insufficient $GAME"
+                          : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
+                      </button>
                     </div>
                   )}
                 </div>
 
-                <div className="vitals">
-                  <div className="vital hp">
-                    <div className="k">HP</div>
-                    <div className="v">{run ? `${run.hp}/${run.maxHp}` : "—"}</div>
-                    <div className="meter">{run ? hpBar : ""}</div>
+                {/* Below the stage: live vitals while a run is selected, otherwise the
+                    list of unfinished runs to pick up. */}
+                {playing ? (
+                  <div className="vitals">
+                    <div className="vital hp">
+                      <div className="k">HP</div>
+                      <div className="v">{run ? `${run.hp}/${run.maxHp}` : "—"}</div>
+                      <div className="meter">{run ? hpBar : ""}</div>
+                    </div>
+                    <div className="vital gold">
+                      <div className="k">Gold</div>
+                      <div className="v">{run ? run.gold.toLocaleString() : "—"}</div>
+                      <div className="meter">haul on L2</div>
+                    </div>
+                    <div className="vital depth">
+                      <div className="k">Depth</div>
+                      <div className="v">{run ? run.depth : "—"}</div>
+                      <div className="meter">rooms down</div>
+                    </div>
+                    <div className="vital pot">
+                      <div className="k">Potions</div>
+                      <div className="v">{run ? run.potions : "—"}</div>
+                      <div className="meter">heals +35</div>
+                    </div>
                   </div>
-                  <div className="vital gold">
-                    <div className="k">Gold</div>
-                    <div className="v">{run ? run.gold.toLocaleString() : "—"}</div>
-                    <div className="meter">haul on L2</div>
+                ) : (
+                  <div className="lobby-list">
+                    <div className="lobby-h">unfinished runs</div>
+                    {runs.length > 0 ? (
+                      runs.map((r) => (
+                        <button key={r.runNo} className="lobby-run" onClick={() => onContinue(r.runNo)}>
+                          <span className="lr-id">[r{r.runNo}]</span>
+                          <span>d{r.depth}</span>
+                          <span>hp{r.hp}</span>
+                          <span>{r.gold.toLocaleString()}g</span>
+                          <span className="lr-go">continue →</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="lobby-empty">none yet · start a new dive above</div>
+                    )}
                   </div>
-                  <div className="vital depth">
-                    <div className="k">Depth</div>
-                    <div className="v">{run ? run.depth : "—"}</div>
-                    <div className="meter">rooms down</div>
-                  </div>
-                  <div className="vital pot">
-                    <div className="k">Potions</div>
-                    <div className="v">{run ? run.potions : "—"}</div>
-                    <div className="meter">heals +35</div>
-                  </div>
-                </div>
+                )}
 
-                {!run && !b("enter") && freshOutcome && lastEnded?.died && (
+                {!playing && !entering && freshOutcome && lastEnded?.died && (
                   <div className="veil veil-death arena-veil">
                     <button className="veil-x" onClick={() => setDismissedEndNo(lastEnded.endNo)} aria-label="close">
                       ✕
@@ -935,12 +982,12 @@ export default function App() {
                       depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
                     </div>
                     <div className="death-sub">
-                      the haul is lost. <b>ENTER DUNGEON</b> to try again.
+                      the haul is lost. <b>NEW GAME</b> to dive again.
                     </div>
                   </div>
                 )}
 
-                {!run && !b("enter") && freshOutcome && lastEnded && !lastEnded.died && (
+                {!playing && !entering && freshOutcome && lastEnded && !lastEnded.died && (
                   <div className="veil veil-extract arena-veil">
                     <button className="veil-x" onClick={() => setDismissedEndNo(lastEnded.endNo)} aria-label="close">
                       ✕
@@ -955,30 +1002,25 @@ export default function App() {
                 )}
               </div>
 
-              <div className="actions" data-tut="play">
-                {!run ? (
-                  <button className="good" disabled={anyBusy || !ready} onClick={onEnter}>
-                    {b("enter")
-                      ? "entering…"
-                      : gameBal < fee
-                        ? "insufficient $GAME"
-                        : `Enter Dungeon · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
-                  </button>
-                ) : (
+              <div className="actions">
+                {playing && (
                   <>
-                    <button disabled={anyBusy} onClick={onMove}>
+                    <button className="ghost" disabled={anyBusy} onClick={onLeave} title="back to the run list">
+                      ←
+                    </button>
+                    <button disabled={anyBusy || !run} onClick={onMove}>
                       {b("move") ? "…" : inCombat ? "Flee" : "Move"}
                     </button>
                     <button disabled={anyBusy || !inCombat} onClick={onAttack}>
                       {b("attack") ? "…" : "Attack"}
                     </button>
-                    <button disabled={anyBusy || run.roomKind !== 2} onClick={onLoot}>
+                    <button disabled={anyBusy || !run || run.roomKind !== 2} onClick={onLoot}>
                       {b("loot") ? "…" : "Loot"}
                     </button>
-                    <button disabled={anyBusy || run.potions === 0 || run.hp >= run.maxHp} onClick={onUse}>
+                    <button disabled={anyBusy || !run || run.potions === 0 || run.hp >= run.maxHp} onClick={onUse}>
                       {b("use") ? "…" : "Use"}
                     </button>
-                    <button className="danger" disabled={anyBusy || inCombat} onClick={onExtract}>
+                    <button className="danger" disabled={anyBusy || !run || inCombat} onClick={onExtract}>
                       {b("extract") ? "…" : "Extract"}
                     </button>
                   </>
