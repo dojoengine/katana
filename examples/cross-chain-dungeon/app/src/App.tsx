@@ -752,17 +752,28 @@ export default function App() {
 
   const onBuy = act("buy", () => chain.buyGame(wallet.l1Account, BUY_USDC));
   const onMint = act("mint", () => chain.devMint(wallet.l1Account, DEV_MINT));
-  const enterRun = act("enter", () => chain.enterDungeon(wallet.l1Account));
   // "New game": charge $GAME on L1, fire the L1→L2 mint_run, and remember the run
   // count at click time so the tick can auto-select the freshly minted run once it
-  // shows up on the appchain.
-  const onNewGame = () => {
+  // shows up on the appchain. Owns its own lifecycle (rather than `act`) because the
+  // loader is gated on `enteringRef`, which must be cleared if the L1 tx fails — else
+  // the lobby stays stuck behind the loader with no way to retry.
+  const onNewGame = async () => {
     if (gameBal < fee) {
       setErr(`insufficient $GAME (need ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)}) — buy or dev-mint`);
       return;
     }
     enteringRef.current = stats ? stats.totalRuns : 0;
-    void enterRun();
+    setBusy("enter");
+    setErr(null);
+    try {
+      await chain.enterDungeon(wallet.l1Account);
+      await tick(); // may already see the minted run and auto-select it
+    } catch (e) {
+      enteringRef.current = null; // entry failed → lift the loader, back to the lobby
+      setErr(String((e as Error).message || e));
+    } finally {
+      setBusy(null);
+    }
   };
   const onContinue = (runNo: number) => setSelectedRun(runNo);
   const onLeave = () => setSelectedRun(null);
@@ -974,116 +985,79 @@ export default function App() {
               </div>
             </section>
 
-            {/* CENTER: dungeon */}
-            <section className="col-center">
-              <div className="arena" data-tut="play">
-                <div className="stage">
-                  <div className="stage-h">
-                    <span>
-                      DUNGEON · <span className="kind">{run ? chain.roomLabel(run.roomKind) : "— idle —"}</span>
-                    </span>
-                    <span>{stats.activeRuns} active</span>
-                  </div>
-                  <DungeonMap run={run} />
-                  {!playing && entering && (
-                    <div className="veil">
-                      <div className="loading">
-                        <div className="spinner" aria-hidden />
-                        <div className="loading-title">entering the dungeon…</div>
-                        <div className="loading-bar" aria-hidden />
+            {/* CENTER: two distinct views — the New Game page (lobby) and the
+                Dungeon run page — never share the screen. */}
+            <section className="col-center" data-tut="play">
+              {playing ? (
+                /* ===== Dungeon run page: stage + vitals + actions ===== */
+                <>
+                  <div className="arena">
+                    <div className="stage">
+                      <div className="stage-h">
+                        <span>
+                          DUNGEON · <span className="kind">{run ? chain.roomLabel(run.roomKind) : "— idle —"}</span>
+                        </span>
+                        <span>{stats.activeRuns} active</span>
+                      </div>
+                      <DungeonMap run={run} />
+                    </div>
+
+                    <div className="vitals">
+                      <div className="vital hp">
+                        <div className="k">HP</div>
+                        <div className="v">{run ? `${run.hp}/${run.maxHp}` : "—"}</div>
+                        <div className="meter">{run ? hpBar : ""}</div>
+                      </div>
+                      <div className="vital gold">
+                        <div className="k">Gold</div>
+                        <div className="v">{run ? run.gold.toLocaleString() : "—"}</div>
+                        <div className="meter">haul on L2</div>
+                      </div>
+                      <div className="vital depth">
+                        <div className="k">Depth</div>
+                        <div className="v">{run ? run.depth : "—"}</div>
+                        <div className="meter">rooms down</div>
+                      </div>
+                      <div className="vital pot">
+                        <div className="k">Potions</div>
+                        <div className="v">{run ? run.potions : "—"}</div>
+                        <div className="meter">heals +35</div>
                       </div>
                     </div>
-                  )}
-                  {!playing && !entering && !freshOutcome && (
-                    <div className="veil veil-lobby">
-                      <button className="good" disabled={anyBusy || !ready} onClick={onNewGame}>
-                        {gameBal < fee
-                          ? "insufficient $GAME"
-                          : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
-                      </button>
-                    </div>
-                  )}
-                </div>
 
-                {/* Below the stage: live vitals while a run is selected, otherwise the
-                    list of unfinished runs to pick up. */}
-                {playing ? (
-                  <div className="vitals">
-                    <div className="vital hp">
-                      <div className="k">HP</div>
-                      <div className="v">{run ? `${run.hp}/${run.maxHp}` : "—"}</div>
-                      <div className="meter">{run ? hpBar : ""}</div>
-                    </div>
-                    <div className="vital gold">
-                      <div className="k">Gold</div>
-                      <div className="v">{run ? run.gold.toLocaleString() : "—"}</div>
-                      <div className="meter">haul on L2</div>
-                    </div>
-                    <div className="vital depth">
-                      <div className="k">Depth</div>
-                      <div className="v">{run ? run.depth : "—"}</div>
-                      <div className="meter">rooms down</div>
-                    </div>
-                    <div className="vital pot">
-                      <div className="k">Potions</div>
-                      <div className="v">{run ? run.potions : "—"}</div>
-                      <div className="meter">heals +35</div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="lobby-list">
-                    <div className="lobby-h">unfinished runs</div>
-                    {runs.length > 0 ? (
-                      runs.map((r) => (
-                        <button key={r.runNo} className="lobby-run" onClick={() => onContinue(r.runNo)}>
-                          <span className="lr-id">[r{r.runNo}]</span>
-                          <span>d{r.depth}</span>
-                          <span>hp{r.hp}</span>
-                          <span>{r.gold.toLocaleString()}g</span>
-                          <span className="lr-go">continue →</span>
+                    {showOutcome && lastEnded?.died && (
+                      <div className="veil veil-death arena-veil">
+                        <button className="veil-x" onClick={() => closeOutcome(lastEnded.endNo)} aria-label="close">
+                          ✕
                         </button>
-                      ))
-                    ) : (
-                      <div className="lobby-empty">none yet · start a new dive above</div>
+                        <div className="death-skull">☠</div>
+                        <div className="death-title">YOU DIED</div>
+                        <div>
+                          depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
+                        </div>
+                        <div className="death-sub">
+                          your haul is lost.
+                        </div>
+                      </div>
+                    )}
+
+                    {showOutcome && lastEnded && !lastEnded.died && (
+                      <div className="veil veil-extract arena-veil">
+                        <button className="veil-x" onClick={() => closeOutcome(lastEnded.endNo)} aria-label="close">
+                          ✕
+                        </button>
+                        <div className="extract-mark">✓</div>
+                        <div className="extract-title">EXTRACTED</div>
+                        <div className="extract-gold">+{lastEnded.loot.toLocaleString()} $GOLD</div>
+                        <div className="death-sub">
+                          depth <b>{lastEnded.depth}</b> · hp <b>{lastEnded.hp}/{lastEnded.maxHp}</b>
+                        </div>
+                      </div>
                     )}
                   </div>
-                )}
 
-                {showOutcome && lastEnded?.died && (
-                  <div className="veil veil-death arena-veil">
-                    <button className="veil-x" onClick={() => closeOutcome(lastEnded.endNo)} aria-label="close">
-                      ✕
-                    </button>
-                    <div className="death-skull">☠</div>
-                    <div className="death-title">YOU DIED</div>
-                    <div>
-                      depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
-                    </div>
-                    <div className="death-sub">
-                      your haul is lost.
-                    </div>
-                  </div>
-                )}
-
-                {showOutcome && lastEnded && !lastEnded.died && (
-                  <div className="veil veil-extract arena-veil">
-                    <button className="veil-x" onClick={() => closeOutcome(lastEnded.endNo)} aria-label="close">
-                      ✕
-                    </button>
-                    <div className="extract-mark">✓</div>
-                    <div className="extract-title">EXTRACTED</div>
-                    <div className="extract-gold">+{lastEnded.loot.toLocaleString()} $GOLD</div>
-                    <div className="death-sub">
-                      depth <b>{lastEnded.depth}</b> · hp <b>{lastEnded.hp}/{lastEnded.maxHp}</b>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="actions">
-                {(playing || entering) && (
-                  <>
-                    <button className="ghost" disabled={anyBusy || entering} onClick={onLeave} title="back to the run list">
+                  <div className="actions">
+                    <button className="ghost" disabled={anyBusy || entering} onClick={onLeave} title="back to the New Game page">
                       ←
                     </button>
                     <button disabled={anyBusy || !run || runOver} onClick={onMove}>
@@ -1101,9 +1075,49 @@ export default function App() {
                     <button className="danger" disabled={anyBusy || !run || runOver || inCombat} onClick={onExtract}>
                       {b("extract") ? "…" : "Extract"}
                     </button>
-                  </>
-                )}
-              </div>
+                  </div>
+                </>
+              ) : (
+                /* ===== New Game page: start a dive or continue an unfinished run ===== */
+                <div className="newgame">
+                  <div className="newgame-head">
+                    <div className="newgame-title">DUNGEON LOBBY</div>
+                    <div className="newgame-sub">start a fresh dive — or continue an unfinished run</div>
+                  </div>
+                  <button className="good newgame-start" disabled={anyBusy || !ready} onClick={onNewGame}>
+                    {gameBal < fee
+                      ? "insufficient $GAME"
+                      : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
+                  </button>
+                  <div className="lobby-list">
+                    <div className="lobby-h">unfinished runs</div>
+                    {runs.length > 0 ? (
+                      runs.map((r) => (
+                        <button key={r.runNo} className="lobby-run" onClick={() => onContinue(r.runNo)}>
+                          <span className="lr-id">[r{r.runNo}]</span>
+                          <span>d{r.depth}</span>
+                          <span>hp{r.hp}</span>
+                          <span>{r.gold.toLocaleString()}g</span>
+                          <span className="lr-go">continue →</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="lobby-empty">none yet · start a new dive above</div>
+                    )}
+                  </div>
+                  {/* Entering covers the whole lobby with the loader (the new run is being
+                      minted on L2 via the L1→L2 message) until it auto-selects. */}
+                  {entering && (
+                    <div className="veil newgame-loading">
+                      <div className="loading">
+                        <div className="spinner" aria-hidden />
+                        <div className="loading-title">entering the dungeon…</div>
+                        <div className="loading-bar" aria-hidden />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* RIGHT: message log */}
