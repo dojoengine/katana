@@ -37,8 +37,12 @@ chain your app runs *on* — and each is a Katana instance:
   - `--messaging.enabled` — watch the settlement chain and **relay L1→L2
     messages** as `L1HandlerTx`. Without this, purchases never reach L2.
   - `--dev --dev.no-fee` — fees off (an empty rollup can't price gas sanely).
+  - `--block-time 5000` — mine a block every 5s (interval mining) instead of
+    per-transaction, so the chain advances on a steady cadence and saya keeps
+    settling even when the app is idle (trades instant inclusion for a predictable
+    block time).
   ```bash
-  katana --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee \
+  katana --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 \
          --http.port 5051 --explorer --messaging.enabled
   ```
   [`up.sh:147`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L147)

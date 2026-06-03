@@ -174,7 +174,9 @@ echo "→ starting appchain node on :5051…"
 # --dev --dev.no-fee disables fees on the rollup (mirrors the saya-tee test
 # harness' fee:false config); without it, fee estimation on the near-empty
 # rollup produces resource bounds below the actual gas price and txs revert.
-"$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --http.port 5051 \
+# --block-time 5000 mines a block every 5s (interval mining) instead of per-tx, so
+# the chain advances steadily and saya keeps settling even when the app is idle.
+"$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 --http.port 5051 \
   --http.cors_origins '*' --explorer --messaging.enabled $CONTROLLER_FLAGS \
   > "$RUN_DIR/appchain.log" 2>&1 &
 APPCHAIN_PID=$!
