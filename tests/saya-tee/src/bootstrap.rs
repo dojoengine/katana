@@ -25,8 +25,8 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use katana_chain_spec::rollup::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
 use katana_chain_spec::tee::compute_katana_tee_config_hash;
+use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, Call};
 use starknet::macros::{selector, short_string};
@@ -121,7 +121,7 @@ async fn configure_piltover_for_tee(
     account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
     let katana_tee_config_hash =
-        compute_katana_tee_config_hash(L3_CHAIN_ID, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS.into());
+        compute_katana_tee_config_hash(L3_CHAIN_ID, DEFAULT_STRK_FEE_TOKEN_ADDRESS.into());
 
     // ProgramInfo::KatanaTee(KatanaTeeProgramInfo { katana_tee_config_hash })
     // serializes as [variant_index=1, katana_tee_config_hash].
