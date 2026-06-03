@@ -626,9 +626,9 @@ export default function App() {
       ]);
       setRuns(rl);
       setRun(r);
-      // The selected run ended (death or extract): drop back to the lobby so the
-      // outcome veil shows and the run leaves the continue list.
-      if (selectedRun != null && r && !r.alive) setSelectedRun(null);
+      // When the selected run ends (death or extract) we deliberately KEEP it
+      // selected so the outcome screen overlays the run page; the lobby
+      // transition happens only when that screen is closed (see closeOutcome).
       // After "New game", auto-select the freshly minted run once it appears.
       if (enteringRef.current != null) {
         const fresh = rl.find((x) => x.runNo > enteringRef.current!);
@@ -725,18 +725,30 @@ export default function App() {
     baselineEndNoRef.current !== null &&
     lastEnded.endNo > baselineEndNoRef.current &&
     lastEnded.endNo > dismissedEndNo;
+  // Closing the outcome screen (manually via ✕ or the 6s timer) dismisses the veil
+  // AND leaves the just-ended run, dropping back to the New Game lobby. The outcome
+  // therefore stays on the run page until it's closed.
+  const closeOutcome = useCallback((endNo: number) => {
+    setDismissedEndNo(endNo);
+    setSelectedRun(null);
+  }, []);
   // Auto-dismiss the outcome veil after 6s (cleared if a new one appears / closed early).
   const outcomeEndNo = freshOutcome && lastEnded ? lastEnded.endNo : -1;
   useEffect(() => {
     if (outcomeEndNo < 0) return;
-    const id = setTimeout(() => setDismissedEndNo(outcomeEndNo), 6000);
+    const id = setTimeout(() => closeOutcome(outcomeEndNo), 6000);
     return () => clearTimeout(id);
-  }, [outcomeEndNo]);
+  }, [outcomeEndNo, closeOutcome]);
   const b = (n: string) => busy === n;
   // True from the New-game click until the freshly minted run is selected — covers both
   // the L1 tx (busy "enter") and the L1→L2 relay wait (enteringRef still pending).
   const entering = b("enter") || enteringRef.current != null;
   const anyBusy = busy !== null;
+  // The selected run has ended (death/extract) but is still on screen.
+  const runOver = !!run && !run.alive;
+  // Show the outcome screen over the run page once the played run ends, or on the
+  // lobby for a just-closed transition. Never over a still-alive run.
+  const showOutcome = freshOutcome && !entering && (!playing || runOver);
 
   const onBuy = act("buy", () => chain.buyGame(wallet.l1Account, BUY_USDC));
   const onMint = act("mint", () => chain.devMint(wallet.l1Account, DEV_MINT));
@@ -1037,9 +1049,9 @@ export default function App() {
                   </div>
                 )}
 
-                {!playing && !entering && freshOutcome && lastEnded?.died && (
+                {showOutcome && lastEnded?.died && (
                   <div className="veil veil-death arena-veil">
-                    <button className="veil-x" onClick={() => setDismissedEndNo(lastEnded.endNo)} aria-label="close">
+                    <button className="veil-x" onClick={() => closeOutcome(lastEnded.endNo)} aria-label="close">
                       ✕
                     </button>
                     <div className="death-skull">☠</div>
@@ -1048,14 +1060,14 @@ export default function App() {
                       depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
                     </div>
                     <div className="death-sub">
-                      the haul is lost. <b>NEW GAME</b> to dive again.
+                      your haul is lost.
                     </div>
                   </div>
                 )}
 
-                {!playing && !entering && freshOutcome && lastEnded && !lastEnded.died && (
+                {showOutcome && lastEnded && !lastEnded.died && (
                   <div className="veil veil-extract arena-veil">
-                    <button className="veil-x" onClick={() => setDismissedEndNo(lastEnded.endNo)} aria-label="close">
+                    <button className="veil-x" onClick={() => closeOutcome(lastEnded.endNo)} aria-label="close">
                       ✕
                     </button>
                     <div className="extract-mark">✓</div>
@@ -1069,24 +1081,24 @@ export default function App() {
               </div>
 
               <div className="actions">
-                {playing && (
+                {(playing || entering) && (
                   <>
-                    <button className="ghost" disabled={anyBusy} onClick={onLeave} title="back to the run list">
+                    <button className="ghost" disabled={anyBusy || entering} onClick={onLeave} title="back to the run list">
                       ←
                     </button>
-                    <button disabled={anyBusy || !run} onClick={onMove}>
+                    <button disabled={anyBusy || !run || runOver} onClick={onMove}>
                       {b("move") ? "…" : inCombat ? "Flee" : "Move"}
                     </button>
-                    <button disabled={anyBusy || !inCombat} onClick={onAttack}>
+                    <button disabled={anyBusy || !inCombat || runOver} onClick={onAttack}>
                       {b("attack") ? "…" : "Attack"}
                     </button>
-                    <button disabled={anyBusy || !run || run.roomKind !== 2} onClick={onLoot}>
+                    <button disabled={anyBusy || !run || runOver || run.roomKind !== 2} onClick={onLoot}>
                       {b("loot") ? "…" : "Loot"}
                     </button>
-                    <button disabled={anyBusy || !run || run.potions === 0 || run.hp >= run.maxHp} onClick={onUse}>
+                    <button disabled={anyBusy || !run || runOver || run.potions === 0 || run.hp >= run.maxHp} onClick={onUse}>
                       {b("use") ? "…" : "Use"}
                     </button>
-                    <button className="danger" disabled={anyBusy || !run || inCombat} onClick={onExtract}>
+                    <button className="danger" disabled={anyBusy || !run || runOver || inCombat} onClick={onExtract}>
                       {b("extract") ? "…" : "Extract"}
                     </button>
                   </>
