@@ -505,6 +505,7 @@ export default function App() {
   // RunEnded seen at load, then show the veil only when a newer one appears. A reload
   // re-baselines, so a prior run's outcome doesn't reappear.
   const baselineEndNoRef = useRef<number | null>(null);
+  const [dismissedEndNo, setDismissedEndNo] = useState(-1); // outcome veil closed by the user
   const [bankModal, setBankModal] = useState(false); // the withdraw/bank progress modal
   const [bankAmount, setBankAmount] = useState(0); // gold being banked (for the modal/done state)
   const [withdrawTx, setWithdrawTx] = useState<string | undefined>(); // L2 withdraw tx hash
@@ -636,7 +637,18 @@ export default function App() {
   const inCombat = !!run && run.enemyHp > 0;
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
-  const freshOutcome = !!lastEnded && baselineEndNoRef.current !== null && lastEnded.endNo > baselineEndNoRef.current;
+  const freshOutcome =
+    !!lastEnded &&
+    baselineEndNoRef.current !== null &&
+    lastEnded.endNo > baselineEndNoRef.current &&
+    lastEnded.endNo > dismissedEndNo;
+  // Auto-dismiss the outcome veil after 6s (cleared if a new one appears / closed early).
+  const outcomeEndNo = freshOutcome && lastEnded ? lastEnded.endNo : -1;
+  useEffect(() => {
+    if (outcomeEndNo < 0) return;
+    const id = setTimeout(() => setDismissedEndNo(outcomeEndNo), 6000);
+    return () => clearTimeout(id);
+  }, [outcomeEndNo]);
   const b = (n: string) => busy === n;
   const anyBusy = busy !== null;
 
@@ -881,7 +893,7 @@ export default function App() {
                         <>
                           <div>no active run</div>
                           <div>
-                            get <b>GME</b>, then <b>ENTER DUNGEON</b> to descend
+                            get <b>$GAME</b>, then <b>ENTER DUNGEON</b> to descend
                           </div>
                         </>
                       )}
@@ -914,6 +926,9 @@ export default function App() {
 
                 {!run && !b("enter") && freshOutcome && lastEnded?.died && (
                   <div className="veil veil-death arena-veil">
+                    <button className="veil-x" onClick={() => setDismissedEndNo(lastEnded.endNo)} aria-label="close">
+                      ✕
+                    </button>
                     <div className="death-skull">☠</div>
                     <div className="death-title">YOU DIED</div>
                     <div>
@@ -927,6 +942,9 @@ export default function App() {
 
                 {!run && !b("enter") && freshOutcome && lastEnded && !lastEnded.died && (
                   <div className="veil veil-extract arena-veil">
+                    <button className="veil-x" onClick={() => setDismissedEndNo(lastEnded.endNo)} aria-label="close">
+                      ✕
+                    </button>
                     <div className="extract-mark">✓</div>
                     <div className="extract-title">EXTRACTED</div>
                     <div className="extract-gold">+{lastEnded.loot.toLocaleString()} $GOLD</div>
