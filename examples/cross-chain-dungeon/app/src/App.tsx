@@ -495,23 +495,10 @@ export default function App() {
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
   const [logsOpen, setLogsOpen] = useState(false); // floating service-logs window
   const [configOpen, setConfigOpen] = useState(false); // floating deployment-config window
-  const [tutorial, setTutorial] = useState(false); // guided appchain-mechanics walkthrough
-  // Auto-open the tutorial on a first visit (per browser); the titlebar button reopens it.
-  useEffect(() => {
-    try {
-      if (!localStorage.getItem("ccd_tutorial_seen")) setTutorial(true);
-    } catch {
-      /* storage unavailable (private mode) — skip auto-open */
-    }
-  }, []);
-  const closeTutorial = () => {
-    setTutorial(false);
-    try {
-      localStorage.setItem("ccd_tutorial_seen", "1");
-    } catch {
-      /* ignore */
-    }
-  };
+  // Show the guided appchain-mechanics walkthrough on every app load; the titlebar
+  // button reopens it after dismissal.
+  const [tutorial, setTutorial] = useState(true);
+  const closeTutorial = () => setTutorial(false);
   const [minting, setMinting] = useState(false); // auto-mint (L1) in flight after a withdraw
   const mintingRef = useRef(false);
   // Outcome screen only shows for a run that ends *this session*: baseline the last

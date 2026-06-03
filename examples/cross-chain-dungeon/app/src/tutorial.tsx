@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import * as chain from "./chain.ts";
 
 type Tab = "dungeon" | "bank";
-type Step = { tab?: Tab; target?: string; title: string; body: ReactNode };
+type Step = { tab?: Tab; target?: string; side?: "left" | "right"; title: string; body: ReactNode };
 
 const L1 = chain.SETTLEMENT_NAME; // "Starknet Sepolia" | "Starknet Mainnet"
 
@@ -60,6 +60,7 @@ const STEPS: Step[] = [
   {
     tab: "dungeon",
     target: "log",
+    side: "left",
     title: "Play · on L2",
     body: (
       <>
@@ -170,13 +171,20 @@ export function Tutorial({ onClose, setTab }: { onClose: () => void; setTab: (t:
   if (rect) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const left = Math.min(Math.max(rect.left, 16), vw - CARD_W - 16);
-    const below = vh - rect.bottom > 240;
-    cardStyle = below
-      ? { left, top: rect.bottom + pad }
-      : rect.top > 240
-        ? { left, bottom: vh - rect.top + pad }
-        : { left, top: Math.min(rect.bottom + pad, vh - 240) };
+    const top = Math.min(Math.max(rect.top, 16), vh - 260); // align with the target, clamped
+    if (step.side === "left") {
+      cardStyle = { left: Math.max(16, rect.left - pad - CARD_W), top };
+    } else if (step.side === "right") {
+      cardStyle = { left: Math.min(rect.right + pad, vw - CARD_W - 16), top };
+    } else {
+      const left = Math.min(Math.max(rect.left, 16), vw - CARD_W - 16);
+      const below = vh - rect.bottom > 240;
+      cardStyle = below
+        ? { left, top: rect.bottom + pad }
+        : rect.top > 240
+          ? { left, bottom: vh - rect.top + pad }
+          : { left, top: Math.min(rect.bottom + pad, vh - 240) };
+    }
   }
 
   return (
@@ -200,9 +208,7 @@ export function Tutorial({ onClose, setTab }: { onClose: () => void; setTab: (t:
             skip
           </button>
           <span className="spacer" />
-          <button onClick={back} disabled={i === 0}>
-            back
-          </button>
+          {i > 0 && <button onClick={back}>back</button>}
           <button className="good" onClick={next}>
             {last ? "done" : "next →"}
           </button>
