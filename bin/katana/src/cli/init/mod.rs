@@ -195,11 +195,6 @@ with a known chain is a no-op for now.")
     #[arg(long)]
     output_path: Option<PathBuf>,
 
-    /// Declare the Cartridge Controller account classes in the genesis, so a
-    /// Cartridge Controller can be deployed and used on this chain.
-    #[arg(long = "cartridge-controllers")]
-    cartridge_controllers: bool,
-
     #[cfg(feature = "init-slot")]
     #[command(flatten)]
     slot: slot::SlotArgs,
@@ -266,19 +261,16 @@ impl RollupArgs {
 
         let id = ChainId::parse(&output.id)?;
 
-        // The Cartridge paymaster sidecar reserves dev accounts 0/1/2 (relayer,
-        // gas tank, estimate), so seed at least 3 when controllers are enabled;
-        // otherwise the default single account is enough.
-        let num_accounts = if output.cartridge_controllers { 3 } else { 1 };
+        // Rollups are Cartridge Controller–ready by default: seed 3 dev accounts because
+        // the Cartridge paymaster sidecar reserves accounts 0/1/2 (relayer, gas tank,
+        // estimate) — with fewer, its bootstrap aborts.
         #[cfg_attr(not(feature = "init-slot"), allow(unused_mut))]
-        let mut genesis = generate_genesis(num_accounts);
+        let mut genesis = generate_genesis(3);
         #[cfg(feature = "init-slot")]
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
         // Declare the Controller account classes so a Cartridge Controller can be
         // deployed/used on this chain (same helper the `--dev` path uses).
-        if output.cartridge_controllers {
-            katana_slot_controller::add_controller_classes(&mut genesis);
-        }
+        katana_slot_controller::add_controller_classes(&mut genesis);
 
         // STRK is pre-allocated by rollup::ChainSpec::state_updates at the canonical Starknet
         // mainnet address. ETH mirrors STRK on rollup — the on-disk config keeps only one address
@@ -469,7 +461,6 @@ SETTLEMENT LAYER
                 settlement_id: ShortString::try_from(l1_chain_id).unwrap(),
                 effective_fact_registry,
                 proof_impl,
-                cartridge_controllers: self.cartridge_controllers,
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
             }))
@@ -572,9 +563,6 @@ struct PersistentOutcome {
     /// The proof implementation the chain was initialized with. Sourced from `--tee` for the
     /// CLI-flag path and from the interactive proof-mode + variant prompts for the prompt path.
     pub proof_impl: ProofImpl,
-
-    /// Whether to declare the Cartridge Controller account classes in the genesis.
-    pub cartridge_controllers: bool,
 
     #[cfg(feature = "init-slot")]
     pub slot_paymasters: Option<Vec<slot::PaymasterAccountArgs>>,

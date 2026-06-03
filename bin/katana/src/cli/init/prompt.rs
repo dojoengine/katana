@@ -243,7 +243,6 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         settlement_id: ShortString::try_from(l1_chain_id)?,
         effective_fact_registry: fact_registry,
         proof_impl,
-        cartridge_controllers: false,
         #[cfg(feature = "init-slot")]
         slot_paymasters,
     })
