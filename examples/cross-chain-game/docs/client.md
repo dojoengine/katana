@@ -111,9 +111,9 @@ chain-independent). For the roll the connector switches the Controller to the
 appchain (chain id `GAMECHAIN`), executes `play_game`, then switches back.
 
 Controller is opt-in: the stack must be started with `CONTROLLER=1 ./up.sh` — that
-makes **both** nodes Controller-capable (paymaster + the appchain generated with
-`katana init rollup --cartridge-controllers`, which declares the Controller classes
-in its genesis) and serves the app over trusted HTTPS for the passkey login. See the
+makes **both** nodes Controller-capable (paymaster; `katana init rollup` declares
+the Controller classes in the appchain genesis by default) and serves the app over
+trusted HTTPS for the passkey login. See the
 demo's [README](../README.md) → "Using Controller". Because the same Controller is
 now the caller on the appchain, `play_game`'s `get_caller_address()`, the L2→L1 score
 message, and the leaderboard `player` all key on the Controller.

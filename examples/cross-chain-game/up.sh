@@ -80,10 +80,8 @@ echo "→ sozo: $(sozo --version 2>&1 | head -1)   torii: $(torii --version 2>&1
 # Controller-capable (settlement for buy/bank, appchain for roll) so the same
 # Controller signs on both chains. See README → "Using Controller (optional)".
 CONTROLLER_FLAGS=""        # run-node flags: enable the cartridge middleware + paymaster
-CONTROLLER_INIT_FLAGS=""   # init-rollup flag: declare controller classes in the appchain genesis
 if [[ "${CONTROLLER:-}" == "1" ]]; then
   CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
-  CONTROLLER_INIT_FLAGS="--cartridge-controllers"
   command -v paymaster-service >/dev/null 2>&1 \
     || echo "  note: 'paymaster-service' not on PATH — katana will try to fetch it (cartridge-gg/paymaster); see docs/cartridge.md." >&2
   echo "→ Controller mode ON: both nodes Controller-capable. Needs a Controller login + (Chrome) the local-network-access flag."
@@ -143,7 +141,6 @@ rm -rf "$CHAIN_DIR"
   --settlement-account-private-key "$SAYA_PK" \
   --tee \
   --tee-registry-address "$TEE_REGISTRY" \
-  $CONTROLLER_INIT_FLAGS \
   --output-path "$CHAIN_DIR" > "$RUN_DIR/init.log" 2>&1
 PILTOVER=$(sed -nE 's/^core_contract = "(0x[0-9a-fA-F]+)".*/\1/p' "$CHAIN_DIR/config.toml")
 [[ -n "$PILTOVER" ]] || { echo "error: could not parse piltover address from config.toml" >&2; cat "$RUN_DIR/init.log" >&2; exit 1; }
