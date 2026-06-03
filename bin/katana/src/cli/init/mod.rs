@@ -261,10 +261,16 @@ impl RollupArgs {
 
         let id = ChainId::parse(&output.id)?;
 
+        // Rollups are Cartridge Controller–ready by default: seed 3 dev accounts because
+        // the Cartridge paymaster sidecar reserves accounts 0/1/2 (relayer, gas tank,
+        // estimate) — with fewer, its bootstrap aborts.
         #[cfg_attr(not(feature = "init-slot"), allow(unused_mut))]
-        let mut genesis = generate_genesis();
+        let mut genesis = generate_genesis(3);
         #[cfg(feature = "init-slot")]
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
+        // Declare the Controller account classes so a Cartridge Controller can be
+        // deployed/used on this chain (same helper the `--dev` path uses).
+        katana_slot_controller::add_controller_classes(&mut genesis);
 
         // STRK is pre-allocated by rollup::ChainSpec::state_updates at the canonical Starknet
         // mainnet address. ETH mirrors STRK on rollup — the on-disk config keeps only one address
@@ -477,7 +483,7 @@ impl SovereignArgs {
         let id = ChainId::parse(&output.id)?;
 
         #[cfg_attr(not(feature = "init-slot"), allow(unused_mut))]
-        let mut genesis = generate_genesis();
+        let mut genesis = generate_genesis(1);
         #[cfg(feature = "init-slot")]
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
 
@@ -616,8 +622,8 @@ fn resolve_effective_fact_registry(
     }
 }
 
-fn generate_genesis() -> Genesis {
-    let accounts = DevAllocationsGenerator::new(1)
+fn generate_genesis(num_accounts: u16) -> Genesis {
+    let accounts = DevAllocationsGenerator::new(num_accounts)
         .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
         .generate();
     let mut genesis = Genesis::default();

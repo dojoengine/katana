@@ -395,10 +395,45 @@ impl<'c> GenesisTransactionsBuilder<'c> {
         self.invoke(fee_token, TRANSFER, args);
     }
 
+    /// Declare any remaining classes preloaded into the genesis via a real declare
+    /// transaction. This is how opt-in additions such as the Cartridge Controller
+    /// account classes (`katana init rollup --cartridge-controllers`) land on the
+    /// rollup: declaring them through a transaction — rather than only inserting
+    /// them into `genesis.classes` — is what makes them available by their
+    /// canonical class hash. `declare` recomputes the hash from the class artifact,
+    /// so the class is declared under its canonical hash even if the genesis.json
+    /// round-trip shifted the `genesis.classes` map key.
+    ///
+    /// The UDC and account classes are already declared by the steps above, so
+    /// `declare`/`legacy_declare`'s dedup makes them no-ops here; the STRK fee token
+    /// class is pre-allocated into state (not declared via a tx) and is skipped
+    /// explicitly. So a rollup without `--cartridge-controllers` has byte-identical
+    /// genesis transactions. This must run last, after those steps have populated
+    /// `declared_classes`.
+    fn build_preloaded_classes(&self) {
+        // Collect first so we don't hold a borrow on `self.chain_spec` across the
+        // `declare` calls.
+        let classes: Vec<Arc<ContractClass>> =
+            self.chain_spec.genesis.classes.values().cloned().collect();
+
+        for class in classes {
+            // HACK: the STRK fee token (LegacyERC20) class is already handled by
+            // `build_core_contracts`, so skip it here to avoid declaring it twice.
+            if class.class_hash().unwrap() == contracts::LegacyERC20::HASH {
+                continue;
+            }
+            match class.as_ref() {
+                ContractClass::Class(..) => self.declare(class.as_ref().clone()),
+                ContractClass::Legacy(..) => self.legacy_declare(class.as_ref().clone()),
+            };
+        }
+    }
+
     pub fn build(mut self) -> Vec<ExecutableTxWithHash> {
         self.build_master_account();
         self.build_core_contracts();
         self.build_allocated_accounts();
+        self.build_preloaded_classes();
         self.transactions.into_inner()
     }
 }
@@ -533,6 +568,93 @@ mod tests {
         for (tx, expected) in transactions.iter().zip(expected_order) {
             assert_eq!(tx.transaction.r#type(), expected);
         }
+    }
+
+    /// Classes preloaded into the genesis (e.g. the Cartridge Controller account
+    /// classes added by `--cartridge-controllers`) must be declared via a real
+    /// genesis declare tx under their canonical hash — not merely left in
+    /// `genesis.classes`, which a genesis.json round-trip can shift.
+    #[test]
+    fn preloaded_classes_declared_via_tx() {
+        use katana_contracts::controller::ControllerLatest;
+        use katana_primitives::transaction::{DeclareTx, ExecutableTx};
+
+        let mut chain_spec = chain_spec(1, true);
+
+        // Preload a controller class, the way `add_controller_classes` does.
+        chain_spec
+            .genesis
+            .classes
+            .insert(ControllerLatest::HASH, ControllerLatest::CLASS.clone().into());
+
+        let txs = GenesisTransactionsBuilder::new(&chain_spec).build();
+        let declared: Vec<ClassHash> = txs
+            .iter()
+            .filter_map(|tx| match &tx.transaction {
+                ExecutableTx::Declare(d) => Some(match &d.transaction {
+                    DeclareTx::V0(t) => t.class_hash,
+                    DeclareTx::V1(t) => t.class_hash,
+                    DeclareTx::V2(t) => t.class_hash,
+                    DeclareTx::V3(t) => t.class_hash,
+                }),
+                _ => None,
+            })
+            .collect();
+
+        // The preloaded controller class is declared, under its canonical hash.
+        assert!(
+            declared.contains(&ControllerLatest::HASH),
+            "preloaded controller class must be declared via a genesis tx"
+        );
+        // The STRK fee token class stays pre-allocated to state — never declared.
+        assert!(
+            !declared.contains(&contracts::LegacyERC20::HASH),
+            "fee token class must remain pre-allocated, not declared"
+        );
+    }
+
+    /// The genesis.json round-trip (write → read) historically shifted the embedded
+    /// class hashes, leaving a preloaded Controller class unusable by its canonical
+    /// hash and forcing a runtime re-declare. Because the class is now declared via a
+    /// genesis tx — whose hash is recomputed from the artifact, not the (shifted) map
+    /// key — the round-tripped genesis still declares the Controller at its canonical
+    /// hash.
+    #[test]
+    fn preloaded_class_declared_at_canonical_hash_after_roundtrip() {
+        use katana_contracts::controller::ControllerLatest;
+        use katana_genesis::json::GenesisJson;
+        use katana_primitives::transaction::{DeclareTx, ExecutableTx};
+
+        let mut chain_spec = chain_spec(1, true);
+        chain_spec
+            .genesis
+            .classes
+            .insert(ControllerLatest::HASH, ControllerLatest::CLASS.clone().into());
+
+        // Round-trip the genesis through its on-disk JSON form (the step that used to
+        // shift the embedded class hashes).
+        let json = GenesisJson::try_from(chain_spec.genesis.clone()).unwrap();
+        chain_spec.genesis = Genesis::try_from(json).unwrap();
+
+        let txs = GenesisTransactionsBuilder::new(&chain_spec).build();
+        let declared: Vec<ClassHash> = txs
+            .iter()
+            .filter_map(|tx| match &tx.transaction {
+                ExecutableTx::Declare(d) => Some(match &d.transaction {
+                    DeclareTx::V0(t) => t.class_hash,
+                    DeclareTx::V1(t) => t.class_hash,
+                    DeclareTx::V2(t) => t.class_hash,
+                    DeclareTx::V3(t) => t.class_hash,
+                }),
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            declared.contains(&ControllerLatest::HASH),
+            "controller class must declare at its canonical hash even after a genesis.json \
+             round-trip"
+        );
     }
 
     #[rstest::rstest]

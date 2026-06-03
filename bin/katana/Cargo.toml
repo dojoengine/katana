@@ -16,6 +16,7 @@ katana-genesis.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-types.workspace = true
+katana-slot-controller.workspace = true
 katana-starknet.workspace = true
 katana-utils.workspace = true
 
