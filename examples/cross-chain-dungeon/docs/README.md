@@ -20,6 +20,10 @@ economy** in front of the cross-chain loop.
    minter grants), and the Sepolia bring-up sequence.
 5. **[Client](./client.md)** — the data layer, the Torii tables, the write path,
    Controller-on-Sepolia, and the poll-and-derive UI.
+6. **[Interval mining & pre-confirmed play](./interval-mining.md)** — why the
+   appchain mines on a 5s interval and persists to disk, and the four
+   pre-confirmed adjustments (tx wait, Torii indexing, nonce, fee estimate) that
+   keep play snappy and correct.
 
 ## The game in one paragraph
 

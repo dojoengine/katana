@@ -10,7 +10,7 @@
 // state, event-message tables for the action + bank feeds) and a few raw RPC
 // reads (token balances, piltover settled height, appchain tip).
 
-import { Account, type AccountInterface, CallData, RpcProvider, cairo, hash } from "starknet";
+import { Account, type AccountInterface, BlockTag, CallData, RpcProvider, TransactionFinalityStatus, cairo, hash } from "starknet";
 import { ToriiClient } from "@dojoengine/torii-wasm";
 import deployments from "./deployments.json";
 
@@ -52,10 +52,22 @@ const appchainProvider = new RpcProvider({ nodeUrl: APPCHAIN_RPC });
 
 // starknet.js's waitForTransaction defaults to a 5s poll interval, so a tx that's
 // actually confirmed in well under a second still blocks for one or more 5s polls.
-// Poll fast on both chains. The appchain mines instantly; Sepolia confirms in ~1-2s
-// (measured) — far quicker than the 5s default, which was the bulk of the perceived
-// "entering…" / "banking…" latency. The interval is a poll cadence, not added work.
-const APPCHAIN_TX_WAIT = { retryInterval: 200 };
+// Poll fast on both chains: Sepolia confirms in ~1-2s (measured).
+//
+// The appchain mines on a 5s interval (--block-time), so ACCEPTED_ON_L2 (mined into a
+// block) is up to 5s away — far too slow for click-to-click play. The appchain is a
+// local, trusted rollup, so we resolve play actions on PRE_CONFIRMED instead: the tx
+// has executed and its state writes are live in the pre-confirmed block immediately,
+// well before the block is sealed. successStates also lists the accepted states so a
+// tx that's already mined still resolves.
+const APPCHAIN_TX_WAIT = {
+  retryInterval: 200,
+  successStates: [
+    TransactionFinalityStatus.PRE_CONFIRMED,
+    TransactionFinalityStatus.ACCEPTED_ON_L2,
+    TransactionFinalityStatus.ACCEPTED_ON_L1,
+  ],
+};
 const SETTLEMENT_TX_WAIT = { retryInterval: 1000 };
 
 // Default signers. The operator is a real funded Sepolia account (from
@@ -543,19 +555,47 @@ export async function bankRun(account: Signer, player: string, amount: number, w
 
 // --- writes: appchain play actions (signed by the dev account) ---
 
+// Every play action is signed by the one appchain dev account, so serialize them
+// through a promise-chain mutex (same idiom as withSettlementLock). Without this,
+// two actions fired in quick succession both read the same pending nonce and the
+// second is rejected as an invalid nonce. Each action holds the lock until its tx
+// is pre-confirmed, so the next one reads the bumped nonce.
+let appchainQueue: Promise<unknown> = Promise.resolve();
+function withAppchainLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = appchainQueue.then(fn, fn);
+  appchainQueue = run.then(() => {}, () => {});
+  return run;
+}
+
 /** Run a one-felt appchain entrypoint and wait for it (+ a beat for Torii). */
 async function appchainCall(entrypoint: string, arg: string): Promise<string> {
-  const transaction_hash = await loggedTx(
-    "L2",
-    entrypoint,
-    () =>
-      appchainAccount
-        .execute({ contractAddress: GAME_SYSTEM, entrypoint, calldata: [arg] })
-        .then((r) => r.transaction_hash),
-    (h) => appchainProvider.waitForTransaction(h, APPCHAIN_TX_WAIT),
-  );
-  await sleep(150); // give Torii a beat to index the resulting model/event write
-  return transaction_hash;
+  return withAppchainLock(async () => {
+    const transaction_hash = await loggedTx(
+      "L2",
+      entrypoint,
+      async () => {
+        const call = { contractAddress: GAME_SYSTEM, entrypoint, calldata: [arg] };
+        // Interval mining (--block-time) means `latest` (the last mined block) lags the
+        // pre-confirmed block, and starknet.js reads BOTH the nonce and the fee estimate
+        // against `latest` by default. Two consequences, both fixed by pinning to
+        // pre_confirmed: (1) the latest nonce ignores a tx still pending in this block
+        // window, so consecutive actions reuse a stale nonce and are rejected; (2) the
+        // estimate simulates against stale state, so an action that only just became
+        // valid (e.g. loot right after moving into a treasure room) reverts even though
+        // it would execute fine. The lock keeps fetch+estimate+submit atomic.
+        const nonce = await appchainProvider.getNonceForAddress(appchainAccount.address, BlockTag.PRE_CONFIRMED);
+        const { resourceBounds } = await appchainAccount.estimateInvokeFee(call, {
+          blockIdentifier: BlockTag.PRE_CONFIRMED,
+          nonce,
+        });
+        const r = await appchainAccount.execute(call, { nonce, resourceBounds });
+        return r.transaction_hash;
+      },
+      (h) => appchainProvider.waitForTransaction(h, APPCHAIN_TX_WAIT),
+    );
+    await sleep(150); // give Torii a beat to index the resulting model/event write
+    return transaction_hash;
+  });
 }
 
 // Play actions target a specific run by its run_no.

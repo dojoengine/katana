@@ -21,6 +21,7 @@ DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$DEMO_DIR/../.." && pwd)"
 RUN_DIR="$DEMO_DIR/.run"
 CHAIN_DIR="$RUN_DIR/chain-config"
+APPCHAIN_DB="$RUN_DIR/appchain-db"   # persistent appchain state — survives restarts
 mkdir -p "$RUN_DIR"
 
 # Ports — distinct from cross-chain-game (5051/8081/8082/3001) so both can run.
@@ -110,7 +111,9 @@ else
   echo "$TEE_REGISTRY" > "$RUN_DIR/tee_registry"
 
   echo "→ deploying piltover core + generating rollup config (katana init rollup --tee)…"
-  rm -rf "$CHAIN_DIR"
+  # Fresh chain config ⇒ fresh genesis, so drop any stale appchain db that was built
+  # from a previous genesis (a persisted db must match the chain it was initialized from).
+  rm -rf "$CHAIN_DIR" "$APPCHAIN_DB"
   "$KATANA" init rollup \
     --id DUNGEON \
     --settlement-chain "$SETTLEMENT_RPC_URL" \
@@ -154,8 +157,12 @@ node -e '
   "$DEMO_DIR/app/src/deployments.json"
 
 # 4. Appchain rollup node, settling to piltover on Sepolia, L1→L2 messaging on.
+#    --block-time 5000 mines on a 5s interval (instead of instant) so saya settles
+#    at a steady cadence rather than bursting a block per action.
+#    --data-dir persists appchain state to disk so a katana restart keeps the game
+#    world + runs (an in-memory chain would lose them and force a full redeploy).
 echo "→ starting appchain node on :${APPCHAIN_PORT}…"
-"$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --http.port "$APPCHAIN_PORT" \
+"$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 --data-dir "$APPCHAIN_DB" --http.port "$APPCHAIN_PORT" \
   --http.cors_origins '*' --explorer --messaging.enabled \
   > "$RUN_DIR/appchain.log" 2>&1 &
 APPCHAIN_PID=$!
@@ -198,10 +205,14 @@ torii --rpc "$SETTLEMENT_RPC_URL" --world "$BANK_WORLD" \
 TORII_SCORE_PID=$!
 
 echo "→ starting torii (appchain: game world) on :${TORII_GAME_HTTP}…"
+# --indexing.preconfirmed indexes the appchain's pre-confirmed (pending) block, so a
+# play action's model writes show up in Torii immediately instead of waiting for the
+# 5s --block-time tick. Pairs with the client resolving play txns on PRE_CONFIRMED
+# (app/src/chain.ts) so click-to-state stays snappy despite interval mining.
 torii --rpc "http://localhost:$APPCHAIN_PORT" --world "$GAME_WORLD" \
   --http.port "$TORII_GAME_HTTP" --grpc.port "$TORII_GAME_GRPC" \
   --relay.port "$TORII_GAME_RELAY" --relay.webrtc_port $((TORII_GAME_RELAY+1)) --relay.websocket_port $((TORII_GAME_RELAY+2)) \
-  --http.cors_origins '*' \
+  --http.cors_origins '*' --indexing.preconfirmed \
   --db-dir "$RUN_DIR/torii-game.db" > "$RUN_DIR/torii-game.log" 2>&1 &
 TORII_GAME_PID=$!
 until curl -s -o /dev/null "http://localhost:$TORII_GAME_HTTP/" 2>/dev/null; do sleep 0.5; done

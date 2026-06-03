@@ -64,7 +64,11 @@ Two practical notes carried over from cross-chain-game:
 
 - **Serialize same-account writes.** Buy / enter / bank are all signed by the one
   settlement account, so they funnel through a promise-chain mutex
-  (`withSettlementLock`) to avoid racing the nonce.
+  (`withSettlementLock`) to avoid racing the nonce. The appchain play actions do the
+  same (`withAppchainLock`) — necessary because the appchain mines on a 5s interval,
+  so the play path also reads its nonce and fee estimate from the **pre-confirmed**
+  block and resolves on `PRE_CONFIRMED`. That whole story is its own chapter:
+  [interval-mining.md](./interval-mining.md).
 - **A write returns before the read updates.** Actions wait for the receipt, then the
   1.5s poll loop re-reads Torii; the UI catches up a beat later (eventually consistent).
 

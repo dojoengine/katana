@@ -26,14 +26,18 @@ Sepolia. The appchain is created by `katana init rollup` (which deploys piltover
 Sepolia and writes the chain config) and runs as a rollup:
 
 ```bash
-katana --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --http.port 5070 \
-       --explorer --messaging.enabled
+katana --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 \
+       --data-dir .run/appchain-db --http.port 5070 --explorer --messaging.enabled
 ```
 
 - `--tee mock` — TEE-settled rollup with mock attestation locally.
 - `--messaging.enabled` — watch **Sepolia** and relay L1→L2 messages as
   `L1HandlerTx`. Without this, entries never reach the appchain.
 - `--dev --dev.no-fee` — fees off (so play actions are free) on chain id `DUNGEON`.
+- `--block-time 5000` + `--data-dir` — mine on a steady 5s interval and persist
+  state to disk. Both are deliberate; they change the timing model enough that the
+  client and Torii must read/write the **pre-confirmed** block. See
+  [interval-mining.md](./interval-mining.md).
 
 Port `5070` (and the toriis on `8091`/`8092`, the client on `3002`) are chosen
 distinct from cross-chain-game so both demos can run at once.
@@ -80,13 +84,18 @@ Sepolia, by `saya-ops`, before `init rollup`.
 Two instances, as before, but the settlement one indexes a **Sepolia** world:
 
 ```bash
-torii --rpc "$SEPOLIA_RPC_URL" --world "$SCORE_WORLD" --http.port 8091 ...   # Sepolia
-torii --rpc http://localhost:5070 --world "$GAME_WORLD" --http.port 8092 ... # appchain
+torii --rpc "$SEPOLIA_RPC_URL" --world "$SCORE_WORLD" --http.port 8091 ...                       # Sepolia
+torii --rpc http://localhost:5070 --world "$GAME_WORLD" --http.port 8092 --indexing.preconfirmed # appchain
 ```
 
 Torii resolves the world's deploy block from the contract, so the Sepolia indexer
 doesn't rescan the whole chain. Token balances aren't world state, so the client
 reads them straight from Sepolia RPC (`balanceOf`), not Torii.
+
+The appchain Torii adds **`--indexing.preconfirmed`** so it indexes the pre-confirmed
+block — with 5s `--block-time`, the dungeon view would otherwise lag a full interval
+behind each action. The Sepolia bank Torii doesn't need it (real L1 blocks pace it).
+See [interval-mining.md](./interval-mining.md).
 
 ## Who triggers whom
 
