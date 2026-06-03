@@ -96,9 +96,10 @@ CONTROLLER=1 ./up.sh
 
 This starts **both** nodes Controller-capable (`--paymaster --cartridge.paymaster
 --cartridge.controllers`; katana fetches the `paymaster-service` sidecar if needed —
-see [`../../docs/cartridge.md`](../../docs/cartridge.md)). `katana init rollup`
-declares the Controller account classes in the appchain genesis by default, so the
-same Controller can deploy and sign there too.
+see [`../../docs/cartridge.md`](../../docs/cartridge.md)). It also declares the
+Controller account class on the appchain at boot (working around katana #584; see
+[`docs/client.md`](./docs/client.md)), so the same Controller can deploy and sign
+there too — no manual step.
 It also **serves the app over trusted HTTPS** at `https://localhost:3001` (via
 `mkcert`). Then click **Login → Connect Controller** and sign in. Caveats:
 

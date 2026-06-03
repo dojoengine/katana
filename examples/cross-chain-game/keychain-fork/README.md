@@ -1,11 +1,20 @@
-# Self-hosted Cartridge Controller keychain — local fork changes
+# Self-hosted Cartridge Controller keychain — local fork (now a fallback)
 
-To drive a **Cartridge Controller against a local custom appchain** (the cross-chain
-demos), the hosted keychain at `x.cartridge.gg` isn't enough — it's built for
-Cartridge-known chains, and the deployed build also lags `main`. We run a
-**self-hosted keychain** from the open `cartridge-gg/controller` repo with a little
-local config. This directory records that config durably (the clone is throwaway,
-e.g. `/tmp/controller-ref`).
+> **You probably don't need this anymore.** The hosted keychain at `x.cartridge.gg`
+> now drives a local custom appchain directly: it redeployed from `main` right after
+> the fixes merged (`#2609`, 2026-06-03), so it carries both the behavioral fixes and
+> the `switchChain` rebuild. Just run `CONTROLLER=1 ./up.sh` (no `app/.env.local`),
+> declare the controller class once (the `#584` runtime step — see `docs/client.md`),
+> and **Connect Controller** uses your real `cartridge.gg` account. If a connect/roll
+> stalls, the only gotcha is Chrome Private Network Access
+> (`chrome://flags/#local-network-access-check`) — the hosted iframe reaching
+> `localhost`.
+
+This directory is kept as a **fallback** for when you need to run against an
+*unreleased* keychain change (before it's deployed to `x.cartridge.gg`), or want a
+fully offline setup. It runs a **self-hosted keychain** from the open
+`cartridge-gg/controller` repo with a little local config, recorded here durably (the
+clone is throwaway, e.g. `/tmp/controller-ref`).
 
 - **Patch:** [`keychain.patch`](./keychain.patch) — the **local self-hosting config
   only** (`vite.config.ts` + `.env.dev`). `git apply` it on top of a controller
@@ -123,23 +132,12 @@ echo 'VITE_KEYCHAIN_URL=https://localhost:3010' > app/.env.local
 CONTROLLER=1 ./up.sh             # demo on https://localhost:3001, paymaster on both nodes
 ```
 
-**5. Declare the controller class on the appchain** (the #584 gap — see
-`docs/client.md`): after the stack is up, declare the **on-disk** `controller.latest`
-so it lands at the canonical hash the keychain deploys (`0x743c8…`). From `app/`:
-
-```bash
-node -e '
-import("starknet").then(async ({Account,RpcProvider,json})=>{
-  const fs=await import("node:fs");
-  const ART="../../../crates/contracts/contracts/controller/account_sdk/artifacts/classes";
-  const a=JSON.parse(fs.readFileSync("./src/deployments.json","utf8")).appchain;
-  const p=new RpcProvider({nodeUrl:a.rpcUrl});
-  const acc=new Account({provider:p,address:a.account.address,signer:a.account.privateKey,cairoVersion:"1"});
-  const r=await acc.declareIfNot({contract:json.parse(fs.readFileSync(ART+"/controller.latest.contract_class.json","utf8")),
-                                   casm:json.parse(fs.readFileSync(ART+"/controller.latest.compiled_contract_class.json","utf8"))});
-  console.log("controller class:",r.class_hash);
-});'
-```
+**5. Controller class on the appchain** (the #584 gap — see `docs/client.md`): the
+canonical class the keychain deploys (`0x743c8…`) must be declared on the appchain.
+**`CONTROLLER=1 ./up.sh` already does this** at boot
+(`scripts/declare-controller-class.ts`), so there's nothing to do here. (Only if you
+run the keychain against some *other* appchain without the demo's `up.sh` would you
+declare `controller.latest` yourself — run that script against your node.)
 
 **6. Open `https://localhost:3001` → Login → Connect Controller.** RP id is
 `localhost`, so this creates a **fresh local Controller** (a localhost-scoped
@@ -155,8 +153,6 @@ passkey), not your `cartridge.gg` account. Then buy → roll → bank.
 - **Chrome may block the iframe reaching `localhost`** (Private Network Access). If
   connect stalls, enable `chrome://flags/#local-network-access-check`.
 - **Ports:** keychain `:3010`, demo frontend `:3001` — keep them distinct.
-- Re-run the **step-5 declare after every `./up.sh`** (katana is in-memory, so the
-  class is gone on restart).
 
 See the demo's `docs/client.md` "Current known blockers" and the agent memory
 `project_controller_on_appchain_setup` for the full picture.

@@ -118,10 +118,11 @@ demo's [README](../README.md) → "Using Controller". Because the same Controlle
 now the caller on the appchain, `play_game`'s `get_caller_address()`, the L2→L1 score
 message, and the leaderboard `player` all key on the Controller.
 
-> **Caveat:** driving the Controller on the *appchain* (the roll) currently relies on
-> a self-hosted keychain and runtime workarounds — `CONTROLLER=1 ./up.sh` alone is
-> not enough. See [Current known blockers](#current-known-blockers-appchain-controller)
-> below. The L1 side (buy/bank) and the default dev-account path work without any of that.
+> **Caveat:** `CONTROLLER=1 ./up.sh` now drives both chains via the **hosted keychain
+> at `x.cartridge.gg`** with no manual steps — it even declares the controller class on
+> the appchain at boot (a katana #584 workaround; see
+> [Current known blockers](#current-known-blockers-appchain-controller) below). The L1
+> side (buy/bank) and the default dev-account path are unaffected.
 
 ## Tying it to the UI: subscribe + derive
 
@@ -163,13 +164,13 @@ const banked   = plays.filter((p) =>  p.claimTxHash);    // settled to L1
 
 ## Current known blockers (appchain Controller)
 
-Driving a **Cartridge Controller against the appchain** works end-to-end (the same
-Controller address signs buy/bank on L1 and the roll on `GAMECHAIN`). The hosted
-keychain at `x.cartridge.gg` is built for Cartridge-known chains (mainnet, sepolia,
-slot), so a bespoke `katana init rollup` appchain tripped a series of its
-assumptions. Most are now fixed at the source; a few rough edges remain, all of them
-in the **self-hosted keychain** plus one runtime step — the **default dev-account
-path is unaffected**.
+Driving a **Cartridge Controller against the appchain** works end-to-end with the
+**hosted keychain at `x.cartridge.gg`** — the same Controller address signs buy/bank
+on L1 and the roll on `GAMECHAIN`. Getting there tripped a series of the keychain's
+assumptions: it's built for Cartridge-known chains (mainnet, sepolia, slot), not a
+bespoke `katana init rollup` appchain. **All but one are now fixed at the source**;
+what remains is a single runtime step, and the **default dev-account path is
+unaffected**.
 
 ### Resolved
 
@@ -185,35 +186,43 @@ path is unaffected**.
   simulated a tx from the **not-yet-deployed** Controller (sender 404). **Fixed
   upstream** (`cartridge-gg/controller#2609`): re-estimate fees when the chain
   changes, and skip the balance preview when the account isn't deployed yet.
+- **Hosted keychain didn't re-point on chain switch.** A chain switch didn't rebuild
+  the keychain's controller for the new RPC, so the post-switch roll hit the old
+  chain. The rebuild (`switchChain.ts` → `Controller.create({rpcUrl})`) landed in
+  `controller` `main`, and **`x.cartridge.gg` redeployed from main right after #2609**
+  (verified: the deployed bundle carries the #2609 `use-simulate` fix). So the
+  **hosted keychain now drives the local appchain directly** — no self-hosting needed.
+- **API CORS.** Only an issue for a *localhost* keychain (`api.cartridge.gg` restricts
+  CORS to Cartridge origins). The hosted keychain is same-origin with the API, so it's
+  moot; the self-hosted fork and its proxy are now just a fallback.
 
-### Still open (self-hosted keychain + a runtime step)
+### Handled for you (a katana #584 workaround in `up.sh`)
 
-- **Hosted keychain doesn't re-point on chain switch.** `switchStarknetChain` on the
-  *deployed* `x.cartridge.gg` keychain doesn't rebuild its controller for the new
-  RPC, so a post-switch execute hits the old chain. `controller` **`main` has the
-  rebuild** (`switchChain.ts` → `Controller.create({rpcUrl})`), so we **self-host the
-  keychain from `main`** instead of the deployed one. Goes away once `x.cartridge.gg`
-  redeploys from `main`.
-- **API CORS.** `api.cartridge.gg` only sends CORS headers for Cartridge origins, so
-  a localhost keychain can't do account lookup from the browser — the fork's
-  `vite.config.ts` adds a same-origin proxy. Inherent to self-hosting on localhost.
 - **Controller class hash (the #584 gap).** `katana init rollup`'s genesis JSON
   round-trip shifts the embedded controller class hash. #584 declares the preloaded
   genesis classes via a real declare tx, but it declares the **round-tripped**
   artifact — which hashes to a *shifted* value, not the **canonical** `0x743c8…` the
   keychain deploys (#584's test passes only because it asserts `ControllerLatest::HASH`,
-  that same shifted constant). So the class lands on-chain at the wrong hash, and we
-  still **declare the original on-disk `controller.latest` at runtime** after boot to
-  land `0x743c8`. Worth re-opening on katana.
-- **Sessions are per-chain.** The session is approved on the settlement chain at
-  login; the appchain has none (and the demo's policies are unverified, so the
-  keychain can't silently auto-create one), so a roll falls back to a manual confirm
-  modal rather than being silent like buy/bank. With #2609 that modal no longer shows
-  a false error, but it still appears.
+  that same shifted constant). So the class lands on-chain at the wrong hash. **`up.sh`
+  works around it**: in CONTROLLER mode it declares the original on-disk
+  `controller.latest` after boot (`scripts/declare-controller-class.ts`) to land
+  `0x743c8`, so the Controller can auto-deploy on the appchain. Worth fixing properly
+  in katana.
 
-The keychain config and the runtime declare are recorded in
-[`keychain-fork/`](../keychain-fork/). None of this is reproducible from a clean
-`./up.sh`, and the **default dev-account path is unaffected**.
+Two operational notes (not blockers):
+
+- **Chrome Private Network Access.** The hosted `x.cartridge.gg` iframe reaches the
+  appchain at `localhost:5051`; if a connect/roll stalls, enable
+  `chrome://flags/#local-network-access-check`.
+- **Sessions are per-chain.** The session is approved on the settlement chain at login;
+  the appchain has none (the demo's policies are unverified, so the keychain won't
+  silently auto-create one), so the roll shows a manual confirm modal rather than being
+  silent like buy/bank. Just an extra click — with #2609 it no longer shows a false error.
+
+The boot-time declare lives in
+[`scripts/declare-controller-class.ts`](../scripts/declare-controller-class.ts); the
+(now-fallback) self-hosted keychain is in [`keychain-fork/`](../keychain-fork/). The
+**default dev-account path is unaffected**.
 
 Because the feeds are rebuilt from Torii on each refetch, the UI is
 **refresh-proof**: reload the page and the same state reappears, since it was never

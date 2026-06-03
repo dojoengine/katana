@@ -203,6 +203,16 @@ SAYA_PID=$!
 # 7. Migrate the two Dojo worlds (sozo) and fill in their addresses.
 ( cd "$DEMO_DIR" && bun run scripts/deploy.ts )
 
+# 7b. (CONTROLLER mode) Declare the Controller account class on the appchain.
+#     Workaround for katana #584: `katana init rollup` round-trips genesis.json,
+#     shifting the embedded controller class hash, so the canonical class the hosted
+#     keychain deploys isn't present after boot. Declaring the on-disk artifact here
+#     lands the canonical hash so the Controller can auto-deploy on the appchain.
+if [[ "${CONTROLLER:-}" == "1" ]]; then
+  echo "→ declaring Controller account class on the appchain (katana #584 workaround)…"
+  ( cd "$DEMO_DIR" && bun run scripts/declare-controller-class.ts )
+fi
+
 # Read back the migrated world addresses for torii.
 SCORE_WORLD=$(node -e 'console.log(require(process.argv[1]).settlement.scoreWorld)' "$DEMO_DIR/app/src/deployments.json")
 GAME_WORLD=$(node -e 'console.log(require(process.argv[1]).appchain.gameWorld)' "$DEMO_DIR/app/src/deployments.json")
