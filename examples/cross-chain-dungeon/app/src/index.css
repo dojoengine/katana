@@ -359,7 +359,8 @@ button.ghost { flex: none; width: auto; color: var(--dim); border-color: var(--b
 .log-new:hover:not(:disabled) { background: var(--amber-hi); border-color: var(--amber-hi); }
 .log p { margin: 0 0 2px; display: flex; gap: 9px; }
 /* run id chip "[rN]" — fixed monospace width so the bracket + following columns align */
-.log .run { color: var(--cyan); opacity: 0.75; flex: none; width: 5ch; white-space: nowrap; }
+/* run-finish time column in the outcome log */
+.log .when { color: var(--ghost); flex: none; width: 8ch; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* player identity — the connected account's address (stands in for a Controller username) */
 .log .who { color: var(--dim); flex: none; width: 11ch; white-space: nowrap; overflow: hidden; }
 .log .t { color: var(--ghost); flex: none; width: 26px; text-align: right; }

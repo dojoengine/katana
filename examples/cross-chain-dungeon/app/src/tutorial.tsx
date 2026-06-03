@@ -65,8 +65,9 @@ const STEPS: Step[] = [
     body: (
       <>
         Each action is <b>one appchain transaction</b> — instant and feeless, never touching L1. The
-        message log is the appchain's <b>event feed</b> (indexed by Torii); click any line for its L2 tx.
-        This is why play lives on an appchain: high-frequency, throwaway state.
+        <b> run-outcome log</b> here is the appchain's <b>event feed</b> (RunEnded, indexed by Torii): every
+        run's death or extract, by <b>every player</b>; click any line for its L2 tx. This is why play lives
+        on an appchain: high-frequency, throwaway state.
       </>
     ),
   },

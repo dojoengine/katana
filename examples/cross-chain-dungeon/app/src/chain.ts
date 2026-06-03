@@ -231,56 +231,44 @@ export async function readStats(): Promise<Stats> {
   };
 }
 
-// --- action feed (game world `ActionTaken`) — the roguelike message log ---
+// --- run-outcome feed (game world `RunEnded`) — the global message log ---
+// One entry per run ending (death or extract) across ALL players, newest first.
+// `end_no` is a global monotonic sequence, so it doubles as the feed ordering + id.
 
-export type ActionRow = {
-  actionNo: number;
+export type OutcomeRow = {
+  endNo: number;
   runNo: number;
   player: string; // the run's player (will become a Controller username once integrated)
-  kind: string;
-  outcome: string;
+  died: boolean;
+  loot: number; // gold forfeited (death) or banked to the vault (extract)
   depth: number;
-  hp: number;
-  gold: number;
   block: number;
   txHash: string;
+  ts: number; // when the run finished (ms epoch, from the run-ending block's timestamp)
 };
 
-const feltToStr = (v: string | number): string => {
-  // ActionTaken kind/outcome are short-string felts; decode to ASCII.
-  try {
-    let n = BigInt(v);
-    let s = "";
-    while (n > 0n) {
-      s = String.fromCharCode(Number(n & 0xffn)) + s;
-      n >>= 8n;
-    }
-    return s || String(v);
-  } catch {
-    return String(v);
-  }
-};
-
-export async function getActionFeed(limit = 40): Promise<ActionRow[]> {
-  // `run_no` is an authoritative field on the ActionTaken event (set from the
-  // run's RunState), so each action carries its run id directly.
+export async function getOutcomeFeed(limit = 40): Promise<OutcomeRow[]> {
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
-    `SELECT action_no, run_no, player, kind, outcome, depth, hp, gold, internal_event_id FROM "game-ActionTaken" ORDER BY action_no DESC LIMIT ${limit}`,
+    `SELECT end_no, run_no, player, score, loot, died, internal_event_id, internal_executed_at FROM "game-RunEnded" ORDER BY end_no DESC LIMIT ${limit}`,
   );
   return rows.map((r) => {
     const { block, txHash } = parseEventId(String(r.internal_event_id));
+    const score = num(r.score);
+    const loot = num(r.loot);
+    const died = !!num(r.died);
+    // score = DEPTH_WEIGHT*depth + (gold on extract, 0 on death) — so derive depth.
+    const depth = Math.round((died ? score : score - loot) / DEPTH_WEIGHT);
     return {
-      actionNo: num(r.action_no),
+      endNo: num(r.end_no),
       runNo: num(r.run_no),
       player: String(r.player),
-      kind: feltToStr(r.kind),
-      outcome: feltToStr(r.outcome),
-      depth: num(r.depth),
-      hp: num(r.hp),
-      gold: num(r.gold),
+      died,
+      loot,
+      depth,
       block,
       txHash,
+      ts: Date.parse(String(r.internal_executed_at)),
     };
   });
 }

@@ -13,25 +13,18 @@ const ROOM_GLYPH: Record<number, { ch: string; cls: string }> = {
   3: { ch: "^", cls: "trap" },
   4: { ch: "+", cls: "shrine" },
 };
-const KIND_GLYPH: Record<string, string> = {
-  move: "»",
-  attack: "⚔",
-  loot: "$",
-  use_item: "+",
-};
-const KIND_CLASS: Record<string, string> = {
-  move: "move",
-  attack: "attack",
-  loot: "loot",
-  use_item: "good",
-};
-
 /** Render a small ASCII room from the run's current room kind. */
 // The dungeon room keeps its original 7-row height but stretches to fill the
 // container's width: we measure the <pre> and its character cell, then derive the
 // column count so the walls span the full stage and reflow on resize. (`.map` is
 // a block <pre>, so its width is container-driven — growing the grid never feeds
 // back into the observer.)
+// Run-finish time for the outcome log — local HH:MM:SS (24h).
+const fmtTime = (ms: number): string =>
+  Number.isFinite(ms)
+    ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+    : "--:--:--";
+
 const MAP_ROWS = 7;
 function DungeonMap({ run }: { run: chain.RunState | null }) {
   const H = MAP_ROWS;
@@ -130,30 +123,27 @@ function Gauge({ settled, tip }: { settled: number; tip: number }) {
   );
 }
 
-/** Detail modal for a clicked message-log entry, with a link to its appchain tx. */
-function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: () => void }) {
+/** Detail modal for a clicked run-outcome entry, with a link to its appchain tx. */
+function OutcomeModal({ outcome, onClose }: { outcome: chain.OutcomeRow; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const txUrl = chain.explorerTxUrl(chain.APPCHAIN_EXPLORER, action.txHash);
+  const txUrl = chain.explorerTxUrl(chain.APPCHAIN_EXPLORER, outcome.txHash);
   const rows: [string, ReactNode][] = [
-    ["run", `#${action.runNo}`],
-    ["action", `#${action.actionNo}`],
-    ["player", action.player],
-    ["kind", action.kind],
-    ["outcome", action.outcome],
-    ["depth", String(action.depth)],
-    ["hp", String(action.hp)],
-    ["gold", String(action.gold)],
-    ["appchain block", String(action.block)],
+    ["run", `#${outcome.runNo}`],
+    ["player", outcome.player],
+    ["outcome", outcome.died ? "died" : "extracted"],
+    ["depth", String(outcome.depth)],
+    [outcome.died ? "gold forfeited" : "gold banked", outcome.loot.toLocaleString()],
+    ["appchain block", String(outcome.block)],
     [
       "tx hash",
-      // The hash itself is the link to the action's tx on the appchain explorer.
+      // The hash itself is the link to the run-ending tx on the appchain explorer.
       <a className="tx-link" href={txUrl} target="_blank" rel="noreferrer" title="view on appchain explorer">
-        {action.txHash} ↗
+        {outcome.txHash} ↗
       </a>,
     ],
   ];
@@ -163,7 +153,7 @@ function ActionModal({ action, onClose }: { action: chain.ActionRow; onClose: ()
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-h">
           <span>
-            {KIND_GLYPH[action.kind] ?? "·"} action #{action.actionNo}
+            {outcome.died ? "☠" : "✓"} run #{outcome.runNo} {outcome.died ? "died" : "extracted"}
           </span>
           <button className="modal-x" onClick={onClose} aria-label="close">
             ✕
@@ -548,7 +538,7 @@ export default function App() {
   const [selectedRun, setSelectedRun] = useState<number | null>(null); // run_no being played, or lobby
   const enteringRef = useRef<number | null>(null); // total_runs at "New game" click; auto-selects the mint
   const [stats, setStats] = useState<chain.Stats>({ totalRuns: 0, activeRuns: 0, totalActions: 0, totalBanked: 0 });
-  const [feed, setFeed] = useState<chain.ActionRow[]>([]);
+  const [feed, setFeed] = useState<chain.OutcomeRow[]>([]);
   const [board, setBoard] = useState<chain.LeaderRow[]>([]);
   const [gameBal, setGameBal] = useState(0n);
   const [goldBal, setGoldBal] = useState(0n);
@@ -559,7 +549,7 @@ export default function App() {
   const [tip, setTip] = useState(0);
   const [pending, setPending] = useState<chain.WithdrawalRow | null>(null); // unbanked withdrawal
   const [lastEnded, setLastEnded] = useState<chain.RunEndRow | null>(null);
-  const [selected, setSelected] = useState<chain.ActionRow | null>(null);
+  const [selected, setSelected] = useState<chain.OutcomeRow | null>(null);
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
   const [logsOpen, setLogsOpen] = useState(false); // floating service-logs window
   const [configOpen, setConfigOpen] = useState(false); // floating deployment-config window
@@ -588,7 +578,7 @@ export default function App() {
   // user has scrolled up we don't yank them, we just count the unseen ones and show
   // a jump-to-latest button.
   const logRef = useRef<HTMLDivElement>(null);
-  const seenActionRef = useRef(-1); // newest actionNo the user has caught up to
+  const seenEndRef = useRef(-1); // newest endNo the user has caught up to
   const [newLogs, setNewLogs] = useState(0); // unseen entries while scrolled up
   const logAtBottom = () => {
     const el = logRef.current;
@@ -597,7 +587,7 @@ export default function App() {
   const catchUpLog = () => {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-    seenActionRef.current = feed.length ? feed[0].actionNo : seenActionRef.current;
+    seenEndRef.current = feed.length ? feed[0].endNo : seenEndRef.current;
     setNewLogs(0);
   };
 
@@ -611,7 +601,7 @@ export default function App() {
         chain.listRuns(player),
         selectedRun != null ? chain.readRun(selectedRun) : Promise.resolve(null),
         chain.readStats(),
-        chain.getActionFeed(),
+        chain.getOutcomeFeed(),
         chain.readLeaderboard(),
         chain.gameBalance(player),
         chain.goldBalance(player),
@@ -688,18 +678,18 @@ export default function App() {
 
   // React to new log entries: follow if pinned to the bottom, else surface the count.
   useEffect(() => {
-    const newest = feed.length ? feed[0].actionNo : -1;
+    const newest = feed.length ? feed[0].endNo : -1;
     if (newest < 0) return;
-    if (seenActionRef.current < 0 || logAtBottom()) {
+    if (seenEndRef.current < 0 || logAtBottom()) {
       // first load or caught up — stay pinned to the newest entry
-      seenActionRef.current = newest;
+      seenEndRef.current = newest;
       setNewLogs(0);
       requestAnimationFrame(() => {
         const el = logRef.current;
         if (el) el.scrollTop = el.scrollHeight;
       });
     } else {
-      setNewLogs(feed.filter((a) => a.actionNo > seenActionRef.current).length);
+      setNewLogs(feed.filter((a) => a.endNo > seenEndRef.current).length);
     }
   }, [feed]);
 
@@ -1125,10 +1115,10 @@ export default function App() {
               )}
             </section>
 
-            {/* RIGHT: message log */}
+            {/* RIGHT: run-outcome log — every run's ending, by every player */}
             <section className="col-right" data-tut="log">
               <div className="panel-h">
-                Message Log<span className="rule" />
+                Run Outcomes<span className="rule" />
               </div>
               <div className="log-wrap">
               <div
@@ -1136,7 +1126,7 @@ export default function App() {
                 ref={logRef}
                 onScroll={() => {
                   if (logAtBottom()) {
-                    seenActionRef.current = feed.length ? feed[0].actionNo : seenActionRef.current;
+                    seenEndRef.current = feed.length ? feed[0].endNo : seenEndRef.current;
                     setNewLogs(0);
                   }
                 }}
@@ -1145,22 +1135,26 @@ export default function App() {
                   <p className="sys">
                     <span className="t">--</span>
                     <span className="g">›</span>
-                    <span className="m">no actions yet — enter the dungeon</span>
+                    <span className="m">no runs ended yet — extract or die to land here</span>
                   </p>
                 ) : (
                   [...feed].reverse().map((a) => (
                     <p
-                      key={a.actionNo}
-                      className={`logrow ${KIND_CLASS[a.kind] ?? "sys"}`}
+                      key={a.endNo}
+                      className={`logrow ${a.died ? "combat" : "good"}`}
                       onClick={() => setSelected(a)}
                       title="click for details + tx"
                     >
-                      <span className="run" title={`run #${a.runNo}`}>[r{a.runNo}]</span>
+                      <span className="when" title={`run #${a.runNo} · finished ${new Date(a.ts).toLocaleString()}`}>
+                        {fmtTime(a.ts)}
+                      </span>
                       <span className="who" title={a.player}>{chain.shortAddr(a.player)}</span>
-                      <span className="g">{KIND_GLYPH[a.kind] ?? "·"}</span>
+                      <span className="g">{a.died ? "☠" : "✓"}</span>
                       <span className="m">
-                        <span className="c-kind">{a.kind}</span>
-                        <span className="c-out">{a.outcome}</span>
+                        <span className="c-kind">{a.died ? "died" : "extracted"}</span>
+                        <span className="c-out">
+                          d{a.depth} · {a.loot.toLocaleString()}g{a.died ? " lost" : ""}
+                        </span>
                       </span>
                     </p>
                   ))
@@ -1287,7 +1281,7 @@ export default function App() {
           <TxLogViewer />
         </FloatingWindow>
       )}
-      {selected && <ActionModal action={selected} onClose={() => setSelected(null)} />}
+      {selected && <OutcomeModal outcome={selected} onClose={() => setSelected(null)} />}
       {bankModal && (
         <BankModal
           phase={bankPhase}
