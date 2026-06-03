@@ -770,6 +770,12 @@ export default function App() {
   };
   const onContinue = (runNo: number) => setSelectedRun(runNo);
   const onLeave = () => setSelectedRun(null);
+  // From the outcome page: dismiss the result and immediately start a fresh dive.
+  const onEnterAgain = () => {
+    if (lastEnded) setDismissedEndNo(lastEnded.endNo);
+    setSelectedRun(null);
+    void onNewGame();
+  };
   const onMove = act("move", () => chain.moveRoom(selectedRun!));
   const onAttack = act("attack", () => chain.attack(selectedRun!));
   const onLoot = act("loot", () => chain.loot(selectedRun!));
@@ -978,10 +984,46 @@ export default function App() {
               </div>
             </section>
 
-            {/* CENTER: two distinct views — the New Game page (lobby) and the
-                Dungeon run page — never share the screen. */}
+            {/* CENTER: three distinct views — the New Game page (lobby), the Dungeon
+                run page, and the Outcome page — never share the screen. */}
             <section className="col-center" data-tut="play">
-              {playing ? (
+              {showOutcome && lastEnded ? (
+                /* ===== Outcome page: the run result + lobby / re-enter actions ===== */
+                <>
+                  <div className={`outcome ${lastEnded.died ? "outcome-death" : "outcome-extract"}`}>
+                    {lastEnded.died ? (
+                      <>
+                        <div className="death-skull">☠</div>
+                        <div className="death-title">YOU DIED</div>
+                        <div>
+                          depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
+                        </div>
+                        <div className="death-sub">your haul is lost.</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="extract-mark">✓</div>
+                        <div className="extract-title">EXTRACTED</div>
+                        <div className="extract-gold">+{lastEnded.loot.toLocaleString()} $GOLD</div>
+                        <div className="death-sub">
+                          depth <b>{lastEnded.depth}</b> · hp <b>{lastEnded.hp}/{lastEnded.maxHp}</b>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="actions">
+                    <button disabled={anyBusy} onClick={() => closeOutcome(lastEnded.endNo)}>
+                      Back to lobby
+                    </button>
+                    <button className="good" disabled={anyBusy || !ready} onClick={onEnterAgain}>
+                      {gameBal < fee
+                        ? "insufficient $GAME"
+                        : `Enter again · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
+                    </button>
+                  </div>
+                </>
+              ) : playing ? (
                 /* ===== Dungeon run page: stage + vitals + actions ===== */
                 <>
                   <div className="arena">
@@ -1017,40 +1059,10 @@ export default function App() {
                         <div className="meter">heals +35</div>
                       </div>
                     </div>
-
-                    {showOutcome && lastEnded?.died && (
-                      <div className="veil veil-death arena-veil">
-                        <button className="veil-x" onClick={() => closeOutcome(lastEnded.endNo)} aria-label="close">
-                          ✕
-                        </button>
-                        <div className="death-skull">☠</div>
-                        <div className="death-title">YOU DIED</div>
-                        <div>
-                          depth <b>{lastEnded.depth}</b> · <b>{lastEnded.loot.toLocaleString()}</b> gold forfeited
-                        </div>
-                        <div className="death-sub">
-                          your haul is lost.
-                        </div>
-                      </div>
-                    )}
-
-                    {showOutcome && lastEnded && !lastEnded.died && (
-                      <div className="veil veil-extract arena-veil">
-                        <button className="veil-x" onClick={() => closeOutcome(lastEnded.endNo)} aria-label="close">
-                          ✕
-                        </button>
-                        <div className="extract-mark">✓</div>
-                        <div className="extract-title">EXTRACTED</div>
-                        <div className="extract-gold">+{lastEnded.loot.toLocaleString()} $GOLD</div>
-                        <div className="death-sub">
-                          depth <b>{lastEnded.depth}</b> · hp <b>{lastEnded.hp}/{lastEnded.maxHp}</b>
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   <div className="actions">
-                    <button className="ghost" disabled={anyBusy || entering} onClick={onLeave} title="back to the New Game page">
+                    <button className="ghost" disabled={anyBusy} onClick={onLeave} title="back to the New Game page">
                       ←
                     </button>
                     <button disabled={anyBusy || !run || runOver} onClick={onMove}>
