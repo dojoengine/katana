@@ -725,20 +725,13 @@ export default function App() {
     baselineEndNoRef.current !== null &&
     lastEnded.endNo > baselineEndNoRef.current &&
     lastEnded.endNo > dismissedEndNo;
-  // Closing the outcome screen (manually via ✕ or the 6s timer) dismisses the veil
-  // AND leaves the just-ended run, dropping back to the New Game lobby. The outcome
-  // therefore stays on the run page until it's closed.
+  // Closing the outcome screen (the ✕ button) dismisses the veil AND leaves the
+  // just-ended run, dropping back to the New Game lobby. The outcome therefore stays
+  // on the run page until the user closes it (no auto-dismiss).
   const closeOutcome = useCallback((endNo: number) => {
     setDismissedEndNo(endNo);
     setSelectedRun(null);
   }, []);
-  // Auto-dismiss the outcome veil after 6s (cleared if a new one appears / closed early).
-  const outcomeEndNo = freshOutcome && lastEnded ? lastEnded.endNo : -1;
-  useEffect(() => {
-    if (outcomeEndNo < 0) return;
-    const id = setTimeout(() => closeOutcome(outcomeEndNo), 6000);
-    return () => clearTimeout(id);
-  }, [outcomeEndNo, closeOutcome]);
   const b = (n: string) => busy === n;
   // True from the New-game click until the freshly minted run is selected — covers both
   // the L1 tx (busy "enter") and the L1→L2 relay wait (enteringRef still pending).
