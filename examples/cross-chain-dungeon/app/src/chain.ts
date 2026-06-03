@@ -197,15 +197,16 @@ const toRun = (r: Record<string, string | number>): RunState => ({
 // never matches — the key must be compared as that exact hex string.
 const runKey = (runNo: number) => `0x${runNo.toString(16).padStart(16, "0")}`;
 
-/** A single run by id; null if it doesn't exist or has ended. */
+/** A single run by id; null only if it doesn't exist. An ended run is still
+ *  returned (with `alive: false`) so the caller can detect the transition and
+ *  show the outcome screen — filtering it out here would hide death/extract. */
 export async function readRun(runNo: number): Promise<RunState | null> {
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
     `SELECT ${RUN_COLS} FROM "game-RunState" WHERE run_no = "${runKey(runNo)}"`,
   );
   const r = rows[0];
-  if (!r || !num(r.alive)) return null;
-  return toRun(r);
+  return r ? toRun(r) : null;
 }
 
 /** A player's still-unfinished runs, newest first — the dungeon "lobby" list. */
@@ -415,75 +416,156 @@ export function fmtToken(raw: bigint, decimals: number, frac = 2): string {
   return `${whole}.${fracStr}`;
 }
 
+// --- transaction log (every signed write, L1 settlement + L2 appchain) ---
+// A single in-memory feed so the UI can show all transactions the client submits,
+// regardless of chain. Reads/`callContract` are not txs and are not logged.
+
+export type TxChain = "L1" | "L2";
+export type TxStatus = "pending" | "ok" | "err";
+export type TxEntry = {
+  id: number;
+  chain: TxChain; // L1 = settlement (Sepolia), L2 = appchain
+  label: string; // entrypoint-ish name, e.g. "enter", "move_room"
+  hash: string; // "" until the tx is submitted
+  status: TxStatus;
+  ts: number; // ms epoch (submission time)
+  explorer: string; // explorer base for this chain (for the hash link)
+  error?: string;
+};
+
+let txSeq = 0;
+const txEntries: TxEntry[] = [];
+const txSubs = new Set<(log: TxEntry[]) => void>();
+const emitTx = () => {
+  const snap = txEntries.slice();
+  txSubs.forEach((f) => f(snap));
+};
+
+/** Subscribe to the running transaction log; replays the current list immediately. */
+export function subscribeTxLog(fn: (log: TxEntry[]) => void): () => void {
+  txSubs.add(fn);
+  fn(txEntries.slice());
+  return () => {
+    txSubs.delete(fn);
+  };
+}
+export const clearTxLog = () => {
+  txEntries.length = 0;
+  emitTx();
+};
+
+/** Wrap a write so its lifecycle lands in the tx log: pending (with hash once
+ *  submitted) → ok on confirmation, or err if submit/confirm throws. */
+async function loggedTx(
+  chainTag: TxChain,
+  label: string,
+  submit: () => Promise<string>,
+  confirm: (hash: string) => Promise<unknown>,
+): Promise<string> {
+  const entry: TxEntry = {
+    id: ++txSeq,
+    chain: chainTag,
+    label,
+    hash: "",
+    status: "pending",
+    ts: Date.now(),
+    explorer: chainTag === "L1" ? SETTLEMENT_EXPLORER : APPCHAIN_EXPLORER,
+  };
+  txEntries.push(entry);
+  emitTx();
+  try {
+    entry.hash = await submit();
+    emitTx(); // hash known, still pending confirmation
+    await confirm(entry.hash);
+    entry.status = "ok";
+    emitTx();
+    return entry.hash;
+  } catch (e) {
+    entry.status = "err";
+    entry.error = String((e as Error)?.message ?? e);
+    emitTx();
+    throw e;
+  }
+}
+
 // --- writes: settlement (Sepolia) ---
 
 const MINT_RUN_SELECTOR = hash.getSelectorFromName("mint_run");
 const MESSAGE_SENT_KEY = hash.getSelectorFromName("MessageSent");
 void MINT_RUN_SELECTOR; // reserved for pending-entry tracking
 
+/** A settlement (L1) write: serialized behind the settlement lock and logged. */
+const settlementTx = (label: string, submit: () => Promise<string>) =>
+  withSettlementLock(() =>
+    loggedTx("L1", label, submit, (h) => settlementProvider.waitForTransaction(h, SETTLEMENT_TX_WAIT)),
+  );
+
 /** Dev faucet: mint GAME directly to the signer (no USDC). */
 export async function devMint(account: Signer, amount: bigint): Promise<string> {
-  return withSettlementLock(async () => {
-    const { transaction_hash } = await account.execute({
-      contractAddress: GAME_TOKEN,
-      entrypoint: "dev_mint",
-      calldata: CallData.compile([cairo.uint256(amount)]),
-    });
-    await settlementProvider.waitForTransaction(transaction_hash, SETTLEMENT_TX_WAIT);
-    return transaction_hash;
-  });
+  return settlementTx("dev_mint", () =>
+    account
+      .execute({
+        contractAddress: GAME_TOKEN,
+        entrypoint: "dev_mint",
+        calldata: CallData.compile([cairo.uint256(amount)]),
+      })
+      .then((r) => r.transaction_hash),
+  );
 }
 
 /** Buy GAME with USDC: approve USDC to the sale, then buy (one multicall). */
 export async function buyGame(account: Signer, usdcAmount: bigint): Promise<string> {
-  return withSettlementLock(async () => {
-    const { transaction_hash } = await account.execute([
-      { contractAddress: USDC, entrypoint: "approve", calldata: CallData.compile([TOKEN_SALE, cairo.uint256(usdcAmount)]) },
-      { contractAddress: TOKEN_SALE, entrypoint: "buy", calldata: CallData.compile([cairo.uint256(usdcAmount)]) },
-    ]);
-    await settlementProvider.waitForTransaction(transaction_hash, SETTLEMENT_TX_WAIT);
-    return transaction_hash;
-  });
+  return settlementTx("buy", () =>
+    account
+      .execute([
+        { contractAddress: USDC, entrypoint: "approve", calldata: CallData.compile([TOKEN_SALE, cairo.uint256(usdcAmount)]) },
+        { contractAddress: TOKEN_SALE, entrypoint: "buy", calldata: CallData.compile([cairo.uint256(usdcAmount)]) },
+      ])
+      .then((r) => r.transaction_hash),
+  );
 }
 
 /** Enter the dungeon: approve the GAME entry fee to Entry, then enter (multicall).
  *  Sends the L1→L2 message that starts the run for `account.address` on L2. */
 export async function enterDungeon(account: Signer): Promise<string> {
   const fee = await entryFee();
-  return withSettlementLock(async () => {
-    const { transaction_hash } = await account.execute([
-      { contractAddress: GAME_TOKEN, entrypoint: "approve", calldata: CallData.compile([ENTRY, cairo.uint256(fee)]) },
-      { contractAddress: ENTRY, entrypoint: "enter", calldata: [] },
-    ]);
-    await settlementProvider.waitForTransaction(transaction_hash, SETTLEMENT_TX_WAIT);
-    return transaction_hash;
-  });
+  return settlementTx("enter", () =>
+    account
+      .execute([
+        { contractAddress: GAME_TOKEN, entrypoint: "approve", calldata: CallData.compile([ENTRY, cairo.uint256(fee)]) },
+        { contractAddress: ENTRY, entrypoint: "enter", calldata: [] },
+      ])
+      .then((r) => r.transaction_hash),
+  );
 }
 
 /** Bank a settled withdrawal on Sepolia: consume the L2→L1 message, mint GOLD. */
 export async function bankRun(account: Signer, player: string, amount: number, withdrawNo: number): Promise<string> {
-  return withSettlementLock(async () => {
-    const { transaction_hash } = await account.execute({
-      contractAddress: BANK_SYSTEM,
-      entrypoint: "bank",
-      // bank(from_address = game system, player, amount, withdraw_no)
-      calldata: [GAME_SYSTEM, player, "0x" + amount.toString(16), "0x" + withdrawNo.toString(16)],
-    });
-    await settlementProvider.waitForTransaction(transaction_hash, SETTLEMENT_TX_WAIT);
-    return transaction_hash;
-  });
+  return settlementTx("bank", () =>
+    account
+      .execute({
+        contractAddress: BANK_SYSTEM,
+        entrypoint: "bank",
+        // bank(from_address = game system, player, amount, withdraw_no)
+        calldata: [GAME_SYSTEM, player, "0x" + amount.toString(16), "0x" + withdrawNo.toString(16)],
+      })
+      .then((r) => r.transaction_hash),
+  );
 }
 
 // --- writes: appchain play actions (signed by the dev account) ---
 
 /** Run a one-felt appchain entrypoint and wait for it (+ a beat for Torii). */
 async function appchainCall(entrypoint: string, arg: string): Promise<string> {
-  const { transaction_hash } = await appchainAccount.execute({
-    contractAddress: GAME_SYSTEM,
+  const transaction_hash = await loggedTx(
+    "L2",
     entrypoint,
-    calldata: [arg],
-  });
-  await appchainProvider.waitForTransaction(transaction_hash, APPCHAIN_TX_WAIT);
+    () =>
+      appchainAccount
+        .execute({ contractAddress: GAME_SYSTEM, entrypoint, calldata: [arg] })
+        .then((r) => r.transaction_hash),
+    (h) => appchainProvider.waitForTransaction(h, APPCHAIN_TX_WAIT),
+  );
   await sleep(150); // give Torii a beat to index the resulting model/event write
   return transaction_hash;
 }

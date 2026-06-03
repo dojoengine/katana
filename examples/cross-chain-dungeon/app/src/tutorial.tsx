@@ -115,7 +115,9 @@ const STEPS: Step[] = [
       <>
         <b>config</b> lists every service URL + contract address for the network and shows saya's
         <b> settled vs tip</b>. <b>logs</b> streams the appchain, saya, and Torii output live — watch the
-        L1-handler relays and <b>update_state</b> calls as they happen. That's the appchain, end to end.
+        L1-handler relays and <b>update_state</b> calls as they happen. <b>txns</b> logs every transaction
+        the client signs, tagged <b>L1</b> or <b>L2</b>, each linking to its explorer. That's the appchain,
+        end to end.
       </>
     ),
   },

@@ -181,6 +181,31 @@ body {
 .logout::-webkit-scrollbar { width: 8px; }
 .logout::-webkit-scrollbar-thumb { background: var(--ghost); }
 
+/* Transaction log window — every client-submitted tx, L1 + L2. */
+.logwin .txview { flex: 1; min-height: 0; }
+.txview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.txview-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,.18); }
+.txview-status { color: var(--dim); font-size: 11px; }
+.txout { flex: 1; min-height: 0; overflow: auto; padding: 6px 0; background: rgba(0,0,0,.28); text-shadow: none; font-size: 12px; }
+.txout::-webkit-scrollbar { width: 8px; }
+.txout::-webkit-scrollbar-thumb { background: var(--ghost); }
+.tx-empty { color: var(--ghost); text-align: center; padding: 22px 14px; font-size: 12px; }
+.txrow { display: flex; align-items: center; gap: 10px; padding: 3px 14px; white-space: nowrap; }
+.txrow:hover { background: rgba(255,180,84,.05); }
+/* Chain badge: cyan = L1 settlement, green = L2 appchain. Also used inline in the bar. */
+.tx-chain { flex: none; padding: 0 5px; font-size: 9.5px; font-weight: 700; letter-spacing: .5px; border: 1px solid var(--border); border-radius: 3px; }
+.tx-chain.l1 { color: var(--cyan); border-color: rgba(108,198,255,.4); }
+.tx-chain.l2 { color: var(--green); border-color: rgba(115,230,160,.4); }
+.tx-label { flex: 1; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.tx-st { flex: none; width: 1.4ch; text-align: center; }
+.txrow.pending .tx-st { color: var(--amber); }
+.txrow.ok .tx-st { color: var(--green); }
+.txrow.err .tx-st { color: var(--red); }
+.txrow.err .tx-label { color: var(--red); }
+.tx-hash { flex: none; color: var(--dim); text-decoration: none; }
+.tx-hash:hover { color: var(--amber); }
+.tx-hash.dim { color: var(--ghost); }
+
 /* The grid fills the remaining frame height; each column scrolls independently. */
 .grid { flex: 1 1 auto; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 272px 1fr 440px; grid-template-rows: minmax(0, 1fr); gap: 0; }
 .grid > section { padding: 16px 18px; min-height: 0; }

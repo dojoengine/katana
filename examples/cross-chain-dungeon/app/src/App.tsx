@@ -319,6 +319,71 @@ function LogViewer() {
   );
 }
 
+const TX_ICON: Record<chain.TxStatus, string> = { pending: "⏳", ok: "✓", err: "✕" };
+
+/** Live transaction log: every signed write the client submits, L1 + L2, with a
+ *  chain badge, status, and a hash that links to the matching explorer. */
+function TxLogViewer() {
+  const [log, setLog] = useState<chain.TxEntry[]>([]);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+
+  useEffect(() => chain.subscribeTxLog(setLog), []);
+
+  // Stick to the newest unless the user has scrolled up.
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [log]);
+
+  return (
+    <section className="txview">
+      <div className="txview-bar">
+        <span className="txview-status">
+          {log.length} tx · <span className="tx-chain l1">L1</span> settlement ·{" "}
+          <span className="tx-chain l2">L2</span> appchain
+        </span>
+        <button className="logclear" onClick={() => chain.clearTxLog()}>
+          clear
+        </button>
+      </div>
+      <div
+        className="txout"
+        ref={bodyRef}
+        onScroll={() => {
+          const el = bodyRef.current;
+          if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+      >
+        {log.length === 0 ? (
+          <div className="tx-empty">no transactions yet — fund, enter, or play</div>
+        ) : (
+          log.map((t) => (
+            <div className={`txrow ${t.status}`} key={t.id} title={t.error ?? ""}>
+              <span className={`tx-chain ${t.chain.toLowerCase()}`}>{t.chain}</span>
+              <span className="tx-label">{t.label}</span>
+              <span className="tx-st">{TX_ICON[t.status]}</span>
+              {t.hash ? (
+                <a
+                  className="tx-hash"
+                  href={chain.explorerTxUrl(t.explorer, t.hash)}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="view on explorer"
+                >
+                  {chain.shortHex(t.hash)} ↗
+                </a>
+              ) : (
+                <span className="tx-hash dim">—</span>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 // Shared stacking counter so clicking a window brings it above the others (and above
 // the launcher buttons, which sit at z 8001).
 let floatingWinZ = 8001;
@@ -498,6 +563,7 @@ export default function App() {
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
   const [logsOpen, setLogsOpen] = useState(false); // floating service-logs window
   const [configOpen, setConfigOpen] = useState(false); // floating deployment-config window
+  const [txOpen, setTxOpen] = useState(false); // floating transaction-log window
   // Show the guided appchain-mechanics walkthrough on every app load; the titlebar
   // button reopens it after dismissal.
   const [tutorial, setTutorial] = useState(true);
@@ -1163,6 +1229,9 @@ export default function App() {
         <button className="launcher" onClick={() => setConfigOpen((o) => !o)} title="deployment config">
           ▸ config
         </button>
+        <button className="launcher" onClick={() => setTxOpen((o) => !o)} title="transaction log (L1 + L2)">
+          ▸ txns
+        </button>
       </div>
       {logsOpen && (
         <FloatingWindow title="service logs" onClose={() => setLogsOpen(false)}>
@@ -1176,6 +1245,15 @@ export default function App() {
           initial={{ x: 90, y: 92, w: Math.min(620, window.innerWidth - 28), h: 500 }}
         >
           <ConfigPanel settled={settled} tip={tip} />
+        </FloatingWindow>
+      )}
+      {txOpen && (
+        <FloatingWindow
+          title="transactions"
+          onClose={() => setTxOpen(false)}
+          initial={{ x: 50, y: 76, w: Math.min(440, window.innerWidth - 28), h: 360 }}
+        >
+          <TxLogViewer />
         </FloatingWindow>
       )}
       {selected && <ActionModal action={selected} onClose={() => setSelected(null)} />}
