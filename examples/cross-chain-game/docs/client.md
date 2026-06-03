@@ -163,66 +163,57 @@ const banked   = plays.filter((p) =>  p.claimTxHash);    // settled to L1
 
 ## Current known blockers (appchain Controller)
 
-Driving a **Cartridge Controller against the appchain** works end-to-end (same
-Controller address signs buy/bank on L1 and the roll on `GAMECHAIN`), but only via
-a **self-hosted keychain plus several workarounds** — the hosted keychain at
-`x.cartridge.gg` is built for Cartridge-known chains (mainnet, sepolia, and slot
-katana chains), and a bespoke `katana init rollup` appchain trips a series of its
-assumptions. These are the open rough edges.
+Driving a **Cartridge Controller against the appchain** works end-to-end (the same
+Controller address signs buy/bank on L1 and the roll on `GAMECHAIN`). The hosted
+keychain at `x.cartridge.gg` is built for Cartridge-known chains (mainnet, sepolia,
+slot), so a bespoke `katana init rollup` appchain tripped a series of its
+assumptions. Most are now fixed at the source; a few rough edges remain, all of them
+in the **self-hosted keychain** plus one runtime step — the **default dev-account
+path is unaffected**.
 
-### Fee-token address mismatch (the active one)
+### Resolved
 
-**Symptom.** On a roll, the keychain shows `Contract not found` during the
-fee/transaction step. The roll still executes (the appchain runs `--dev.no-fee`
-and the Cartridge paymaster sponsors it), so it's non-fatal but blocks/clutters the
-UI.
+- **Fee-token address mismatch.** The keychain and its prebuilt WASM hardcode
+  **canonical STRK** (`0x04718f5a…`, the V3/FRI fee token) and call `balanceOf` /
+  metadata on it. A default rollup put its fee token at a derived address and didn't
+  host canonical STRK at all, so those calls 404'd — `Contract not found` in the fee
+  step, and a red "Simulation Error" in the balance preview. **Fixed in katana:** the
+  rollup genesis now pre-allocates STRK at the canonical mainnet address
+  (`crates/chain-spec/src/fee_token.rs`), so the keychain resolves it.
+- **Stale fee error + false "Simulation Error" on the Review screen.** A chain switch
+  left a stale fee estimate from the previous chain, and the balance preview
+  simulated a tx from the **not-yet-deployed** Controller (sender 404). **Fixed
+  upstream** (`cartridge-gg/controller#2609`): re-estimate fees when the chain
+  changes, and skip the balance preview when the account isn't deployed yet.
 
-**Why.** The keychain hardcodes its token registry
-(`packages/keychain/src/components/provider/tokens.tsx`): `DEFAULT_TOKENS` = ETH/STRK
-at the **canonical Starknet addresses** (ETH `0x049d3657…`, STRK `0x04718f5a…`) and
-`DEFAULT_FEE_TOKEN = STRK`. A `katana init rollup` appchain deploys its fee token at
-a **different** address (`DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS = 0x2e7442…915eea`), and
-canonical ETH/STRK aren't deployed at all. So every fee-token-dependent call resolves
-to a non-existent contract on the appchain: `balanceOf` (caught/cosmetic), and the
-fee estimate / fee display / deploy-funding check (surfaces as the modal error).
-Verified: canonical ETH exists on the settlement node (`:5050`, a `--dev` chain that
-*does* use canonical addresses) but returns `Contract not found` on the appchain
-(`:5051`).
+### Still open (self-hosted keychain + a runtime step)
 
-**Controller limitation.** The keychain's token/fee layer is **not chain-derived** —
-it assumes every connected chain uses the canonical token addresses (true for
-mainnet/sepolia/slot, false for a bespoke appchain). It never asks the node which
-token it charges fees in.
-
-**Solutions & impact.**
-
-| Solution | Where | Impact |
-|----------|-------|--------|
-| Expose tokens at the canonical addresses in the rollup genesis (place ETH/STRK at the canonical addresses, or alias the fee token there) | katana | Hosted keychain works unmodified; but diverges from `DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS` and may surprise other tooling. Smallest fork surface. |
-| Make the keychain fee-token chain-aware/configurable (`TokensProvider` already takes `tokens`/`feeToken` props) | keychain | Correct general fix, but hosted keychain doesn't expose this to dapps — self-hosted fork only. |
-| Make the keychain tolerate a missing fee token when fees are sponsored | keychain | Cheap band-aid; self-hosted fork only. |
-| Register the appchain as a Cartridge **slot** chain | Cartridge infra | The supported path (slot chains use canonical addresses, known to the hosted keychain); not a local bespoke appchain. |
-
-### Other assumptions that required workarounds
-
-- **Chain switch doesn't re-point execution.** `@cartridge/controller`'s
-  `switchStarknetChain` doesn't rebuild the executing account, and the deployed
-  hosted keychain doesn't re-point its controller on switch. Worked around by
-  self-hosting the keychain from `controller` HEAD (whose `switchChain` rebuilds
-  the controller with the new RPC).
-- **API CORS.** `api.cartridge.gg` only allows Cartridge origins, so a localhost
-  keychain can't do account lookup directly — needs a same-origin proxy.
-- **Controller class hash.** `katana init rollup`'s genesis JSON round-trip shifts
-  the embedded controller class hash, so the class the keychain deploys isn't found
-  by its canonical hash — worked around by declaring `controller.latest` on the
-  appchain at runtime.
+- **Hosted keychain doesn't re-point on chain switch.** `switchStarknetChain` on the
+  *deployed* `x.cartridge.gg` keychain doesn't rebuild its controller for the new
+  RPC, so a post-switch execute hits the old chain. `controller` **`main` has the
+  rebuild** (`switchChain.ts` → `Controller.create({rpcUrl})`), so we **self-host the
+  keychain from `main`** instead of the deployed one. Goes away once `x.cartridge.gg`
+  redeploys from `main`.
+- **API CORS.** `api.cartridge.gg` only sends CORS headers for Cartridge origins, so
+  a localhost keychain can't do account lookup from the browser — the fork's
+  `vite.config.ts` adds a same-origin proxy. Inherent to self-hosting on localhost.
+- **Controller class hash (the #584 gap).** `katana init rollup`'s genesis JSON
+  round-trip shifts the embedded controller class hash. #584 declares the preloaded
+  genesis classes via a real declare tx, but it declares the **round-tripped**
+  artifact — which hashes to a *shifted* value, not the **canonical** `0x743c8…` the
+  keychain deploys (#584's test passes only because it asserts `ControllerLatest::HASH`,
+  that same shifted constant). So the class lands on-chain at the wrong hash, and we
+  still **declare the original on-disk `controller.latest` at runtime** after boot to
+  land `0x743c8`. Worth re-opening on katana.
 - **Sessions are per-chain.** The session is approved on the settlement chain at
   login; the appchain has none (and the demo's policies are unverified, so the
-  keychain can't silently auto-create one), so rolls fall back to a manual confirm
-  modal instead of being silent like buy/bank.
+  keychain can't silently auto-create one), so a roll falls back to a manual confirm
+  modal rather than being silent like buy/bank. With #2609 that modal no longer shows
+  a false error, but it still appears.
 
-None of these are reproducible from a clean `./up.sh` — they live in the self-hosted
-keychain fork and runtime steps. The **default dev-account path is unaffected**.
+The keychain config and the runtime declare are recorded in
+[`keychain-fork/`](../keychain-fork/). None of this is reproducible from a clean
+`./up.sh`, and the **default dev-account path is unaffected**.
 
 Because the feeds are rebuilt from Torii on each refetch, the UI is
 **refresh-proof**: reload the page and the same state reappears, since it was never
