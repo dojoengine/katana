@@ -19,11 +19,14 @@ economy** in front of the cross-chain loop.
 4. **[Deployment](./deployment.md)** — toolchain, deploy order (token + worlds +
    minter grants), and the Sepolia bring-up sequence.
 5. **[Client](./client.md)** — the data layer, the Torii tables, the write path,
-   Controller-on-Sepolia, and the poll-and-derive UI.
+   the two-chain Controller, and the poll-and-derive UI.
 6. **[Interval mining & pre-confirmed play](./interval-mining.md)** — why the
    appchain mines on a 5s interval and persists to disk, and the four
    pre-confirmed adjustments (tx wait, Torii indexing, nonce, fee estimate) that
    keep play snappy and correct.
+7. **[One Controller, both chains](./controller.md)** — the optional Cartridge
+   Controller that signs Sepolia buy/enter/bank *and* the appchain play actions:
+   self-hosted keychain setup, the appchain flags, and funding it on real Sepolia.
 
 ## The game in one paragraph
 

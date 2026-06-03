@@ -87,7 +87,9 @@ export const appchainAccount = new Account({
 });
 
 /** Anything that can submit a tx (starknet.js Account or a Controller account). */
-export type Signer = Pick<AccountInterface, "execute" | "address">;
+// Minimal signer: anything that can submit a tx — a starknet.js Account (dev keys),
+// or a Controller account wrapped to target a specific chain (see wallet.tsx).
+export type Signer = Pick<AccountInterface, "execute">;
 
 // Buy / enter / bank are all signed by the same settlement account, so serialize
 // them through a promise-chain mutex to avoid racing the nonce.
@@ -553,7 +555,7 @@ export async function bankRun(account: Signer, player: string, amount: number, w
   );
 }
 
-// --- writes: appchain play actions (signed by the dev account) ---
+// --- writes: appchain play actions (dev account by default, or a Controller) ---
 
 // Every play action is signed by the one appchain dev account, so serialize them
 // through a promise-chain mutex (same idiom as withSettlementLock). Without this,
@@ -567,22 +569,31 @@ function withAppchainLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** Run a one-felt appchain entrypoint and wait for it (+ a beat for Torii). */
-async function appchainCall(entrypoint: string, arg: string): Promise<string> {
+/** Run a one-felt appchain entrypoint and wait for it (+ a beat for Torii).
+ *  With no `account`, the local dev key signs (the fast path below). When a
+ *  Controller is connected, its appchain signer is passed in instead. */
+async function appchainCall(entrypoint: string, arg: string, account?: Signer): Promise<string> {
   return withAppchainLock(async () => {
     const transaction_hash = await loggedTx(
       "L2",
       entrypoint,
       async () => {
         const call = { contractAddress: GAME_SYSTEM, entrypoint, calldata: [arg] };
-        // Interval mining (--block-time) means `latest` (the last mined block) lags the
-        // pre-confirmed block, and starknet.js reads BOTH the nonce and the fee estimate
-        // against `latest` by default. Two consequences, both fixed by pinning to
-        // pre_confirmed: (1) the latest nonce ignores a tx still pending in this block
+        // A Controller signs via the keychain, which owns the nonce + fee — just execute.
+        // The dev account (passed explicitly in operator mode, or defaulted) takes the
+        // pre-confirmed fast path below instead.
+        if (account && account !== appchainAccount) {
+          const r = await account.execute(call);
+          return r.transaction_hash;
+        }
+        // Dev-key fast path. Interval mining (--block-time) means `latest` (the last mined
+        // block) lags the pre-confirmed block, and starknet.js reads BOTH the nonce and the
+        // fee estimate against `latest` by default. Two consequences, both fixed by pinning
+        // to pre_confirmed: (1) the latest nonce ignores a tx still pending in this block
         // window, so consecutive actions reuse a stale nonce and are rejected; (2) the
-        // estimate simulates against stale state, so an action that only just became
-        // valid (e.g. loot right after moving into a treasure room) reverts even though
-        // it would execute fine. The lock keeps fetch+estimate+submit atomic.
+        // estimate simulates against stale state, so an action that only just became valid
+        // (e.g. loot right after moving into a treasure room) reverts even though it would
+        // execute fine. The lock keeps fetch+estimate+submit atomic.
         const nonce = await appchainProvider.getNonceForAddress(appchainAccount.address, BlockTag.PRE_CONFIRMED);
         const { resourceBounds } = await appchainAccount.estimateInvokeFee(call, {
           blockIdentifier: BlockTag.PRE_CONFIRMED,
@@ -598,18 +609,20 @@ async function appchainCall(entrypoint: string, arg: string): Promise<string> {
   });
 }
 
-// Play actions target a specific run by its run_no.
-const action = (entrypoint: string, runNo: number) => appchainCall(entrypoint, "0x" + runNo.toString(16));
-export const moveRoom = (runNo: number) => action("move_room", runNo);
-export const attack = (runNo: number) => action("attack", runNo);
-export const loot = (runNo: number) => action("loot", runNo);
-export const useItem = (runNo: number) => action("use_item", runNo);
+// Play actions target a specific run by its run_no. `account` is the Controller's
+// appchain signer when connected, else undefined (the dev key signs).
+const action = (entrypoint: string, runNo: number, account?: Signer) =>
+  appchainCall(entrypoint, "0x" + runNo.toString(16), account);
+export const moveRoom = (runNo: number, account?: Signer) => action("move_room", runNo, account);
+export const attack = (runNo: number, account?: Signer) => action("attack", runNo, account);
+export const loot = (runNo: number, account?: Signer) => action("loot", runNo, account);
+export const useItem = (runNo: number, account?: Signer) => action("use_item", runNo, account);
 
 /** Extract run `runNo`: ends it alive and banks its gold into the player's L2 vault. */
-export const extract = (runNo: number) => action("extract", runNo);
+export const extract = (runNo: number, account?: Signer) => action("extract", runNo, account);
 
 /** Withdraw: send the whole vault to L1 as one message (the first half of banking).
  *  Keyed by player (the vault spans all runs); the second half is `bankRun` on L1. */
-export const withdraw = (player: string) => appchainCall("withdraw", player);
+export const withdraw = (player: string, account?: Signer) => appchainCall("withdraw", player, account);
 
 export { MESSAGE_SENT_KEY };

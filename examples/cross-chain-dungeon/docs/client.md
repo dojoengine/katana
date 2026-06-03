@@ -90,16 +90,33 @@ bankable gold (amber while awaiting saya, green once a withdrawal is settled). S
 
 ## Wallets (operator default, optional Controller)
 
-By default the client signs Sepolia transactions with the **operator account** (a
-real funded account from `deployments.json`) — no login needed. The header **login**
-button can swap in a [Cartridge Controller](https://github.com/cartridge-gg/controller).
+By default the client signs with the **operator account** (a real funded Sepolia
+account from `deployments.json`) on Sepolia and the **dev account** on the appchain —
+no login needed. The header **login** button can swap in a
+[Cartridge Controller](https://github.com/cartridge-gg/controller) that signs on
+**both chains** as one identity.
 
-Crucially, the Controller here is **Sepolia-only**: `StarknetConfig` is configured
-with the single Sepolia chain, and the appchain play actions always use the local
-dev account. There's no `switchStarknetChain`, so this sidesteps the
-hosted-keychain-can't-switch-to-a-local-appchain limitation that cross-chain-game
-ran into. Session policies scope the Controller to the demo's Sepolia entrypoints
-(USDC/GAME `approve`, `buy`, `enter`, `bank`) so they're gasless session calls.
+`wallet.tsx` builds a two-chain Controller: `ControllerConnector` gets both RPCs and
+`StarknetConfig` both chains. It exposes two signers — `l1Account` (buy / enter /
+bank on Sepolia) and `l2Account` (the play actions on the appchain). Each wraps the
+raw `controller.account` and **switches the keychain's chain** around the call:
+`l1Account` switches to Sepolia first (a prior play may have left it on the
+appchain); `l2Account` switches to the appchain (`shortString("DUNGEON")`), executes,
+then switches back to Sepolia. We use `controller.account`, not starknet-react's
+account (which is pinned to the Sepolia RPC and would estimate appchain fees against
+Sepolia). Session policies cover the Sepolia entrypoints **and** the game-system play
+actions, so both legs are session calls.
+
+The **player** is the Controller address (identical on both chains): `enter` mints
+the run for it, and play/withdraw key on it — so a Controller plays and banks the
+runs it entered. The play actions take an optional `account` in `chain.ts`
+(`moveRoom(runNo, account?)` …); with the Controller it's `l2Account`, otherwise the
+dev account keeps its pre-confirmed nonce/estimate fast path.
+
+The appchain leg needs `CONTROLLER=1 ./up.sh` (paymaster + Controller classes on the
+appchain) and a **self-hosted keychain** — the hosted keychain can't reach a local
+appchain. Full setup, including funding the Controller on real Sepolia, is in
+[controller.md](./controller.md).
 
 ## Poll + derive
 

@@ -9,3 +9,4 @@ cairo/**/manifest_dev.json
 app/tsconfig.tsbuildinfo
 app/dist/
 .env
+app/.env.local

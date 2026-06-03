@@ -172,6 +172,82 @@ function OutcomeModal({ outcome, onClose }: { outcome: chain.OutcomeRow; onClose
   );
 }
 
+/** Account modal: shows the currently connected account, and a picker to switch the
+ *  signing method — operator account ↔ Cartridge Controller. Opened from the account
+ *  chip in the header. */
+function WalletModal({ onClose }: { onClose: () => void }) {
+  const wallet = useWallet();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const connected = wallet.method !== null; // an account (operator or Controller) is active
+  const isCtrl = wallet.connected; // a Controller session is active
+  const pick = (fn: () => Promise<void>) => () => void fn().then(onClose).catch(() => {});
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-h">
+          <span>{connected ? "account" : "connect a wallet"}</span>
+          <button className="modal-x" onClick={onClose} aria-label="close">
+            ✕
+          </button>
+        </div>
+        {connected ? (
+          // Connected: just the current account + disconnect — no other-wallet options.
+          <>
+            <dl className="kv">
+              <div className="kv-row">
+                <dt>signing as</dt>
+                <dd>{isCtrl ? "Cartridge Controller" : "Operator account"}</dd>
+              </div>
+              {isCtrl && wallet.username ? (
+                <div className="kv-row">
+                  <dt>username</dt>
+                  <dd>{wallet.username}</dd>
+                </div>
+              ) : null}
+              <div className="kv-row">
+                <dt>address</dt>
+                <dd className="mono-wrap">{wallet.player || "—"}</dd>
+              </div>
+            </dl>
+            <button className="wallet-disconnect" onClick={pick(wallet.disconnect)}>
+              disconnect
+            </button>
+          </>
+        ) : (
+          // Disconnected: offer the connection methods.
+          <>
+            <p className="wallet-note">Nothing connected — choose how to sign.</p>
+            <div className="wallet-methods">
+              <button className="wallet-opt" onClick={pick(wallet.useOperator)}>
+                <span className="wo-title">Operator account</span>
+                <span className="wo-sub">
+                  prefunded Sepolia key · <span className="mono">{chain.shortHex(chain.operatorAccount.address)}</span>
+                </span>
+              </button>
+              <button
+                className="wallet-opt"
+                disabled={!wallet.controllerAvailable || wallet.connecting}
+                onClick={pick(wallet.connectController)}
+              >
+                <span className="wo-title">{wallet.connecting ? "Connecting…" : "Cartridge Controller"}</span>
+                <span className="wo-sub">
+                  {wallet.controllerAvailable ? "passkey wallet · signs both chains" : "unavailable — start the stack first"}
+                </span>
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Live progress for a withdraw → settle → mint bank, shown while it's in flight. */
 function BankModal({
   phase,
@@ -558,6 +634,7 @@ export default function App() {
   const [logsOpen, setLogsOpen] = useState(false); // floating service-logs window
   const [configOpen, setConfigOpen] = useState(false); // floating deployment-config window
   const [txOpen, setTxOpen] = useState(false); // floating transaction-log window
+  const [walletOpen, setWalletOpen] = useState(false); // account / connect-method modal
   // Show the guided appchain-mechanics walkthrough on every app load; the titlebar
   // button reopens it after dismissal.
   const [tutorial, setTutorial] = useState(true);
@@ -709,6 +786,11 @@ export default function App() {
       setBusy(null);
     }
   };
+  // Like act, but needs a connected signer — opens the wallet modal to connect otherwise.
+  const actL1 = (name: string, fn: (acc: chain.Signer) => Promise<unknown>) =>
+    act(name, () => (wallet.l1Account ? fn(wallet.l1Account) : (setWalletOpen(true), Promise.resolve())));
+  const actL2 = (name: string, fn: (acc: chain.Signer) => Promise<unknown>) =>
+    act(name, () => (wallet.l2Account ? fn(wallet.l2Account) : (setWalletOpen(true), Promise.resolve())));
 
   const playing = selectedRun != null;
   const inCombat = !!run && run.enemyHp > 0;
@@ -737,14 +819,18 @@ export default function App() {
   // lobby for a just-closed transition. Never over a still-alive run.
   const showOutcome = freshOutcome && !entering && (!playing || runOver);
 
-  const onBuy = act("buy", () => chain.buyGame(wallet.l1Account, BUY_USDC));
-  const onMint = act("mint", () => chain.devMint(wallet.l1Account, DEV_MINT));
+  const onBuy = actL1("buy", (acc) => chain.buyGame(acc, BUY_USDC));
+  const onMint = actL1("mint", (acc) => chain.devMint(acc, DEV_MINT));
   // "New game": charge $GAME on L1, fire the L1→L2 mint_run, and remember the run
   // count at click time so the tick can auto-select the freshly minted run once it
   // shows up on the appchain. Owns its own lifecycle (rather than `act`) because the
   // loader is gated on `enteringRef`, which must be cleared if the L1 tx fails — else
   // the lobby stays stuck behind the loader with no way to retry.
   const onNewGame = async () => {
+    if (!wallet.l1Account) {
+      setWalletOpen(true);
+      return;
+    }
     if (gameBal < fee) {
       setErr(`insufficient $GAME (need ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)}) — buy or dev-mint`);
       return;
@@ -770,17 +856,19 @@ export default function App() {
     setSelectedRun(null);
     void onNewGame();
   };
-  const onMove = act("move", () => chain.moveRoom(selectedRun!));
-  const onAttack = act("attack", () => chain.attack(selectedRun!));
-  const onLoot = act("loot", () => chain.loot(selectedRun!));
-  const onUse = act("use", () => chain.useItem(selectedRun!));
-  const onExtract = act("extract", () => chain.extract(selectedRun!));
+  // Play actions are signed by the appchain signer: the dev account, or the connected
+  // Controller (switched to the appchain) — see wallet.l2Account.
+  const onMove = actL2("move", (acc) => chain.moveRoom(selectedRun!, acc));
+  const onAttack = actL2("attack", (acc) => chain.attack(selectedRun!, acc));
+  const onLoot = actL2("loot", (acc) => chain.loot(selectedRun!, acc));
+  const onUse = actL2("use", (acc) => chain.useItem(selectedRun!, acc));
+  const onExtract = actL2("extract", (acc) => chain.extract(selectedRun!, acc));
   // Banking is one user action ("Withdraw"): the withdraw empties the vault into an
   // L2→L1 message; minting the GOLD on L1 then happens automatically once saya has
   // settled it (see the auto-mint effect below), so the user never presses a second
   // button. The mint runs off the poll loop, not a blocking await, so play isn't
   // blocked while settlement catches up.
-  const onWithdraw = act("withdraw", async () => setWithdrawTx(await chain.withdraw(player)));
+  const onWithdraw = actL2("withdraw", async (acc) => setWithdrawTx(await chain.withdraw(player, acc)));
 
   const hp = run ? run.hp : 0;
   const maxHp = run ? run.maxHp : 100;
@@ -815,11 +903,12 @@ export default function App() {
   // user can keep playing while settlement catches up. The ref guards against
   // double-firing across re-renders; on reload it also resumes any pending bank.
   useEffect(() => {
-    if (!pending || !claimReady || mintingRef.current) return;
+    const acc = wallet.l1Account;
+    if (!pending || !claimReady || mintingRef.current || !acc) return;
     mintingRef.current = true;
     setMinting(true);
     chain
-      .bankRun(wallet.l1Account, player, pending.amount, pending.withdrawNo)
+      .bankRun(acc, player, pending.amount, pending.withdrawNo)
       .then((tx) => {
         setMintTx(tx);
         return tick();
@@ -870,19 +959,17 @@ export default function App() {
                 <span className="led" />
                 DUNGEON · appchain
               </span>
-              <span className="chip on">
-                <span className="led" style={{ background: "var(--gold)", boxShadow: "0 0 8px var(--gold)" }} />
-                {wallet.label}
-                {wallet.method === "operator" && wallet.controllerAvailable ? (
-                  <button style={{ flex: "none", padding: "0 6px" }} disabled={wallet.connecting} onClick={() => void wallet.connectController()}>
-                    {wallet.connecting ? "…" : "login"}
-                  </button>
-                ) : wallet.method === "controller" ? (
-                  <button style={{ flex: "none", padding: "0 6px" }} onClick={() => void wallet.useOperator()}>
-                    logout
-                  </button>
-                ) : null}
-              </span>
+              <button
+                className={`chip ${wallet.method !== null ? "on" : ""} acct-chip`}
+                onClick={() => setWalletOpen(true)}
+                title={wallet.method === null ? "connect a wallet" : "account details"}
+              >
+                <span
+                  className="led"
+                  style={wallet.method !== null ? { background: "var(--gold)", boxShadow: "0 0 8px var(--gold)" } : undefined}
+                />
+                {wallet.connecting ? "connecting…" : wallet.method === null ? "login" : wallet.label}
+              </button>
             </div>
           </div>
 
@@ -1286,6 +1373,7 @@ export default function App() {
         </FloatingWindow>
       )}
       {selected && <OutcomeModal outcome={selected} onClose={() => setSelected(null)} />}
+      {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} />}
       {bankModal && (
         <BankModal
           phase={bankPhase}

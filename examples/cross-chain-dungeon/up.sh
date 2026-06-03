@@ -78,6 +78,21 @@ done
 echo "→ katana: $KATANA"
 echo "→ settlement: $SETTLEMENT_NAME ($SETTLEMENT_RPC_URL)"
 
+# Optional Cartridge Controller (one identity on both chains). Default ./up.sh uses the
+# operator account (no login). CONTROLLER=1 makes the APPCHAIN Controller-capable — the
+# paymaster/session middleware + Controller auto-deploy — so the same Controller that
+# signs buy/enter/bank on Sepolia can also sign the play actions here. Settlement is real
+# Sepolia (Cartridge knows it natively), so ONLY the appchain needs these flags. The app
+# reads VITE_KEYCHAIN_URL from app/.env.local — a self-hosted keychain, since the hosted
+# one can't reach a local appchain. See docs/controller.md.
+CONTROLLER_FLAGS=""
+if [[ "${CONTROLLER:-}" == "1" ]]; then
+  CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
+  command -v paymaster-service >/dev/null 2>&1 \
+    || echo "  note: 'paymaster-service' not on PATH — katana will try to fetch it (cartridge-gg/paymaster); see docs/controller.md." >&2
+  echo "→ Controller mode ON: appchain Controller-capable. Needs a self-hosted keychain (VITE_KEYCHAIN_URL) + a Controller login."
+fi
+
 APPCHAIN_PID=""; SAYA_PID=""; TORII_SCORE_PID=""; TORII_GAME_PID=""
 cleanup() {
   echo ""; echo "→ shutting down…"
@@ -163,7 +178,7 @@ node -e '
 #    world + runs (an in-memory chain would lose them and force a full redeploy).
 echo "→ starting appchain node on :${APPCHAIN_PORT}…"
 "$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 --data-dir "$APPCHAIN_DB" --http.port "$APPCHAIN_PORT" \
-  --http.cors_origins '*' --explorer --messaging.enabled \
+  --http.cors_origins '*' --explorer --messaging.enabled $CONTROLLER_FLAGS \
   > "$RUN_DIR/appchain.log" 2>&1 &
 APPCHAIN_PID=$!
 until curl -s -o /dev/null "http://localhost:$APPCHAIN_PORT/" 2>/dev/null; do sleep 0.5; done

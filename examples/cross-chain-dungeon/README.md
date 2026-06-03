@@ -27,7 +27,7 @@ public chain — and adds a token economy on top of an external contract.
 | External dependency | — | **Circle USDC on Sepolia** |
 | Gameplay | one roll | **a dungeon run, one tx per action; vault many runs, bank once** |
 | Ports | 5050/5051/8081/8082/3001 | **5070/8091/8092/3002** |
-| Controller | both chains | **Sepolia only** |
+| Controller | both chains | **both chains** (self-hosted keychain; funded on real Sepolia) |
 
 ## Prerequisites
 
@@ -73,13 +73,14 @@ Every deploy and every `saya update_state` is a **real Sepolia transaction**:
 
 ## Using Controller (optional)
 
-By default the client signs Sepolia transactions with the **operator account** (a
-real funded account from `deployments.json`) — no login. The header **login**
-button can swap in a [Cartridge Controller](https://github.com/cartridge-gg/controller)
-instead. Unlike cross-chain-game, the Controller here only ever touches **Sepolia**
-(a network the hosted keychain knows), so there's no chain-switching — the appchain
-play actions always use the local dev account. Passkey login needs trusted HTTPS;
-`CONTROLLER=1 ./up.sh` serves the app at `https://localhost:3002` via `mkcert`.
+By default the client signs with the **operator account** on Sepolia and the **dev
+account** on the appchain — no login. The header **login** button can swap in a
+[Cartridge Controller](https://github.com/cartridge-gg/controller) that signs on
+**both chains** as one identity: buy / enter / bank on real Sepolia *and* the dungeon
+play actions on the local appchain, at the same address. It needs `CONTROLLER=1
+./up.sh` (Controller-capable appchain + HTTPS via `mkcert`), a **self-hosted keychain**
+(the hosted one can't reach a local appchain), and the Controller funded with a little
+STRK on real Sepolia. Full walkthrough: [docs/controller.md](./docs/controller.md).
 
 ## What's where
 
