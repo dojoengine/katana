@@ -533,9 +533,13 @@ export default function App() {
   const wallet = useWallet();
   const player = wallet.player;
 
-  const [run, setRun] = useState<chain.RunState | null>(null); // the selected run's live state
+  const [runState, setRunState] = useState<chain.RunState | null>(null); // last-loaded run state
   const [runs, setRuns] = useState<chain.RunState[]>([]); // the player's unfinished runs (lobby)
   const [selectedRun, setSelectedRun] = useState<number | null>(null); // run_no being played, or lobby
+  // `runState` lags `selectedRun` by one poll on a switch (new game / continue), so only
+  // treat it as the current run when it actually matches — otherwise the dungeon view would
+  // briefly render the *previous* run's progress before the next poll replaces it.
+  const run = runState && runState.runNo === selectedRun ? runState : null;
   const enteringRef = useRef<number | null>(null); // total_runs at "New game" click; auto-selects the mint
   const [stats, setStats] = useState<chain.Stats>({ totalRuns: 0, activeRuns: 0, totalActions: 0, totalBanked: 0 });
   const [feed, setFeed] = useState<chain.OutcomeRow[]>([]);
@@ -615,7 +619,7 @@ export default function App() {
         chain.getLastRunEnded(player),
       ]);
       setRuns(rl);
-      setRun(r);
+      setRunState(r);
       // When the selected run ends (death or extract) we deliberately KEEP it
       // selected so the outcome screen overlays the run page; the lobby
       // transition happens only when that screen is closed (see closeOutcome).
