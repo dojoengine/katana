@@ -87,6 +87,10 @@ async function main() {
   console.log("  bankWorld:", bank.world, "bankSystem:", bank.system);
 
   // 4. game world on the appchain (withdraws the vault to the bank system).
+  // Re-confirm the appchain RPC first: the Sepolia deploys above run for a while, and if
+  // the appchain RPC has a transient blip in that window, sozo aborts hard with
+  // "Unhealthy RPC provider". waitForRpc rides out a brief stall before we migrate.
+  await waitForRpc(d.appchain.rpcUrl);
   console.log("[deploy] migrating game world on appchain (registry:", bank.system, ")");
   const game = migrateWorld({
     pkg: "game",
