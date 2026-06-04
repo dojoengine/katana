@@ -89,6 +89,22 @@ body {
 }
 .gauge .bar { flex: 1; min-width: 0; overflow: hidden; letter-spacing: -1px; white-space: pre; }
 .gauge .bar .fill { color: var(--green); text-shadow: 0 0 8px rgba(115,230,160,.5); }
+/* While settlement is catching up, a highlight sweeps the settled blocks left→right. */
+.gauge .bar .fill.settling {
+  background: linear-gradient(90deg, var(--green) 0%, var(--green) 42%, #e6fff0 50%, var(--green) 58%, var(--green) 100%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: settle-sweep 2.2s ease-in-out infinite;
+}
+@keyframes settle-sweep {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) { .gauge .bar .fill.settling { animation: none; } }
 .gauge .bar .empty { color: var(--ghost); }
 .gauge .n { color: var(--ink); }
 .gauge-count { position: relative; white-space: nowrap; cursor: help; }

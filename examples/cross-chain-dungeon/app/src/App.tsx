@@ -148,10 +148,11 @@ function Gauge({ settled, tip }: { settled: number; tip: number }) {
   }, []);
   const safeTip = Math.max(tip, 1);
   const fill = Math.max(0, Math.min(n, Math.round((settled / safeTip) * n)));
+  const settling = settled < tip; // sweep the settled blocks while L1 is still catching up
   return (
     <div className="gauge">
       <span className="bar" ref={barRef}>
-        ▕<span className="fill">{"█".repeat(fill)}</span>
+        ▕<span className={`fill ${settling ? "settling" : ""}`}>{"█".repeat(fill)}</span>
         <span className="empty">{"░".repeat(Math.max(0, n - fill))}</span>▏
       </span>
       <span
