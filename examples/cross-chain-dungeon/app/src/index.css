@@ -256,6 +256,15 @@ body {
 .bal.game .v { color: var(--amber-hi); }
 .bal.gold .v { color: var(--gold); }
 .row-actions { display: flex; gap: 8px; margin-top: 12px; }
+/* withdraw → claim: a flow cue between the two bank buttons (L2 then L1). */
+.row-actions .flow-arrow {
+  flex: none; align-self: center; color: var(--green); opacity: .65;
+  font-size: 14px; text-shadow: var(--glow); animation: flow-nudge 1.4s ease-in-out infinite;
+}
+@keyframes flow-nudge {
+  0%, 100% { transform: translateX(-1px); opacity: .4; }
+  50% { transform: translateX(2px); opacity: .8; }
+}
 .legend { color: var(--ghost); font-size: 11px; margin-top: 8px; }
 .legend b { color: var(--dim); }
 

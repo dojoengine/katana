@@ -77,14 +77,16 @@ Two practical notes carried over from cross-chain-game:
 Banking is **batched** and split across a dedicated **Bank tab** (framed as the L1
 operation). Players extract many runs into the `game-Vault`, then bank once:
 
-1. **Withdraw (L2):** when `Vault.gold > 0`, `withdraw` sends one message with the
-   whole vault and emits a `game-Withdrawal { amount, withdraw_no }`.
+1. **Withdraw (L2):** when `Vault.gold > 0`, the **Withdraw** button sends one message
+   with the whole vault and emits a `game-Withdrawal { amount, withdraw_no }`.
 2. **Settle:** saya proves and settles the withdrawal's appchain block onto piltover.
-3. **Bank (L1):** `bankRun` consumes the message and mints GOLD.
+3. **Claim (L1):** the **Claim** button calls `bankRun`, which consumes the message and
+   mints GOLD.
 
-The client reconciles `game-Withdrawal` (L2) against `bank-Banked` (L1): the first
-withdrawal beyond the banked count is the **pending** one, and the **Mint GOLD**
-button enables once `settledBlock ≥` its appchain block. The Bank-tab badge shows the
+Withdraw and Claim are two explicit buttons (one per chain), not a single auto-claiming
+action: the client reconciles `game-Withdrawal` (L2) against `bank-Banked` (L1) — the
+first withdrawal beyond the banked count is the **pending** one, and the **Claim**
+button enables only once `settledBlock ≥` its appchain block. The Bank-tab badge shows the
 bankable gold (amber while awaiting saya, green once a withdrawal is settled). See
 `readVault` / `getWithdrawals` / `getBankCount` in `chain.ts`.
 
