@@ -244,6 +244,14 @@ button.danger { border-color: rgba(255,107,94,.5); color: var(--red); }
 button.danger:hover:not(:disabled) { background: var(--red); color: var(--bg); border-color: var(--red); }
 button.good { border-color: rgba(115,230,160,.5); color: var(--green); }
 button.good:hover:not(:disabled) { background: var(--green); color: var(--bg); border-color: var(--green); }
+/* "insufficient $GAME" feedback on New Game / Enter again: a red flash. The shake is a
+   per-click Web Animation (App.tsx) so it re-fires on every spam click. */
+button.good.insufficient,
+button.good.insufficient:hover:not(:disabled) {
+  background: transparent;
+  color: var(--red);
+  border-color: rgba(255, 107, 94, .6);
+}
 
 .arena { position: relative; }
 .stage { border: 1px solid var(--border); background: radial-gradient(120% 120% at 50% 18%, rgba(255,180,84,.05), transparent 60%), rgba(0,0,0,.25); position: relative; }

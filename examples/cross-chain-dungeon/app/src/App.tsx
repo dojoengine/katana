@@ -7,6 +7,18 @@ import { Tutorial } from "./tutorial.tsx";
 const BUY_USDC = 10n ** BigInt(chain.USDC_DECIMALS); // 1 USDC
 const DEV_MINT = 500n * 10n ** BigInt(chain.GAME_DECIMALS); // 500 GAME
 
+// One-off "rejected" shake for the New Game / Enter again button, played imperatively
+// via the Web Animations API so it restarts on every (spam) click — unlike a CSS class
+// toggle, which won't replay while the class is still applied.
+const SHAKE_FRAMES: Keyframe[] = [
+  { transform: "translateX(0)" },
+  { transform: "translateX(-5px)" },
+  { transform: "translateX(5px)" },
+  { transform: "translateX(-5px)" },
+  { transform: "translateX(5px)" },
+  { transform: "translateX(0)" },
+];
+
 // The game world is deployed (deployments.json carries a real GAME_SYSTEM). The global
 // run-outcome feed / leaderboard / stats are appchain-world state, not per-user, so they
 // load whenever this is true — even with no wallet connected.
@@ -686,6 +698,13 @@ export default function App() {
   const [mintTx, setMintTx] = useState<string | undefined>(); // L1 mint tx hash
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Brief "insufficient $GAME" flash on the New Game / Enter again button after a click
+  // with too little $GAME — reverts to the normal label after a couple of seconds.
+  const [insufficient, setInsufficient] = useState(false);
+  const insufficientTimer = useRef<ReturnType<typeof setTimeout>>();
+  // The New Game / Enter again button currently on screen (only one is mounted at a
+  // time), so a click can shake whichever is showing.
+  const shakeRef = useRef<HTMLButtonElement>(null);
   const inFlight = useRef(false);
 
   // Message log scroll-follow: newest renders at the bottom, so "caught up" means
@@ -922,7 +941,12 @@ export default function App() {
       return;
     }
     if (gameBal < fee) {
-      setErr(`insufficient $GAME (need ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)}) — buy or dev-mint`);
+      // Flash "insufficient $GAME" on the button for ~2s, then revert to the normal label.
+      setInsufficient(true);
+      clearTimeout(insufficientTimer.current);
+      insufficientTimer.current = setTimeout(() => setInsufficient(false), 2000);
+      // Shake on every click (restarts mid-shake on spam clicks).
+      shakeRef.current?.animate(SHAKE_FRAMES, { duration: 400, easing: "ease-in-out" });
       return;
     }
     enteringRef.current = stats ? stats.totalRuns : 0;
@@ -1187,8 +1211,8 @@ export default function App() {
                     <button disabled={anyBusy} onClick={() => closeOutcome(lastEnded.endNo)}>
                       Back to lobby
                     </button>
-                    <button className="good" disabled={anyBusy || !actReady} onClick={onEnterAgain}>
-                      {player && gameBal < fee
+                    <button ref={shakeRef} className={`good ${insufficient ? "insufficient" : ""}`} disabled={anyBusy || !actReady} onClick={onEnterAgain}>
+                      {insufficient
                         ? "insufficient $GAME"
                         : `Enter again · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
                     </button>
@@ -1257,18 +1281,18 @@ export default function App() {
                 /* ===== New Game page: start a dive or continue an unfinished run ===== */
                 <div className="newgame">
                   <div className="newgame-head">
-                    <div className="newgame-title">DUNGEON LOBBY</div>
-                    <div className="newgame-sub">start a fresh dive — or continue an unfinished run</div>
+                    <div className="newgame-title">LOBBY</div>
+                    <div className="newgame-sub">into the unknown</div>
                   </div>
-                  <button className="good newgame-start" disabled={anyBusy || !actReady} onClick={onNewGame}>
-                    {player && gameBal < fee
+                  <button ref={shakeRef} className={`good newgame-start ${insufficient ? "insufficient" : ""}`} disabled={anyBusy || !actReady} onClick={onNewGame}>
+                    {insufficient
                       ? "insufficient $GAME"
                       : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
                   </button>
-                  <div className="lobby-list">
-                    <div className="lobby-h">unfinished runs</div>
-                    {runs.length > 0 ? (
-                      runs.map((r) => (
+                  {runs.length > 0 && (
+                    <div className="lobby-list">
+                      <div className="lobby-h">unfinished runs</div>
+                      {runs.map((r) => (
                         <button key={r.runNo} className="lobby-run" onClick={() => onContinue(r.runNo)}>
                           <span className="lr-id">[r{r.runNo}]</span>
                           <span>d{r.depth}</span>
@@ -1276,11 +1300,9 @@ export default function App() {
                           <span>{r.gold.toLocaleString()}g</span>
                           <span className="lr-go">continue →</span>
                         </button>
-                      ))
-                    ) : (
-                      <div className="lobby-empty">none yet · start a new dive above</div>
-                    )}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                   {/* Entering covers the whole lobby with the loader (the new run is being
                       minted on L2 via the L1→L2 message) until it auto-selects. */}
                   {entering && (
