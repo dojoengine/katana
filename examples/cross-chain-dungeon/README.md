@@ -27,7 +27,7 @@ public chain — and adds a token economy on top of an external contract.
 | External dependency | — | **Circle USDC on Sepolia** |
 | Gameplay | one roll | **a dungeon run, one tx per action; vault many runs, bank once** |
 | Ports | 5050/5051/8081/8082/3001 | **5070/8091/8092/3002** |
-| Controller | both chains | **both chains** (self-hosted keychain; funded on real Sepolia) |
+| Controller | both chains | **both chains** (hosted keychain; funded on real Sepolia) |
 
 ## Prerequisites
 
@@ -78,9 +78,10 @@ account** on the appchain — no login. The header **login** button can swap in 
 [Cartridge Controller](https://github.com/cartridge-gg/controller) that signs on
 **both chains** as one identity: buy / enter / bank on real Sepolia *and* the dungeon
 play actions on the local appchain, at the same address. It needs `CONTROLLER=1
-./up.sh` (Controller-capable appchain + HTTPS via `mkcert`), a **self-hosted keychain**
-(the hosted one can't reach a local appchain), and the Controller funded with a little
-STRK on real Sepolia. Full walkthrough: [docs/controller.md](./docs/controller.md).
+./up.sh` (Controller-capable appchain + HTTPS via `mkcert`) and a Cartridge Controller
+login — the **hosted keychain** (x.cartridge.gg) by default, with a self-hosted keychain
+as a fully-local fallback. Fund the Controller with a little STRK on real Sepolia. Full
+walkthrough: [docs/controller.md](./docs/controller.md).
 
 ## What's where
 

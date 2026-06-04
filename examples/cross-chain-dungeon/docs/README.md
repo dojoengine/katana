@@ -26,7 +26,8 @@ economy** in front of the cross-chain loop.
    keep play snappy and correct.
 7. **[One Controller, both chains](./controller.md)** — the optional Cartridge
    Controller that signs Sepolia buy/enter/bank *and* the appchain play actions:
-   self-hosted keychain setup, the appchain flags, and funding it on real Sepolia.
+   hosted keychain (or a self-hosted fallback), the appchain flags, and funding it
+   on real Sepolia.
 
 ## The game in one paragraph
 

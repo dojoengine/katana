@@ -83,14 +83,15 @@ echo "→ settlement: $SETTLEMENT_NAME ($SETTLEMENT_RPC_URL)"
 # paymaster/session middleware + Controller auto-deploy — so the same Controller that
 # signs buy/enter/bank on Sepolia can also sign the play actions here. Settlement is real
 # Sepolia (Cartridge knows it natively), so ONLY the appchain needs these flags. The app
-# reads VITE_KEYCHAIN_URL from app/.env.local — a self-hosted keychain, since the hosted
-# one can't reach a local appchain. See docs/controller.md.
+# uses the hosted keychain (x.cartridge.gg) by default — a real Cartridge Controller
+# account; set VITE_KEYCHAIN_URL in app/.env.local to point at a self-hosted keychain
+# instead (fully-local fallback). See docs/controller.md.
 CONTROLLER_FLAGS=""
 if [[ "${CONTROLLER:-}" == "1" ]]; then
   CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
   command -v paymaster-service >/dev/null 2>&1 \
     || echo "  note: 'paymaster-service' not on PATH — katana will try to fetch it (cartridge-gg/paymaster); see docs/controller.md." >&2
-  echo "→ Controller mode ON: appchain Controller-capable. Needs a self-hosted keychain (VITE_KEYCHAIN_URL) + a Controller login."
+  echo "→ Controller mode ON: appchain Controller-capable. Login with a Cartridge Controller (hosted keychain)."
 fi
 
 APPCHAIN_PID=""; SAYA_PID=""; TORII_SCORE_PID=""; TORII_GAME_PID=""

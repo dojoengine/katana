@@ -114,9 +114,9 @@ runs it entered. The play actions take an optional `account` in `chain.ts`
 dev account keeps its pre-confirmed nonce/estimate fast path.
 
 The appchain leg needs `CONTROLLER=1 ./up.sh` (paymaster + Controller classes on the
-appchain) and a **self-hosted keychain** — the hosted keychain can't reach a local
-appchain. Full setup, including funding the Controller on real Sepolia, is in
-[controller.md](./controller.md).
+appchain) and a Cartridge Controller login — the **hosted keychain** (x.cartridge.gg) by
+default, or a self-hosted keychain as a fully-local fallback. Full setup, including
+funding the Controller on real Sepolia, is in [controller.md](./controller.md).
 
 ## Poll + derive
 

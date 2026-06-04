@@ -4,10 +4,7 @@
 
 The demo runs on the **operator account** by default (no login). Optionally a single
 **Cartridge Controller** can sign everything — buy / enter / bank on **real Sepolia**
-*and* the dungeon play actions on the **local appchain** — at one address. This is the
-same wiring as [cross-chain-game](../../cross-chain-game/docs/client.md), with one
-extra wrinkle: the dungeon settles to **real Sepolia**, so the Controller needs a
-little funding there.
+*and* the dungeon play actions on the **local appchain** — at one address.
 
 ## How it works
 
@@ -19,72 +16,65 @@ Sepolia for the next L1 op. The **player** is the Controller address (same on bo
 chains), so a run entered on Sepolia is played and banked by that same Controller.
 Details in [client.md](./client.md#wallets-operator-default-optional-controller).
 
-Why this needs a **self-hosted keychain**: the hosted keychain (`x.cartridge.gg`) only
-knows Cartridge chains, so it can't talk to a local appchain. We self-host the keychain
-from the open `cartridge-gg/controller` repo and point the app at it. RP-id `localhost`
-means a **fresh local Controller** (a localhost passkey), not your `cartridge.gg`
-account.
+## Setup (hosted keychain)
 
-## Setup
-
-### 1. Self-hosted keychain (reuse the sibling fork)
-
-The keychain config lives next door, in
-[`../../cross-chain-game/keychain-fork/`](../../cross-chain-game/keychain-fork/README.md).
-Follow that README to clone `cartridge-gg/controller` (`@00344102` or later), apply
-`keychain.patch`, generate mkcert certs, and `pnpm keychain dev` (serves
-`https://localhost:3010`).
-
-**One dungeon-specific override:** the fork's `.env.dev` points `VITE_RPC_SEPOLIA` at
-cross-chain-game's *local* settlement node. The dungeon settles to **real Sepolia**, so
-set it to your real Sepolia RPC instead (the same URL as `SETTLEMENT_RPC_URL` in
-`.env`, e.g. `https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_9`). Keep
-`VITE_RP_ID=localhost`, `VITE_ORIGIN=https://localhost:3010`, and the `/__cartridge`
-API proxy.
-
-### 2. Point the app at the keychain + start the stack
+By default the app connects to the **hosted Cartridge keychain** (`x.cartridge.gg`) —
+your **real Cartridge Controller account**, already deployed by Cartridge. Just:
 
 ```bash
-echo 'VITE_KEYCHAIN_URL=https://localhost:3010' > app/.env.local
 CONTROLLER=1 ./up.sh
 ```
 
 `CONTROLLER=1` appends `--paymaster --cartridge.paymaster --cartridge.controllers` to
 the **appchain** node (the settlement side is real Sepolia — Cartridge knows it
-natively, so only the appchain needs the middleware). The controller account classes
-are already in the rollup genesis by default (katana #584), so the Controller
-auto-deploys on the appchain at its canonical address on first play. The frontend is
-HTTPS already (`mkcert`), required for the passkey login.
+natively, so only the appchain needs the middleware). The controller account classes are
+in the rollup genesis (katana #584), so the Controller deploys on the appchain at its
+canonical address on first play. The frontend serves HTTPS (`mkcert`), required for the
+passkey login.
 
-### 3. Login → Connect Controller, then fund it on Sepolia
+Open `https://localhost:3002`, **Login → Connect Controller** (your cartridge.gg
+account), then play: enter (Sepolia) → play (appchain) → withdraw → bank (Sepolia), all
+keyed on the one Controller address.
 
-Open `https://localhost:3002`, **Login → Connect Controller** (creates the localhost
-passkey). The Controller signs the appchain for free (`--dev.no-fee`), but on **real
-Sepolia it starts with nothing** — so before buy/enter/bank, give its address:
+### Funding
 
-- **STRK** for gas — transfer some to the Controller's address (shown on connect).
-- **GAME** to enter — once it has gas, hit **Dev-mint** (a session policy), or buy with
-  USDC.
-
-Then the full loop runs as the Controller: enter (Sepolia) → play (appchain) → withdraw
-→ bank (Sepolia), all keyed on the one Controller address.
+Sepolia ops (buy / enter / bank) cost real gas; the appchain is free (`--dev.no-fee`).
+Your Controller is a real account, so **fund it with a little STRK on Sepolia** (or rely
+on Cartridge paymaster sponsorship if your app is set up for it). For **GAME** to enter,
+hit **Dev-mint** (a session policy) once funded, or buy with USDC.
 
 ## Gotchas
 
-- **Trusted cert is mandatory** — WebAuthn refuses an untrusted/`-k` cert. `mkcert
-  -install` once.
-- **Keychain up before you connect** — the dapp loads it as an iframe at
-  `VITE_KEYCHAIN_URL`; if `:3010` is down, "Connect Controller" can't complete.
-- **Chrome may block the iframe → localhost** (Private Network Access). If connect
-  stalls, enable `chrome://flags/#local-network-access-check`.
-- **Fund the Controller on Sepolia first** — unlike cross-chain-game (both chains local
-  and free), the dungeon's Sepolia ops cost real gas; a fresh localhost Controller has
-  none until you fund it.
+- **Chrome may block the keychain → localhost appchain** (Private Network Access). The
+  play actions need the keychain to reach `:5070`; if a roll stalls, enable
+  `chrome://flags/#local-network-access-check`.
 - **Per-chain sessions** — the appchain session isn't pre-approved on connect, so the
-  first play may show a confirm modal rather than being silent (same as cross-chain-game).
-- **Ports** — keychain `:3010`, demo frontend `:3002`.
+  first play may show a confirm modal rather than being silent.
+- **HTTPS for WebAuthn** — `CONTROLLER=1 ./up.sh` serves `https://localhost:3002` via
+  `mkcert`; passkey login refuses an untrusted cert.
 
 The default operator path needs none of this — `./up.sh` and play.
+
+## Self-hosted keychain (fully-local fallback)
+
+For a fully-local Controller — a `localhost` passkey, no cartridge.gg account (e.g.
+offline dev) — point the app at a self-hosted keychain instead:
+
+1. Set up the keychain from the sibling fork
+   [`../../cross-chain-game/keychain-fork/`](../../cross-chain-game/keychain-fork/README.md)
+   (clone `cartridge-gg/controller`, apply `keychain.patch`, mkcert certs,
+   `pnpm keychain dev` on `https://localhost:3010`). One dungeon override: set the fork's
+   `VITE_RPC_SEPOLIA` to your **real Sepolia RPC** (`.env` `SETTLEMENT_RPC_URL`), not
+   cross-chain-game's local node.
+2. Point the app at it, then start:
+   ```bash
+   echo 'VITE_KEYCHAIN_URL=https://localhost:3010' > app/.env.local
+   CONTROLLER=1 ./up.sh
+   ```
+
+A self-hosted Controller is a **fresh localhost passkey** (RP-id `localhost`), so its
+Sepolia account starts undeployed and unfunded — send its address (shown on connect)
+some STRK so it can self-deploy + pay. Keep the keychain (`:3010`) up before connecting.
 
 ---
 

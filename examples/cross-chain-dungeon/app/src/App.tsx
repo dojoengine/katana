@@ -183,8 +183,15 @@ function WalletModal({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const connected = wallet.method !== null; // an account (operator or Controller) is active
-  const isCtrl = wallet.connected; // a Controller session is active
+  const [showMore, setShowMore] = useState(false);
+  const connected = wallet.method !== null; // a signer is active
+  const isCtrl = wallet.method === "controller";
+  const signerName =
+    wallet.method === "controller"
+      ? "Cartridge Controller"
+      : wallet.method === "injected"
+        ? wallet.label || "Wallet"
+        : "Operator account";
   const pick = (fn: () => Promise<void>) => () => void fn().then(onClose).catch(() => {});
 
   return (
@@ -202,7 +209,7 @@ function WalletModal({ onClose }: { onClose: () => void }) {
             <dl className="kv">
               <div className="kv-row">
                 <dt>signing as</dt>
-                <dd>{isCtrl ? "Cartridge Controller" : "Operator account"}</dd>
+                <dd>{signerName}</dd>
               </div>
               {isCtrl && wallet.username ? (
                 <div className="kv-row">
@@ -220,28 +227,50 @@ function WalletModal({ onClose }: { onClose: () => void }) {
             </button>
           </>
         ) : (
-          // Disconnected: offer the connection methods.
-          <>
-            <p className="wallet-note">Nothing connected — choose how to sign.</p>
-            <div className="wallet-methods">
-              <button className="wallet-opt" onClick={pick(wallet.useOperator)}>
-                <span className="wo-title">Operator account</span>
-                <span className="wo-sub">
-                  prefunded Sepolia key · <span className="mono">{chain.shortHex(chain.operatorAccount.address)}</span>
-                </span>
-              </button>
-              <button
-                className="wallet-opt"
-                disabled={!wallet.controllerAvailable || wallet.connecting}
-                onClick={pick(wallet.connectController)}
-              >
-                <span className="wo-title">{wallet.connecting ? "Connecting…" : "Cartridge Controller"}</span>
-                <span className="wo-sub">
-                  {wallet.controllerAvailable ? "passkey wallet · signs both chains" : "unavailable — start the stack first"}
-                </span>
-              </button>
+          // Disconnected: Cartridge Controller is the primary choice; the rest live under "more".
+          <div className="wallet-methods">
+            <button
+              className="wallet-opt primary"
+              disabled={!wallet.controllerAvailable || wallet.connecting}
+              onClick={pick(wallet.connectController)}
+            >
+              <span className="wo-title">{wallet.connecting ? "Connecting…" : "Cartridge Controller"}</span>
+              <span className="wo-sub">
+                {wallet.controllerAvailable ? "passkey wallet · signs both chains" : "unavailable — start the stack first"}
+              </span>
+            </button>
+            <button className="wallet-more" onClick={() => setShowMore((v) => !v)} aria-expanded={showMore}>
+              {showMore ? "less" : "more"}
+            </button>
+            <div className={`wallet-extra ${showMore ? "open" : ""}`}>
+              <div className="wallet-extra-inner">
+                <button className="wallet-opt" tabIndex={showMore ? 0 : -1} onClick={pick(wallet.useOperator)}>
+                  <span className="wo-title">Operator account</span>
+                  <span className="wo-sub">
+                    prefunded Sepolia dev key · <span className="mono">{chain.shortHex(chain.operatorAccount.address)}</span>
+                  </span>
+                </button>
+                <button
+                  className="wallet-opt"
+                  tabIndex={showMore ? 0 : -1}
+                  disabled={wallet.connecting}
+                  onClick={pick(() => wallet.connectInjected("argent"))}
+                >
+                  <span className="wo-title">Argent X</span>
+                  <span className="wo-sub">browser wallet · Sepolia (dev key plays)</span>
+                </button>
+                <button
+                  className="wallet-opt"
+                  tabIndex={showMore ? 0 : -1}
+                  disabled={wallet.connecting}
+                  onClick={pick(() => wallet.connectInjected("braavos"))}
+                >
+                  <span className="wo-title">Braavos</span>
+                  <span className="wo-sub">browser wallet · Sepolia (dev key plays)</span>
+                </button>
+              </div>
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

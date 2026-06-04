@@ -1,16 +1,27 @@
 // Wallet layer: who signs the demo's transactions.
 //
-// Default is the **operator account** (a real funded Sepolia account from
-// deployments.json) — buy / enter / play / bank work with no login. A "Login" choice
-// swaps in a **Cartridge Controller**: ONE identity that signs on BOTH chains — buy /
-// enter / bank on Sepolia AND the dungeon play actions on the local appchain — at the
-// same address. The appchain leg needs `CONTROLLER=1 ./up.sh` + a self-hosted keychain
-// (the hosted keychain can't reach a local appchain); see docs/controller.md.
+// Nothing is connected by default. A "login" choice picks a signer:
+//   - **Cartridge Controller** (the primary option): ONE identity that signs on BOTH
+//     chains — buy / enter / bank on Sepolia AND the play actions on the local appchain.
+//   - **Operator account**: the demo's prefunded Sepolia dev key (Sepolia) + the appchain
+//     dev key (appchain) — no login.
+//   - **Argent X / Braavos** (injected): your real Sepolia wallet signs buy/enter/bank;
+//     the appchain play actions fall back to the dev key (only the Controller can sign the
+//     local appchain). See docs/controller.md.
 
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
 import { type AccountInterface, constants, shortString } from "starknet";
 import ControllerConnector from "@cartridge/connector/controller";
-import { StarknetConfig, jsonRpcProvider, useAccount, useConnect, useDisconnect } from "@starknet-react/core";
+import {
+  StarknetConfig,
+  argent,
+  braavos,
+  jsonRpcProvider,
+  useAccount,
+  useConnect,
+  useDisconnect,
+  type Connector,
+} from "@starknet-react/core";
 import type { Chain } from "@starknet-react/chains";
 import {
   SETTLEMENT_RPC,
@@ -80,7 +91,7 @@ const policies = {
 };
 
 // Built defensively: the connector probes each RPC synchronously at construction; if
-// that throws (a node offline), the app still renders on the operator account.
+// that throws (a node offline), the app still renders with the other options.
 function createControllerConnector(): ControllerConnector | null {
   try {
     return new ControllerConnector({
@@ -97,15 +108,22 @@ function createControllerConnector(): ControllerConnector | null {
 }
 export const controllerConnector = createControllerConnector();
 
-export type WalletMethod = "operator" | "controller";
+// Other Starknet wallets (browser extensions). They sign Sepolia (buy/enter/bank); the
+// appchain play actions fall back to the local dev account (only the Controller signs the
+// local appchain). Each is usable only if its extension is installed.
+const argentConnector = argent();
+const braavosConnector = braavos();
+export type InjectedKind = "argent" | "braavos";
 
-// Persist the chosen signer across reloads — nothing is auto-connected on a first
-// visit, but a prior connection is restored until the user disconnects.
+export type WalletMethod = "operator" | "controller" | "injected";
+
+// Persist the chosen signer across reloads — nothing is auto-connected on a first visit,
+// but a prior connection is restored until the user disconnects.
 const STORE_KEY = "ccd.wallet.method";
 function loadMethod(): WalletMethod | null {
   try {
     const v = localStorage.getItem(STORE_KEY);
-    return v === "operator" || v === "controller" ? v : null;
+    return v === "operator" || v === "controller" || v === "injected" ? v : null;
   } catch {
     return null;
   }
@@ -120,16 +138,14 @@ function saveMethod(m: WalletMethod | null) {
 }
 
 type WalletCtx = {
-  /** null = nothing connected (the user disconnected); pick a method to act again. */
+  /** null = nothing connected; pick a method to act. */
   method: WalletMethod | null;
-  /** True only when a Controller is actually connected (an account exists). The
-   *  operator default is NOT "connected" for the login toggle's purposes. */
+  /** True only when a Cartridge Controller is actually connected. */
   connected: boolean;
   /** Settlement (Sepolia) signer — null when disconnected. */
   l1Account: Signer | null;
-  /** Appchain signer for play actions (move/attack/loot/use/extract/withdraw):
-   *  the local dev account, or the Controller switched to the appchain — null when
-   *  disconnected. */
+  /** Appchain signer for the play actions: the Controller (switched to the appchain) or
+   *  the local dev key (operator + injected wallets) — null when disconnected. */
   l2Account: Signer | null;
   /** The player identity (Sepolia address) — also the appchain run/vault key. "" when
    *  disconnected. */
@@ -139,6 +155,7 @@ type WalletCtx = {
   connecting: boolean;
   controllerAvailable: boolean;
   connectController: () => Promise<void>;
+  connectInjected: (which: InjectedKind) => Promise<void>;
   useOperator: () => Promise<void>;
   disconnect: () => Promise<void>;
 };
@@ -154,9 +171,10 @@ export function useWallet(): WalletCtx {
 function WalletInner({ children }: PropsWithChildren) {
   const { connectAsync } = useConnect();
   const { disconnectAsync } = useDisconnect();
-  const { account: ctrlAccount, address: ctrlAddress } = useAccount();
+  const { account: ctrlAccount, address: ctrlAddress, connector: activeConnector } = useAccount();
   // Nothing connected by default. A persisted operator restores synchronously here (no
-  // "login" flash); a persisted Controller is reconnected in the mount effect below.
+  // "login" flash); a persisted Controller / injected wallet is reconnected by autoConnect
+  // in the mount effect below.
   const [method, setMethod] = useState<WalletMethod | null>(() => (loadMethod() === "operator" ? "operator" : null));
   const [username, setUsername] = useState<string>();
   const [connecting, setConnecting] = useState(false);
@@ -174,15 +192,11 @@ function WalletInner({ children }: PropsWithChildren) {
       setMethod("controller");
       saveMethod("controller");
     } catch (err) {
-      // The user dismissed the keychain, or connect failed. Reset to a clean
-      // disconnected state so the chip shows "login" and a retry works.
+      // The user dismissed the keychain, or connect failed. Reset to a clean disconnected
+      // state so the chip shows "login" and a retry works.
       // eslint-disable-next-line no-console
       console.warn("Controller connect cancelled/failed:", err);
-      try {
-        await disconnectAsync();
-      } catch {
-        // wasn't connected — fine
-      }
+      await safeDisconnect();
       setMethod(null);
       saveMethod(null);
       setUsername(undefined);
@@ -191,23 +205,28 @@ function WalletInner({ children }: PropsWithChildren) {
     }
   };
 
-  const useOperator = async () => {
-    setMethod("operator");
-    saveMethod("operator");
-    setUsername(undefined);
+  // Connect a browser-extension wallet (Argent X / Braavos). It signs Sepolia; the play
+  // actions use the dev key (l2Account below).
+  const connectInjected = async (which: InjectedKind) => {
+    const connector = which === "argent" ? argentConnector : braavosConnector;
+    setConnecting(true);
     try {
-      await disconnectAsync();
-    } catch {
-      // not connected — fine
+      await connectAsync({ connector });
+      setMethod("injected");
+      saveMethod("injected");
+      setUsername(undefined); // the label uses the live connector name
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`${which} connect cancelled/failed:`, err);
+      await safeDisconnect();
+      setMethod(null);
+      saveMethod(null);
+    } finally {
+      setConnecting(false);
     }
   };
 
-  // Fully disconnect: no operator, no Controller. The header shows "login" and the
-  // action handlers prompt to reconnect (open the wallet modal) until a method is picked.
-  const disconnect = async () => {
-    setMethod(null);
-    saveMethod(null);
-    setUsername(undefined);
+  const safeDisconnect = async () => {
     try {
       await disconnectAsync();
     } catch {
@@ -215,33 +234,52 @@ function WalletInner({ children }: PropsWithChildren) {
     }
   };
 
-  // Restore the previously chosen signer on load — silently, with NO keychain prompt.
-  // The operator is a local key, so set it directly. The Controller is reconnected by
-  // starknet-react's autoConnect (it reuses the keychain session without a popup); we
-  // flip to "controller" once that account comes back. A first visit, or an explicit
-  // disconnect, restores nothing → the chip stays on "login".
+  const useOperator = async () => {
+    setMethod("operator");
+    saveMethod("operator");
+    setUsername(undefined);
+    await safeDisconnect();
+  };
+
+  // Fully disconnect: no signer at all. The header shows "login" and the action handlers
+  // prompt to reconnect (open the wallet modal) until a method is picked.
+  const disconnect = async () => {
+    setMethod(null);
+    saveMethod(null);
+    setUsername(undefined);
+    await safeDisconnect();
+  };
+
+  // Restore the previously chosen signer on load — silently, with NO keychain prompt. The
+  // operator is a local key, so set it directly. The Controller / injected wallet is
+  // reconnected by starknet-react's autoConnect (it reuses the session without a popup);
+  // we flip to the saved method once that account comes back.
   useEffect(() => {
     if (loadMethod() === "operator") setMethod("operator");
     // mount only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    const cc = controllerConnector;
-    if (!cc) return;
-    if (loadMethod() !== "controller" || !ctrlAccount || method !== null) return;
-    setMethod("controller");
-    cc.username()?.then(
-      (u) => setUsername(u),
-      () => setUsername(undefined),
-    );
+    if (!ctrlAccount || method !== null) return;
+    const saved = loadMethod();
+    if (saved === "controller" && controllerConnector) {
+      setMethod("controller");
+      controllerConnector.username()?.then(
+        (u) => setUsername(u),
+        () => setUsername(undefined),
+      );
+    } else if (saved === "injected") {
+      setMethod("injected");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctrlAccount]);
 
   const usingController = method === "controller" && !!ctrlAccount;
+  const usingInjected = method === "injected" && !!ctrlAccount;
 
-  // L1 signer (buy / enter / bank). For the Controller, switch to the settlement chain
-  // first — a prior play action may have left the keychain on the appchain, where the
-  // L1 contracts aren't deployed.
+  // L1 signer (buy / enter / bank). The Controller switches to the settlement chain first
+  // (a prior play may have left the keychain on the appchain); an injected wallet signs
+  // Sepolia directly; the operator is the local dev key.
   const l1Account: Signer | null = usingController
     ? {
         execute: async (calls) => {
@@ -250,15 +288,17 @@ function WalletInner({ children }: PropsWithChildren) {
           return await (ctrl.account ?? ctrlAccount!).execute(calls);
         },
       }
-    : method === "operator"
-      ? operatorAccount
-      : null;
+    : usingInjected
+      ? (ctrlAccount ?? null)
+      : method === "operator"
+        ? operatorAccount
+        : null;
 
-  // L2 signer (play). Switch the Controller to the appchain, execute, then switch back
-  // to settlement (the default) for the next L1 op. Execute via the raw
-  // controller.account, NOT starknet-react's account — the latter is bound to the
-  // settlement RPC, so its client-side fee estimate for the appchain game contract
-  // would hit Sepolia and fail.
+  // L2 signer (play). The Controller switches to the appchain, executes, then switches
+  // back to settlement for the next L1 op (via the raw controller.account, NOT
+  // starknet-react's account — the latter is pinned to the settlement RPC, so its appchain
+  // fee estimate would hit Sepolia and fail). Operator + injected wallets can't sign the
+  // local appchain, so they use the dev key.
   const l2Account: Signer | null = usingController
     ? {
         execute: async (calls) => {
@@ -271,15 +311,20 @@ function WalletInner({ children }: PropsWithChildren) {
           }
         },
       }
-    : method === "operator"
+    : usingInjected || method === "operator"
       ? appchainAccount
       : null;
 
-  // The player: the Controller (same address on both chains) when connected, else the
-  // operator. The L1 `enter` mints the run for this address, and play/withdraw key on
-  // it — so a Controller plays and banks the runs it entered.
-  const player = usingController ? (ctrlAddress ?? "") : method === "operator" ? operatorAccount.address : "";
-  const label = usingController ? (username ?? shortHex(player)) : method === "operator" ? "Operator account" : "not connected";
+  // The player: the connected wallet's address (Controller / injected), else the operator.
+  // The L1 `enter` mints the run for this address, and play/withdraw key on it.
+  const player = usingController || usingInjected ? (ctrlAddress ?? "") : method === "operator" ? operatorAccount.address : "";
+  const label = usingController
+    ? (username ?? shortHex(player))
+    : usingInjected
+      ? (activeConnector?.name ?? shortHex(player))
+      : method === "operator"
+        ? "Operator account"
+        : "not connected";
 
   return (
     <Ctx.Provider
@@ -294,6 +339,7 @@ function WalletInner({ children }: PropsWithChildren) {
         connecting,
         controllerAvailable: !!controllerConnector,
         connectController,
+        connectInjected,
         useOperator,
         disconnect,
       }}
@@ -304,7 +350,7 @@ function WalletInner({ children }: PropsWithChildren) {
 }
 
 export function WalletProvider({ children }: PropsWithChildren) {
-  const connectors = controllerConnector ? [controllerConnector] : [];
+  const connectors = [controllerConnector, argentConnector, braavosConnector].filter((c) => c != null) as Connector[];
   return (
     <StarknetConfig chains={[settlementChain, appchainChain]} connectors={connectors} provider={provider} autoConnect>
       <WalletInner>{children}</WalletInner>

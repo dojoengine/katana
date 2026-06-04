@@ -484,7 +484,7 @@ tr.you { background: rgba(255,180,84,.05); }
 .acct-chip { background: none; font: inherit; cursor: pointer; }
 .acct-chip:not(.on) { color: var(--amber); }
 .acct-chip:hover { border-color: var(--gold); }
-.wallet-methods { display: flex; flex-direction: column; gap: 8px; padding: 12px 22px 18px; }
+.wallet-methods { display: flex; flex-direction: column; gap: 8px; padding: 12px 22px 0px; }
 .wallet-opt {
   position: relative; display: flex; flex-direction: column; gap: 3px; align-items: flex-start;
   text-align: left; padding: 10px 12px; border: 1px solid var(--border);
@@ -503,3 +503,26 @@ tr.you { background: rgba(255,180,84,.05); }
   cursor: pointer; font: inherit; text-align: center; letter-spacing: .03em;
 }
 .wallet-disconnect:hover { background: var(--red); color: var(--bg); border-color: var(--red); }
+/* Cartridge Controller is the highlighted primary option */
+.wallet-opt.primary { border-color: var(--gold); background: rgba(255, 212, 94, 0.06); }
+.wallet-opt.primary .wo-title { color: var(--gold); }
+/* ---------- more ---------- divider that expands the other wallet options */
+.wallet-more {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 4px 0; margin: 2px 0;
+  background: none; border: none; cursor: pointer; font: inherit;
+  color: var(--dim); font-size: 11px; letter-spacing: .15em; text-transform: uppercase;
+}
+.wallet-more::before, .wallet-more::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.wallet-more:hover { color: var(--ink); }
+.wallet-more:hover::before, .wallet-more:hover::after { background: var(--border-hi); }
+/* expandable extra options: animate height (0fr→1fr) + fade — fluid, no JS measuring */
+.wallet-extra { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .28s ease; }
+.wallet-extra.open { grid-template-rows: 1fr; margin-bottom: 12px; }
+.wallet-extra-inner {
+  overflow: hidden; display: flex; flex-direction: column; gap: 8px;
+  opacity: 0; transition: opacity .2s ease .04s;
+}
+.wallet-extra.open .wallet-extra-inner { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .wallet-extra, .wallet-extra-inner { transition: none; }
+}
