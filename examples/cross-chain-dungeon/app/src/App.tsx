@@ -673,54 +673,78 @@ export default function App() {
   };
 
   const ready = !!player && BigInt(player || "0x0") !== 0n && BigInt(chain.GAME_SYSTEM) !== 0n;
+  // The L1 entry buttons (buy / dev-mint / new game / enter again) stay clickable when
+  // disconnected so the click opens the login modal (their handlers prompt to connect);
+  // once connected, they need the deployments + player to be ready.
+  const actReady = ready || wallet.method === null;
 
   const tick = useCallback(async () => {
     if (!ready || inFlight.current) return;
     inFlight.current = true;
     try {
-      const [rl, r, st, fd, lb, gb, gld, ub, vt, ef, sb, tp, wd, bc, le] = await Promise.all([
-        chain.listRuns(player),
-        selectedRun != null ? chain.readRun(selectedRun) : Promise.resolve(null),
+      // Global reads (always shown, even on the disconnected starting page): world
+      // stats, the run-outcome feed, the leaderboard, the entry fee, and the
+      // settled/tip gauge. These come from the game world + RPC.
+      const [st, fd, lb, ef, sb, tp] = await Promise.all([
         chain.readStats(),
         chain.getOutcomeFeed(),
         chain.readLeaderboard(),
-        chain.gameBalance(player),
-        chain.goldBalance(player),
-        chain.usdcBalance(player),
-        chain.readVault(player),
         chain.entryFee(),
         chain.settledBlock(),
         chain.appchainBlock(),
-        chain.getWithdrawals(player),
-        chain.getBankCount(player),
-        chain.getLastRunEnded(player),
       ]);
-      setRuns(rl);
-      setRunState(r);
-      // When the selected run ends (death or extract) we deliberately KEEP it
-      // selected so the outcome screen overlays the run page; the lobby
-      // transition happens only when that screen is closed (see closeOutcome).
-      // After "New game", auto-select the freshly minted run once it appears.
-      if (enteringRef.current != null) {
-        const fresh = rl.find((x) => x.runNo > enteringRef.current!);
-        if (fresh) {
-          setSelectedRun(fresh.runNo);
-          enteringRef.current = null;
-        }
-      }
       setStats(st);
       setFeed(fd);
       setBoard(lb);
-      setGameBal(gb);
-      setGoldBal(gld);
-      setUsdcBal(ub);
-      setVault(vt);
       setFee(ef);
       setSettled(sb);
       setTip(tp);
-      setPending(wd.length > bc ? wd[bc] : null);
-      setLastEnded(le);
-      if (baselineEndNoRef.current === null) baselineEndNoRef.current = le ? le.endNo : -1;
+
+      // Per-player reads only when a wallet is connected. The starting page (empty
+      // player) skips them — and the bank-world Torii (see the subscription effect) —
+      // so idle work and memory stay down.
+      if (player) {
+        const [rl, r, gb, gld, ub, vt, wd, bc, le] = await Promise.all([
+          chain.listRuns(player),
+          selectedRun != null ? chain.readRun(selectedRun) : Promise.resolve(null),
+          chain.gameBalance(player),
+          chain.goldBalance(player),
+          chain.usdcBalance(player),
+          chain.readVault(player),
+          chain.getWithdrawals(player),
+          chain.getBankCount(player),
+          chain.getLastRunEnded(player),
+        ]);
+        setRuns(rl);
+        setRunState(r);
+        // When the selected run ends (death or extract) we deliberately KEEP it
+        // selected so the outcome screen overlays the run page; the lobby transition
+        // happens only when that screen is closed. After "New game", auto-select the
+        // freshly minted run once it appears.
+        if (enteringRef.current != null) {
+          const fresh = rl.find((x) => x.runNo > enteringRef.current!);
+          if (fresh) {
+            setSelectedRun(fresh.runNo);
+            enteringRef.current = null;
+          }
+        }
+        setGameBal(gb);
+        setGoldBal(gld);
+        setUsdcBal(ub);
+        setVault(vt);
+        setPending(wd.length > bc ? wd[bc] : null);
+        setLastEnded(le);
+        if (baselineEndNoRef.current === null) baselineEndNoRef.current = le ? le.endNo : -1;
+      } else {
+        setRuns([]);
+        setRunState(null);
+        setGameBal(0n);
+        setGoldBal(0n);
+        setUsdcBal(0n);
+        setVault(0);
+        setPending(null);
+        setLastEnded(null);
+      }
       setErr(null);
     } catch (e) {
       setErr(String((e as Error).message || e));
@@ -729,33 +753,62 @@ export default function App() {
     }
   }, [player, ready, selectedRun]);
 
+  // The long-lived subscriptions/interval below always call the latest tick().
+  const tickRef = useRef(tick);
+  tickRef.current = tick;
+
+  // Game-world live updates + the slow fallback poll. Long-lived (mount → unmount):
+  // the game world (leaderboard, feed, runs) is shown even when nothing is connected.
   useEffect(() => {
-    tick();
-    // Push updates: refetch the instant a model/event changes in either world.
     let cleanup: (() => void) | undefined;
     let cancelled = false;
     chain
-      .subscribeToriiUpdates(() => tick())
+      .subscribeGameTorii(() => tickRef.current())
       .then((c) => {
         // eslint-disable-next-line no-console
-        console.log("[torii] live subscriptions connected (game + score worlds)");
+        console.log("[torii] game-world subscription connected");
         if (cancelled) c();
         else cleanup = c;
       })
       .catch((e) => {
         // couldn't connect (stack down / not deployed) — the slow poll covers it.
         // eslint-disable-next-line no-console
-        console.warn("[torii] subscription unavailable, falling back to polling:", e);
+        console.warn("[torii] game subscription unavailable, falling back to polling:", e);
       });
-    // Slow fallback + the RPC-only facts (token balances, settled height, tip)
-    // that have no Torii subscription.
-    const h = setInterval(tick, 5000);
+    const h = setInterval(() => tickRef.current(), 5000);
     return () => {
       cancelled = true;
       clearInterval(h);
       cleanup?.();
     };
-  }, [tick]);
+  }, []);
+
+  // Bank-world (Sepolia) live updates are per-player — only subscribe while a wallet is
+  // connected, so the idle starting page runs a single torii-wasm client.
+  useEffect(() => {
+    if (!player) return;
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+    chain
+      .subscribeBankTorii(() => tickRef.current())
+      .then((c) => {
+        if (cancelled) c();
+        else cleanup = c;
+      })
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn("[torii] bank subscription unavailable, falling back to polling:", e);
+      });
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [player]);
+
+  // Re-read when the connected player, the selected run, or readiness changes.
+  useEffect(() => {
+    void tickRef.current();
+  }, [player, selectedRun, ready]);
 
   // React to new log entries: follow if pinned to the bottom, else surface the count.
   useEffect(() => {
@@ -1017,10 +1070,10 @@ export default function App() {
                   </span>
                 </div>
                 <div className="row-actions">
-                  <button disabled={anyBusy || !ready} onClick={onBuy}>
+                  <button disabled={anyBusy || !actReady} onClick={onBuy}>
                     {b("buy") ? "…" : "Buy GAME"}
                   </button>
-                  <button disabled={anyBusy || !ready} onClick={onMint}>
+                  <button disabled={anyBusy || !actReady} onClick={onMint}>
                     {b("mint") ? "…" : "Dev-mint"}
                   </button>
                 </div>
@@ -1097,7 +1150,7 @@ export default function App() {
                     <button disabled={anyBusy} onClick={() => closeOutcome(lastEnded.endNo)}>
                       Back to lobby
                     </button>
-                    <button className="good" disabled={anyBusy || !ready} onClick={onEnterAgain}>
+                    <button className="good" disabled={anyBusy || !actReady} onClick={onEnterAgain}>
                       {gameBal < fee
                         ? "insufficient $GAME"
                         : `Enter again · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
@@ -1170,7 +1223,7 @@ export default function App() {
                     <div className="newgame-title">DUNGEON LOBBY</div>
                     <div className="newgame-sub">start a fresh dive — or continue an unfinished run</div>
                   </div>
-                  <button className="good newgame-start" disabled={anyBusy || !ready} onClick={onNewGame}>
+                  <button className="good newgame-start" disabled={anyBusy || !actReady} onClick={onNewGame}>
                     {gameBal < fee
                       ? "insufficient $GAME"
                       : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}

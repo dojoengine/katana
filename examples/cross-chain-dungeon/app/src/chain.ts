@@ -116,21 +116,15 @@ async function toriiSql<T = Record<string, string | number>>(base: string, sql: 
  * client can't connect (e.g. the stack is down or worlds aren't deployed yet) —
  * the caller keeps a slow poll as a safety net (and for the RPC-only reads).
  */
-export async function subscribeToriiUpdates(onUpdate: () => void): Promise<() => void> {
-  const subs: { cancel: () => void }[] = [];
-  const clients: ToriiClient[] = [];
-
-  const connect = async (toriiUrl: string, worldAddress: string) => {
-    // NB: despite its `.d.ts`, the wasm `ToriiClient` constructor is async — it
-    // returns a Promise that resolves to the connected client.
-    const client = await (new ToriiClient({ toriiUrl, worldAddress }) as unknown as Promise<ToriiClient>);
-    clients.push(client);
-    subs.push(await client.onEntityUpdated(null, null, () => onUpdate()));
-    subs.push(await client.onEventMessageUpdated(null, null, () => onUpdate()));
-  };
-
-  await Promise.all([connect(TORII_GAME, GAME_WORLD), connect(TORII_BANK, BANK_WORLD)]);
-
+async function subscribeWorld(toriiUrl: string, worldAddress: string, onUpdate: () => void): Promise<() => void> {
+  // NB: despite its `.d.ts`, the wasm `ToriiClient` constructor is async — it
+  // returns a Promise that resolves to the connected client. Each client is a full
+  // torii-wasm instance, so we connect only the worlds the current view needs.
+  const client = await (new ToriiClient({ toriiUrl, worldAddress }) as unknown as Promise<ToriiClient>);
+  const subs = [
+    await client.onEntityUpdated(null, null, () => onUpdate()),
+    await client.onEventMessageUpdated(null, null, () => onUpdate()),
+  ];
   return () => {
     for (const s of subs) {
       try {
@@ -139,15 +133,21 @@ export async function subscribeToriiUpdates(onUpdate: () => void): Promise<() =>
         // already gone — fine
       }
     }
-    for (const c of clients) {
-      try {
-        c.free();
-      } catch {
-        // already freed — fine
-      }
+    try {
+      client.free();
+    } catch {
+      // already freed — fine
     }
   };
 }
+
+/** Game world (appchain): runs, leaderboard, action feed — shown even when nothing is
+ *  connected, so this is always subscribed. */
+export const subscribeGameTorii = (onUpdate: () => void) => subscribeWorld(TORII_GAME, GAME_WORLD, onUpdate);
+
+/** Bank world (Sepolia): withdrawals/banks — per-player, so only subscribed once a
+ *  wallet is connected. Keeps the idle starting page to a single torii-wasm client. */
+export const subscribeBankTorii = (onUpdate: () => void) => subscribeWorld(TORII_BANK, BANK_WORLD, onUpdate);
 
 function parseEventId(internalEventId: string): { block: number; txHash: string } {
   const [blockHex, txHash] = internalEventId.split(":");

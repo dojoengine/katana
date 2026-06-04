@@ -215,19 +215,27 @@ function WalletInner({ children }: PropsWithChildren) {
     }
   };
 
-  // Restore the previously chosen signer on load (nothing is auto-connected on a first
-  // visit). Operator restores instantly; the Controller is silently reconnected if its
-  // keychain session is still alive (connectController resets to disconnected if not).
+  // Restore the previously chosen signer on load — silently, with NO keychain prompt.
+  // The operator is a local key, so set it directly. The Controller is reconnected by
+  // starknet-react's autoConnect (it reuses the keychain session without a popup); we
+  // flip to "controller" once that account comes back. A first visit, or an explicit
+  // disconnect, restores nothing → the chip stays on "login".
   useEffect(() => {
-    const saved = loadMethod();
-    if (saved === "operator") {
-      setMethod("operator");
-    } else if (saved === "controller" && controllerConnector) {
-      void connectController();
-    }
-    // mount only — restore once
+    if (loadMethod() === "operator") setMethod("operator");
+    // mount only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    const cc = controllerConnector;
+    if (!cc) return;
+    if (loadMethod() !== "controller" || !ctrlAccount || method !== null) return;
+    setMethod("controller");
+    cc.username()?.then(
+      (u) => setUsername(u),
+      () => setUsername(undefined),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctrlAccount]);
 
   const usingController = method === "controller" && !!ctrlAccount;
 
@@ -298,7 +306,7 @@ function WalletInner({ children }: PropsWithChildren) {
 export function WalletProvider({ children }: PropsWithChildren) {
   const connectors = controllerConnector ? [controllerConnector] : [];
   return (
-    <StarknetConfig chains={[settlementChain, appchainChain]} connectors={connectors} provider={provider}>
+    <StarknetConfig chains={[settlementChain, appchainChain]} connectors={connectors} provider={provider} autoConnect>
       <WalletInner>{children}</WalletInner>
     </StarknetConfig>
   );
