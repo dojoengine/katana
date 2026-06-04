@@ -319,26 +319,20 @@ function WalletModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Live progress for a withdraw → settle → mint bank, shown while it's in flight. */
-function BankModal({
-  phase,
-  amount,
-  withdrawNo,
-  block,
+/** Details for one pending withdrawal: the L2 tx that emitted it, its appchain block,
+ *  the saya settlement progress, and the L2→L1 message route + the poseidon message
+ *  hash piltover registers / `bank` consumes. */
+function WithdrawalModal({
+  w,
+  player,
   settled,
   tip,
-  withdrawTx,
-  mintTx,
   onClose,
 }: {
-  phase: "withdraw" | "settle" | "mint" | "done";
-  amount: number;
-  withdrawNo?: number;
-  block?: number;
+  w: chain.WithdrawalRow;
+  player: string;
   settled: number;
   tip: number;
-  withdrawTx?: string;
-  mintTx?: string;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -347,48 +341,64 @@ function BankModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const order = ["withdraw", "settle", "mint"] as const;
-  const idx = phase === "done" ? 3 : order.indexOf(phase);
-  const steps = [
-    { title: "Withdraw vault · L2", detail: `send ${amount.toLocaleString()} $GOLD as one L2→L1 message${withdrawNo != null ? ` (#${withdrawNo})` : ""}`, tx: withdrawTx, explorer: chain.APPCHAIN_EXPLORER },
-    { title: `Settle · saya → ${chain.SETTLEMENT_NAME}`, detail: block != null ? `prove + settle appchain block ${block} · settled ${settled} / tip ${tip}` : "saya proves the block and settles it onto the piltover core", tx: undefined as string | undefined, explorer: undefined as string | undefined },
-    { title: "Mint $GOLD · L1", detail: `consume the message and mint ${amount.toLocaleString()} $GOLD on ${chain.SETTLEMENT_NAME}`, tx: mintTx, explorer: chain.SETTLEMENT_EXPLORER },
-  ];
+  const ready = settled >= w.block;
+  const msgHash = chain.withdrawalMessageHash(player, w.amount, w.withdrawNo);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-h">
-          <span>banking {amount.toLocaleString()} gold → GOLD</span>
+          <span>withdrawal #{w.withdrawNo}</span>
           <button className="modal-x" onClick={onClose} aria-label="close">
             ✕
           </button>
         </div>
-        <ol className="steps">
-          {steps.map((s, i) => {
-            const state = i < idx ? "done" : i === idx ? "active" : "todo";
-            return (
-              <li key={s.title} className={`step ${state}`}>
-                <span className="step-mark">
-                  {state === "done" ? "✓" : state === "active" ? <span className="spinner" aria-hidden /> : "·"}
-                </span>
-                <span className="step-body">
-                  <span className="step-title">{s.title}</span>
-                  <span className="step-detail">{s.detail}</span>
-                  {s.tx && s.explorer && (
-                    <a className="step-tx tx-link" href={chain.explorerTxUrl(s.explorer, s.tx)} target="_blank" rel="noreferrer">
-                      {chain.shortHex(s.tx, 10, 8)} ↗
-                    </a>
-                  )}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
+        <dl className="kv">
+          <div className="kv-row">
+            <dt>status</dt>
+            <dd style={{ color: ready ? "var(--green)" : "var(--amber)" }}>
+              {ready ? "settled · claimable" : "awaiting saya settlement"}
+            </dd>
+          </div>
+          <div className="kv-row">
+            <dt>amount</dt>
+            <dd>{w.amount.toLocaleString()} $GOLD</dd>
+          </div>
+          <div className="kv-row">
+            <dt>appchain block</dt>
+            <dd>
+              {w.block} <small style={{ color: "var(--faint)" }}>· settled {settled} / tip {tip}</small>
+            </dd>
+          </div>
+          <div className="kv-row">
+            <dt>L2 tx</dt>
+            <dd className="mono-wrap">
+              <a
+                className="tx-link"
+                href={chain.explorerTxUrl(chain.APPCHAIN_EXPLORER, w.txHash)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {w.txHash} ↗
+              </a>
+            </dd>
+          </div>
+          <div className="kv-row">
+            <dt>L1 msg hash</dt>
+            <dd className="mono-wrap">{msgHash}</dd>
+          </div>
+          <div className="kv-row">
+            <dt>from · L2</dt>
+            <dd className="mono-wrap">{chain.GAME_SYSTEM}</dd>
+          </div>
+          <div className="kv-row">
+            <dt>to · L1</dt>
+            <dd className="mono-wrap">{chain.BANK_SYSTEM}</dd>
+          </div>
+        </dl>
         <div className="legend">
-          {phase === "done"
-            ? `done — $GOLD minted on ${chain.SETTLEMENT_NAME}`
-            : "this completes on its own — you can close this and keep playing"}
+          the L2→L1 message is hashed (poseidon) to the L1 msg hash that <b>bank</b> consumes on{" "}
+          {chain.SETTLEMENT_NAME}.
         </div>
       </div>
     </div>
@@ -695,7 +705,7 @@ export default function App() {
   const [fee, setFee] = useState(0n); // GAME entry fee
   const [settled, setSettled] = useState(0);
   const [tip, setTip] = useState(0);
-  const [pending, setPending] = useState<chain.WithdrawalRow | null>(null); // unbanked withdrawal
+  const [unclaimed, setUnclaimed] = useState<chain.WithdrawalRow[]>([]); // withdrawals not yet banked, oldest-first
   const [lastEnded, setLastEnded] = useState<chain.RunEndRow | null>(null);
   const [selected, setSelected] = useState<chain.OutcomeRow | null>(null);
   const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
@@ -712,10 +722,7 @@ export default function App() {
   // re-baselines, so a prior run's outcome doesn't reappear.
   const baselineEndNoRef = useRef<number | null>(null);
   const [dismissedEndNo, setDismissedEndNo] = useState(-1); // outcome veil closed by the user
-  const [bankModal, setBankModal] = useState(false); // the withdraw/bank progress modal
-  const [bankAmount, setBankAmount] = useState(0); // gold being banked (for the modal/done state)
-  const [withdrawTx, setWithdrawTx] = useState<string | undefined>(); // L2 withdraw tx hash
-  const [mintTx, setMintTx] = useState<string | undefined>(); // L1 mint tx hash
+  const [wdDetail, setWdDetail] = useState<chain.WithdrawalRow | null>(null); // withdrawal-details modal
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // Brief "insufficient $GAME" flash on the New Game / Enter again button after a click
@@ -808,7 +815,9 @@ export default function App() {
         setGoldBal(gld);
         setUsdcBal(ub);
         setVault(vt);
-        setPending(wd.length > bc ? wd[bc] : null);
+        // Everything past the banked count is unclaimed (oldest-first). The Claim
+        // button banks all of these that have settled, in one multicall.
+        setUnclaimed(wd.slice(bc));
         setLastEnded(le);
         if (baselineEndNoRef.current === null) baselineEndNoRef.current = le ? le.endNo : -1;
       } else {
@@ -818,7 +827,7 @@ export default function App() {
         setGoldBal(0n);
         setUsdcBal(0n);
         setVault(0);
-        setPending(null);
+        setUnclaimed([]);
         setLastEnded(null);
       }
       setErr(null);
@@ -998,13 +1007,17 @@ export default function App() {
   const onUse = actL2("use", (acc) => chain.useItem(selectedRun!, acc));
   const onExtract = actL2("extract", (acc) => chain.extract(selectedRun!, acc));
   // Banking is two explicit actions, one per chain. "Withdraw" empties the L2 vault
-  // into an L2→L1 message (signed by the appchain signer). "Claim" — enabled only once
-  // saya has settled that withdrawal's block onto L1 — consumes the message and mints
-  // the GOLD on the settlement layer (signed by the L1 signer).
-  const onWithdraw = actL2("withdraw", async (acc) => setWithdrawTx(await chain.withdraw(player, acc)));
+  // into an L2→L1 message (signed by the appchain signer). "Claim" banks every settled
+  // withdrawal at once — a single L1 multicall that consumes each settled message and
+  // mints the GOLD (signed by the L1 signer). It's enabled once the oldest withdrawal
+  // has settled; any not-yet-settled ones stay queued for the next Claim.
+  const onWithdraw = actL2("withdraw", (acc) => chain.withdraw(player, acc));
   const onClaim = actL1("claim", async (acc) => {
-    if (!pending) return;
-    setMintTx(await chain.bankRun(acc, player, pending.amount, pending.withdrawNo));
+    // Only settled withdrawals can be consumed; an unsettled one would revert the
+    // whole multicall, so leave those for a later click.
+    const claimable = unclaimed.filter((w) => settled >= w.block);
+    if (!claimable.length) return;
+    await chain.bankMany(acc, player, claimable);
   });
 
   const hp = run ? run.hp : 0;
@@ -1020,20 +1033,17 @@ export default function App() {
     );
   })();
 
+  // The oldest unbanked withdrawal drives the gate/label/modal. Because withdraw_no
+  // climbs with block height and saya settles in order, the oldest always settles
+  // first — so "oldest settled" means at least one is claimable.
+  const pending = unclaimed[0] ?? null;
   const claimReady = !!pending && settled >= pending.block;
+  // What a Claim click banks right now: every withdrawal already settled on L1. In the
+  // common single-withdrawal flow this is just the one pending amount.
+  const claimAmount = unclaimed.filter((w) => settled >= w.block).reduce((s, w) => s + w.amount, 0);
   // GOLD that can still be banked: gold sitting in the L2 vault (needs a withdraw)
-  // plus any withdrawn-but-not-yet-banked amount (needs settle + bank on L1).
-  const bankable = vault + (pending?.amount ?? 0);
-  // A bank is mid-flight from withdraw through claim; the progress modal (reachable
-  // via "view progress") shows which phase we're in and links the per-chain txs.
-  const bankInProgress = b("withdraw") || !!pending || b("claim");
-  const bankPhase: "withdraw" | "settle" | "mint" | "done" = b("withdraw")
-    ? "withdraw"
-    : b("claim") || (pending && claimReady)
-      ? "mint"
-      : pending
-        ? "settle"
-        : "done";
+  // plus everything withdrawn but not yet banked (needs settle + claim on L1).
+  const bankable = vault + unclaimed.reduce((s, w) => s + w.amount, 0);
 
   return (
     <>
@@ -1097,7 +1107,7 @@ export default function App() {
               {bankable > 0 && (
                 <span
                   className={`tab-badge ${claimReady ? "ready" : "wait"}`}
-                  title={claimReady ? `${pending?.amount} GOLD ready to bank` : `${bankable} GOLD to bank`}
+                  title={claimReady ? `${claimAmount} GOLD ready to bank` : `${bankable} GOLD to bank`}
                 >
                   {bankable}
                 </span>
@@ -1407,16 +1417,7 @@ export default function App() {
               {bankable > 0 ? (
                 <>
                   <div className="row-actions">
-                    <button
-                      className="good"
-                      disabled={anyBusy || vault === 0}
-                      onClick={() => {
-                        setBankAmount(vault);
-                        setWithdrawTx(undefined);
-                        setMintTx(undefined);
-                        void onWithdraw();
-                      }}
-                    >
+                    <button className="good" disabled={anyBusy || vault === 0} onClick={() => void onWithdraw()}>
                       {b("withdraw") ? "withdrawing…" : `Withdraw ${vault.toLocaleString()} $GOLD`}
                     </button>
                     <span className="flow-arrow" aria-hidden>
@@ -1431,16 +1432,39 @@ export default function App() {
                         ? "claiming…"
                         : pending
                           ? claimReady
-                            ? `Claim ${pending.amount.toLocaleString()} $GOLD`
+                            ? `Claim ${claimAmount.toLocaleString()} $GOLD`
                             : "awaiting saya…"
                           : "Claim"}
                     </button>
                   </div>
-                  {bankInProgress && (
-                    <div className="legend">
-                      <button className="ghost" onClick={() => setBankModal(true)}>
-                        view progress ›
-                      </button>
+                  {unclaimed.length > 0 && (
+                    <div className="wd">
+                      <div className="wd-head">pending withdrawals</div>
+                      <ul className="wd-list">
+                        {unclaimed.map((w) => {
+                          const ready = settled >= w.block;
+                          return (
+                            <li
+                              key={w.withdrawNo}
+                              className={ready ? "ready" : "wait"}
+                              role="button"
+                              tabIndex={0}
+                              title="view withdrawal details"
+                              onClick={() => setWdDetail(w)}
+                              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setWdDetail(w)}
+                            >
+                              <span className="wd-no">#{w.withdrawNo}</span>
+                              <span className="wd-amt">
+                                {w.amount.toLocaleString()} <small>$GOLD</small>
+                              </span>
+                              <span className="wd-status">{ready ? "settled" : "awaiting saya"}</span>
+                              <span className="wd-chev" aria-hidden>
+                                ›
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
                   )}
                 </>
@@ -1508,18 +1532,8 @@ export default function App() {
       )}
       {selected && <OutcomeModal outcome={selected} onClose={() => setSelected(null)} />}
       {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} />}
-      {bankModal && (
-        <BankModal
-          phase={bankPhase}
-          amount={pending?.amount ?? bankAmount}
-          withdrawNo={pending?.withdrawNo}
-          block={pending?.block}
-          settled={settled}
-          tip={tip}
-          withdrawTx={withdrawTx}
-          mintTx={mintTx}
-          onClose={() => setBankModal(false)}
-        />
+      {wdDetail && (
+        <WithdrawalModal w={wdDetail} player={player} settled={settled} tip={tip} onClose={() => setWdDetail(null)} />
       )}
       {tutorial && <Tutorial onClose={closeTutorial} setTab={setTab} />}
       <div className="scanlines" />

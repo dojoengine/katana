@@ -10,7 +10,7 @@
 // state, event-message tables for the action + bank feeds) and a few raw RPC
 // reads (token balances, piltover settled height, appchain tip).
 
-import { Account, type AccountInterface, BlockTag, CallData, RpcProvider, TransactionFinalityStatus, cairo, hash } from "starknet";
+import { Account, type AccountInterface, BlockTag, CallData, RpcProvider, TransactionFinalityStatus, cairo, ec, hash } from "starknet";
 import { ToriiClient } from "@dojoengine/torii-wasm";
 import deployments from "./deployments.json";
 
@@ -319,7 +319,7 @@ export async function readVault(player: string): Promise<number> {
 
 // --- withdrawal / bank reconciliation (drives the "Bank" step) ---
 
-export type WithdrawalRow = { withdrawNo: number; amount: number; block: number };
+export type WithdrawalRow = { withdrawNo: number; amount: number; block: number; txHash: string };
 
 /** This player's withdrawals (vault → L1), oldest-first. Each needs a `bank` on
  *  Sepolia once saya has settled the block it landed in. */
@@ -328,11 +328,21 @@ export async function getWithdrawals(player: string): Promise<WithdrawalRow[]> {
     TORII_GAME,
     `SELECT withdraw_no, amount, internal_event_id FROM "game-Withdrawal" WHERE player = "${player}" ORDER BY withdraw_no`,
   );
-  return rows.map((r) => ({
-    withdrawNo: num(r.withdraw_no),
-    amount: num(r.amount),
-    block: parseEventId(String(r.internal_event_id)).block,
-  }));
+  return rows.map((r) => {
+    const { block, txHash } = parseEventId(String(r.internal_event_id));
+    return { withdrawNo: num(r.withdraw_no), amount: num(r.amount), block, txHash };
+  });
+}
+
+/** The L2→L1 message hash piltover registers for a withdrawal — the same value its
+ *  `consume_message_from_appchain` reconstructs (and `bank` consumes). Mirrors the
+ *  cairo `compute_message_hash_appc_to_sn`: poseidon over
+ *  [from_address, to_address, payload_len, ...payload], where the message is sent
+ *  from the appchain game system to the settlement bank system with payload
+ *  [player, amount, withdraw_no]. */
+export function withdrawalMessageHash(player: string, amount: number, withdrawNo: number): string {
+  const data = [GAME_SYSTEM, BANK_SYSTEM, "0x3", player, "0x" + amount.toString(16), "0x" + withdrawNo.toString(16)];
+  return "0x" + ec.starkCurve.poseidonHashMany(data.map((v) => BigInt(v))).toString(16);
 }
 
 /** How many of this player's withdrawals have already been banked on Sepolia. */
@@ -541,18 +551,18 @@ export async function enterDungeon(account: Signer): Promise<string> {
   );
 }
 
-/** Bank a settled withdrawal on Sepolia: consume the L2→L1 message, mint GOLD. */
-export async function bankRun(account: Signer, player: string, amount: number, withdrawNo: number): Promise<string> {
-  return settlementTx("bank", () =>
-    account
-      .execute({
-        contractAddress: BANK_SYSTEM,
-        entrypoint: "bank",
-        // bank(from_address = game system, player, amount, withdraw_no)
-        calldata: [GAME_SYSTEM, player, "0x" + amount.toString(16), "0x" + withdrawNo.toString(16)],
-      })
-      .then((r) => r.transaction_hash),
-  );
+/** Bank settled withdrawals on Sepolia in one transaction: a multicall that consumes
+ *  each L2→L1 message and mints its GOLD. Every row MUST already be settled — an
+ *  unsettled `consume_message_from_appchain` reverts, and one revert fails the whole
+ *  multicall (so the caller passes only settled rows). */
+export async function bankMany(account: Signer, player: string, rows: WithdrawalRow[]): Promise<string> {
+  const calls = rows.map((w) => ({
+    contractAddress: BANK_SYSTEM,
+    entrypoint: "bank",
+    // bank(from_address = game system, player, amount, withdraw_no)
+    calldata: [GAME_SYSTEM, player, "0x" + w.amount.toString(16), "0x" + w.withdrawNo.toString(16)],
+  }));
+  return settlementTx("bank", () => account.execute(calls).then((r) => r.transaction_hash));
 }
 
 // --- writes: appchain play actions (dev account by default, or a Controller) ---
@@ -622,7 +632,7 @@ export const useItem = (runNo: number, account?: Signer) => action("use_item", r
 export const extract = (runNo: number, account?: Signer) => action("extract", runNo, account);
 
 /** Withdraw: send the whole vault to L1 as one message (the first half of banking).
- *  Keyed by player (the vault spans all runs); the second half is `bankRun` on L1. */
+ *  Keyed by player (the vault spans all runs); the second half is `bankMany` on L1. */
 export const withdraw = (player: string, account?: Signer) => appchainCall("withdraw", player, account);
 
 export { MESSAGE_SENT_KEY };

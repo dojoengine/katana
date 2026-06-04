@@ -57,8 +57,8 @@ signed by the wallet's L1 account; appchain actions by the local dev account:
   calls the `game` system with the **`run_no`** being played, signed by the dev
   account; `withdraw(player)` sends the whole vault to L1. `extract` banks the run's
   gold into the vault; `withdraw` sends the whole vault to L1.
-- **Bank (L2→L1):** `bankRun(player, amount, withdrawNo)` — `bank.bank` on Sepolia,
-  once the withdrawal is settled; mints GOLD.
+- **Bank (L2→L1):** `bankMany(player, rows)` — one Sepolia multicall of `bank.bank`,
+  one call per settled withdrawal; each consumes its L2→L1 message and mints GOLD.
 
 Two practical notes carried over from cross-chain-game:
 
@@ -80,15 +80,24 @@ operation). Players extract many runs into the `game-Vault`, then bank once:
 1. **Withdraw (L2):** when `Vault.gold > 0`, the **Withdraw** button sends one message
    with the whole vault and emits a `game-Withdrawal { amount, withdraw_no }`.
 2. **Settle:** saya proves and settles the withdrawal's appchain block onto piltover.
-3. **Claim (L1):** the **Claim** button calls `bankRun`, which consumes the message and
-   mints GOLD.
+3. **Claim (L1):** the **Claim** button calls `bankMany`, banking *every settled*
+   withdrawal in one multicall (each call consumes its message and mints GOLD).
 
 Withdraw and Claim are two explicit buttons (one per chain), not a single auto-claiming
-action: the client reconciles `game-Withdrawal` (L2) against `bank-Banked` (L1) — the
-first withdrawal beyond the banked count is the **pending** one, and the **Claim**
-button enables only once `settledBlock ≥` its appchain block. The Bank-tab badge shows the
-bankable gold (amber while awaiting saya, green once a withdrawal is settled). See
-`readVault` / `getWithdrawals` / `getBankCount` in `chain.ts`.
+action: the client reconciles `game-Withdrawal` (L2) against `bank-Banked` (L1) — every
+withdrawal past the banked count is **unclaimed** (oldest-first). The **Claim** button
+enables once the oldest has settled (`settledBlock ≥` its block) and banks all that have
+settled at once; any not-yet-settled ones stay queued (an unsettled `consume` would
+revert the whole multicall). The Bank-tab badge shows the total bankable gold (amber
+while awaiting saya, green once a withdrawal is settled). See `readVault` /
+`getWithdrawals` / `getBankCount` in `chain.ts`.
+
+The unclaimed withdrawals render as a list under the buttons; clicking one opens a
+details modal — its L2 tx (linked to the appchain explorer), appchain block + settle
+progress, and the exact L2→L1 message: route (`game system → bank system`), payload
+`[player, amount, withdraw_no]`, and the poseidon **message hash** piltover registers
+and `bank` consumes. `withdrawalMessageHash` in `chain.ts` mirrors the cairo
+`compute_message_hash_appc_to_sn` (poseidon over `[from, to, payload_len, ...payload]`).
 
 ## Wallets (operator default, optional Controller)
 

@@ -148,6 +148,24 @@ body {
 .bank-empty { color: var(--ghost); text-align: center; padding: 22px 0 8px; font-size: 13px; }
 .bank-empty b { color: var(--dim); }
 
+/* Pending-withdrawals list under the bank buttons: each unbanked withdrawal + status. */
+.wd { margin-top: 16px; }
+.wd-head { color: var(--dim); font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+.wd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wd-list li { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; font-size: 12px; border: 1px solid var(--border); border-left-width: 2px; background: rgba(0,0,0,.18); cursor: pointer; transition: background .08s linear, border-color .08s linear; }
+.wd-list li:hover { background: rgba(255,180,84,.06); border-color: var(--border-hi); }
+.wd-list li:focus-visible { outline: 1px solid var(--border-hi); outline-offset: -1px; }
+.wd-list .wd-no { color: var(--dim); letter-spacing: .5px; }
+.wd-list .wd-amt { color: var(--gold); font-variant-numeric: tabular-nums; }
+.wd-list .wd-amt small { color: var(--dim); }
+.wd-list .wd-status { margin-left: auto; font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; }
+.wd-list .wd-chev { color: var(--faint); font-size: 13px; }
+.wd-list li:hover .wd-chev { color: var(--amber); }
+.wd-list li.ready { border-left-color: var(--green); }
+.wd-list li.ready .wd-status { color: var(--green); }
+.wd-list li.wait { border-left-color: var(--amber); }
+.wd-list li.wait .wd-status { color: var(--amber); }
+
 /* Floating windows (logs, config) + their launchers (top-left of viewport). */
 .launchers { position: fixed; top: 10px; left: 12px; z-index: 8001; display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
 .launcher {
