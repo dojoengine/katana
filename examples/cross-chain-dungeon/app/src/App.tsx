@@ -7,6 +7,11 @@ import { Tutorial } from "./tutorial.tsx";
 const BUY_USDC = 10n ** BigInt(chain.USDC_DECIMALS); // 1 USDC
 const DEV_MINT = 500n * 10n ** BigInt(chain.GAME_DECIMALS); // 500 GAME
 
+// The game world is deployed (deployments.json carries a real GAME_SYSTEM). The global
+// run-outcome feed / leaderboard / stats are appchain-world state, not per-user, so they
+// load whenever this is true — even with no wallet connected.
+const DEPLOYED = BigInt(chain.GAME_SYSTEM) !== 0n;
+
 const ROOM_GLYPH: Record<number, { ch: string; cls: string }> = {
   1: { ch: "M", cls: "mob" },
   2: { ch: "$", cls: "loot" },
@@ -701,14 +706,17 @@ export default function App() {
     setNewLogs(0);
   };
 
-  const ready = !!player && BigInt(player || "0x0") !== 0n && BigInt(chain.GAME_SYSTEM) !== 0n;
+  const ready = DEPLOYED && !!player && BigInt(player || "0x0") !== 0n;
   // The L1 entry buttons (buy / dev-mint / new game / enter again) stay clickable when
   // disconnected so the click opens the login modal (their handlers prompt to connect);
   // once connected, they need the deployments + player to be ready.
   const actReady = ready || wallet.method === null;
 
   const tick = useCallback(async () => {
-    if (!ready || inFlight.current) return;
+    // Gate on deployments, NOT on a connected player: the global feed/leaderboard/stats
+    // are world state and load even when nothing is connected (per-player reads below are
+    // guarded by `if (player)`).
+    if (!DEPLOYED || inFlight.current) return;
     inFlight.current = true;
     try {
       // Global reads (always shown, even on the disconnected starting page): world
@@ -780,7 +788,7 @@ export default function App() {
     } finally {
       inFlight.current = false;
     }
-  }, [player, ready, selectedRun]);
+  }, [player, selectedRun]);
 
   // The long-lived subscriptions/interval below always call the latest tick().
   const tickRef = useRef(tick);
@@ -1180,7 +1188,7 @@ export default function App() {
                       Back to lobby
                     </button>
                     <button className="good" disabled={anyBusy || !actReady} onClick={onEnterAgain}>
-                      {gameBal < fee
+                      {player && gameBal < fee
                         ? "insufficient $GAME"
                         : `Enter again · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
                     </button>
@@ -1253,7 +1261,7 @@ export default function App() {
                     <div className="newgame-sub">start a fresh dive — or continue an unfinished run</div>
                   </div>
                   <button className="good newgame-start" disabled={anyBusy || !actReady} onClick={onNewGame}>
-                    {gameBal < fee
+                    {player && gameBal < fee
                       ? "insufficient $GAME"
                       : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
                   </button>
