@@ -1299,7 +1299,7 @@ export default function App() {
             {/* RIGHT: run-outcome log — every run's ending, by every player */}
             <section className="col-right" data-tut="log">
               <div className="panel-h">
-                Run Outcomes<span className="rule" />
+                Runs<span className="rule" />
               </div>
               <div className="log-wrap">
               <div
