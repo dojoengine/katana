@@ -118,24 +118,48 @@ function DungeonMap({ run }: { run: chain.RunState | null }) {
 }
 
 function Gauge({ settled, tip }: { settled: number; tip: number }) {
-  const n = 18;
+  // The bar flex-grows to fill the row; size its block count to the measured width
+  // (one glyph's advance via a hidden probe, like the dungeon map) so it stays full.
+  const barRef = useRef<HTMLSpanElement>(null);
+  const [n, setN] = useState(24);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const measure = () => {
+      const cs = getComputedStyle(el);
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+      probe.style.fontFamily = cs.fontFamily;
+      probe.style.fontSize = cs.fontSize;
+      probe.style.fontWeight = cs.fontWeight;
+      probe.style.letterSpacing = cs.letterSpacing;
+      probe.textContent = "█".repeat(100);
+      el.appendChild(probe);
+      const charW = probe.getBoundingClientRect().width / 100;
+      el.removeChild(probe);
+      if (!charW) return;
+      const cols = Math.max(8, Math.floor(el.clientWidth / charW) - 2); // -2 for the ▕▏ brackets
+      setN((prev) => (prev === cols ? prev : cols));
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, []);
   const safeTip = Math.max(tip, 1);
   const fill = Math.max(0, Math.min(n, Math.round((settled / safeTip) * n)));
-  const lag = Math.max(0, tip - settled);
   return (
     <div className="gauge">
-      <span className="lbl">SAYA SETTLEMENT</span>
-      <span>
-        settled <span className="n">{String(Math.max(settled, 0)).padStart(4, "0")}</span>
-      </span>
-      <span className="bar">
+      <span className="bar" ref={barRef}>
         ▕<span className="fill">{"█".repeat(fill)}</span>
-        <span className="empty">{"░".repeat(n - fill)}</span>▏
+        <span className="empty">{"░".repeat(Math.max(0, n - fill))}</span>▏
       </span>
-      <span>
-        tip <span className="n">{String(tip).padStart(4, "0")}</span>
+      <span
+        className="gauge-count"
+        data-tooltip="settled / tip — appchain blocks saya has settled onto L1 (piltover), over the appchain's current block. The gap is how far L1 settlement trails; your bank mints once its withdrawal's block is settled."
+      >
+        <span className="n">{String(Math.max(settled, 0)).padStart(4, "0")}</span> / <span className="n">{String(tip).padStart(4, "0")}</span>
       </span>
-      <span className="lag">{lag > 0 ? `${lag} block${lag > 1 ? "s" : ""} unsettled` : "fully settled"}</span>
     </div>
   );
 }
@@ -591,7 +615,7 @@ function FloatingWindow({
 }
 
 /** Deployment configuration: service URLs, contract addresses, saya progress. */
-function ConfigPanel({ settled, tip }: { settled: number; tip: number }) {
+function ConfigPanel() {
   // "empty" = falsy or a zero address; non-hex values (URLs) are never empty.
   const z = (a: string) => {
     if (!a) return true;
@@ -644,9 +668,6 @@ function ConfigPanel({ settled, tip }: { settled: number; tip: number }) {
       <div className="cfg-sec">Accounts</div>
       <Field label="settlement (operator)" value={chain.operatorAccount.address} href={l1(chain.operatorAccount.address)} />
       <Field label="appchain (dev)" value={chain.appchainAccount.address} />
-
-      <div className="cfg-sec">Settlement · saya</div>
-      <Gauge settled={settled} tip={tip} />
     </div>
   );
 }
@@ -1375,6 +1396,7 @@ export default function App() {
 
           {tab === "bank" && (
           <main className="bank-page">
+            <div className="bank-stack">
             <section className="bank-card" data-tut="bank">
               <div className="bank-chain">
                 <span className="chip on">
@@ -1438,6 +1460,18 @@ export default function App() {
                 <></>
               )}
             </section>
+
+            <section className="bank-card">
+              <div className="panel-h">
+                Settlement · saya<span className="rule" />
+              </div>
+              <Gauge settled={settled} tip={tip} />
+              <p className="bank-intro" style={{ marginBottom: 0 }}>
+                Your bank mints once <b>saya</b> settles the withdrawal's appchain block onto
+                piltover — the lag above is how far L1 settlement trails the appchain tip.
+              </p>
+            </section>
+            </div>
           </main>
           )}
 
@@ -1472,7 +1506,7 @@ export default function App() {
           onClose={() => setConfigOpen(false)}
           initial={{ x: 90, y: 92, w: Math.min(620, window.innerWidth - 28), h: 500 }}
         >
-          <ConfigPanel settled={settled} tip={tip} />
+          <ConfigPanel />
         </FloatingWindow>
       )}
       {txOpen && (
