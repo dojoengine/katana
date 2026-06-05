@@ -27,10 +27,14 @@ CONTROLLER=1 ./up.sh
 
 `CONTROLLER=1` appends `--paymaster --cartridge.paymaster --cartridge.controllers` to
 the **appchain** node (the settlement side is real Sepolia — Cartridge knows it
-natively, so only the appchain needs the middleware). The controller account classes are
-in the rollup genesis (katana #584), so the Controller deploys on the appchain at its
-canonical address on first play. The frontend serves HTTPS (`mkcert`), required for the
-passkey login.
+natively, so only the appchain needs the middleware) and **declares the Controller
+account classes on the appchain** (`scripts/declare-controller-class.ts`, *all* bundled
+versions — an account is pinned to the class version it was created with, and the
+keychain deploys it at that version on a new chain). On a katana binary with the
+[#586](https://github.com/dojoengine/katana/pull/586) fix the classes are already in the
+rollup genesis at their canonical hashes and this declare is a harmless no-op; on older
+binaries it's what lets the Controller auto-deploy on first play. The frontend serves
+HTTPS (`mkcert`), required for the passkey login.
 
 Open `https://localhost:3002`, **Login → Connect Controller** (your cartridge.gg
 account), then play: enter (Sepolia) → play (appchain) → withdraw → bank (Sepolia), all
@@ -45,9 +49,20 @@ hit **Dev-mint** (a session policy) once funded, or buy with USDC.
 
 ## Gotchas
 
-- **Chrome may block the keychain → localhost appchain** (Private Network Access). The
-  play actions need the keychain to reach `:5070`; if a roll stalls, enable
-  `chrome://flags/#local-network-access-check`.
+- **Chrome blocks the hosted keychain → localhost appchain** (Local Network Access). The
+  play actions need the `x.cartridge.gg` iframe to reach `:5070`; on the first appchain
+  call Chrome shows a *"x.cartridge.gg wants to access devices on your local network"*
+  prompt — **allow it**. (On Chrome ≥138 the old `chrome://flags/#local-network-access-check`
+  is a no-op; the permission prompt is the actual gate.) If it can't be granted, expose
+  the appchain over a public HTTPS tunnel (e.g. `cloudflared tunnel --url
+  http://localhost:5070`) and point the connector's appchain RPC at the tunnel URL.
+- **Pre-wildcard Controller account** — modern keychains use *wildcard* sessions, which
+  need account class **≥ v1.0.9**. If your Controller was created on an older class, its
+  fresh appchain deploy lands at that old version and play reverts with
+  `session/length-mismatch`. Upgrade the appchain account: set `VITE_DEFAULT_APPCHAIN=1`
+  in `app/.env.local` so the keychain sits on the appchain, Connect → it shows an
+  **Upgrade** screen → upgrade → unset the var. (The upgrade gate reads the *current*
+  chain, so on Sepolia — already upgraded — it never offers the appchain upgrade.)
 - **Per-chain sessions** — the appchain session isn't pre-approved on connect, so the
   first play may show a confirm modal rather than being silent.
 - **HTTPS for WebAuthn** — `CONTROLLER=1 ./up.sh` serves `https://localhost:3002` via
@@ -75,6 +90,16 @@ offline dev) — point the app at a self-hosted keychain instead:
 A self-hosted Controller is a **fresh localhost passkey** (RP-id `localhost`), so its
 Sepolia account starts undeployed and unfunded — send its address (shown on connect)
 some STRK so it can self-deploy + pay. Keep the keychain (`:3010`) up before connecting.
+
+**Keeping your real cartridge.gg account while self-hosting** — e.g. to test an
+*unreleased* keychain change against your real (funded) account: instead of RP-id
+`localhost`, serve the self-hosted keychain *as* `x.cartridge.gg`. Resolve
+`x.cartridge.gg → 127.0.0.1` (`/etc/hosts`), front it with a reverse proxy on `:443`
+using a locally-trusted cert for `x.cartridge.gg` (mkcert), and set the keychain's
+`VITE_RP_ID=cartridge.gg` + `VITE_CARTRIDGE_API_URL=https://api.cartridge.gg`. Now the
+iframe is a loopback origin (no LNA prompt), `api.cartridge.gg` CORS accepts the real
+origin, and the passkey resolves your real account — all while running your patched
+keychain. Remove the `/etc/hosts` entry when done to restore the real domain.
 
 ---
 
