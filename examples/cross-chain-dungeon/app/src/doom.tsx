@@ -153,7 +153,7 @@ type Engine = {
   // Move transition state machine. The rendered room is `shownRun` (latched), not
   // the live run — so a new room (and its monster) is only revealed once we've
   // walked out, faded, and the run has actually advanced to it.
-  phase: "live" | "out" | "hold" | "in";
+  phase: "load" | "live" | "out" | "hold" | "in";
   phaseT0: number;
   startDepth: number;
   shownRun: chain.RunState | null;
@@ -183,7 +183,7 @@ function freshEngine(): Engine {
     hurtUntil: 0,
     healUntil: 0,
     quaffUntil: 0,
-    phase: "live",
+    phase: "load",
     phaseT0: 0,
     startDepth: -1,
     shownRun: null,
@@ -201,8 +201,20 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
   fxRef.current = fx;
   const engRef = useRef<Engine>(freshEngine());
 
+  // The fx string and the *Nonce counters are App-level and survive a remount, so
+  // these effects must act only on a genuine *change* — never on mount. Otherwise
+  // continuing a run remounts DoomScene with a stale non-zero nonce and replays
+  // whatever animation you last triggered. We compare against the value captured
+  // at mount (refs init to the current prop), so the mount run is always a no-op.
+  const fxPrev = useRef(fx);
+  const firePrev = useRef(fireNonce);
+  const walkPrev = useRef(walkNonce);
+  const usePrev = useRef(useNonce);
+
   // react to fx transitions (set transient tints / monster reactions)
   useEffect(() => {
+    if (fx === fxPrev.current) return;
+    fxPrev.current = fx;
     const e = engRef.current;
     const now = performance.now();
     if (fx === "hurt") {
@@ -217,7 +229,8 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
 
   // fire the weapon when the player attacks
   useEffect(() => {
-    if (fireNonce === 0) return;
+    if (fireNonce === firePrev.current) return;
+    firePrev.current = fireNonce;
     const e = engRef.current;
     e.firing = true;
     e.fireFrame = 0;
@@ -226,7 +239,8 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
 
   // begin the walk-out when the player Moves; the room stays latched until we arrive
   useEffect(() => {
-    if (walkNonce === 0) return;
+    if (walkNonce === walkPrev.current) return;
+    walkPrev.current = walkNonce;
     const e = engRef.current;
     if (e.phase !== "live") return; // ignore double-taps mid-transition
     e.phase = "out";
@@ -236,7 +250,8 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
 
   // raise + drink a potion when the player Uses one
   useEffect(() => {
-    if (useNonce === 0) return;
+    if (useNonce === usePrev.current) return;
+    usePrev.current = useNonce;
     engRef.current.quaffUntil = performance.now() + QUAFF_MS;
   }, [useNonce]);
 
@@ -301,7 +316,15 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
         last = now;
         // ── room transition state machine (latches the rendered room) ──
         const live = runRef.current;
-        if (e.phase === "live") {
+        if (e.phase === "load") {
+          // just mounted: stay dark until this run's data has actually loaded,
+          // then fade it in (so continuing a run doesn't flash a default room)
+          if (live) {
+            e.shownRun = live;
+            e.phase = "in";
+            e.phaseT0 = now;
+          }
+        } else if (e.phase === "live") {
           e.shownRun = live;
         } else if (e.phase === "out") {
           if (now - e.phaseT0 >= OUT_MS) {
@@ -338,7 +361,12 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
         e.planeX = -e.dirY * 0.66; // camera plane ⟂ dir, FOV ≈ 66°
         e.planeY = e.dirX * 0.66;
 
-        if (e.phase === "out") {
+        if (e.phase === "load") {
+          // waiting in the dark for the run to load — sit at the entrance
+          e.posX = 4.0;
+          e.yaw = 0;
+          e.posY = 5.9;
+        } else if (e.phase === "out") {
           // step toward the far wall while fading out
           const t = smooth(Math.min(1, (now - e.phaseT0) / OUT_MS));
           e.posX = 4.0;
@@ -464,9 +492,9 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
 
         octx.putImageData(frame, 0, 0);
 
-        // ── occupant billboard (hidden in the dark "hold" between rooms) ──
+        // ── occupant billboard (hidden in the dark "load"/"hold" gaps) ──
         const occ = OCCUPANT[kind];
-        if (e.phase !== "hold" && occ && occ.frames.length) {
+        if (e.phase !== "hold" && e.phase !== "load" && occ && occ.frames.length) {
           const spriteKey = pickOccupantFrame(e, r, occ, now, dt);
           if (spriteKey) drawSprite(octx, assets.imgs[spriteKey], assets.man.sprites[spriteKey], e, zbuf);
         }
