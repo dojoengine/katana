@@ -1,0 +1,525 @@
+{
+ "sprites": {
+  "TROOA": {
+   "file": "TROOA.png",
+   "w": 48,
+   "h": 60,
+   "ox": 23,
+   "oy": 56
+  },
+  "TROOB": {
+   "file": "TROOB.png",
+   "w": 50,
+   "h": 62,
+   "ox": 24,
+   "oy": 58
+  },
+  "TROOC": {
+   "file": "TROOC.png",
+   "w": 48,
+   "h": 60,
+   "ox": 25,
+   "oy": 56
+  },
+  "TROOD": {
+   "file": "TROOD.png",
+   "w": 50,
+   "h": 62,
+   "ox": 25,
+   "oy": 58
+  },
+  "TROOE": {
+   "file": "TROOE.png",
+   "w": 29,
+   "h": 62,
+   "ox": 14,
+   "oy": 58
+  },
+  "TROOF": {
+   "file": "TROOF.png",
+   "w": 54,
+   "h": 61,
+   "ox": 27,
+   "oy": 57
+  },
+  "TROOG": {
+   "file": "TROOG.png",
+   "w": 71,
+   "h": 64,
+   "ox": 37,
+   "oy": 60
+  },
+  "TROOH": {
+   "file": "TROOH.png",
+   "w": 49,
+   "h": 63,
+   "ox": 26,
+   "oy": 59
+  },
+  "TROOI": {
+   "file": "TROOI.png",
+   "w": 49,
+   "h": 63,
+   "ox": 26,
+   "oy": 59
+  },
+  "TROOJ": {
+   "file": "TROOJ.png",
+   "w": 54,
+   "h": 62,
+   "ox": 23,
+   "oy": 58
+  },
+  "TROOK": {
+   "file": "TROOK.png",
+   "w": 45,
+   "h": 54,
+   "ox": 23,
+   "oy": 50
+  },
+  "TROOL": {
+   "file": "TROOL.png",
+   "w": 42,
+   "h": 43,
+   "ox": 21,
+   "oy": 39
+  },
+  "TROOM": {
+   "file": "TROOM.png",
+   "w": 57,
+   "h": 26,
+   "ox": 29,
+   "oy": 22
+  },
+  "SARGA": {
+   "file": "SARGA.png",
+   "w": 38,
+   "h": 59,
+   "ox": 17,
+   "oy": 55
+  },
+  "SARGB": {
+   "file": "SARGB.png",
+   "w": 34,
+   "h": 59,
+   "ox": 17,
+   "oy": 56
+  },
+  "SARGC": {
+   "file": "SARGC.png",
+   "w": 38,
+   "h": 59,
+   "ox": 18,
+   "oy": 55
+  },
+  "SARGD": {
+   "file": "SARGD.png",
+   "w": 38,
+   "h": 59,
+   "ox": 17,
+   "oy": 55
+  },
+  "SARGE": {
+   "file": "SARGE.png",
+   "w": 38,
+   "h": 60,
+   "ox": 20,
+   "oy": 54
+  },
+  "SARGF": {
+   "file": "SARGF.png",
+   "w": 38,
+   "h": 60,
+   "ox": 18,
+   "oy": 55
+  },
+  "SARGG": {
+   "file": "SARGG.png",
+   "w": 34,
+   "h": 60,
+   "ox": 15,
+   "oy": 57
+  },
+  "SARGI": {
+   "file": "SARGI.png",
+   "w": 38,
+   "h": 59,
+   "ox": 17,
+   "oy": 55
+  },
+  "SARGJ": {
+   "file": "SARGJ.png",
+   "w": 40,
+   "h": 60,
+   "ox": 19,
+   "oy": 56
+  },
+  "SARGK": {
+   "file": "SARGK.png",
+   "w": 43,
+   "h": 53,
+   "ox": 20,
+   "oy": 50
+  },
+  "SARGL": {
+   "file": "SARGL.png",
+   "w": 43,
+   "h": 40,
+   "ox": 20,
+   "oy": 35
+  },
+  "SARGM": {
+   "file": "SARGM.png",
+   "w": 48,
+   "h": 30,
+   "ox": 22,
+   "oy": 26
+  },
+  "SARGN": {
+   "file": "SARGN.png",
+   "w": 49,
+   "h": 29,
+   "ox": 22,
+   "oy": 24
+  },
+  "SHTGA": {
+   "file": "SHTGA.png",
+   "w": 67,
+   "h": 62,
+   "ox": -122,
+   "oy": -107
+  },
+  "SHTGB": {
+   "file": "SHTGB.png",
+   "w": 88,
+   "h": 128,
+   "ox": -78,
+   "oy": -40
+  },
+  "SHTGC": {
+   "file": "SHTGC.png",
+   "w": 93,
+   "h": 143,
+   "ox": -60,
+   "oy": -25
+  },
+  "SHTGD": {
+   "file": "SHTGD.png",
+   "w": 108,
+   "h": 129,
+   "ox": -44,
+   "oy": -39
+  },
+  "SHTFA": {
+   "file": "SHTFA.png",
+   "w": 36,
+   "h": 47,
+   "ox": -142,
+   "oy": -98
+  },
+  "SHTFB": {
+   "file": "SHTFB.png",
+   "w": 58,
+   "h": 55,
+   "ox": -131,
+   "oy": -90
+  },
+  "PISGA": {
+   "file": "PISGA.png",
+   "w": 82,
+   "h": 92,
+   "ox": -125,
+   "oy": -97
+  },
+  "PISGB": {
+   "file": "PISGB.png",
+   "w": 82,
+   "h": 96,
+   "ox": -125,
+   "oy": -82
+  },
+  "PISGC": {
+   "file": "PISGC.png",
+   "w": 84,
+   "h": 100,
+   "ox": -124,
+   "oy": -87
+  },
+  "PISGD": {
+   "file": "PISGD.png",
+   "w": 84,
+   "h": 106,
+   "ox": -125,
+   "oy": -76
+  },
+  "PISGE": {
+   "file": "PISGE.png",
+   "w": 86,
+   "h": 120,
+   "ox": -123,
+   "oy": -68
+  },
+  "PISFA": {
+   "file": "PISFA.png",
+   "w": 32,
+   "h": 30,
+   "ox": -144,
+   "oy": -69
+  },
+  "PUFFA": {
+   "file": "PUFFA.png",
+   "w": 5,
+   "h": 5,
+   "ox": 2,
+   "oy": 3
+  },
+  "PUFFB": {
+   "file": "PUFFB.png",
+   "w": 12,
+   "h": 11,
+   "ox": 6,
+   "oy": 8
+  },
+  "PUFFC": {
+   "file": "PUFFC.png",
+   "w": 15,
+   "h": 14,
+   "ox": 7,
+   "oy": 9
+  },
+  "PUFFD": {
+   "file": "PUFFD.png",
+   "w": 17,
+   "h": 15,
+   "ox": 8,
+   "oy": 10
+  },
+  "BAL1A": {
+   "file": "BAL1A.png",
+   "w": 15,
+   "h": 15,
+   "ox": 8,
+   "oy": 11
+  },
+  "BAL1B": {
+   "file": "BAL1B.png",
+   "w": 15,
+   "h": 15,
+   "ox": 8,
+   "oy": 11
+  },
+  "BAL1C": {
+   "file": "BAL1C.png",
+   "w": 34,
+   "h": 33,
+   "ox": 17,
+   "oy": 21
+  },
+  "BAL1D": {
+   "file": "BAL1D.png",
+   "w": 40,
+   "h": 35,
+   "ox": 19,
+   "oy": 25
+  },
+  "BAL1E": {
+   "file": "BAL1E.png",
+   "w": 46,
+   "h": 39,
+   "ox": 22,
+   "oy": 28
+  },
+  "BAR1A": {
+   "file": "BAR1A.png",
+   "w": 23,
+   "h": 32,
+   "ox": 11,
+   "oy": 30
+  },
+  "BAR1B": {
+   "file": "BAR1B.png",
+   "w": 23,
+   "h": 32,
+   "ox": 11,
+   "oy": 30
+  },
+  "SOULA": {
+   "file": "SOULA.png",
+   "w": 25,
+   "h": 25,
+   "ox": 12,
+   "oy": 39
+  },
+  "SOULB": {
+   "file": "SOULB.png",
+   "w": 25,
+   "h": 25,
+   "ox": 12,
+   "oy": 39
+  },
+  "SOULC": {
+   "file": "SOULC.png",
+   "w": 25,
+   "h": 25,
+   "ox": 12,
+   "oy": 39
+  },
+  "SOULD": {
+   "file": "SOULD.png",
+   "w": 25,
+   "h": 25,
+   "ox": 12,
+   "oy": 39
+  },
+  "CANDA": {
+   "file": "CANDA.png",
+   "w": 16,
+   "h": 19,
+   "ox": 8,
+   "oy": 17
+  },
+  "CBRAA": {
+   "file": "CBRAA.png",
+   "w": 31,
+   "h": 61,
+   "ox": 15,
+   "oy": 61
+  },
+  "COLUA": {
+   "file": "COLUA.png",
+   "w": 18,
+   "h": 48,
+   "ox": 9,
+   "oy": 45
+  },
+  "COL1A": {
+   "file": "COL1A.png",
+   "w": 35,
+   "h": 56,
+   "ox": 18,
+   "oy": 53
+  },
+  "COL5A": {
+   "file": "COL5A.png",
+   "w": 36,
+   "h": 49,
+   "ox": 18,
+   "oy": 48
+  },
+  "ARM2A": {
+   "file": "ARM2A.png",
+   "w": 37,
+   "h": 25,
+   "ox": 18,
+   "oy": 24
+  },
+  "ARM2B": {
+   "file": "ARM2B.png",
+   "w": 37,
+   "h": 25,
+   "ox": 18,
+   "oy": 24
+  },
+  "BON2A": {
+   "file": "BON2A.png",
+   "w": 13,
+   "h": 19,
+   "ox": 6,
+   "oy": 19
+  },
+  "BON2B": {
+   "file": "BON2B.png",
+   "w": 13,
+   "h": 19,
+   "ox": 6,
+   "oy": 19
+  },
+  "BON2C": {
+   "file": "BON2C.png",
+   "w": 13,
+   "h": 19,
+   "ox": 6,
+   "oy": 19
+  },
+  "BON2D": {
+   "file": "BON2D.png",
+   "w": 13,
+   "h": 19,
+   "ox": 6,
+   "oy": 19
+  },
+  "CEYEA": {
+   "file": "CEYEA.png",
+   "w": 39,
+   "h": 43,
+   "ox": 19,
+   "oy": 47
+  },
+  "CEYEB": {
+   "file": "CEYEB.png",
+   "w": 39,
+   "h": 42,
+   "ox": 19,
+   "oy": 47
+  },
+  "CEYEC": {
+   "file": "CEYEC.png",
+   "w": 39,
+   "h": 43,
+   "ox": 19,
+   "oy": 47
+  },
+  "ELECA": {
+   "file": "ELECA.png",
+   "w": 26,
+   "h": 128,
+   "ox": 13,
+   "oy": 128
+  },
+  "SMITA": {
+   "file": "SMITA.png",
+   "w": 62,
+   "h": 69,
+   "ox": 31,
+   "oy": 67
+  }
+ },
+ "flats": {
+  "GRNROCK": {
+   "file": "flat_GRNROCK.png"
+  },
+  "FLAT5_4": {
+   "file": "flat_FLAT5_4.png"
+  },
+  "FLAT5_1": {
+   "file": "flat_FLAT5_1.png"
+  },
+  "FLOOR0_2": {
+   "file": "flat_FLOOR0_2.png"
+  },
+  "FLOOR7_1": {
+   "file": "flat_FLOOR7_1.png"
+  },
+  "CEIL3_5": {
+   "file": "flat_CEIL3_5.png"
+  },
+  "CEIL5_1": {
+   "file": "flat_CEIL5_1.png"
+  },
+  "FLAT1_1": {
+   "file": "flat_FLAT1_1.png"
+  },
+  "DEM1_5": {
+   "file": "flat_DEM1_5.png"
+  },
+  "FLOOR4_8": {
+   "file": "flat_FLOOR4_8.png"
+  },
+  "MFLR8_1": {
+   "file": "flat_MFLR8_1.png"
+  },
+  "RROCK16": {
+   "file": "flat_RROCK16.png"
+  }
+ }
+}

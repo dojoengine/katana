@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import * as chain from "./chain.ts";
 import { useWallet } from "./wallet.tsx";
 import { Tutorial } from "./tutorial.tsx";
+import { DoomScene } from "./doom.tsx";
 
 // Demo amounts. Buy 1 USDC worth of GAME; dev-mint 500 GAME.
 const BUY_USDC = 10n ** BigInt(chain.USDC_DECIMALS); // 1 USDC
@@ -24,33 +25,9 @@ const SHAKE_FRAMES: Keyframe[] = [
 // load whenever this is true — even with no wallet connected.
 const DEPLOYED = BigInt(chain.GAME_SYSTEM) !== 0n;
 
-// ── First-person ASCII scene ────────────────────────────────────────────────
-// There is no spatial grid on-chain: a run is one room at a time (roomKind +
-// enemyHp). So rather than a top-down map we frame the room Doom-style — you are
-// looking *down a corridor* at whatever inhabits the room ahead. A perspective
-// shell (built once) holds a centered "billboard" sprite picked by roomKind.
-
-type Cell = { ch: string; cls: string };
-
-// Sprites are small multi-line billboards; spaces are transparent (the corridor
-// shows through). The monster has an idle/lunge pair so combat reads as motion.
-const DOOR = [" ___________ ", "|  _______  |", "| | ##### | |", "| | ##### | |", "|_|_______|_|"];
-const MOB_A = ["  ,---.  ", " ( o o ) ", " (  ^  ) ", "  )   (  ", " /     \\ "];
-const MOB_B = ["  ,---.  ", " ( O O ) ", " ( >=< ) ", " _)   (_ ", "//     \\\\"];
-const MOB_DEAD = ["         ", "  ,---.  ", " ( x x ) ", "  ~~~~~  ", "         "];
-const LOOT = ["  _________  ", " / $  $  $ \\ ", " | G O L D | ", " \\_________/ ", "  |_|   |_|  "];
-const TRAP = [" ! DANGER ! ", "           ", "  /\\  /\\   ", " /  \\/  \\  ", "/____/\\___\\"];
-const SHRINE = ["   \\ | /   ", " -- (+) -- ", "   / | \\   ", "  [=====]  ", "  |_____|  "];
-const EMPTY = ["           ", "   . . .   ", "  ( ___ )  ", "   empty   ", "           "];
-
-const SPRITE_BY_KIND = [DOOR, MOB_A, LOOT, TRAP, SHRINE, EMPTY];
-const SPRITE_CLS = ["sp-door", "sp-mob", "sp-loot", "sp-trap", "sp-shrine", "sp-empty"];
-
-// A bottom-center "weapon" that bobs while idle and recoils on a hit/hurt.
-const WEAPON = ["    /\\    ", "   |  |   ", " __|  |__ ", "/________\\"];
-
 // Doom-style status-bar face, picked from the hp ratio + combat/death, with a
-// transient "ouch" on the frame you take damage.
+// transient "ouch" on the frame you take damage. The 3D scene itself lives in
+// doom.tsx (a Freedoom-textured raycaster); this only drives the HUD face.
 const FACE_OK = [",-----.", "|o   o|", "| \\_/ |", "`-----'"];
 const FACE_HURT = [",-----.", "|-   o|", "| ___ |", "`-----'"];
 const FACE_CRIT = [",-----.", "|@   @|", "|/~~~\\|", "`-----'"];
@@ -68,133 +45,11 @@ function doomFace(run: chain.RunState, fx: string | null): string[] {
   return FACE_CRIT;
 }
 
-// Perspective-shell geometry: the far-wall rectangle the sprite sits on.
-const SCENE_W = 46;
-const SCENE_H = 17;
-const FX0 = 9,
-  FX1 = SCENE_W - 10,
-  FY0 = 4,
-  FY1 = SCENE_H - 5;
-const INTERIOR_W = FX1 - FX0 - 1;
-const INTERIOR_H = FY1 - FY0 - 1;
-
-function buildCorridor(): Cell[][] {
-  const g: Cell[][] = [];
-  for (let y = 0; y < SCENE_H; y++) {
-    const row: Cell[] = [];
-    for (let x = 0; x < SCENE_W; x++) row.push({ ch: " ", cls: "floor" });
-    g.push(row);
-  }
-  // Four perspective edges: screen corners → far-wall corners (Bresenham).
-  const edge = (x0: number, y0: number, x1: number, y1: number, ch: string) => {
-    const dx = Math.abs(x1 - x0),
-      dy = Math.abs(y1 - y0);
-    const sx = x0 < x1 ? 1 : -1,
-      sy = y0 < y1 ? 1 : -1;
-    let err = dx - dy,
-      x = x0,
-      y = y0;
-    for (;;) {
-      if (y >= 0 && y < SCENE_H && x >= 0 && x < SCENE_W) g[y][x] = { ch, cls: "perp" };
-      if (x === x1 && y === y1) break;
-      const e2 = 2 * err;
-      if (e2 > -dy) {
-        err -= dy;
-        x += sx;
-      }
-      if (e2 < dx) {
-        err += dx;
-        y += sy;
-      }
-    }
-  };
-  edge(0, 0, FX0, FY0, "\\");
-  edge(SCENE_W - 1, 0, FX1, FY0, "/");
-  edge(0, SCENE_H - 1, FX0, FY1, "/");
-  edge(SCENE_W - 1, SCENE_H - 1, FX1, FY1, "\\");
-  // Far-wall rectangle.
-  for (let x = FX0; x <= FX1; x++) {
-    g[FY0][x] = { ch: "─", cls: "wall" };
-    g[FY1][x] = { ch: "─", cls: "wall" };
-  }
-  for (let y = FY0; y <= FY1; y++) {
-    g[y][FX0] = { ch: "│", cls: "wall" };
-    g[y][FX1] = { ch: "│", cls: "wall" };
-  }
-  g[FY0][FX0] = { ch: "┌", cls: "wall" };
-  g[FY0][FX1] = { ch: "┐", cls: "wall" };
-  g[FY1][FX0] = { ch: "└", cls: "wall" };
-  g[FY1][FX1] = { ch: "┘", cls: "wall" };
-  return g;
-}
-
-// Stamp a centered billboard onto the far wall; spaces stay transparent.
-function placeSprite(g: Cell[][], art: string[], cls: string) {
-  const top = FY0 + 1 + Math.max(0, Math.floor((INTERIOR_H - art.length) / 2));
-  for (let i = 0; i < art.length; i++) {
-    const s = art[i];
-    const left = FX0 + 1 + Math.max(0, Math.floor((INTERIOR_W - s.length) / 2));
-    for (let j = 0; j < s.length; j++) {
-      if (s[j] === " ") continue;
-      const y = top + i,
-        x = left + j;
-      if (y > FY0 && y < FY1 && x > FX0 && x < FX1) g[y][x] = { ch: s[j], cls };
-    }
-  }
-}
-
-// Center a short label on a single far-wall row (the enemy HP readout).
-function placeLabel(g: Cell[][], y: number, text: string, cls: string) {
-  const left = FX0 + 1 + Math.max(0, Math.floor((INTERIOR_W - text.length) / 2));
-  for (let j = 0; j < text.length && left + j < FX1; j++) g[y][left + j] = { ch: text[j], cls };
-}
 // Run-finish time for the outcome log — local HH:MM:SS (24h).
 const fmtTime = (ms: number): string =>
   Number.isFinite(ms)
     ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
     : "--:--:--";
-
-function Scene({ run, fx }: { run: chain.RunState | null; fx: string | null }) {
-  // Idle frame tick so the monster "breathes" even between actions.
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 520);
-    return () => clearInterval(id);
-  }, []);
-
-  const grid = buildCorridor();
-  if (run) {
-    const kind = run.roomKind;
-    const cls = SPRITE_CLS[kind] ?? "sp-empty";
-    let art: string[];
-    if (kind === 1) {
-      // monster: corpse when dead, lunge on a hit (or the off idle beat), else idle
-      art = run.enemyHp <= 0 ? MOB_DEAD : fx === "hit" || tick % 2 === 1 ? MOB_B : MOB_A;
-    } else {
-      art = SPRITE_BY_KIND[kind] ?? EMPTY;
-    }
-    placeSprite(grid, art, cls);
-    if (kind === 1 && run.enemyHp > 0) placeLabel(grid, FY0 + 1, `▼ ${run.enemyHp} hp`, "sp-mob");
-  }
-
-  return (
-    <div className={`scene ${fx ? "fx-" + fx : ""} ${run && run.enemyHp > 0 ? "combat" : ""}`}>
-      <pre className="corridor">
-        {grid.map((row, y) => (
-          <div key={y}>
-            {row.map((c, x) => (
-              <span key={x} className={c.cls}>
-                {c.ch}
-              </span>
-            ))}
-          </div>
-        ))}
-      </pre>
-      <pre className={`weapon ${fx === "hit" || fx === "hurt" ? "swing" : ""}`}>{WEAPON.join("\n")}</pre>
-      <div className="scene-flash" />
-    </div>
-  );
-}
 
 // Derive a transient visual effect ("hurt" | "heal" | "hit" | "step") by diffing
 // the polled run state across renders. Drives the scene shake/flash, the weapon
@@ -1048,6 +903,10 @@ export default function App() {
   const inCombat = !!run && run.enemyHp > 0;
   // Transient combat juice (shake/flash/face), derived from polled run-state diffs.
   const sceneFx = useRunFx(run);
+  // Bumped on Attack/Move clicks so the raycaster fires the weapon / plays a
+  // walk-forward step immediately, independent of when the on-chain result lands.
+  const [fireNonce, setFireNonce] = useState(0);
+  const [walkNonce, setWalkNonce] = useState(0);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
   const freshOutcome =
@@ -1356,7 +1215,7 @@ export default function App() {
                         </span>
                         <span>{stats.activeRuns} active</span>
                       </div>
-                      <Scene run={run} fx={sceneFx} />
+                      <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} />
                     </div>
 
                     {/* Doom-style status bar: ammo · health + face · level · score */}
@@ -1391,10 +1250,22 @@ export default function App() {
                     <button className="ghost" disabled={anyBusy} onClick={onLeave} title="back to the New Game page">
                       ←
                     </button>
-                    <button disabled={anyBusy || !run || runOver} onClick={onMove}>
+                    <button
+                      disabled={anyBusy || !run || runOver}
+                      onClick={() => {
+                        setWalkNonce((n) => n + 1);
+                        void onMove();
+                      }}
+                    >
                       {b("move") ? "…" : inCombat ? "Flee" : "Move"}
                     </button>
-                    <button disabled={anyBusy || !inCombat || runOver} onClick={onAttack}>
+                    <button
+                      disabled={anyBusy || !inCombat || runOver}
+                      onClick={() => {
+                        setFireNonce((n) => n + 1);
+                        void onAttack();
+                      }}
+                    >
                       {b("attack") ? "…" : "Attack"}
                     </button>
                     <button disabled={anyBusy || !run || runOver || run.roomKind !== 2} onClick={onLoot}>

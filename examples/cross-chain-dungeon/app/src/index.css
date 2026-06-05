@@ -312,33 +312,12 @@ button.good.insufficient:hover:not(:disabled) {
 .stage { border: 1px solid var(--border); background: radial-gradient(120% 120% at 50% 18%, rgba(255,180,84,.05), transparent 60%), rgba(0,0,0,.25); position: relative; }
 .stage-h { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 11px; letter-spacing: 1.5px; }
 .stage-h .kind { color: var(--amber-hi); }
-/* ===== First-person ASCII scene (Doom-style) ===== */
-.scene { position: relative; overflow: hidden; }
-.corridor { margin: 0; padding: 12px 8px 6px; font-size: 15px; line-height: 1.04; letter-spacing: 0; white-space: pre; font-family: inherit; text-align: center; }
-.corridor .wall { color: var(--faint); }
-.corridor .perp { color: var(--ghost); }
-.corridor .floor { color: var(--ghost); }
-.corridor .sp-door { color: var(--amber-hi); text-shadow: var(--glow); }
-.corridor .sp-mob { color: var(--red); text-shadow: 0 0 9px rgba(255,107,94,.6); font-weight: 700; }
-.corridor .sp-loot { color: var(--gold); text-shadow: 0 0 7px rgba(255,212,94,.45); }
-.corridor .sp-trap { color: var(--red); opacity: .92; }
-.corridor .sp-shrine { color: var(--cyan); text-shadow: 0 0 9px rgba(108,198,255,.5); }
-.corridor .sp-empty { color: var(--faint); }
-/* bottom-center weapon: idle bob, recoil on hit/hurt */
-.weapon { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); margin: 0; padding: 0; white-space: pre; font-family: inherit; font-size: 15px; line-height: 1.04; color: var(--dim); text-shadow: var(--glow); pointer-events: none; animation: bob 2.8s ease-in-out infinite; }
-.weapon.swing { animation: swing .26s ease; }
-@keyframes bob { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(3px); } }
-@keyframes swing { 0% { transform: translateX(-50%) translateY(0); } 35% { transform: translateX(-48%) translateY(11px) rotate(-3deg); } 100% { transform: translateX(-50%) translateY(0); } }
-/* in-combat ambiance: a slow red edge-pulse behind the corridor */
-.scene.combat::before { content: ""; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 60px rgba(255,40,30,.16); animation: combatpulse 1.6s ease-in-out infinite; }
-@keyframes combatpulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
-/* full-scene damage/heal/hit flash */
-.scene-flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
-.scene.fx-hurt { animation: shake .4s ease; }
-.scene.fx-hurt .scene-flash { background: radial-gradient(circle, rgba(255,40,30,0) 30%, rgba(255,40,30,.4)); animation: flash .45s ease forwards; }
-.scene.fx-hit .scene-flash { background: rgba(255,200,120,.16); animation: flash .25s ease forwards; }
-.scene.fx-heal .scene-flash { background: radial-gradient(circle, rgba(115,230,160,.28), transparent 70%); animation: flash .5s ease forwards; }
-@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+/* ===== Doom raycaster viewport (see doom.tsx) ===== */
+.doom { position: relative; width: 100%; line-height: 0; background: #000; cursor: crosshair; overflow: hidden; }
+.doom-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.doom-load, .doom-hint { position: absolute; left: 0; right: 0; pointer-events: none; text-align: center; font-size: 11px; letter-spacing: 1.5px; color: var(--dim); text-shadow: var(--glow); }
+.doom-load { top: 50%; transform: translateY(-50%); }
+.doom-hint { bottom: 8px; opacity: .8; }
 @keyframes shake { 10% { transform: translateX(-6px); } 30% { transform: translateX(6px); } 50% { transform: translateX(-4px); } 70% { transform: translateX(4px); } 90% { transform: translateX(-2px); } 100% { transform: translateX(0); } }
 .veil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; background: rgba(8,6,4,.82); color: var(--dim); text-align: center; font-size: 13px; padding: 12px; }
 .veil b { color: var(--amber); }
