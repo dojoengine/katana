@@ -156,6 +156,7 @@ type Engine = {
   phase: "load" | "live" | "out" | "hold" | "in";
   phaseT0: number;
   startDepth: number;
+  fleeing: boolean; // Move issued while in combat → retreat instead of advance
   shownRun: chain.RunState | null;
 };
 
@@ -186,6 +187,7 @@ function freshEngine(): Engine {
     phase: "load",
     phaseT0: 0,
     startDepth: -1,
+    fleeing: false,
     shownRun: null,
   };
 }
@@ -246,6 +248,7 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
     e.phase = "out";
     e.phaseT0 = performance.now();
     e.startDepth = runRef.current ? runRef.current.depth : -1;
+    e.fleeing = !!(runRef.current && runRef.current.enemyHp > 0); // "Flee" vs "Move"
   }, [walkNonce]);
 
   // raise + drink a potion when the player Uses one
@@ -367,11 +370,12 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
           e.yaw = 0;
           e.posY = 5.9;
         } else if (e.phase === "out") {
-          // step toward the far wall while fading out
+          // step out while fading: forward into the room on a normal Move, but
+          // backward toward the entrance when fleeing, so we retreat from the monster
           const t = smooth(Math.min(1, (now - e.phaseT0) / OUT_MS));
           e.posX = 4.0;
           e.yaw = 0;
-          e.posY = 5.6 - 2.4 * t;
+          e.posY = e.fleeing ? 5.6 + 1.7 * t : 5.6 - 2.4 * t;
           e.bob += dt * 17;
         } else if (e.phase === "hold") {
           // drifting through the dark between rooms
