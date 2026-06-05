@@ -113,15 +113,21 @@ impl<'c> GenesisTransactionsBuilder<'c> {
     }
 
     fn declare(&self, class: ContractClass) -> ClassHash {
-        let nonce = self.master_nonce.replace_with(|&mut n| n + Felt::ONE);
-        let sender_address = *self.master_address.get().expect("must be initialized first");
-
         let class_hash = class.class_hash().unwrap();
 
-        // No need to declare the same class if it was already declared.
-        if self.declared_classes.borrow_mut().contains(&class_hash) {
+        // No need to declare the same class if it was already declared. This check must
+        // come *before* consuming a nonce: a dedup hit that still bumped `master_nonce`
+        // would leave a gap in the master account's nonce sequence, making every
+        // subsequent genesis declare tx fail with `InvalidNonce`. This bites classes
+        // preloaded via `--cartridge.controllers`: their hashes sort after the
+        // already-declared Account/UDC classes, so a dedup-induced gap aborts the
+        // controller declares and they never land at their canonical class hash.
+        if self.declared_classes.borrow().contains(&class_hash) {
             return class_hash;
         }
+
+        let nonce = self.master_nonce.replace_with(|&mut n| n + Felt::ONE);
+        let sender_address = *self.master_address.get().expect("must be initialized first");
 
         let compiled_class_hash = class.clone().compile().unwrap().class_hash().unwrap();
 
