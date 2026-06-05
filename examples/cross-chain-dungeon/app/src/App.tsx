@@ -24,97 +24,206 @@ const SHAKE_FRAMES: Keyframe[] = [
 // load whenever this is true — even with no wallet connected.
 const DEPLOYED = BigInt(chain.GAME_SYSTEM) !== 0n;
 
-const ROOM_GLYPH: Record<number, { ch: string; cls: string }> = {
-  1: { ch: "M", cls: "mob" },
-  2: { ch: "$", cls: "loot" },
-  3: { ch: "^", cls: "trap" },
-  4: { ch: "+", cls: "shrine" },
-};
-/** Render a small ASCII room from the run's current room kind. */
-// The dungeon room keeps its original 7-row height but stretches to fill the
-// container's width: we measure the <pre> and its character cell, then derive the
-// column count so the walls span the full stage and reflow on resize. (`.map` is
-// a block <pre>, so its width is container-driven — growing the grid never feeds
-// back into the observer.)
+// ── First-person ASCII scene ────────────────────────────────────────────────
+// There is no spatial grid on-chain: a run is one room at a time (roomKind +
+// enemyHp). So rather than a top-down map we frame the room Doom-style — you are
+// looking *down a corridor* at whatever inhabits the room ahead. A perspective
+// shell (built once) holds a centered "billboard" sprite picked by roomKind.
+
+type Cell = { ch: string; cls: string };
+
+// Sprites are small multi-line billboards; spaces are transparent (the corridor
+// shows through). The monster has an idle/lunge pair so combat reads as motion.
+const DOOR = [" ___________ ", "|  _______  |", "| | ##### | |", "| | ##### | |", "|_|_______|_|"];
+const MOB_A = ["  ,---.  ", " ( o o ) ", " (  ^  ) ", "  )   (  ", " /     \\ "];
+const MOB_B = ["  ,---.  ", " ( O O ) ", " ( >=< ) ", " _)   (_ ", "//     \\\\"];
+const MOB_DEAD = ["         ", "  ,---.  ", " ( x x ) ", "  ~~~~~  ", "         "];
+const LOOT = ["  _________  ", " / $  $  $ \\ ", " | G O L D | ", " \\_________/ ", "  |_|   |_|  "];
+const TRAP = [" ! DANGER ! ", "           ", "  /\\  /\\   ", " /  \\/  \\  ", "/____/\\___\\"];
+const SHRINE = ["   \\ | /   ", " -- (+) -- ", "   / | \\   ", "  [=====]  ", "  |_____|  "];
+const EMPTY = ["           ", "   . . .   ", "  ( ___ )  ", "   empty   ", "           "];
+
+const SPRITE_BY_KIND = [DOOR, MOB_A, LOOT, TRAP, SHRINE, EMPTY];
+const SPRITE_CLS = ["sp-door", "sp-mob", "sp-loot", "sp-trap", "sp-shrine", "sp-empty"];
+
+// A bottom-center "weapon" that bobs while idle and recoils on a hit/hurt.
+const WEAPON = ["    /\\    ", "   |  |   ", " __|  |__ ", "/________\\"];
+
+// Doom-style status-bar face, picked from the hp ratio + combat/death, with a
+// transient "ouch" on the frame you take damage.
+const FACE_OK = [",-----.", "|o   o|", "| \\_/ |", "`-----'"];
+const FACE_HURT = [",-----.", "|-   o|", "| ___ |", "`-----'"];
+const FACE_CRIT = [",-----.", "|@   @|", "|/~~~\\|", "`-----'"];
+const FACE_SNARL = [",-----.", "|>   <|", "|WWWWW|", "`-----'"];
+const FACE_OUCH = [",-----.", "|x   x|", "| >o< |", "`-----'"];
+const FACE_DEAD = [",-----.", "|X   X|", "| --- |", "`-----'"];
+
+function doomFace(run: chain.RunState, fx: string | null): string[] {
+  if (!run.alive) return FACE_DEAD;
+  if (fx === "hurt") return FACE_OUCH;
+  const r = run.hp / Math.max(run.maxHp, 1);
+  if (run.enemyHp > 0) return r < 0.3 ? FACE_CRIT : FACE_SNARL;
+  if (r > 0.66) return FACE_OK;
+  if (r > 0.33) return FACE_HURT;
+  return FACE_CRIT;
+}
+
+// Perspective-shell geometry: the far-wall rectangle the sprite sits on.
+const SCENE_W = 46;
+const SCENE_H = 17;
+const FX0 = 9,
+  FX1 = SCENE_W - 10,
+  FY0 = 4,
+  FY1 = SCENE_H - 5;
+const INTERIOR_W = FX1 - FX0 - 1;
+const INTERIOR_H = FY1 - FY0 - 1;
+
+function buildCorridor(): Cell[][] {
+  const g: Cell[][] = [];
+  for (let y = 0; y < SCENE_H; y++) {
+    const row: Cell[] = [];
+    for (let x = 0; x < SCENE_W; x++) row.push({ ch: " ", cls: "floor" });
+    g.push(row);
+  }
+  // Four perspective edges: screen corners → far-wall corners (Bresenham).
+  const edge = (x0: number, y0: number, x1: number, y1: number, ch: string) => {
+    const dx = Math.abs(x1 - x0),
+      dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1,
+      sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy,
+      x = x0,
+      y = y0;
+    for (;;) {
+      if (y >= 0 && y < SCENE_H && x >= 0 && x < SCENE_W) g[y][x] = { ch, cls: "perp" };
+      if (x === x1 && y === y1) break;
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        x += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        y += sy;
+      }
+    }
+  };
+  edge(0, 0, FX0, FY0, "\\");
+  edge(SCENE_W - 1, 0, FX1, FY0, "/");
+  edge(0, SCENE_H - 1, FX0, FY1, "/");
+  edge(SCENE_W - 1, SCENE_H - 1, FX1, FY1, "\\");
+  // Far-wall rectangle.
+  for (let x = FX0; x <= FX1; x++) {
+    g[FY0][x] = { ch: "─", cls: "wall" };
+    g[FY1][x] = { ch: "─", cls: "wall" };
+  }
+  for (let y = FY0; y <= FY1; y++) {
+    g[y][FX0] = { ch: "│", cls: "wall" };
+    g[y][FX1] = { ch: "│", cls: "wall" };
+  }
+  g[FY0][FX0] = { ch: "┌", cls: "wall" };
+  g[FY0][FX1] = { ch: "┐", cls: "wall" };
+  g[FY1][FX0] = { ch: "└", cls: "wall" };
+  g[FY1][FX1] = { ch: "┘", cls: "wall" };
+  return g;
+}
+
+// Stamp a centered billboard onto the far wall; spaces stay transparent.
+function placeSprite(g: Cell[][], art: string[], cls: string) {
+  const top = FY0 + 1 + Math.max(0, Math.floor((INTERIOR_H - art.length) / 2));
+  for (let i = 0; i < art.length; i++) {
+    const s = art[i];
+    const left = FX0 + 1 + Math.max(0, Math.floor((INTERIOR_W - s.length) / 2));
+    for (let j = 0; j < s.length; j++) {
+      if (s[j] === " ") continue;
+      const y = top + i,
+        x = left + j;
+      if (y > FY0 && y < FY1 && x > FX0 && x < FX1) g[y][x] = { ch: s[j], cls };
+    }
+  }
+}
+
+// Center a short label on a single far-wall row (the enemy HP readout).
+function placeLabel(g: Cell[][], y: number, text: string, cls: string) {
+  const left = FX0 + 1 + Math.max(0, Math.floor((INTERIOR_W - text.length) / 2));
+  for (let j = 0; j < text.length && left + j < FX1; j++) g[y][left + j] = { ch: text[j], cls };
+}
 // Run-finish time for the outcome log — local HH:MM:SS (24h).
 const fmtTime = (ms: number): string =>
   Number.isFinite(ms)
     ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
     : "--:--:--";
 
-const MAP_ROWS = 7;
-function DungeonMap({ run }: { run: chain.RunState | null }) {
-  const H = MAP_ROWS;
-  const ref = useRef<HTMLPreElement>(null);
-  const [W, setW] = useState(30);
-
+function Scene({ run, fx }: { run: chain.RunState | null; fx: string | null }) {
+  // Idle frame tick so the monster "breathes" even between actions.
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => {
-      const cs = getComputedStyle(el);
-      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-      // Measure one character's advance (font + letter-spacing) via a hidden probe.
-      const probe = document.createElement("span");
-      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
-      probe.style.fontFamily = cs.fontFamily;
-      probe.style.fontSize = cs.fontSize;
-      probe.style.fontWeight = cs.fontWeight;
-      probe.style.letterSpacing = cs.letterSpacing;
-      probe.textContent = "0".repeat(100);
-      el.appendChild(probe);
-      const charW = probe.getBoundingClientRect().width / 100;
-      el.removeChild(probe);
-      if (!charW) return;
-      const w = Math.max(16, Math.floor((el.clientWidth - padX) / charW));
-      setW((prev) => (prev === w ? prev : w));
-    };
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    measure();
-    return () => ro.disconnect();
+    const id = setInterval(() => setTick((t) => t + 1), 520);
+    return () => clearInterval(id);
   }, []);
 
-  const feature = run ? ROOM_GLYPH[run.roomKind] : undefined;
-  const midY = H >> 1;
-  const meX = Math.round(W * 0.27); // player ~quarter in
-  const featX = Math.round(W * 0.63); // room feature past center
-  const lines: ReactNode[] = [];
-  for (let y = 0; y < H; y++) {
-    const cells: ReactNode[] = [];
-    for (let x = 0; x < W; x++) {
-      const edge = x === 0 || x === W - 1 || y === 0 || y === H - 1;
-      let ch = "·";
-      let cls = "floor";
-      if (edge) {
-        cls = "wall";
-        ch = x === 0 || x === W - 1 ? "║" : "═";
-        if (y === 0 && x === 0) ch = "╔";
-        if (y === 0 && x === W - 1) ch = "╗";
-        if (y === H - 1 && x === 0) ch = "╚";
-        if (y === H - 1 && x === W - 1) ch = "╝";
-      }
-      if (run && y === midY && x === meX) {
-        ch = "@";
-        cls = "me";
-      }
-      if (run && feature && y === midY && x === featX) {
-        ch = feature.ch;
-        cls = feature.cls;
-      }
-      cells.push(
-        <span key={x} className={cls}>
-          {ch}
-        </span>,
-      );
+  const grid = buildCorridor();
+  if (run) {
+    const kind = run.roomKind;
+    const cls = SPRITE_CLS[kind] ?? "sp-empty";
+    let art: string[];
+    if (kind === 1) {
+      // monster: corpse when dead, lunge on a hit (or the off idle beat), else idle
+      art = run.enemyHp <= 0 ? MOB_DEAD : fx === "hit" || tick % 2 === 1 ? MOB_B : MOB_A;
+    } else {
+      art = SPRITE_BY_KIND[kind] ?? EMPTY;
     }
-    lines.push(<div key={y}>{cells}</div>);
+    placeSprite(grid, art, cls);
+    if (kind === 1 && run.enemyHp > 0) placeLabel(grid, FY0 + 1, `▼ ${run.enemyHp} hp`, "sp-mob");
   }
+
   return (
-    <pre className="map" ref={ref}>
-      {lines}
-    </pre>
+    <div className={`scene ${fx ? "fx-" + fx : ""} ${run && run.enemyHp > 0 ? "combat" : ""}`}>
+      <pre className="corridor">
+        {grid.map((row, y) => (
+          <div key={y}>
+            {row.map((c, x) => (
+              <span key={x} className={c.cls}>
+                {c.ch}
+              </span>
+            ))}
+          </div>
+        ))}
+      </pre>
+      <pre className={`weapon ${fx === "hit" || fx === "hurt" ? "swing" : ""}`}>{WEAPON.join("\n")}</pre>
+      <div className="scene-flash" />
+    </div>
   );
+}
+
+// Derive a transient visual effect ("hurt" | "heal" | "hit" | "step") by diffing
+// the polled run state across renders. Drives the scene shake/flash, the weapon
+// recoil, the monster lunge frame, and the status-bar "ouch" face. It reads net
+// state changes from polling, so it needs no wiring into the action handlers.
+function useRunFx(run: chain.RunState | null): string | null {
+  const [fx, setFx] = useState<string | null>(null);
+  const prev = useRef<{ runNo: number; hp: number; enemyHp: number; depth: number } | null>(null);
+  useEffect(() => {
+    if (!run) {
+      prev.current = null;
+      return;
+    }
+    const p = prev.current;
+    prev.current = { runNo: run.runNo, hp: run.hp, enemyHp: run.enemyHp, depth: run.depth };
+    if (!p || p.runNo !== run.runNo) return; // first sight / run switch: no effect
+    let next: string | null = null;
+    if (run.hp < p.hp) next = "hurt";
+    else if (run.hp > p.hp) next = "heal";
+    else if (run.enemyHp < p.enemyHp && p.enemyHp > 0) next = "hit";
+    else if (run.depth > p.depth) next = "step";
+    if (next) setFx(next);
+  }, [run?.runNo, run?.hp, run?.enemyHp, run?.depth]);
+  useEffect(() => {
+    if (!fx) return;
+    const id = setTimeout(() => setFx(null), 520);
+    return () => clearTimeout(id);
+  }, [fx]);
+  return fx;
 }
 
 function Gauge({ settled, tip }: { settled: number; tip: number }) {
@@ -937,6 +1046,8 @@ export default function App() {
 
   const playing = selectedRun != null;
   const inCombat = !!run && run.enemyHp > 0;
+  // Transient combat juice (shake/flash/face), derived from polled run-state diffs.
+  const sceneFx = useRunFx(run);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
   const freshOutcome =
@@ -1245,29 +1356,33 @@ export default function App() {
                         </span>
                         <span>{stats.activeRuns} active</span>
                       </div>
-                      <DungeonMap run={run} />
+                      <Scene run={run} fx={sceneFx} />
                     </div>
 
-                    <div className="vitals">
-                      <div className="vital hp">
-                        <div className="k">HP</div>
-                        <div className="v">{run ? `${run.hp}/${run.maxHp}` : "—"}</div>
-                        <div className="meter">{run ? hpBar : ""}</div>
+                    {/* Doom-style status bar: ammo · health + face · level · score */}
+                    <div className={`hud ${sceneFx ? "hud-" + sceneFx : ""}`}>
+                      <div className="hud-stat hud-ammo">
+                        <div className="hud-lbl">POTI</div>
+                        <div className="hud-big">{run ? run.potions : "—"}</div>
                       </div>
-                      <div className="vital gold">
-                        <div className="k">Gold</div>
-                        <div className="v">{run ? run.gold.toLocaleString() : "—"}</div>
-                        <div className="meter">haul on L2</div>
+                      <div className="hud-stat hud-health">
+                        <div className="hud-lbl">HEALTH</div>
+                        <div className="hud-big">
+                          {run ? Math.round((run.hp / Math.max(run.maxHp, 1)) * 100) : "—"}
+                          <span className="pct">%</span>
+                        </div>
+                        <div className="hud-meter">{run ? hpBar : ""}</div>
                       </div>
-                      <div className="vital depth">
-                        <div className="k">Depth</div>
-                        <div className="v">{run ? run.depth : "—"}</div>
-                        <div className="meter">rooms down</div>
+                      <div className="hud-face">
+                        <pre>{(run ? doomFace(run, sceneFx) : FACE_OK).join("\n")}</pre>
                       </div>
-                      <div className="vital pot">
-                        <div className="k">Potions</div>
-                        <div className="v">{run ? run.potions : "—"}</div>
-                        <div className="meter">heals +35</div>
+                      <div className="hud-stat hud-depth">
+                        <div className="hud-lbl">DEPTH</div>
+                        <div className="hud-big">{run ? run.depth : "—"}</div>
+                      </div>
+                      <div className="hud-stat hud-gold">
+                        <div className="hud-lbl">GOLD</div>
+                        <div className="hud-big">{run ? run.gold.toLocaleString() : "—"}</div>
                       </div>
                     </div>
                   </div>
