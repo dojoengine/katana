@@ -820,7 +820,8 @@ export default function App() {
         setUnclaimed(wd.slice(bc));
         setLastEnded(le);
         if (baselineEndNoRef.current === null) baselineEndNoRef.current = le ? le.endNo : -1;
-      } else {
+      } else if (wallet.method === null) {
+        // Truly disconnected (the starting page) — clear everything.
         setRuns([]);
         setRunState(null);
         setGameBal(0n);
@@ -830,13 +831,17 @@ export default function App() {
         setUnclaimed([]);
         setLastEnded(null);
       }
+      // else: still connected but `player` is transiently empty — `useAccount()` blips to
+      // undefined while the Controller switches chains (it does so on every action), which
+      // would otherwise flash the stats/balances to zero until the address resolves. Keep
+      // the last values instead of resetting.
       setErr(null);
     } catch (e) {
       setErr(String((e as Error).message || e));
     } finally {
       inFlight.current = false;
     }
-  }, [player, selectedRun]);
+  }, [player, selectedRun, wallet.method]);
 
   // The long-lived subscriptions/interval below always call the latest tick().
   const tickRef = useRef(tick);
