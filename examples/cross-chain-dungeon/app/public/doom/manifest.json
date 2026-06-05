@@ -482,6 +482,34 @@
    "h": 69,
    "ox": 31,
    "oy": 67
+  },
+  "BON1A": {
+   "file": "BON1A.png",
+   "w": 11,
+   "h": 15,
+   "ox": 5,
+   "oy": 15
+  },
+  "BON1B": {
+   "file": "BON1B.png",
+   "w": 11,
+   "h": 15,
+   "ox": 5,
+   "oy": 15
+  },
+  "BON1C": {
+   "file": "BON1C.png",
+   "w": 11,
+   "h": 15,
+   "ox": 5,
+   "oy": 15
+  },
+  "BON1D": {
+   "file": "BON1D.png",
+   "w": 11,
+   "h": 15,
+   "ox": 5,
+   "oy": 15
   }
  },
  "flats": {

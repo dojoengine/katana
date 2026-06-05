@@ -22,6 +22,7 @@ const OUT_MS = 360;
 const IN_MS = 440;
 const HOLD_MAX = 6000;
 const HOLD_FADE = 0.84; // darkness held between rooms (masks the room swap)
+const QUAFF_MS = 760; // potion-drink animation length
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 // 8×8 cosmetic room. 1 = wall, 0 = floor. A gap in the south wall reads as the
@@ -57,6 +58,8 @@ const IMP_DEATH = ["TROOI", "TROOJ", "TROOK", "TROOL", "TROOM"];
 const GUN_IDLE = "SHTGA";
 const GUN_FIRE = ["SHTGB", "SHTGC", "SHTGD", "SHTGA"];
 const GUN_FLASH = ["SHTFA", "SHTFB"];
+// Potion: a health vial raised + tilted to drink (its frames sparkle).
+const POTION = ["BON1A", "BON1B", "BON1C", "BON1D"];
 
 // Per-room texture + tint so each room feels distinct.
 const THEME: Record<number, { wall: string; floor: string; ceil: string; tint: [number, number, number] }> = {
@@ -146,6 +149,7 @@ type Engine = {
   // transient screen tints
   hurtUntil: number;
   healUntil: number;
+  quaffUntil: number; // potion-drink animation
   // Move transition state machine. The rendered room is `shownRun` (latched), not
   // the live run — so a new room (and its monster) is only revealed once we've
   // walked out, faded, and the run has actually advanced to it.
@@ -178,6 +182,7 @@ function freshEngine(): Engine {
     lastFire: 0,
     hurtUntil: 0,
     healUntil: 0,
+    quaffUntil: 0,
     phase: "live",
     phaseT0: 0,
     startDepth: -1,
@@ -185,7 +190,7 @@ function freshEngine(): Engine {
   };
 }
 
-export function DoomScene({ run, fx, fireNonce, walkNonce }: { run: chain.RunState | null; fx: string | null; fireNonce: number; walkNonce: number }) {
+export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: chain.RunState | null; fx: string | null; fireNonce: number; walkNonce: number; useNonce: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -228,6 +233,12 @@ export function DoomScene({ run, fx, fireNonce, walkNonce }: { run: chain.RunSta
     e.phaseT0 = performance.now();
     e.startDepth = runRef.current ? runRef.current.depth : -1;
   }, [walkNonce]);
+
+  // raise + drink a potion when the player Uses one
+  useEffect(() => {
+    if (useNonce === 0) return;
+    engRef.current.quaffUntil = performance.now() + QUAFF_MS;
+  }, [useNonce]);
 
   useEffect(() => {
     loadAssets().then(() => setReady(true));
@@ -460,8 +471,9 @@ export function DoomScene({ run, fx, fireNonce, walkNonce }: { run: chain.RunSta
           if (spriteKey) drawSprite(octx, assets.imgs[spriteKey], assets.man.sprites[spriteKey], e, zbuf);
         }
 
-        // ── weapon + muzzle flash ──
-        drawWeapon(octx, assets, e, dt);
+        // ── first-person hands: potion while quaffing, else the weapon ──
+        if (now < e.quaffUntil) drawPotion(octx, assets, e, now);
+        else drawWeapon(octx, assets, e, dt);
 
         // ── screen tints (damage / heal) ──
         if (now < e.hurtUntil) {
@@ -630,4 +642,26 @@ function drawWeapon(ctx: CanvasRenderingContext2D, assets: Awaited<ReturnType<ty
     }
   }
   ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+// Potion quaff: the vial rises from the bottom in an arc, tilts back to drink at
+// the peak, with a green heal glow that's strongest mid-drink.
+function drawPotion(ctx: CanvasRenderingContext2D, assets: Awaited<ReturnType<typeof loadAssets>>, e: Engine, now: number) {
+  const t = 1 - (e.quaffUntil - now) / QUAFF_MS; // 0..1
+  const rise = Math.sin(Math.min(1, Math.max(0, t)) * Math.PI); // 0 → 1 → 0
+  const key = POTION[Math.floor(t * 8) % POTION.length];
+  const img = assets.imgs[key];
+  const meta = assets.man.sprites[key];
+  // green heal glow under the vial, peaking mid-drink
+  ctx.fillStyle = `rgba(70,225,120,${0.34 * rise})`;
+  ctx.fillRect(0, 0, W, H);
+  if (!img || !meta) return;
+  const scale = (H * 0.42) / meta.h; // vial is tiny (~15px); blow it up
+  const dw = meta.w * scale;
+  const dh = meta.h * scale;
+  ctx.save();
+  ctx.translate(W / 2, H - dh * 0.4 - rise * (H * 0.34));
+  ctx.rotate(-0.5 * rise); // tilt back to drink
+  ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+  ctx.restore();
 }

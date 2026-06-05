@@ -914,6 +914,8 @@ export default function App() {
   // Bumped on each Move click so the raycaster plays a walk-forward step with a
   // fade that doubles as the room transition (the new room arrives a poll later).
   const [walkNonce, setWalkNonce] = useState(0);
+  // Bumped on each Use click so the raycaster plays the potion-quaff animation.
+  const [useNonce, setUseNonce] = useState(0);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
   const freshOutcome =
@@ -1225,7 +1227,7 @@ export default function App() {
                         </span>
                         <span>{stats.activeRuns} active</span>
                       </div>
-                      <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} />
+                      <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} useNonce={useNonce} />
                     </div>
 
                     {/* Doom-style status bar: ammo · health + face · level · score */}
@@ -1281,7 +1283,13 @@ export default function App() {
                     <button disabled={l2Busy || !run || runOver || run.roomKind !== 2} onClick={onLoot}>
                       {b("loot") ? "…" : "Loot"}
                     </button>
-                    <button disabled={l2Busy || !run || runOver || run.potions === 0 || run.hp >= run.maxHp} onClick={onUse}>
+                    <button
+                      disabled={l2Busy || !run || runOver || run.potions === 0 || run.hp >= run.maxHp}
+                      onClick={() => {
+                        setUseNonce((n) => n + 1);
+                        void onUse();
+                      }}
+                    >
                       {b("use") ? "…" : "Use"}
                     </button>
                     <button className="danger" disabled={l2Busy || !run || runOver || inCombat} onClick={onExtract}>
