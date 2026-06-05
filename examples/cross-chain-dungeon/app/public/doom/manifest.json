@@ -510,6 +510,20 @@
    "h": 15,
    "ox": 5,
    "oy": 15
+  },
+  "CHESTA": {
+   "file": "CHESTA.png",
+   "w": 44,
+   "h": 36,
+   "ox": 22,
+   "oy": 36
+  },
+  "CHESTB": {
+   "file": "CHESTB.png",
+   "w": 44,
+   "h": 36,
+   "ox": 22,
+   "oy": 36
   }
  },
  "flats": {

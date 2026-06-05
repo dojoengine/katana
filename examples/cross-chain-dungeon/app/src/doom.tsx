@@ -46,7 +46,7 @@ const at = (x: number, y: number) => (x < 0 || y < 0 || x >= MW || y >= MW ? 1 :
 const OCCUPANT: Record<number, { frames: string[]; fps: number } | null> = {
   0: { frames: ["COL1A"], fps: 0 }, // entrance: a lone column
   1: { frames: ["TROOA", "TROOB", "TROOC", "TROOD"], fps: 6 }, // monster: imp (walk)
-  2: { frames: ["SOULA", "SOULB", "SOULC", "SOULD"], fps: 7 }, // treasure: soulsphere
+  2: { frames: ["CHESTA"], fps: 0 }, // treasure: chest (opens to CHESTB on loot)
   3: { frames: ["BAR1A", "BAR1B"], fps: 3 }, // trap: barrel
   4: { frames: ["CBRAA"], fps: 0 }, // shrine: candelabra
   5: { frames: [], fps: 0 }, // empty
@@ -512,7 +512,8 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }
         const collect = kind === 2 && now < e.lootUntil ? smooth(1 - (e.lootUntil - now) / LOOT_MS) : 0;
         const occ = OCCUPANT[kind];
         if (e.phase !== "hold" && e.phase !== "load" && occ && occ.frames.length) {
-          const spriteKey = pickOccupantFrame(e, r, occ, now, dt);
+          // the chest pops open (CHESTB) as it's looted
+          const spriteKey = collect > 0 ? "CHESTB" : pickOccupantFrame(e, r, occ, now, dt);
           if (spriteKey) drawSprite(octx, assets.imgs[spriteKey], assets.man.sprites[spriteKey], e, zbuf, collect);
         }
 
