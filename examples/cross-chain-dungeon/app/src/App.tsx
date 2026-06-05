@@ -918,6 +918,33 @@ export default function App() {
   const [useNonce, setUseNonce] = useState(0);
   // Bumped on each Loot click so the raycaster plays the treasure-pickup animation.
   const [lootNonce, setLootNonce] = useState(0);
+  // Floating "loot obtained" feed (bottom-left of the scene). We diff the *polled*
+  // run so it reflects the real on-chain result — e.g. a mimic chest grants no gold,
+  // so nothing pops. Each gain is a transient toast that fades after a moment.
+  const [toasts, setToasts] = useState<{ id: number; text: string; kind: string }[]>([]);
+  const toastId = useRef(0);
+  const prevGains = useRef<{ runNo: number; gold: number; potions: number; hp: number } | null>(null);
+  const pushToast = useCallback((text: string, kind: string) => {
+    const id = ++toastId.current;
+    setToasts((t) => [...t, { id, text, kind }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600);
+  }, []);
+  useEffect(() => {
+    if (!run) {
+      prevGains.current = null;
+      return;
+    }
+    const p = prevGains.current;
+    prevGains.current = { runNo: run.runNo, gold: run.gold, potions: run.potions, hp: run.hp };
+    if (!p || p.runNo !== run.runNo) return; // first sight / run switch: no toasts
+    if (run.gold > p.gold) pushToast(`+${run.gold - p.gold} $GOLD`, "gold");
+    if (run.potions > p.potions) {
+      const d = run.potions - p.potions;
+      pushToast(`+${d} potion${d > 1 ? "s" : ""}`, "potion");
+    }
+    if (run.hp > p.hp) pushToast(`+${run.hp - p.hp} HP`, "hp");
+    else if (run.hp < p.hp) pushToast(`-${p.hp - run.hp} HP`, "dmg");
+  }, [run?.runNo, run?.gold, run?.potions, run?.hp, pushToast]);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
   const freshOutcome =
@@ -1230,6 +1257,15 @@ export default function App() {
                         <span>{stats.activeRuns} active</span>
                       </div>
                       <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} useNonce={useNonce} lootNonce={lootNonce} />
+                      {toasts.length > 0 && (
+                        <div className="loot-feed">
+                          {toasts.map((t) => (
+                            <div key={t.id} className={`loot-toast ${t.kind}`}>
+                              {t.text}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Doom-style status bar: ammo · health + face · level · score */}

@@ -318,6 +318,19 @@ button.good.insufficient:hover:not(:disabled) {
 .doom-load, .doom-hint { position: absolute; left: 0; right: 0; pointer-events: none; text-align: center; font-size: 11px; letter-spacing: 1.5px; color: var(--dim); text-shadow: var(--glow); }
 .doom-load { top: 50%; transform: translateY(-50%); }
 .doom-hint { bottom: 8px; opacity: .8; }
+/* floating "loot obtained" feed, bottom-left of the scene (newest at the bottom) */
+.loot-feed { position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 3px; pointer-events: none; z-index: 3; }
+.loot-toast { font-family: "VT323", monospace; font-size: 23px; line-height: 1; letter-spacing: .5px; text-shadow: 0 2px 3px #000, var(--glow); animation: loot-life 2.6s ease forwards; }
+.loot-toast.gold { color: var(--gold); }
+.loot-toast.potion { color: var(--cyan); }
+.loot-toast.hp { color: var(--green); }
+.loot-toast.dmg { color: var(--red); }
+@keyframes loot-life {
+  0% { opacity: 0; transform: translateY(8px); }
+  9% { opacity: 1; transform: none; }
+  80% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
 @keyframes shake { 10% { transform: translateX(-6px); } 30% { transform: translateX(6px); } 50% { transform: translateX(-4px); } 70% { transform: translateX(4px); } 90% { transform: translateX(-2px); } 100% { transform: translateX(0); } }
 .veil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; background: rgba(8,6,4,.82); color: var(--dim); text-align: center; font-size: 13px; padding: 12px; }
 .veil b { color: var(--amber); }
