@@ -687,7 +687,11 @@ export default function App() {
   const baselineEndNoRef = useRef<number | null>(null);
   const [dismissedEndNo, setDismissedEndNo] = useState(-1); // outcome veil closed by the user
   const [wdDetail, setWdDetail] = useState<chain.WithdrawalRow | null>(null); // withdrawal-details modal
-  const [busy, setBusy] = useState<string | null>(null);
+  // Busy is tracked per layer so an in-flight L2 (appchain) action doesn't disable L1
+  // (settlement) actions and vice versa — they're separate accounts/chains with their own
+  // nonce locks, so they run concurrently.
+  const [busyL1, setBusyL1] = useState<string | null>(null);
+  const [busyL2, setBusyL2] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // Brief "insufficient $GAME" flash on the New Game / Enter again button after a click
   // with too little $GAME — reverts to the normal label after a couple of seconds.
@@ -881,7 +885,8 @@ export default function App() {
     }
   }, [feed]);
 
-  const act = (name: string, fn: () => Promise<unknown>) => async () => {
+  const act = (layer: "l1" | "l2", name: string, fn: () => Promise<unknown>) => async () => {
+    const setBusy = layer === "l1" ? setBusyL1 : setBusyL2;
     setBusy(name);
     setErr(null);
     try {
@@ -895,17 +900,19 @@ export default function App() {
   };
   // Like act, but needs a connected signer — opens the wallet modal to connect otherwise.
   const actL1 = (name: string, fn: (acc: chain.Signer) => Promise<unknown>) =>
-    act(name, () => (wallet.l1Account ? fn(wallet.l1Account) : (setWalletOpen(true), Promise.resolve())));
+    act("l1", name, () => (wallet.l1Account ? fn(wallet.l1Account) : (setWalletOpen(true), Promise.resolve())));
   const actL2 = (name: string, fn: (acc: chain.Signer) => Promise<unknown>) =>
-    act(name, () => (wallet.l2Account ? fn(wallet.l2Account) : (setWalletOpen(true), Promise.resolve())));
+    act("l2", name, () => (wallet.l2Account ? fn(wallet.l2Account) : (setWalletOpen(true), Promise.resolve())));
 
   const playing = selectedRun != null;
   const inCombat = !!run && run.enemyHp > 0;
   // Transient combat juice (shake/flash/face), derived from polled run-state diffs.
   const sceneFx = useRunFx(run);
-  // Bumped on Attack/Move clicks so the raycaster fires the weapon / plays a
-  // walk-forward step immediately, independent of when the on-chain result lands.
+  // Bumped on each Attack click so the raycaster fires the weapon (muzzle flash +
+  // recoil), independent of whether the on-chain hit lands.
   const [fireNonce, setFireNonce] = useState(0);
+  // Bumped on each Move click so the raycaster plays a walk-forward step with a
+  // fade that doubles as the room transition (the new room arrives a poll later).
   const [walkNonce, setWalkNonce] = useState(0);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
@@ -921,11 +928,14 @@ export default function App() {
     setDismissedEndNo(endNo);
     setSelectedRun(null);
   }, []);
-  const b = (n: string) => busy === n;
+  const b = (n: string) => busyL1 === n || busyL2 === n;
   // True from the New-game click until the freshly minted run is selected — covers both
   // the L1 tx (busy "enter") and the L1→L2 relay wait (enteringRef still pending).
   const entering = b("enter") || enteringRef.current != null;
-  const anyBusy = busy !== null;
+  // Per-layer busy: an in-flight L1 (settlement) action gates only L1 buttons; an L2
+  // (appchain) action gates only L2 buttons — so the two layers don't block each other.
+  const l1Busy = busyL1 !== null;
+  const l2Busy = busyL2 !== null;
   // The selected run has ended (death/extract) but is still on screen.
   const runOver = !!run && !run.alive;
   // Show the outcome screen over the run page once the played run ends, or on the
@@ -954,7 +964,7 @@ export default function App() {
       return;
     }
     enteringRef.current = stats ? stats.totalRuns : 0;
-    setBusy("enter");
+    setBusyL1("enter");
     setErr(null);
     try {
       await chain.enterDungeon(wallet.l1Account);
@@ -963,7 +973,7 @@ export default function App() {
       enteringRef.current = null; // entry failed → lift the loader, back to the lobby
       setErr(String((e as Error).message || e));
     } finally {
-      setBusy(null);
+      setBusyL1(null);
     }
   };
   const onContinue = (runNo: number) => setSelectedRun(runNo);
@@ -1117,10 +1127,10 @@ export default function App() {
                   </span>
                 </div>
                 <div className="row-actions">
-                  <button disabled={anyBusy || !actReady} onClick={onBuy}>
+                  <button disabled={l1Busy || !actReady} onClick={onBuy}>
                     {b("buy") ? "…" : "Buy GAME"}
                   </button>
-                  <button disabled={anyBusy || !actReady} onClick={onMint}>
+                  <button disabled={l1Busy || !actReady} onClick={onMint}>
                     {b("mint") ? "…" : "Dev-mint"}
                   </button>
                 </div>
@@ -1131,7 +1141,7 @@ export default function App() {
 
               <div className="panel" data-tut="leaderboard">
                 <div className="panel-h">
-                  Leaderboard · Appchain<span className="rule" />
+                  Leaderboard<span className="rule" />
                 </div>
                 <table>
                   <thead>
@@ -1194,10 +1204,10 @@ export default function App() {
                   </div>
 
                   <div className="actions">
-                    <button disabled={anyBusy} onClick={() => closeOutcome(lastEnded.endNo)}>
+                    <button disabled={l2Busy} onClick={() => closeOutcome(lastEnded.endNo)}>
                       Back to lobby
                     </button>
-                    <button ref={shakeRef} className={`good ${insufficient ? "insufficient" : ""}`} disabled={anyBusy || !actReady} onClick={onEnterAgain}>
+                    <button ref={shakeRef} className={`good ${insufficient ? "insufficient" : ""}`} disabled={l1Busy || !actReady} onClick={onEnterAgain}>
                       {insufficient
                         ? "insufficient $GAME"
                         : `Enter again · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
@@ -1247,11 +1257,11 @@ export default function App() {
                   </div>
 
                   <div className="actions">
-                    <button className="ghost" disabled={anyBusy} onClick={onLeave} title="back to the New Game page">
+                    <button className="ghost" disabled={l2Busy} onClick={onLeave} title="back to the New Game page">
                       ←
                     </button>
                     <button
-                      disabled={anyBusy || !run || runOver}
+                      disabled={l2Busy || !run || runOver}
                       onClick={() => {
                         setWalkNonce((n) => n + 1);
                         void onMove();
@@ -1260,7 +1270,7 @@ export default function App() {
                       {b("move") ? "…" : inCombat ? "Flee" : "Move"}
                     </button>
                     <button
-                      disabled={anyBusy || !inCombat || runOver}
+                      disabled={l2Busy || !inCombat || runOver}
                       onClick={() => {
                         setFireNonce((n) => n + 1);
                         void onAttack();
@@ -1268,13 +1278,13 @@ export default function App() {
                     >
                       {b("attack") ? "…" : "Attack"}
                     </button>
-                    <button disabled={anyBusy || !run || runOver || run.roomKind !== 2} onClick={onLoot}>
+                    <button disabled={l2Busy || !run || runOver || run.roomKind !== 2} onClick={onLoot}>
                       {b("loot") ? "…" : "Loot"}
                     </button>
-                    <button disabled={anyBusy || !run || runOver || run.potions === 0 || run.hp >= run.maxHp} onClick={onUse}>
+                    <button disabled={l2Busy || !run || runOver || run.potions === 0 || run.hp >= run.maxHp} onClick={onUse}>
                       {b("use") ? "…" : "Use"}
                     </button>
-                    <button className="danger" disabled={anyBusy || !run || runOver || inCombat} onClick={onExtract}>
+                    <button className="danger" disabled={l2Busy || !run || runOver || inCombat} onClick={onExtract}>
                       {b("extract") ? "…" : "Extract"}
                     </button>
                   </div>
@@ -1286,7 +1296,7 @@ export default function App() {
                     <div className="newgame-title">LOBBY</div>
                     <div className="newgame-sub">into the unknown</div>
                   </div>
-                  <button ref={shakeRef} className={`good newgame-start ${insufficient ? "insufficient" : ""}`} disabled={anyBusy || !actReady} onClick={onNewGame}>
+                  <button ref={shakeRef} className={`good newgame-start ${insufficient ? "insufficient" : ""}`} disabled={l1Busy || !actReady} onClick={onNewGame}>
                     {insufficient
                       ? "insufficient $GAME"
                       : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
@@ -1408,7 +1418,7 @@ export default function App() {
               {bankable > 0 ? (
                 <>
                   <div className="row-actions">
-                    <button className="good" disabled={anyBusy || vault === 0} onClick={() => void onWithdraw()}>
+                    <button className="good" disabled={l2Busy || vault === 0} onClick={() => void onWithdraw()}>
                       {b("withdraw") ? "withdrawing…" : `Withdraw ${vault.toLocaleString()} $GOLD`}
                     </button>
                     <span className="flow-arrow" aria-hidden>
@@ -1416,7 +1426,7 @@ export default function App() {
                     </span>
                     <button
                       className="good"
-                      disabled={anyBusy || !pending || !claimReady}
+                      disabled={l1Busy || !pending || !claimReady}
                       onClick={() => void onClaim()}
                     >
                       {b("claim")
