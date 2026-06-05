@@ -102,7 +102,15 @@ function withSettlementLock<T>(fn: () => Promise<T>): Promise<T> {
 
 async function toriiSql<T = Record<string, string | number>>(base: string, sql: string): Promise<T[]> {
   const res = await fetch(`${base}/sql?query=${encodeURIComponent(sql)}`);
-  if (!res.ok) throw new Error(`torii sql ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const body = await res.text();
+    // Torii creates an event table lazily — only on the first event of that type. Until
+    // then a query against it 400s with "no such table", which for this poll-and-derive
+    // UI just means "nothing emitted yet". Treat that as an empty result so a freshly
+    // deployed world (no banks / withdrawals / actions) doesn't spam errors.
+    if (res.status === 400 && /no such table/i.test(body)) return [] as T[];
+    throw new Error(`torii sql ${res.status}: ${body}`);
+  }
   return (await res.json()) as T[];
 }
 
