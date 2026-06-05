@@ -15,7 +15,13 @@ type Tex = { w: number; h: number; data: Uint32Array };
 
 const W = 320; // internal render width (scaled up, crunchy pixels)
 const H = 200;
-const WALK_MS = 850; // forward-step transition played on Move
+// Move transition timings. We walk out + fade (OUT_MS), hold in the dark until the
+// run advances to the next room (capped at HOLD_MAX), then fade the new room in
+// (IN_MS). This keeps the next room — and any monster — hidden until you arrive.
+const OUT_MS = 360;
+const IN_MS = 440;
+const HOLD_MAX = 6000;
+const HOLD_FADE = 0.84; // darkness held between rooms (masks the room swap)
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 // 8×8 cosmetic room. 1 = wall, 0 = floor. A gap in the south wall reads as the
@@ -140,8 +146,13 @@ type Engine = {
   // transient screen tints
   hurtUntil: number;
   healUntil: number;
-  // Move walk-forward transition
-  walkUntil: number;
+  // Move transition state machine. The rendered room is `shownRun` (latched), not
+  // the live run — so a new room (and its monster) is only revealed once we've
+  // walked out, faded, and the run has actually advanced to it.
+  phase: "live" | "out" | "hold" | "in";
+  phaseT0: number;
+  startDepth: number;
+  shownRun: chain.RunState | null;
 };
 
 function freshEngine(): Engine {
@@ -167,7 +178,10 @@ function freshEngine(): Engine {
     lastFire: 0,
     hurtUntil: 0,
     healUntil: 0,
-    walkUntil: 0,
+    phase: "live",
+    phaseT0: 0,
+    startDepth: -1,
+    shownRun: null,
   };
 }
 
@@ -205,11 +219,14 @@ export function DoomScene({ run, fx, fireNonce, walkNonce }: { run: chain.RunSta
     e.fireClock = 0;
   }, [fireNonce]);
 
-  // walk forward into the next room when the player Moves
+  // begin the walk-out when the player Moves; the room stays latched until we arrive
   useEffect(() => {
     if (walkNonce === 0) return;
     const e = engRef.current;
-    e.walkUntil = performance.now() + WALK_MS;
+    if (e.phase !== "live") return; // ignore double-taps mid-transition
+    e.phase = "out";
+    e.phaseT0 = performance.now();
+    e.startDepth = runRef.current ? runRef.current.depth : -1;
   }, [walkNonce]);
 
   useEffect(() => {
@@ -271,7 +288,29 @@ export function DoomScene({ run, fx, fireNonce, walkNonce }: { run: chain.RunSta
         const now = performance.now();
         const dt = Math.min(0.05, (now - last) / 1000);
         last = now;
-        const r = runRef.current;
+        // ── room transition state machine (latches the rendered room) ──
+        const live = runRef.current;
+        if (e.phase === "live") {
+          e.shownRun = live;
+        } else if (e.phase === "out") {
+          if (now - e.phaseT0 >= OUT_MS) {
+            e.phase = "hold";
+            e.phaseT0 = now;
+          }
+        } else if (e.phase === "hold") {
+          const advanced = !!live && e.startDepth >= 0 && live.depth > e.startDepth;
+          if (advanced || now - e.phaseT0 >= HOLD_MAX) {
+            e.shownRun = live; // commit: the new room is revealed from here
+            e.phase = "in";
+            e.phaseT0 = now;
+          }
+        } else {
+          // "in": keep synced (e.g. combat in the freshly entered room)
+          e.shownRun = live;
+          if (now - e.phaseT0 >= IN_MS) e.phase = "live";
+        }
+        const transitioning = e.phase !== "live";
+        const r = e.shownRun;
         const kind = r ? r.roomKind : 0;
         const theme = THEME[kind] ?? THEME[0];
         const wallT = assets.texs[theme.wall] ?? Object.values(assets.texs)[0];
@@ -288,20 +327,26 @@ export function DoomScene({ run, fx, fireNonce, walkNonce }: { run: chain.RunSta
         e.planeX = -e.dirY * 0.66; // camera plane ⟂ dir, FOV ≈ 66°
         e.planeY = e.dirX * 0.66;
 
-        const walking = now < e.walkUntil;
-        if (walking) {
-          // scripted forward step. First half advances toward the far wall while the
-          // screen fades to black; at the midpoint we snap back to the entrance so the
-          // second half reads as stepping into the next room.
-          const t = 1 - (e.walkUntil - now) / WALK_MS;
-          e.bob += dt * 17; // fast footstep bob
+        if (e.phase === "out") {
+          // step toward the far wall while fading out
+          const t = smooth(Math.min(1, (now - e.phaseT0) / OUT_MS));
           e.posX = 4.0;
           e.yaw = 0;
-          if (t < 0.5) {
-            e.posY = 5.6 - 2.2 * smooth(t / 0.5);
-          } else {
-            e.posY = 5.6 - 0.7 * smooth((t - 0.5) / 0.5);
-          }
+          e.posY = 5.6 - 2.4 * t;
+          e.bob += dt * 17;
+        } else if (e.phase === "hold") {
+          // drifting through the dark between rooms
+          e.posX = 4.0;
+          e.yaw = 0;
+          e.posY = 3.0;
+          e.bob += dt * 11;
+        } else if (e.phase === "in") {
+          // arrive at the new room's entrance and settle forward
+          const t = smooth(Math.min(1, (now - e.phaseT0) / IN_MS));
+          e.posX = 4.0;
+          e.yaw = 0;
+          e.posY = 5.9 - 0.3 * t;
+          e.bob += dt * 9;
         } else {
           let mv = 0;
           let strafe = 0;
@@ -408,9 +453,9 @@ export function DoomScene({ run, fx, fireNonce, walkNonce }: { run: chain.RunSta
 
         octx.putImageData(frame, 0, 0);
 
-        // ── occupant billboard ──
+        // ── occupant billboard (hidden in the dark "hold" between rooms) ──
         const occ = OCCUPANT[kind];
-        if (occ && occ.frames.length) {
+        if (e.phase !== "hold" && occ && occ.frames.length) {
           const spriteKey = pickOccupantFrame(e, r, occ, now, dt);
           if (spriteKey) drawSprite(octx, assets.imgs[spriteKey], assets.man.sprites[spriteKey], e, zbuf);
         }
@@ -427,10 +472,13 @@ export function DoomScene({ run, fx, fireNonce, walkNonce }: { run: chain.RunSta
           octx.fillRect(0, 0, W, H);
         }
 
-        // walk-transition fade: black peaks at the midpoint of the step
-        if (now < e.walkUntil) {
-          const t = 1 - (e.walkUntil - now) / WALK_MS;
-          octx.fillStyle = `rgba(0,0,0,${1 - Math.abs(2 * t - 1)})`;
+        // transition fade: out 0→full, hold full, in full→0. The room swap happens
+        // under the darkness, so the next room emerges only as we fade back in.
+        if (transitioning) {
+          let fade = HOLD_FADE;
+          if (e.phase === "out") fade = HOLD_FADE * smooth(Math.min(1, (now - e.phaseT0) / OUT_MS));
+          else if (e.phase === "in") fade = HOLD_FADE * (1 - smooth(Math.min(1, (now - e.phaseT0) / IN_MS)));
+          octx.fillStyle = `rgba(0,0,0,${fade})`;
           octx.fillRect(0, 0, W, H);
         }
 
