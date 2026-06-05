@@ -205,6 +205,17 @@ SAYA_PID=$!
 # 6. Deploy the economy + worlds (GAME_TOKEN, score, game, TokenSale, Entry, grants).
 ( cd "$DEMO_DIR" && bun run scripts/deploy.ts )
 
+# 6b. (CONTROLLER mode) Declare the Controller account class on the appchain.
+#     Workaround for katana #584: `katana init rollup` round-trips genesis.json,
+#     shifting the embedded controller class hash, so the canonical class the keychain
+#     deploys isn't present after boot. Without it the Controller can't auto-deploy on
+#     the appchain and its play actions fall back to the settlement chain. Declaring the
+#     on-disk artifact here lands the canonical hash so the Controller can sign appchain txs.
+if [[ "${CONTROLLER:-}" == "1" ]]; then
+  echo "→ declaring Controller account class on the appchain (katana #584 workaround)…"
+  ( cd "$DEMO_DIR" && bun run scripts/declare-controller-class.ts )
+fi
+
 BANK_WORLD=$(node -e 'console.log(require(process.argv[1]).settlement.bankWorld)' "$DEMO_DIR/app/src/deployments.json")
 GAME_WORLD=$(node -e 'console.log(require(process.argv[1]).appchain.gameWorld)' "$DEMO_DIR/app/src/deployments.json")
 

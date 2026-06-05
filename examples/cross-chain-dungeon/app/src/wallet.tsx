@@ -68,26 +68,40 @@ const provider = jsonRpcProvider({
 // Session policies: scope the Controller session to the demo's entrypoints — buy /
 // enter / bank on Sepolia and the play actions on the appchain — so they're session
 // calls rather than per-tx popups.
-const policies = {
-  contracts: {
-    [USDC]: { methods: [{ name: "Approve", entrypoint: "approve" }] },
-    [GAME_TOKEN]: {
-      methods: [{ name: "Approve", entrypoint: "approve" }, { name: "Dev mint", entrypoint: "dev_mint" }],
-    },
-    [TOKEN_SALE]: { methods: [{ name: "Buy GAME", entrypoint: "buy" }] },
-    [ENTRY]: { methods: [{ name: "Enter dungeon", entrypoint: "enter" }] },
-    [BANK_SYSTEM]: { methods: [{ name: "Bank GOLD", entrypoint: "bank" }] },
-    [GAME_SYSTEM]: {
-      methods: [
-        { name: "Move", entrypoint: "move_room" },
-        { name: "Attack", entrypoint: "attack" },
-        { name: "Loot", entrypoint: "loot" },
-        { name: "Use item", entrypoint: "use_item" },
-        { name: "Extract", entrypoint: "extract" },
-        { name: "Withdraw", entrypoint: "withdraw" },
-      ],
-    },
+//
+// Only include contracts with a real address. An unconfigured deployment is `0x0`
+// (e.g. USDC, which this demo doesn't use — GAME is dev-minted), and a 0x0 entry is a
+// malformed policy: the keychain merklizes it inconsistently and the account's session
+// validation then trips on a policy-count/proof-length mismatch ("session/length-mismatch").
+const allContracts: Record<string, { methods: { name: string; entrypoint: string }[] }> = {
+  [USDC]: { methods: [{ name: "Approve", entrypoint: "approve" }] },
+  [GAME_TOKEN]: {
+    methods: [{ name: "Approve", entrypoint: "approve" }, { name: "Dev mint", entrypoint: "dev_mint" }],
   },
+  [TOKEN_SALE]: { methods: [{ name: "Buy GAME", entrypoint: "buy" }] },
+  [ENTRY]: { methods: [{ name: "Enter dungeon", entrypoint: "enter" }] },
+  [BANK_SYSTEM]: { methods: [{ name: "Bank GOLD", entrypoint: "bank" }] },
+  [GAME_SYSTEM]: {
+    methods: [
+      { name: "Move", entrypoint: "move_room" },
+      { name: "Attack", entrypoint: "attack" },
+      { name: "Loot", entrypoint: "loot" },
+      { name: "Use item", entrypoint: "use_item" },
+      { name: "Extract", entrypoint: "extract" },
+      { name: "Withdraw", entrypoint: "withdraw" },
+    ],
+  },
+};
+const policies = {
+  contracts: Object.fromEntries(
+    Object.entries(allContracts).filter(([addr]) => {
+      try {
+        return BigInt(addr) !== 0n;
+      } catch {
+        return false;
+      }
+    }),
+  ),
 };
 
 // Built defensively: the connector probes each RPC synchronously at construction; if
@@ -96,7 +110,11 @@ function createControllerConnector(): ControllerConnector | null {
   try {
     return new ControllerConnector({
       chains: [{ rpcUrl: SETTLEMENT_RPC }, { rpcUrl: APPCHAIN_RPC }],
-      defaultChainId: CHAIN_ID,
+      // Normally the settlement chain. Set VITE_DEFAULT_APPCHAIN=1 to make the keychain
+      // sit on the appchain — needed once to surface the keychain's account-UPGRADE
+      // screen for the appchain account (its upgrade gate reads the controller's current
+      // chain; on the settlement chain the account already reads as up-to-date).
+      defaultChainId: import.meta.env.VITE_DEFAULT_APPCHAIN === "1" ? APPCHAIN_CHAIN_ID : CHAIN_ID,
       url: import.meta.env.VITE_KEYCHAIN_URL || undefined,
       policies,
     });
@@ -303,12 +321,27 @@ function WalletInner({ children }: PropsWithChildren) {
     ? {
         execute: async (calls) => {
           const ctrl = controllerConnector!.controller;
-          await ctrl.switchStarknetChain(APPCHAIN_CHAIN_ID);
-          try {
-            return await (ctrl.account ?? ctrlAccount!).execute(calls);
-          } finally {
-            await ctrl.switchStarknetChain(CHAIN_ID);
+          // switchStarknetChain returns false (and reverts to the settlement chain) when
+          // the keychain can't reach the appchain RPC — e.g. the hosted x.cartridge.gg
+          // iframe being blocked from http://localhost by Chrome Private Network Access.
+          // If we proceed anyway the controller account (pinned to the settlement RPC at
+          // connect time) runs the tx on Sepolia, which then fails calling an appchain
+          // contract that doesn't exist there. Fail loudly instead.
+          const ok = await ctrl.switchStarknetChain(APPCHAIN_CHAIN_ID);
+          if (!ok) {
+            throw new Error(
+              "Controller could not switch to the appchain (DUNGEON). The keychain can't reach " +
+                "http://localhost:5070 — enable chrome://flags/#local-network-access-check, or use " +
+                "the self-hosted keychain (VITE_KEYCHAIN_URL=https://localhost:3010).",
+            );
           }
+          // Do NOT switch back to the settlement chain afterward. The keychain's
+          // balance-change preview re-simulates on whatever chain is active; switching
+          // back to Sepolia here makes it re-run the appchain call against Sepolia
+          // (where the game contract doesn't exist) and surface a bogus "not deployed"
+          // error. The L1 signer switches to the settlement chain itself, so leaving
+          // the controller on the appchain is correct.
+          return await (ctrl.account ?? ctrlAccount!).execute(calls);
         },
       }
     : usingInjected || method === "operator"
