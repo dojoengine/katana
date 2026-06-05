@@ -23,6 +23,7 @@ const IN_MS = 440;
 const HOLD_MAX = 6000;
 const HOLD_FADE = 0.84; // darkness held between rooms (masks the room swap)
 const QUAFF_MS = 760; // potion-drink animation length
+const LOOT_MS = 620; // treasure-pickup animation length
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 // 8×8 cosmetic room. 1 = wall, 0 = floor. A gap in the south wall reads as the
@@ -150,6 +151,7 @@ type Engine = {
   hurtUntil: number;
   healUntil: number;
   quaffUntil: number; // potion-drink animation
+  lootUntil: number; // treasure-pickup animation
   // Move transition state machine. The rendered room is `shownRun` (latched), not
   // the live run — so a new room (and its monster) is only revealed once we've
   // walked out, faded, and the run has actually advanced to it.
@@ -184,6 +186,7 @@ function freshEngine(): Engine {
     hurtUntil: 0,
     healUntil: 0,
     quaffUntil: 0,
+    lootUntil: 0,
     phase: "load",
     phaseT0: 0,
     startDepth: -1,
@@ -192,7 +195,7 @@ function freshEngine(): Engine {
   };
 }
 
-export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: chain.RunState | null; fx: string | null; fireNonce: number; walkNonce: number; useNonce: number }) {
+export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }: { run: chain.RunState | null; fx: string | null; fireNonce: number; walkNonce: number; useNonce: number; lootNonce: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -212,6 +215,7 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
   const firePrev = useRef(fireNonce);
   const walkPrev = useRef(walkNonce);
   const usePrev = useRef(useNonce);
+  const lootPrev = useRef(lootNonce);
 
   // react to fx transitions (set transient tints / monster reactions)
   useEffect(() => {
@@ -257,6 +261,13 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
     usePrev.current = useNonce;
     engRef.current.quaffUntil = performance.now() + QUAFF_MS;
   }, [useNonce]);
+
+  // grab the treasure when the player Loots
+  useEffect(() => {
+    if (lootNonce === lootPrev.current) return;
+    lootPrev.current = lootNonce;
+    engRef.current.lootUntil = performance.now() + LOOT_MS;
+  }, [lootNonce]);
 
   useEffect(() => {
     loadAssets().then(() => setReady(true));
@@ -497,10 +508,12 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
         octx.putImageData(frame, 0, 0);
 
         // ── occupant billboard (hidden in the dark "load"/"hold" gaps) ──
+        // while looting, the treasure is "collected": it zooms toward the camera and fades.
+        const collect = kind === 2 && now < e.lootUntil ? smooth(1 - (e.lootUntil - now) / LOOT_MS) : 0;
         const occ = OCCUPANT[kind];
         if (e.phase !== "hold" && e.phase !== "load" && occ && occ.frames.length) {
           const spriteKey = pickOccupantFrame(e, r, occ, now, dt);
-          if (spriteKey) drawSprite(octx, assets.imgs[spriteKey], assets.man.sprites[spriteKey], e, zbuf);
+          if (spriteKey) drawSprite(octx, assets.imgs[spriteKey], assets.man.sprites[spriteKey], e, zbuf, collect);
         }
 
         // ── first-person hands: potion while quaffing, else the weapon ──
@@ -513,6 +526,11 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce }: { run: ch
           octx.fillRect(0, 0, W, H);
         } else if (now < e.healUntil) {
           octx.fillStyle = `rgba(60,200,110,${0.4 * ((e.healUntil - now) / 480)})`;
+          octx.fillRect(0, 0, W, H);
+        }
+        // gold "pickup" flash on Loot (Doom's bonus-pickup palette flash)
+        if (now < e.lootUntil) {
+          octx.fillStyle = `rgba(255,210,90,${0.5 * ((e.lootUntil - now) / LOOT_MS)})`;
           octx.fillRect(0, 0, W, H);
         }
 
@@ -611,7 +629,8 @@ function pickOccupantFrame(e: Engine, r: chain.RunState | null, occ: { frames: s
 }
 
 // Billboard: project the occupant (room centre) and draw it as z-tested 1px slices.
-function drawSprite(ctx: CanvasRenderingContext2D, img: HTMLImageElement | undefined, meta: SpriteMeta | undefined, e: Engine, zbuf: Float32Array) {
+// `collect` (0..1) grows + fades the sprite, for the loot "pickup" pop.
+function drawSprite(ctx: CanvasRenderingContext2D, img: HTMLImageElement | undefined, meta: SpriteMeta | undefined, e: Engine, zbuf: Float32Array, collect = 0) {
   if (!img || !meta) return;
   const ox = 4.0 - e.posX; // occupant stands at room cell (4.0, 2.6)
   const oy = 2.6 - e.posY;
@@ -620,12 +639,14 @@ function drawSprite(ctx: CanvasRenderingContext2D, img: HTMLImageElement | undef
   const ty = inv * (-e.planeY * ox + e.planeX * oy); // depth
   if (ty <= 0.2) return;
   const screenX = (W / 2) * (1 + tx / ty);
-  // scale so a ~64px-tall sprite ≈ one wall height at this distance
-  const drawH = Math.abs(H / ty) * (meta.h / 64);
+  // scale so a ~64px-tall sprite ≈ one wall height at this distance (grown while looting)
+  const grow = 1 + collect * 1.6;
+  const drawH = Math.abs(H / ty) * (meta.h / 64) * grow;
   const drawW = drawH * (meta.w / meta.h);
   const groundY = H / 2 + H / (2 * ty); // floor line at this depth
   const startY = groundY - drawH;
   const startX = Math.floor(screenX - drawW / 2);
+  if (collect > 0) ctx.globalAlpha = Math.max(0, 1 - collect);
   // Draw as z-tested 1px-wide slices so wall edges occlude the billboard.
   for (let sx = 0; sx < drawW; sx++) {
     const x = startX + sx;
@@ -634,6 +655,7 @@ function drawSprite(ctx: CanvasRenderingContext2D, img: HTMLImageElement | undef
     const texX = Math.floor((sx / drawW) * meta.w);
     ctx.drawImage(img, texX, 0, 1, meta.h, x, startY, 1, drawH);
   }
+  ctx.globalAlpha = 1;
 }
 
 function drawWeapon(ctx: CanvasRenderingContext2D, assets: Awaited<ReturnType<typeof loadAssets>>, e: Engine, dt: number) {

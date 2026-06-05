@@ -916,6 +916,8 @@ export default function App() {
   const [walkNonce, setWalkNonce] = useState(0);
   // Bumped on each Use click so the raycaster plays the potion-quaff animation.
   const [useNonce, setUseNonce] = useState(0);
+  // Bumped on each Loot click so the raycaster plays the treasure-pickup animation.
+  const [lootNonce, setLootNonce] = useState(0);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
   const freshOutcome =
@@ -1227,7 +1229,7 @@ export default function App() {
                         </span>
                         <span>{stats.activeRuns} active</span>
                       </div>
-                      <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} useNonce={useNonce} />
+                      <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} useNonce={useNonce} lootNonce={lootNonce} />
                     </div>
 
                     {/* Doom-style status bar: ammo · health + face · level · score */}
@@ -1280,7 +1282,13 @@ export default function App() {
                     >
                       {b("attack") ? "…" : "Attack"}
                     </button>
-                    <button disabled={l2Busy || !run || runOver || run.roomKind !== 2} onClick={onLoot}>
+                    <button
+                      disabled={l2Busy || !run || runOver || run.roomKind !== 2}
+                      onClick={() => {
+                        setLootNonce((n) => n + 1);
+                        void onLoot();
+                      }}
+                    >
                       {b("loot") ? "…" : "Loot"}
                     </button>
                     <button
