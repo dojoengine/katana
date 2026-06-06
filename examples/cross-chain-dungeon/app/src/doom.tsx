@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as chain from "./chain.ts";
 
 // ── Doom-style raycaster ─────────────────────────────────────────────────────
@@ -195,7 +195,7 @@ function freshEngine(): Engine {
   };
 }
 
-export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }: { run: chain.RunState | null; fx: string | null; fireNonce: number; walkNonce: number; useNonce: number; lootNonce: number }) {
+export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce, children }: { run: chain.RunState | null; fx: string | null; fireNonce: number; walkNonce: number; useNonce: number; lootNonce: number; children?: ReactNode }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   // latest props for the rAF loop
@@ -552,6 +552,7 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }
     <div className="doom" ref={wrapRef}>
       <canvas ref={canvasRef} className="doom-canvas" />
       {!ready && <div className="doom-load">loading textures…</div>}
+      {children}
     </div>
   );
 }

@@ -1306,31 +1306,33 @@ export default function App() {
                         </span>
                         <span>{stats.activeRuns} active</span>
                       </div>
-                      <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} useNonce={useNonce} lootNonce={lootNonce} />
-                      {/* numeric gains/losses: small feed, bottom-left */}
-                      {toasts.some((t) => !EVENT_KINDS.includes(t.kind)) && (
-                        <div className="loot-feed">
-                          {toasts
-                            .filter((t) => !EVENT_KINDS.includes(t.kind))
-                            .map((t) => (
-                              <div key={t.id} className={`loot-toast ${t.kind}`}>
-                                {t.text}
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                      {/* dramatic events (ambush / flee failed): big centered banner */}
-                      {toasts.some((t) => EVENT_KINDS.includes(t.kind)) && (
-                        <div className="event-banner">
-                          {toasts
-                            .filter((t) => EVENT_KINDS.includes(t.kind))
-                            .map((t) => (
-                              <div key={t.id} className={`event-toast ${t.kind}`}>
-                                {t.text}
-                              </div>
-                            ))}
-                        </div>
-                      )}
+                      <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} useNonce={useNonce} lootNonce={lootNonce}>
+                        {/* overlays live inside the canvas box so they center on the scene */}
+                        {/* numeric gains/losses: small feed, bottom-left */}
+                        {toasts.some((t) => !EVENT_KINDS.includes(t.kind)) && (
+                          <div className="loot-feed">
+                            {toasts
+                              .filter((t) => !EVENT_KINDS.includes(t.kind))
+                              .map((t) => (
+                                <div key={t.id} className={`loot-toast ${t.kind}`}>
+                                  {t.text}
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                        {/* dramatic events (ambush / flee failed): big centered banner */}
+                        {toasts.some((t) => EVENT_KINDS.includes(t.kind)) && (
+                          <div className="event-banner">
+                            {toasts
+                              .filter((t) => EVENT_KINDS.includes(t.kind))
+                              .map((t) => (
+                                <div key={t.id} className={`event-toast ${t.kind}`}>
+                                  {t.text}
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </DoomScene>
                     </div>
 
                     {/* Doom-style status bar: ammo · health + face · level · score */}
