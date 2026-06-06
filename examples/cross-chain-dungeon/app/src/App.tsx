@@ -27,7 +27,7 @@ const DEPLOYED = BigInt(chain.GAME_SYSTEM) !== 0n;
 
 // Toast kinds rendered as a big centered banner (dramatic events) rather than the
 // small bottom-left gains/losses feed.
-const EVENT_KINDS = ["ambush", "flee"];
+const EVENT_KINDS = ["ambush", "flee", "mimic", "escaped"];
 
 // Doom-style status-bar face, picked from the hp ratio + combat/death, with a
 // transient "ouch" on the frame you take damage. The 3D scene itself lives in
@@ -927,7 +927,7 @@ export default function App() {
   // so nothing pops. Each gain is a transient toast that fades after a moment.
   const [toasts, setToasts] = useState<{ id: number; text: string; kind: string }[]>([]);
   const toastId = useRef(0);
-  const prevGains = useRef<{ runNo: number; gold: number; potions: number; hp: number; enemyHp: number; depth: number } | null>(null);
+  const prevGains = useRef<{ runNo: number; gold: number; potions: number; hp: number; enemyHp: number; depth: number; roomKind: number } | null>(null);
   const pushToast = useCallback((text: string, kind: string) => {
     const id = ++toastId.current;
     setToasts((t) => [...t, { id, text, kind }]);
@@ -939,7 +939,7 @@ export default function App() {
       return;
     }
     const p = prevGains.current;
-    prevGains.current = { runNo: run.runNo, gold: run.gold, potions: run.potions, hp: run.hp, enemyHp: run.enemyHp, depth: run.depth };
+    prevGains.current = { runNo: run.runNo, gold: run.gold, potions: run.potions, hp: run.hp, enemyHp: run.enemyHp, depth: run.depth, roomKind: run.roomKind };
     if (!p || p.runNo !== run.runNo) return; // first sight / run switch: no toasts
     if (run.gold > p.gold) pushToast(`+${run.gold - p.gold} $GOLD`, "gold");
     if (run.potions > p.potions) {
@@ -958,7 +958,17 @@ export default function App() {
     if (run.depth > p.depth && run.roomKind === 1 && run.enemyHp > 0) {
       pushToast("⚔ AMBUSH!", "ambush");
     }
-  }, [run?.runNo, run?.gold, run?.potions, run?.hp, run?.enemyHp, run?.depth, pushToast]);
+    // Mimic: looted a treasure (was a TREASURE room) but hp dropped with no advance —
+    // the chest bit back instead of paying out.
+    if (run.hp < p.hp && p.roomKind === 2 && run.depth === p.depth) {
+      pushToast("⚠ MIMIC!", "mimic");
+    }
+    // Escaped: a flee that worked — we were in combat and advanced a room. Suppressed
+    // when the new room is itself a monster, since that already shows AMBUSH.
+    if (p.enemyHp > 0 && run.depth > p.depth && !(run.roomKind === 1 && run.enemyHp > 0)) {
+      pushToast("✓ ESCAPED", "escaped");
+    }
+  }, [run?.runNo, run?.gold, run?.potions, run?.hp, run?.enemyHp, run?.depth, run?.roomKind, pushToast]);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
   const freshOutcome =

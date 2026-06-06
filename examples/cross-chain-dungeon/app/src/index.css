@@ -330,6 +330,8 @@ button.good.insufficient:hover:not(:disabled) {
 .event-toast { font-family: "VT323", monospace; font-size: 52px; line-height: 1; letter-spacing: 3px; font-weight: 700; animation: event-life 2.6s ease forwards; }
 .event-toast.ambush { color: var(--red); text-shadow: 0 0 4px #000, 0 0 22px rgba(255,107,94,.85); }
 .event-toast.flee { color: var(--amber); text-shadow: 0 0 4px #000, 0 0 22px rgba(255,180,84,.75); }
+.event-toast.mimic { color: var(--red); text-shadow: 0 0 4px #000, 0 0 22px rgba(255,107,94,.85); }
+.event-toast.escaped { color: var(--green); text-shadow: 0 0 4px #000, 0 0 22px rgba(115,230,160,.7); }
 @keyframes event-life {
   0% { opacity: 0; transform: scale(1.7); }
   10% { opacity: 1; transform: scale(1); }
