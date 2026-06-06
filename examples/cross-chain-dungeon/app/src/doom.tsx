@@ -133,8 +133,7 @@ type Engine = {
   dirY: number;
   planeX: number;
   planeY: number;
-  keys: Set<string>;
-  yaw: number; // mouse-look accumulator (radians from start dir)
+  yaw: number; // facing offset from north (kept at 0 — the view is fixed)
   bob: number;
   // animation clocks
   occFrame: number;
@@ -171,7 +170,6 @@ function freshEngine(): Engine {
     dirY: -1,
     planeX: 0.66,
     planeY: 0,
-    keys: new Set(),
     yaw: 0,
     bob: 0,
     occFrame: 0,
@@ -200,7 +198,6 @@ function freshEngine(): Engine {
 export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }: { run: chain.RunState | null; fx: string | null; fireNonce: number; walkNonce: number; useNonce: number; lootNonce: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
-  const [locked, setLocked] = useState(false);
   // latest props for the rAF loop
   const runRef = useRef(run);
   runRef.current = run;
@@ -297,30 +294,9 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }
     const dctx = canvas.getContext("2d")!;
     dctx.imageSmoothingEnabled = false;
 
-    // input
+    // The view is fixed — you face the room and act via the buttons; no free
+    // look/move. The camera only animates during scripted Move transitions.
     const e = engRef.current;
-    const onKey = (down: boolean) => (ev: KeyboardEvent) => {
-      const k = ev.key.toLowerCase();
-      if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
-        if (down) e.keys.add(k);
-        else e.keys.delete(k);
-        ev.preventDefault();
-      }
-    };
-    const kd = onKey(true);
-    const ku = onKey(false);
-    const onMove = (ev: MouseEvent) => {
-      if (document.pointerLockElement === canvas) e.yaw += ev.movementX * 0.0026;
-    };
-    const onLock = () => setLocked(document.pointerLockElement === canvas);
-    const onClick = () => {
-      if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
-    };
-    window.addEventListener("keydown", kd);
-    window.addEventListener("keyup", ku);
-    window.addEventListener("mousemove", onMove);
-    document.addEventListener("pointerlockchange", onLock);
-    canvas.addEventListener("click", onClick);
 
     loadAssets().then((a) => {
       assets = a;
@@ -408,20 +384,11 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }
           e.posY = 5.9 - 0.3 * t;
           e.bob += dt * 9;
         } else {
-          let mv = 0;
-          let strafe = 0;
-          if (e.keys.has("w") || e.keys.has("arrowup")) mv += 1;
-          if (e.keys.has("s") || e.keys.has("arrowdown")) mv -= 1;
-          if (e.keys.has("d") || e.keys.has("arrowright")) strafe += 1;
-          if (e.keys.has("a") || e.keys.has("arrowleft")) strafe -= 1;
-          const spd = 1.8 * dt;
-          const nx = e.posX + (e.dirX * mv + -e.dirY * strafe) * spd;
-          const ny = e.posY + (e.dirY * mv + e.dirX * strafe) * spd;
-          // keep a margin from walls; the occupant cell also blocks
-          if (at(Math.floor(nx), Math.floor(e.posY)) === 0) e.posX = clampRoom(nx);
-          if (at(Math.floor(e.posX), Math.floor(ny)) === 0) e.posY = clampRoom(ny);
-          // view bob while moving
-          if (mv || strafe) e.bob += dt * 9;
+          // "live": fixed view facing the room, with a gentle idle weapon sway
+          e.posX = 4.0;
+          e.posY = 5.6;
+          e.yaw = 0;
+          e.bob += dt * 1.6;
         }
 
         // ── floor + ceiling cast ──
@@ -561,12 +528,6 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }
     return () => {
       stop = true;
       cancelAnimationFrame(raf);
-      window.removeEventListener("keydown", kd);
-      window.removeEventListener("keyup", ku);
-      window.removeEventListener("mousemove", onMove);
-      document.removeEventListener("pointerlockchange", onLock);
-      canvas.removeEventListener("click", onClick);
-      if (document.pointerLockElement === canvas) document.exitPointerLock();
     };
   }, [ready]);
 
@@ -591,13 +552,8 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }
     <div className="doom" ref={wrapRef}>
       <canvas ref={canvasRef} className="doom-canvas" />
       {!ready && <div className="doom-load">loading textures…</div>}
-      {ready && !locked && <div className="doom-hint">click to look · WASD to move</div>}
     </div>
   );
-}
-
-function clampRoom(v: number) {
-  return Math.max(1.18, Math.min(MW - 1.18, v));
 }
 
 // Choose the monster's current frame from run/combat state; advances its clock.
