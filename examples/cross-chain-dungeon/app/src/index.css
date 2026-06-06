@@ -325,7 +325,19 @@ button.good.insufficient:hover:not(:disabled) {
 .loot-toast.potion { color: var(--cyan); }
 .loot-toast.hp { color: var(--green); }
 .loot-toast.dmg { color: var(--red); }
-.loot-toast.flee { color: var(--amber); font-weight: 700; }
+/* dramatic events (ambush / flee failed): big centered banner */
+.event-banner { position: absolute; left: 0; right: 0; top: 44%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; pointer-events: none; z-index: 4; }
+.event-toast { font-family: "VT323", monospace; font-size: 52px; line-height: 1; letter-spacing: 3px; font-weight: 700; animation: event-life 2.6s ease forwards; }
+.event-toast.ambush { color: var(--red); text-shadow: 0 0 4px #000, 0 0 22px rgba(255,107,94,.85); }
+.event-toast.flee { color: var(--amber); text-shadow: 0 0 4px #000, 0 0 22px rgba(255,180,84,.75); }
+@keyframes event-life {
+  0% { opacity: 0; transform: scale(1.7); }
+  10% { opacity: 1; transform: scale(1); }
+  18% { transform: scale(1.06); }
+  26% { transform: scale(1); }
+  78% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.15); }
+}
 @keyframes loot-life {
   0% { opacity: 0; transform: translateY(8px); }
   9% { opacity: 1; transform: none; }

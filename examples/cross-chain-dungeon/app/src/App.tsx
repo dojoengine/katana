@@ -25,6 +25,10 @@ const SHAKE_FRAMES: Keyframe[] = [
 // load whenever this is true — even with no wallet connected.
 const DEPLOYED = BigInt(chain.GAME_SYSTEM) !== 0n;
 
+// Toast kinds rendered as a big centered banner (dramatic events) rather than the
+// small bottom-left gains/losses feed.
+const EVENT_KINDS = ["ambush", "flee"];
+
 // Doom-style status-bar face, picked from the hp ratio + combat/death, with a
 // transient "ouch" on the frame you take damage. The 3D scene itself lives in
 // doom.tsx (a Freedoom-textured raycaster); this only drives the HUD face.
@@ -949,6 +953,11 @@ export default function App() {
     if (run.hp < p.hp && run.enemyHp > 0 && run.enemyHp === p.enemyHp && run.depth === p.depth) {
       pushToast("✗ FLEE FAILED", "flee");
     }
+    // Ambush: advanced into a new room (depth up) that holds a fresh monster — flags a
+    // new encounter, so it isn't mistaken for the one we just fled/moved from.
+    if (run.depth > p.depth && run.roomKind === 1 && run.enemyHp > 0) {
+      pushToast("⚔ AMBUSH!", "ambush");
+    }
   }, [run?.runNo, run?.gold, run?.potions, run?.hp, run?.enemyHp, run?.depth, pushToast]);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
@@ -1262,13 +1271,28 @@ export default function App() {
                         <span>{stats.activeRuns} active</span>
                       </div>
                       <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} useNonce={useNonce} lootNonce={lootNonce} />
-                      {toasts.length > 0 && (
+                      {/* numeric gains/losses: small feed, bottom-left */}
+                      {toasts.some((t) => !EVENT_KINDS.includes(t.kind)) && (
                         <div className="loot-feed">
-                          {toasts.map((t) => (
-                            <div key={t.id} className={`loot-toast ${t.kind}`}>
-                              {t.text}
-                            </div>
-                          ))}
+                          {toasts
+                            .filter((t) => !EVENT_KINDS.includes(t.kind))
+                            .map((t) => (
+                              <div key={t.id} className={`loot-toast ${t.kind}`}>
+                                {t.text}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                      {/* dramatic events (ambush / flee failed): big centered banner */}
+                      {toasts.some((t) => EVENT_KINDS.includes(t.kind)) && (
+                        <div className="event-banner">
+                          {toasts
+                            .filter((t) => EVENT_KINDS.includes(t.kind))
+                            .map((t) => (
+                              <div key={t.id} className={`event-toast ${t.kind}`}>
+                                {t.text}
+                              </div>
+                            ))}
                         </div>
                       )}
                     </div>
