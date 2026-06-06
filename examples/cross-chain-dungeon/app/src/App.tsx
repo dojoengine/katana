@@ -923,7 +923,7 @@ export default function App() {
   // so nothing pops. Each gain is a transient toast that fades after a moment.
   const [toasts, setToasts] = useState<{ id: number; text: string; kind: string }[]>([]);
   const toastId = useRef(0);
-  const prevGains = useRef<{ runNo: number; gold: number; potions: number; hp: number } | null>(null);
+  const prevGains = useRef<{ runNo: number; gold: number; potions: number; hp: number; enemyHp: number; depth: number } | null>(null);
   const pushToast = useCallback((text: string, kind: string) => {
     const id = ++toastId.current;
     setToasts((t) => [...t, { id, text, kind }]);
@@ -935,7 +935,7 @@ export default function App() {
       return;
     }
     const p = prevGains.current;
-    prevGains.current = { runNo: run.runNo, gold: run.gold, potions: run.potions, hp: run.hp };
+    prevGains.current = { runNo: run.runNo, gold: run.gold, potions: run.potions, hp: run.hp, enemyHp: run.enemyHp, depth: run.depth };
     if (!p || p.runNo !== run.runNo) return; // first sight / run switch: no toasts
     if (run.gold > p.gold) pushToast(`+${run.gold - p.gold} $GOLD`, "gold");
     if (run.potions > p.potions) {
@@ -944,7 +944,12 @@ export default function App() {
     }
     if (run.hp > p.hp) pushToast(`+${run.hp - p.hp} HP`, "hp");
     else if (run.hp < p.hp) pushToast(`-${p.hp - run.hp} HP`, "dmg");
-  }, [run?.runNo, run?.gold, run?.potions, run?.hp, pushToast]);
+    // Failed flee: still in the same monster room (depth + enemy_hp unchanged) but hp
+    // dropped — the escape roll failed and the monster got a hit in.
+    if (run.hp < p.hp && run.enemyHp > 0 && run.enemyHp === p.enemyHp && run.depth === p.depth) {
+      pushToast("✗ FLEE FAILED", "flee");
+    }
+  }, [run?.runNo, run?.gold, run?.potions, run?.hp, run?.enemyHp, run?.depth, pushToast]);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
   const freshOutcome =

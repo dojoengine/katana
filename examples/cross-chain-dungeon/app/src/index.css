@@ -325,6 +325,7 @@ button.good.insufficient:hover:not(:disabled) {
 .loot-toast.potion { color: var(--cyan); }
 .loot-toast.hp { color: var(--green); }
 .loot-toast.dmg { color: var(--red); }
+.loot-toast.flee { color: var(--amber); font-weight: 700; }
 @keyframes loot-life {
   0% { opacity: 0; transform: translateY(8px); }
   9% { opacity: 1; transform: none; }
