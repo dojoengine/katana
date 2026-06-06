@@ -158,6 +158,7 @@ type Engine = {
   phase: "load" | "live" | "out" | "hold" | "in";
   phaseT0: number;
   startDepth: number;
+  startHp: number; // hp at Move-time, to detect a failed flee (hp drops, depth doesn't)
   fleeing: boolean; // Move issued while in combat → retreat instead of advance
   shownRun: chain.RunState | null;
 };
@@ -190,6 +191,7 @@ function freshEngine(): Engine {
     phase: "load",
     phaseT0: 0,
     startDepth: -1,
+    startHp: -1,
     fleeing: false,
     shownRun: null,
   };
@@ -252,6 +254,7 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }
     e.phase = "out";
     e.phaseT0 = performance.now();
     e.startDepth = runRef.current ? runRef.current.depth : -1;
+    e.startHp = runRef.current ? runRef.current.hp : -1;
     e.fleeing = !!(runRef.current && runRef.current.enemyHp > 0); // "Flee" vs "Move"
   }, [walkNonce]);
 
@@ -346,9 +349,12 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce }
             e.phaseT0 = now;
           }
         } else if (e.phase === "hold") {
-          const advanced = !!live && e.startDepth >= 0 && live.depth > e.startDepth;
-          if (advanced || now - e.phaseT0 >= HOLD_MAX) {
-            e.shownRun = live; // commit: the new room is revealed from here
+          // Exit once the move has actually resolved on-chain: the room advanced
+          // (normal move / successful flee), or hp changed / we died (a failed flee
+          // keeps the same room, so depth alone would never resolve → 6s dark bug).
+          const resolved = !!live && (live.depth !== e.startDepth || live.hp !== e.startHp || !live.alive);
+          if (resolved || now - e.phaseT0 >= HOLD_MAX) {
+            e.shownRun = live; // commit: the room is revealed from here
             e.phase = "in";
             e.phaseT0 = now;
           }
