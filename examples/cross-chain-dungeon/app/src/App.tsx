@@ -3,6 +3,7 @@ import * as chain from "./chain.ts";
 import { useWallet } from "./wallet.tsx";
 import { Tutorial } from "./tutorial.tsx";
 import { DoomScene } from "./doom.tsx";
+import { sfx, initSfx } from "./sfx.ts";
 
 // Demo amounts. Buy 1 USDC worth of GAME; dev-mint 500 GAME.
 const BUY_USDC = 10n ** BigInt(chain.USDC_DECIMALS); // 1 USDC
@@ -28,6 +29,17 @@ const DEPLOYED = BigInt(chain.GAME_SYSTEM) !== 0n;
 // Toast kinds rendered as a big centered banner (dramatic events) rather than the
 // small bottom-left gains/losses feed.
 const EVENT_KINDS = ["ambush", "flee", "mimic", "escaped"];
+
+// Sound effect played for each toast kind (Freedoom clips, see sfx.ts). The minor
+// pickups (gold / HP / potion) are intentionally silent — only damage and the
+// dramatic callouts get a sound.
+const KIND_SFX: Record<string, string> = {
+  dmg: "pain",
+  flee: "noway",
+  ambush: "growl",
+  mimic: "snarl",
+  escaped: "teleport",
+};
 
 // Doom-style status-bar face, picked from the hp ratio + combat/death, with a
 // transient "ouch" on the frame you take damage. The 3D scene itself lives in
@@ -927,11 +939,15 @@ export default function App() {
   // so nothing pops. Each gain is a transient toast that fades after a moment.
   const [toasts, setToasts] = useState<{ id: number; text: string; kind: string }[]>([]);
   const toastId = useRef(0);
-  const prevGains = useRef<{ runNo: number; gold: number; potions: number; hp: number; enemyHp: number; depth: number; roomKind: number } | null>(null);
+  const prevGains = useRef<{ runNo: number; gold: number; potions: number; hp: number; enemyHp: number; depth: number; roomKind: number; alive: boolean } | null>(null);
   const pushToast = useCallback((text: string, kind: string) => {
     const id = ++toastId.current;
     setToasts((t) => [...t, { id, text, kind }]);
+    if (KIND_SFX[kind]) sfx(KIND_SFX[kind]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600);
+  }, []);
+  useEffect(() => {
+    initSfx();
   }, []);
   useEffect(() => {
     if (!run) {
@@ -939,8 +955,10 @@ export default function App() {
       return;
     }
     const p = prevGains.current;
-    prevGains.current = { runNo: run.runNo, gold: run.gold, potions: run.potions, hp: run.hp, enemyHp: run.enemyHp, depth: run.depth, roomKind: run.roomKind };
+    prevGains.current = { runNo: run.runNo, gold: run.gold, potions: run.potions, hp: run.hp, enemyHp: run.enemyHp, depth: run.depth, roomKind: run.roomKind, alive: run.alive };
     if (!p || p.runNo !== run.runNo) return; // first sight / run switch: no toasts
+    // Run just ended: extract leaves hp > 0 (success), death zeroes it (failure).
+    if (p.alive && !run.alive) sfx(run.hp > 0 ? "getpow" : "death");
     if (run.gold > p.gold) pushToast(`+${run.gold - p.gold} $GOLD`, "gold");
     if (run.potions > p.potions) {
       const d = run.potions - p.potions;
@@ -968,7 +986,7 @@ export default function App() {
     if (p.enemyHp > 0 && run.depth > p.depth && !(run.roomKind === 1 && run.enemyHp > 0)) {
       pushToast("✓ ESCAPED", "escaped");
     }
-  }, [run?.runNo, run?.gold, run?.potions, run?.hp, run?.enemyHp, run?.depth, run?.roomKind, pushToast]);
+  }, [run?.runNo, run?.gold, run?.potions, run?.hp, run?.enemyHp, run?.depth, run?.roomKind, run?.alive, pushToast]);
   // A run that ended this session (newer than the load-time baseline) — drives the
   // death / extract outcome veils, so they don't reappear on reload.
   const freshOutcome =
@@ -1262,7 +1280,15 @@ export default function App() {
                     <button disabled={l2Busy} onClick={() => closeOutcome(lastEnded.endNo)}>
                       Back to lobby
                     </button>
-                    <button ref={shakeRef} className={`good ${insufficient ? "insufficient" : ""}`} disabled={l1Busy || !actReady} onClick={onEnterAgain}>
+                    <button
+                      ref={shakeRef}
+                      className={`good ${insufficient ? "insufficient" : ""}`}
+                      disabled={l1Busy || !actReady}
+                      onClick={() => {
+                        sfx("teleport");
+                        void onEnterAgain();
+                      }}
+                    >
                       {insufficient
                         ? "insufficient $GAME"
                         : `Enter again · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
@@ -1342,6 +1368,7 @@ export default function App() {
                     <button
                       disabled={l2Busy || !run || runOver}
                       onClick={() => {
+                        sfx("door");
                         setWalkNonce((n) => n + 1);
                         void onMove();
                       }}
@@ -1351,6 +1378,7 @@ export default function App() {
                     <button
                       disabled={l2Busy || !inCombat || runOver}
                       onClick={() => {
+                        sfx("shotgun");
                         setFireNonce((n) => n + 1);
                         void onAttack();
                       }}
@@ -1360,6 +1388,7 @@ export default function App() {
                     <button
                       disabled={l2Busy || !run || runOver || run.roomKind !== 2}
                       onClick={() => {
+                        sfx("switch");
                         setLootNonce((n) => n + 1);
                         void onLoot();
                       }}
@@ -1369,13 +1398,21 @@ export default function App() {
                     <button
                       disabled={l2Busy || !run || runOver || run.potions === 0 || run.hp >= run.maxHp}
                       onClick={() => {
+                        sfx("getpow");
                         setUseNonce((n) => n + 1);
                         void onUse();
                       }}
                     >
                       {b("use") ? "…" : "Use"}
                     </button>
-                    <button className="danger" disabled={l2Busy || !run || runOver || inCombat} onClick={onExtract}>
+                    <button
+                      className="danger"
+                      disabled={l2Busy || !run || runOver || inCombat}
+                      onClick={() => {
+                        sfx("teleport");
+                        void onExtract();
+                      }}
+                    >
                       {b("extract") ? "…" : "Extract"}
                     </button>
                   </div>
@@ -1387,7 +1424,15 @@ export default function App() {
                     <div className="newgame-title">LOBBY</div>
                     <div className="newgame-sub">into the unknown</div>
                   </div>
-                  <button ref={shakeRef} className={`good newgame-start ${insufficient ? "insufficient" : ""}`} disabled={l1Busy || !actReady} onClick={onNewGame}>
+                  <button
+                    ref={shakeRef}
+                    className={`good newgame-start ${insufficient ? "insufficient" : ""}`}
+                    disabled={l1Busy || !actReady}
+                    onClick={() => {
+                      sfx("teleport");
+                      void onNewGame();
+                    }}
+                  >
                     {insufficient
                       ? "insufficient $GAME"
                       : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
