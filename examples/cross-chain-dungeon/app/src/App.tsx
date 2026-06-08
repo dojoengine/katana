@@ -1665,17 +1665,20 @@ export default function App() {
           </footer>
         </div>
       </div>
-      <div className="launchers" data-tut="windows">
-        <button className="launcher" onClick={() => setLogsOpen((o) => !o)} title="service logs">
-          ▸ logs
-        </button>
-        <button className="launcher" onClick={() => setConfigOpen((o) => !o)} title="deployment config">
-          ▸ config
-        </button>
-        <button className="launcher" onClick={() => setTxOpen((o) => !o)} title="transaction log (L1 + L2)">
-          ▸ txns
-        </button>
-      </div>
+      {/* Dev-only debug launchers (service logs / deployment config / tx log). */}
+      {import.meta.env.DEV && (
+        <div className="launchers" data-tut="windows">
+          <button className="launcher" onClick={() => setLogsOpen((o) => !o)} title="service logs">
+            ▸ logs
+          </button>
+          <button className="launcher" onClick={() => setConfigOpen((o) => !o)} title="deployment config">
+            ▸ config
+          </button>
+          <button className="launcher" onClick={() => setTxOpen((o) => !o)} title="transaction log (L1 + L2)">
+            ▸ txns
+          </button>
+        </div>
+      )}
       {logsOpen && (
         <FloatingWindow title="service logs" onClose={() => setLogsOpen(false)}>
           <LogViewer />
