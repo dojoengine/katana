@@ -39,9 +39,8 @@ const STEPS: Step[] = [
     title: "Fund · on L1",
     body: (
       <>
-        Buy <b>$GAME</b> with real <b>USDC</b> — an external L1 contract the demo doesn't own (the
-        "depend on a settlement-layer contract" showcase), or <b>dev-mint</b> it. $GAME is your entry
-        credit; $GOLD is the winnings you'll bank later. Both live on L1.
+        <b>Dev-mint</b> some <b>$GAME</b> — your entry credit. $GOLD is the winnings you'll bank
+        later. Both live on L1.
       </>
     ),
   },

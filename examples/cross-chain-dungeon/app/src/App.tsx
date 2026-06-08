@@ -16,8 +16,7 @@ const addrKey = (a: string): string => {
   }
 };
 
-// Demo amounts. Buy 1 USDC worth of GAME; dev-mint 500 GAME.
-const BUY_USDC = 10n ** BigInt(chain.USDC_DECIMALS); // 1 USDC
+// Demo amount minted by the Dev-mint button.
 const DEV_MINT = 500n * 10n ** BigInt(chain.GAME_DECIMALS); // 500 GAME
 
 // One-off "rejected" shake for the New Game / Enter again button, played imperatively
@@ -718,7 +717,6 @@ export default function App() {
   }, [player, wallet.username]);
   const [gameBal, setGameBal] = useState(0n);
   const [goldBal, setGoldBal] = useState(0n);
-  const [usdcBal, setUsdcBal] = useState(0n);
   const [vault, setVault] = useState(0); // accumulated GOLD on L2 awaiting bank
   const [fee, setFee] = useState(0n); // GAME entry fee
   const [settled, setSettled] = useState(0);
@@ -810,12 +808,11 @@ export default function App() {
       // player) skips them — and the bank-world Torii (see the subscription effect) —
       // so idle work and memory stay down.
       if (player) {
-        const [rl, r, gb, gld, ub, vt, wd, bc, le] = await Promise.all([
+        const [rl, r, gb, gld, vt, wd, bc, le] = await Promise.all([
           chain.listRuns(player),
           selectedRun != null ? chain.readRun(selectedRun) : Promise.resolve(null),
           chain.gameBalance(player),
           chain.goldBalance(player),
-          chain.usdcBalance(player),
           chain.readVault(player),
           chain.getWithdrawals(player),
           chain.getBankCount(player),
@@ -836,7 +833,6 @@ export default function App() {
         }
         setGameBal(gb);
         setGoldBal(gld);
-        setUsdcBal(ub);
         setVault(vt);
         // Everything past the banked count is unclaimed (oldest-first). The Claim
         // button banks all of these that have settled, in one multicall.
@@ -849,7 +845,6 @@ export default function App() {
         setRunState(null);
         setGameBal(0n);
         setGoldBal(0n);
-        setUsdcBal(0n);
         setVault(0);
         setUnclaimed([]);
         setLastEnded(null);
@@ -1054,7 +1049,6 @@ export default function App() {
   // lobby for a just-closed transition. Never over a still-alive run.
   const showOutcome = freshOutcome && !entering && (!playing || runOver);
 
-  const onBuy = actL1("buy", (acc) => chain.buyGame(acc, BUY_USDC));
   const onMint = actL1("mint", (acc) => chain.devMint(acc, DEV_MINT));
   // "New game": charge $GAME on L1, fire the L1→L2 mint_run, and remember the run
   // count at click time so the tick can auto-select the freshly minted run once it
@@ -1220,12 +1214,6 @@ export default function App() {
                 <div className="panel-h">
                   Funding<span className="rule" />
                 </div>
-                <div className="bal usdc">
-                  <span className="k">USDC</span>
-                  <span className="v">
-                    {chain.fmtToken(usdcBal, chain.USDC_DECIMALS)} <small>USDC</small>
-                  </span>
-                </div>
                 <div className="bal game">
                   <span className="k">GAME <small>entry credit</small></span>
                   <span className="v">
@@ -1239,15 +1227,12 @@ export default function App() {
                   </span>
                 </div>
                 <div className="row-actions">
-                  <button disabled={l1Busy || !actReady} onClick={onBuy}>
-                    {b("buy") ? "…" : "Buy GAME"}
-                  </button>
                   <button disabled={l1Busy || !actReady} onClick={onMint}>
                     {b("mint") ? "…" : "Dev-mint"}
                   </button>
                 </div>
                 <div className="legend">
-                  spend <b>$GAME</b> to enter · earn <b>$GOLD</b> by banking · buy uses real <b>$USDC</b>
+                  spend <b>$GAME</b> to enter · earn <b>$GOLD</b> by banking
                 </div>
               </div>
 
