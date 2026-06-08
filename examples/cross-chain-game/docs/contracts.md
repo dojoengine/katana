@@ -17,7 +17,7 @@ global state, or a real key (a player address) for per-entity rows.
 #[dojo::model]
 pub struct Stats { #[key] pub id: u8, pub total_minted: u64, pub available: u64, /* … */ }
 ```
-[`cairo/game/src/lib.cairo:35`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/cairo/game/src/lib.cairo#L35)
+[`cairo/game/src/lib.cairo:35`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/cairo/game/src/lib.cairo#L35)
 
 **A system** is a `#[dojo::contract]`. It reaches the world via `self.world(@"ns")`
 and reads/writes models:
@@ -28,7 +28,7 @@ let mut stats: Stats = world.read_model(SINGLETON);
 stats.available -= 1;
 world.write_model(@stats);
 ```
-[`cairo/game/src/lib.cairo:114`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/cairo/game/src/lib.cairo#L114)
+[`cairo/game/src/lib.cairo:114`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/cairo/game/src/lib.cairo#L114)
 
 **Config goes in `dojo_init`** — it runs once at migration. Pass addresses you
 only learn at deploy time (e.g. the contract on the *other* chain) here rather
@@ -40,7 +40,7 @@ fn dojo_init(self: @ContractState, registry: ContractAddress) {
     world.write_model(@GameConfig { id: SINGLETON, registry });
 }
 ```
-[`cairo/game/src/lib.cairo:80`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/cairo/game/src/lib.cairo#L80)
+[`cairo/game/src/lib.cairo:80`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/cairo/game/src/lib.cairo#L80)
 
 **Permissions:** a system may only write models in namespaces it's a *writer* of;
 that grant is declared at migration (see [deployment.md](./deployment.md)).
@@ -66,7 +66,7 @@ fn mint_game(ref self: ContractState, from_address: felt252, game_id: felt252) {
     world.emit_event(@GameMinted { mint_no: stats.total_minted, buyer: from_address, /* … */ });
 }
 ```
-[`cairo/game/src/lib.cairo:93`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/cairo/game/src/lib.cairo#L93)
+[`cairo/game/src/lib.cairo:93`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/cairo/game/src/lib.cairo#L93)
 
 In the demo the client doesn't call piltover directly — the player calls
 `buy_game` on the L1 `store` contract, which runs the store's rules and then makes
@@ -86,7 +86,7 @@ contract that will consume it; the payload is yours to define:
 send_message_to_l1_syscall(config.registry.into(), array![player, score.into()].span())
     .unwrap_syscall();
 ```
-[`cairo/game/src/lib.cairo:131`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/cairo/game/src/lib.cairo#L131)
+[`cairo/game/src/lib.cairo:131`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/cairo/game/src/lib.cairo#L131)
 
 **2. Consume on a settlement system.** It calls the piltover core; this reverts
 until saya has settled the block containing the message (that's the whole point —
@@ -96,7 +96,7 @@ until saya has settled the block containing the message (that's the whole point 
 let piltover = IPiltoverMessagingDispatcher { contract_address: config.piltover };
 piltover.consume_message_from_appchain(from_address, array![player, score].span());
 ```
-[`cairo/score/src/lib.cairo:99`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/cairo/score/src/lib.cairo#L99)
+[`cairo/score/src/lib.cairo:99`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/cairo/score/src/lib.cairo#L99)
 
 **The payload contract is sacred.** The `(from_address, payload)` the consumer
 passes must reconstruct exactly what the sender emitted, or the hash won't match
@@ -131,7 +131,7 @@ monotonic sequence**:
 #[dojo::event]
 pub struct GamePlayed { #[key] pub game_no: u64, pub player: felt252, pub score: u64 }
 ```
-[`cairo/game/src/lib.cairo:71`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/cairo/game/src/lib.cairo#L71)
+[`cairo/game/src/lib.cairo:71`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/cairo/game/src/lib.cairo#L71)
 
 The demo keys `GameMinted`/`GamePlayed`/`ScoreClaimed` by `mint_no`/`game_no`/
 `claim_no` so Torii keeps one row per mint/play/bank — which is exactly what the
