@@ -109,14 +109,15 @@ derived from fixed seeds/salts, so they're stable across redeploys.
 
 | Contract | Address |
 | --- | --- |
-| piltover (rollup settlement core) | [`0x14ca1ec4f958c163afb5fb07c247074a53a3f736ac8e4a4b55196649da1bd4e`](https://sepolia.voyager.online/contract/0x14ca1ec4f958c163afb5fb07c247074a53a3f736ac8e4a4b55196649da1bd4e) |
+| piltover (rollup settlement core) | [`0x6ddda1669a4f594c2a6c922e47081e3b9fd627d0da045b53012bae636f8d6fe`](https://sepolia.voyager.online/contract/0x6ddda1669a4f594c2a6c922e47081e3b9fd627d0da045b53012bae636f8d6fe) |
 | TEE registry (mock attestation) | [`0x37189b1807f1358074b70b3dc8ab79167bbf72cff1296286052f6dfe31c8f15`](https://sepolia.voyager.online/contract/0x37189b1807f1358074b70b3dc8ab79167bbf72cff1296286052f6dfe31c8f15) |
-| GAME token (entry credit) | [`0x4c1ddd5c68e6797721c707565552e7d53e4bcd5a9be06d8943bb48a608d4b26`](https://sepolia.voyager.online/contract/0x4c1ddd5c68e6797721c707565552e7d53e4bcd5a9be06d8943bb48a608d4b26) |
-| GOLD token (winnings) | [`0x7bf13b3acf30ec60de476dc1f7ef0f75dd2a9d8588212ecfa8b2f6f2d689165`](https://sepolia.voyager.online/contract/0x7bf13b3acf30ec60de476dc1f7ef0f75dd2a9d8588212ecfa8b2f6f2d689165) |
-| bank world | [`0x20079c4e09dce36eb6d0e5b571485181a5a0cf1ef387830d648f10c8cbc9cbc`](https://sepolia.voyager.online/contract/0x20079c4e09dce36eb6d0e5b571485181a5a0cf1ef387830d648f10c8cbc9cbc) |
-| bank system (consumes withdrawals → mints GOLD) | [`0x582023a0e94bc90363ee1dc40877c773da21c4b69c52a2074845253603990ba`](https://sepolia.voyager.online/contract/0x582023a0e94bc90363ee1dc40877c773da21c4b69c52a2074845253603990ba) |
-| Entry (charge GAME + L1→L2 enter) | [`0x3113d4c637c135fe325e745fc7ecb72e17fefa152c2e8ca07fdb91841cdec87`](https://sepolia.voyager.online/contract/0x3113d4c637c135fe325e745fc7ecb72e17fefa152c2e8ca07fdb91841cdec87) |
-| TokenSale (USDC→GAME — inert: `usdc` unset, UI uses Dev-mint) | [`0x32dc683d0c2216648c89fdc3a206c602f5f80c88231b88d8d31cb2c7c208013`](https://sepolia.voyager.online/contract/0x32dc683d0c2216648c89fdc3a206c602f5f80c88231b88d8d31cb2c7c208013) |
+| GAME token (entry credit) | [`0x476d79c46f186018f7bfe9c5ad12a640b5a59ad0b0602275a1fa274e95b8de1`](https://sepolia.voyager.online/contract/0x476d79c46f186018f7bfe9c5ad12a640b5a59ad0b0602275a1fa274e95b8de1) |
+| GOLD token (winnings) | [`0x3b17b4ebfa73a9bafc951b6de0b9110d65af78e4555a90356bcc48b9cb8e763`](https://sepolia.voyager.online/contract/0x3b17b4ebfa73a9bafc951b6de0b9110d65af78e4555a90356bcc48b9cb8e763) |
+| bank world | [`0x10cf0deda44ff218a29f9223945c5a01cd7c86667349334c43f4f4c53befae1`](https://sepolia.voyager.online/contract/0x10cf0deda44ff218a29f9223945c5a01cd7c86667349334c43f4f4c53befae1) |
+| bank system (consumes withdrawals → mints GOLD) | [`0x3ab197dc7b89760f445f4640a3fe2a018b2d5f991b17b59f6a119eab2c2d6c`](https://sepolia.voyager.online/contract/0x3ab197dc7b89760f445f4640a3fe2a018b2d5f991b17b59f6a119eab2c2d6c) |
+| Entry (charge GAME + L1→L2 enter) | [`0x158828443eea1b9fbca6e913642740b7683588e33a8ab9826048a8992e9c412`](https://sepolia.voyager.online/contract/0x158828443eea1b9fbca6e913642740b7683588e33a8ab9826048a8992e9c412) |
+| TokenSale (USDC→GAME — wired; contract-only, UI uses Dev-mint) | [`0x7f48c547103fa23dcc10eb2ec17f72a8b3ba57fb16dbfbebf4217a28a8be73d`](https://sepolia.voyager.online/contract/0x7f48c547103fa23dcc10eb2ec17f72a8b3ba57fb16dbfbebf4217a28a8be73d) |
+| USDC (external dependency — Circle, 6 decimals; TokenSale spends it) | [`0x0512feAc6339Ff7889822cb5aA2a86C848e9D392bB0E3E237C008674feeD8343`](https://sepolia.voyager.online/contract/0x0512feAc6339Ff7889822cb5aA2a86C848e9D392bB0E3E237C008674feeD8343) |
 
 ### Appchain — local `DUNGEON` rollup (`http://localhost:5070`)
 
