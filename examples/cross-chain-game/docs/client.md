@@ -108,7 +108,22 @@ in `app/src/wallet.tsx`, with the active account injected into `purchaseGame`,
 + bank on L1 and the roll on the appchain, at the **same address** (a Controller is
 UDC-deployed deterministically from its username, so the address is
 chain-independent). For the roll the connector switches the Controller to the
-appchain (chain id `GAMECHAIN`), executes `play_game`, then switches back.
+appchain (chain id `GAMECHAIN`) and executes `play_game`; the L1 signer switches
+back to settlement on its next call, so the roll itself deliberately does **not**
+switch back.
+
+> **Two Controller gotchas the wallet handles** (`app/src/wallet.tsx`):
+>
+> - **Don't switch back to settlement after the roll.** The keychain's balance-change
+>   preview re-simulates on whatever chain is currently active, so flipping back to Sepolia
+>   makes it re-run the appchain call there (where the game contract doesn't exist) and
+>   surface a bogus "not deployed" error. Because the L1 signer switches to settlement
+>   itself, leaving the Controller on the appchain is correct.
+> - **The switch can fail.** `switchStarknetChain` returns `false` when the hosted keychain
+>   can't reach the appchain RPC — e.g. the `x.cartridge.gg` iframe blocked from
+>   `http://localhost` by Chrome's Private Network Access. The wallet throws a clear error
+>   instead of running the tx on Sepolia; enable `chrome://flags/#local-network-access-check`,
+>   or self-host the keychain via `VITE_KEYCHAIN_URL`.
 
 Controller is opt-in: the stack must be started with `CONTROLLER=1 ./up.sh` — that
 makes **both** nodes Controller-capable (paymaster; `katana init rollup` declares
