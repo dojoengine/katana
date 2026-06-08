@@ -4,6 +4,17 @@ import { useWallet } from "./wallet.tsx";
 import { Tutorial } from "./tutorial.tsx";
 import { DoomScene } from "./doom.tsx";
 import { sfx, initSfx } from "./sfx.ts";
+import { lookupAddresses } from "@cartridge/controller";
+
+// Canonical key for an address — strips zero-padding so Torii's format and
+// Cartridge's lookup results compare equal regardless of leading zeros.
+const addrKey = (a: string): string => {
+  try {
+    return "0x" + BigInt(a).toString(16);
+  } catch {
+    return a.toLowerCase();
+  }
+};
 
 // Demo amounts. Buy 1 USDC worth of GAME; dev-mint 500 GAME.
 const BUY_USDC = 10n ** BigInt(chain.USDC_DECIMALS); // 1 USDC
@@ -678,6 +689,33 @@ export default function App() {
   const [stats, setStats] = useState<chain.Stats>({ totalRuns: 0, activeRuns: 0, totalActions: 0, totalBanked: 0 });
   const [feed, setFeed] = useState<chain.OutcomeRow[]>([]);
   const [board, setBoard] = useState<chain.LeaderRow[]>([]);
+  // Resolved Cartridge Controller usernames, keyed by canonical address. Players
+  // without a Controller simply stay absent (we fall back to the short address).
+  const [names, setNames] = useState<Record<string, string>>({});
+  const queriedAddrs = useRef<Set<string>>(new Set());
+  // Look up usernames for any not-yet-queried addresses, in one batched call.
+  const resolveNames = useCallback(async (addrs: string[]) => {
+    const fresh = addrs.filter((a) => !queriedAddrs.current.has(addrKey(a)));
+    if (!fresh.length) return;
+    fresh.forEach((a) => queriedAddrs.current.add(addrKey(a)));
+    try {
+      const map = await lookupAddresses(fresh);
+      if (map.size) {
+        setNames((prev) => {
+          const next = { ...prev };
+          for (const [addr, name] of map) next[addrKey(addr)] = name;
+          return next;
+        });
+      }
+    } catch {
+      // offline / Cartridge API unreachable — retry these next poll
+      fresh.forEach((a) => queriedAddrs.current.delete(addrKey(a)));
+    }
+  }, []);
+  // Seed your own row from the connected Controller, so it shows immediately.
+  useEffect(() => {
+    if (player && wallet.username) setNames((prev) => ({ ...prev, [addrKey(player)]: wallet.username! }));
+  }, [player, wallet.username]);
   const [gameBal, setGameBal] = useState(0n);
   const [goldBal, setGoldBal] = useState(0n);
   const [usdcBal, setUsdcBal] = useState(0n);
@@ -763,6 +801,7 @@ export default function App() {
       setStats(st);
       setFeed(fd);
       setBoard(lb);
+      void resolveNames(lb.map((r) => r.player));
       setFee(ef);
       setSettled(sb);
       setTip(tp);
@@ -1236,7 +1275,13 @@ export default function App() {
                       board.map((row, i) => (
                         <tr key={row.player} className={BigInt(row.player) === BigInt(player || "0x0") ? "you" : ""}>
                           <td className="r">{String(i + 1).padStart(2, "0")}</td>
-                          <td>{chain.shortAddr(row.player)}</td>
+                          {names[addrKey(row.player)] ? (
+                            <td className="ctrl-name" title={row.player}>
+                              {names[addrKey(row.player)]}
+                            </td>
+                          ) : (
+                            <td title={row.player}>{chain.shortAddr(row.player)}</td>
+                          )}
                           <td className="score">{row.bestScore.toLocaleString()}</td>
                           <td className="rw">{row.totalGold.toLocaleString()}</td>
                         </tr>

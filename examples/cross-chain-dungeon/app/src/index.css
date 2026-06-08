@@ -525,6 +525,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-nu
 th { color: var(--dim); text-align: left; font-weight: 500; letter-spacing: 1px; font-size: 10px; text-transform: uppercase; padding: 0 6px 6px 0; border-bottom: 1px solid var(--border); }
 td { padding: 4px 6px 4px 0; border-bottom: 1px dotted var(--ghost); color: var(--ink); }
 td.r { color: var(--dim); }
+td.ctrl-name { color: var(--amber-hi); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 td.score { color: var(--gold); text-align: right; }
 td.rw { color: var(--green); text-align: right; }
 tr.you td { color: var(--amber-hi); }
