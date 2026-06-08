@@ -1,0 +1,18 @@
+[package]
+name = "cross_chain_game_store"
+version = "0.1.0"
+edition = "2024_07"
+cairo-version = "2.13"
+
+[dependencies]
+starknet = "2.13"
+# Dojo is consumed from the sibling checkout so the world class hash matches the
+# locally installed `sozo` (1.8.7). The demo already assumes sibling dojoengine
+# repos (katana, dojo, saya) checked out under the same parent directory.
+dojo = { path = "../../../../../dojo/crates/dojo/core" }
+dojo_cairo_macros = { path = "../../../../../dojo/crates/dojo/macros" }
+
+[[target.starknet-contract]]
+sierra = true
+casm = true
+build-external-contracts = ["dojo::world::world_contract::world"]

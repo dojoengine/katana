@@ -51,3 +51,5 @@ katana-tee
 misc/AMDSEV/ovmf/
 misc/AMDSEV/output/
 misc/AMDSEV/source-commit.ovmf
+.gstack/
+examples/cross-chain-game/app/.env.local
