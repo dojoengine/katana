@@ -258,7 +258,7 @@ body {
 .grid.grid-no-right { grid-template-columns: 272px 1fr; }
 .grid > section { padding: 16px 18px; min-height: 0; }
 .col-left { border-right: 1px solid var(--border); overflow-y: auto; }
-.col-center { overflow-y: auto; }
+.col-center { overflow-y: auto; display: flex; flex-direction: column; }
 .col-right { border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 
 .panel { margin-bottom: 20px; }
@@ -424,7 +424,7 @@ button.ghost { flex: none; width: auto; color: var(--dim); border-color: var(--b
    re-enter actions below. Sized to match the old arena box (stage + vitals), not the
    full column, so it reads the same as the previous in-arena outcome veil. */
 .outcome {
-  min-height: 280px; display: flex; flex-direction: column; align-items: center;
+  flex: 1 1 auto; min-height: 280px; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 8px; text-align: center; padding: 28px 22px; border: 1px solid var(--border);
 }
 .outcome-death { background: radial-gradient(120% 120% at 50% 30%, rgba(40,6,5,.55), transparent 62%), rgba(20,4,3,.86); color: #ffb0a8; }
