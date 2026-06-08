@@ -254,6 +254,8 @@ body {
 
 /* The grid fills the remaining frame height; each column scrolls independently. */
 .grid { flex: 1 1 auto; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 272px 1fr 440px; grid-template-rows: minmax(0, 1fr); gap: 0; }
+/* when the right "Runs" panel is hidden (SHOW_RUNS_PANEL=false), drop its column */
+.grid.grid-no-right { grid-template-columns: 272px 1fr; }
 .grid > section { padding: 16px 18px; min-height: 0; }
 .col-left { border-right: 1px solid var(--border); overflow-y: auto; }
 .col-center { overflow-y: auto; }
@@ -310,10 +312,17 @@ button.good.insufficient:hover:not(:disabled) {
 
 .arena { position: relative; }
 .stage { border: 1px solid var(--border); background: radial-gradient(120% 120% at 50% 18%, rgba(255,180,84,.05), transparent 60%), rgba(0,0,0,.25); position: relative; }
-.stage-h { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 11px; letter-spacing: 1.5px; }
+.stage-h { display: flex; align-items: stretch; padding: 0; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 11px; letter-spacing: 1.5px; }
 .stage-h .kind { color: var(--amber-hi); }
+/* the back arrow is a full-height left "cell" of the bar, not a nested button */
+.stage-h-back { flex: 0 0 auto; border: 0; border-right: 1px solid var(--border); border-radius: 0; padding: 0 14px; font-size: 15px; line-height: 1; color: var(--dim); text-shadow: none; text-transform: none; }
+.stage-h-label { flex: 1; display: inline-flex; align-items: center; padding: 6px 12px; }
+.stage-h-active { display: inline-flex; align-items: center; padding: 6px 12px; }
 /* ===== Doom raycaster viewport (see doom.tsx) ===== */
-.doom { position: relative; width: 100%; line-height: 0; background: #000; overflow: hidden; }
+/* Cap the scene so it never overflows the panel: bounded by a max width AND by
+   viewport height (the canvas is a fixed 8:5, so capping width caps height too —
+   min(820px, 52vh*1.6) keeps its height ≤ ~52vh). Centered when narrower. */
+.doom { position: relative; width: 100%; max-width: min(820px, 52vh * 1.6); margin: 0 auto; line-height: 0; background: #000; overflow: hidden; }
 .doom-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
 .doom-load { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); pointer-events: none; text-align: center; font-size: 11px; letter-spacing: 1.5px; color: var(--dim); text-shadow: var(--glow); }
 /* floating "loot obtained" feed, bottom-left of the scene (newest at the bottom) */

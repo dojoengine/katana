@@ -40,6 +40,11 @@ const DEPLOYED = BigInt(chain.GAME_SYSTEM) !== 0n;
 // small bottom-left gains/losses feed.
 const EVENT_KINDS = ["ambush", "flee", "mimic", "escaped"];
 
+// The right-column "Runs" run-outcome panel is hidden for now. Flip this to true to
+// bring it back (the code is preserved below, just gated off). Kept as a flag rather
+// than a comment so the panel's refs/handlers (logRef, catchUpLog, …) stay referenced.
+const SHOW_RUNS_PANEL = false;
+
 // Sound effect played for each toast kind (Freedoom clips, see sfx.ts). The minor
 // pickups (gold / HP / potion) are intentionally silent — only damage and the
 // dramatic callouts get a sound.
@@ -1207,7 +1212,7 @@ export default function App() {
           </div>
 
           {tab === "dungeon" && (
-          <main className="grid">
+          <main className={`grid${SHOW_RUNS_PANEL ? "" : " grid-no-right"}`}>
             {/* LEFT: funding + leaderboard */}
             <section className="col-left">
               <div className="panel" data-tut="fund">
@@ -1331,10 +1336,13 @@ export default function App() {
                   <div className="arena">
                     <div className="stage">
                       <div className="stage-h">
-                        <span>
+                        <button className="stage-h-back" disabled={l2Busy} onClick={onLeave} title="back to the New Game page">
+                          ←
+                        </button>
+                        <span className="stage-h-label">
                           DUNGEON · <span className="kind">{run ? chain.roomLabel(run.roomKind) : "— idle —"}</span>
                         </span>
-                        <span>{stats.activeRuns} active</span>
+                        <span className="stage-h-active">{stats.activeRuns} active</span>
                       </div>
                       <DoomScene run={run} fx={sceneFx} fireNonce={fireNonce} walkNonce={walkNonce} useNonce={useNonce} lootNonce={lootNonce}>
                         {/* overlays live inside the canvas box so they center on the scene */}
@@ -1394,9 +1402,6 @@ export default function App() {
                   </div>
 
                   <div className="actions">
-                    <button className="ghost" disabled={l2Busy} onClick={onLeave} title="back to the New Game page">
-                      ←
-                    </button>
                     <button
                       disabled={l2Busy || !run || runOver}
                       onClick={() => {
@@ -1498,7 +1503,8 @@ export default function App() {
               )}
             </section>
 
-            {/* RIGHT: run-outcome log — every run's ending, by every player */}
+            {/* RIGHT: run-outcome log ("Runs" panel) — hidden via SHOW_RUNS_PANEL (top of file). */}
+            {SHOW_RUNS_PANEL && (
             <section className="col-right" data-tut="log">
               <div className="panel-h">
                 Runs<span className="rule" />
@@ -1550,6 +1556,7 @@ export default function App() {
                 )}
               </div>
             </section>
+            )}
           </main>
           )}
 
