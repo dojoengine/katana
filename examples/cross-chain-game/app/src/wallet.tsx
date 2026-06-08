@@ -4,7 +4,7 @@
 // BOTH chains — buy + bank on L1, roll on L2 — at the same address; a
 // hosted-keychain wallet needing `CONTROLLER=1 ./up.sh` + a login; see README).
 
-import { createContext, useContext, useState, type PropsWithChildren } from "react";
+import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
 import { constants, shortString } from "starknet";
 import ControllerConnector from "@cartridge/connector/controller";
 import { StarknetConfig, jsonRpcProvider, useAccount, useConnect, useDisconnect } from "@starknet-react/core";
@@ -47,12 +47,26 @@ const provider = jsonRpcProvider({
 
 // Session policies: scope the Controller session to the demo's entrypoints (per
 // chain) so buy/roll/bank are gasless session calls (no per-tx popup).
+//
+// Only include contracts with a real address. An unconfigured deployment is `0x0`,
+// and a 0x0 entry is a malformed policy: the keychain merklizes it inconsistently
+// and the account's session validation then trips on a policy-count/proof-length
+// mismatch ("session/length-mismatch").
+const allContracts: Record<string, { methods: { name: string; entrypoint: string }[] }> = {
+  [STORE]: { methods: [{ name: "Buy game", entrypoint: "buy_game" }] },
+  [SCORE_REGISTRY]: { methods: [{ name: "Bank score", entrypoint: "claim_score" }] },
+  [GAME]: { methods: [{ name: "Roll", entrypoint: "play_game" }] },
+};
 const policies = {
-  contracts: {
-    [STORE]: { methods: [{ name: "Buy game", entrypoint: "buy_game" }] },
-    [SCORE_REGISTRY]: { methods: [{ name: "Bank score", entrypoint: "claim_score" }] },
-    [GAME]: { methods: [{ name: "Roll", entrypoint: "play_game" }] },
-  },
+  contracts: Object.fromEntries(
+    Object.entries(allContracts).filter(([addr]) => {
+      try {
+        return BigInt(addr) !== 0n;
+      } catch {
+        return false;
+      }
+    }),
+  ),
 };
 
 // Created at module level (the connector warns against per-render instances).
@@ -67,7 +81,10 @@ function createControllerConnector(): ControllerConnector | null {
   try {
     return new ControllerConnector({
       chains: [{ rpcUrl: SETTLEMENT_RPC }, { rpcUrl: APPCHAIN_RPC }],
-      defaultChainId: SETTLEMENT_CHAIN_ID,
+      // Normally the settlement chain. Set VITE_DEFAULT_APPCHAIN=1 to make the keychain
+      // sit on the appchain — needed once to surface the keychain's account-UPGRADE screen
+      // for the appchain account (on the settlement chain it already reads as up-to-date).
+      defaultChainId: import.meta.env.VITE_DEFAULT_APPCHAIN === "1" ? APPCHAIN_CHAIN_ID : SETTLEMENT_CHAIN_ID,
       // Hosted keychain by default; override for a self-hosted keychain.
       url: import.meta.env.VITE_KEYCHAIN_URL || undefined,
       policies,
@@ -81,6 +98,26 @@ function createControllerConnector(): ControllerConnector | null {
 export const controllerConnector = createControllerConnector();
 
 export type WalletMethod = "dev" | "controller";
+
+// Persist the chosen signer across reloads — nothing is auto-connected on a first
+// visit, but a prior connection is restored until the user disconnects.
+const STORE_KEY = "ccg.wallet.method";
+function loadMethod(): WalletMethod | null {
+  try {
+    const v = localStorage.getItem(STORE_KEY);
+    return v === "dev" || v === "controller" ? v : null;
+  } catch {
+    return null;
+  }
+}
+function saveMethod(m: WalletMethod | null) {
+  try {
+    if (m) localStorage.setItem(STORE_KEY, m);
+    else localStorage.removeItem(STORE_KEY);
+  } catch {
+    // storage unavailable — fine, just no persistence
+  }
+}
 
 type WalletCtx = {
   /** null = no wallet connected (the default). */
@@ -119,9 +156,19 @@ function WalletInner({ children }: PropsWithChildren) {
   const { connectAsync } = useConnect();
   const { disconnectAsync } = useDisconnect();
   const { account: ctrlAccount, address: ctrlAddress } = useAccount();
-  const [method, setMethod] = useState<WalletMethod | null>(null); // no wallet by default
+  // The local dev account restores synchronously here (no "login" flash); a persisted
+  // Controller is reconnected by starknet-react's autoConnect in the effect below.
+  const [method, setMethod] = useState<WalletMethod | null>(() => (loadMethod() === "dev" ? "dev" : null));
   const [username, setUsername] = useState<string>();
   const [connecting, setConnecting] = useState(false);
+
+  const safeDisconnect = async () => {
+    try {
+      await disconnectAsync();
+    } catch {
+      // not connected — fine
+    }
+  };
 
   const connectController = async () => {
     if (!controllerConnector) throw new Error("Controller unavailable — start the stack first (./up.sh).");
@@ -134,6 +181,16 @@ function WalletInner({ children }: PropsWithChildren) {
         setUsername(undefined);
       }
       setMethod("controller");
+      saveMethod("controller");
+    } catch (err) {
+      // The user dismissed the keychain, or connect failed. Reset to a clean disconnected
+      // state so the chip shows "connect" and a retry works.
+      // eslint-disable-next-line no-console
+      console.warn("Controller connect cancelled/failed:", err);
+      await safeDisconnect();
+      setMethod(null);
+      saveMethod(null);
+      setUsername(undefined);
     } finally {
       setConnecting(false);
     }
@@ -141,23 +198,33 @@ function WalletInner({ children }: PropsWithChildren) {
 
   const useDevAccount = async () => {
     setUsername(undefined);
-    try {
-      await disconnectAsync();
-    } catch {
-      // not connected — fine
-    }
+    await safeDisconnect();
     setMethod("dev");
+    saveMethod("dev");
   };
 
   const disconnect = async () => {
     setMethod(null);
+    saveMethod(null);
     setUsername(undefined);
-    try {
-      await disconnectAsync();
-    } catch {
-      // not connected — fine
-    }
+    await safeDisconnect();
   };
+
+  // Restore the previously chosen signer on load — silently, with no keychain prompt.
+  // The dev account is a local key (restored by the useState initializer above). A saved
+  // Controller is reconnected by starknet-react's autoConnect (it reuses the session
+  // without a popup); flip to "controller" once that account comes back.
+  useEffect(() => {
+    if (!ctrlAccount || method !== null) return;
+    if (loadMethod() === "controller" && controllerConnector) {
+      setMethod("controller");
+      controllerConnector.username()?.then(
+        (u) => setUsername(u),
+        () => setUsername(undefined),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctrlAccount]);
 
   // Nothing is connected by default. The Controller is the active signer once a
   // method=controller session exists; the dev account once method=dev.
@@ -203,12 +270,27 @@ function WalletInner({ children }: PropsWithChildren) {
         execute: async (calls) => {
           // usingController implies a live connection, so the connector exists.
           const ctrl = controllerConnector!.controller;
-          await ctrl.switchStarknetChain(APPCHAIN_CHAIN_ID);
-          try {
-            return await (ctrl.account ?? ctrlAccount!).execute(calls);
-          } finally {
-            await ctrl.switchStarknetChain(SETTLEMENT_CHAIN_ID);
+          // switchStarknetChain returns false (and stays on the settlement chain) when the
+          // keychain can't reach the appchain RPC — e.g. the hosted x.cartridge.gg iframe
+          // blocked from http://localhost by Chrome Private Network Access. If we proceed,
+          // the controller account (pinned to the settlement RPC at connect time) runs the
+          // tx on Sepolia, which then fails calling an appchain contract that doesn't exist
+          // there. Fail loudly instead.
+          const ok = await ctrl.switchStarknetChain(APPCHAIN_CHAIN_ID);
+          if (!ok) {
+            throw new Error(
+              "Controller could not switch to the appchain (GAMECHAIN). The keychain can't reach " +
+                `${APPCHAIN_RPC} — enable chrome://flags/#local-network-access-check, or use the ` +
+                "self-hosted keychain (VITE_KEYCHAIN_URL).",
+            );
           }
+          // Do NOT switch back to the settlement chain afterward. The keychain's
+          // balance-change preview re-simulates on whatever chain is active; switching back
+          // to Sepolia here makes it re-run the appchain call against Sepolia (where the
+          // game contract doesn't exist) and surface a bogus "not deployed" error. The L1
+          // signer switches to settlement itself, so leaving the controller on the appchain
+          // is correct.
+          return await (ctrl.account ?? ctrlAccount!).execute(calls);
         },
       }
     : usingDev
@@ -244,6 +326,7 @@ export function WalletProvider({ children }: PropsWithChildren) {
       chains={[settlementChain, appchainChain]}
       connectors={controllerConnector ? [controllerConnector] : []}
       provider={provider}
+      autoConnect
     >
       <WalletInner>{children}</WalletInner>
     </StarknetConfig>
