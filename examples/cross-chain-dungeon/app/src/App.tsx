@@ -1656,13 +1656,11 @@ export default function App() {
           </main>
           )}
 
-          <footer className="statusline">
-            <span className="keys">
-              runs <b>{stats.totalRuns}</b> · actions <b>{stats.totalActions}</b> · banked <b>{stats.totalBanked}</b>
-            </span>
-            <span className="spacer" />
-            {err ? <span style={{ color: "var(--red)" }}>{chain.shortHex(err, 48, 0)}</span> : <span>dungeon$ ready</span>}
-          </footer>
+          {err && (
+            <footer className="statusline">
+              <span style={{ color: "var(--red)" }}>{chain.shortHex(err, 48, 0)}</span>
+            </footer>
+          )}
         </div>
       </div>
       {/* Dev-only debug launchers (service logs / deployment config / tx log). */}
