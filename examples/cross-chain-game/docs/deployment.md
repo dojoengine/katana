@@ -59,7 +59,7 @@ const manifest = loadJson<Manifest>(resolve(cwd, "manifest_dev.json"));
 const world = manifest.world.address;
 const system = manifest.contracts.find((c) => c.tag === s.systemTag).address;
 ```
-[`scripts/lib.ts:106`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/scripts/lib.ts#L106)
+[`scripts/lib.ts:106`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/scripts/lib.ts#L106)
 
 ## Migration order (wiring across chains)
 
@@ -81,7 +81,7 @@ const store = migrateWorld({ pkg: "store", seed: "ccg_store", namespace: "store"
   systemTag: "store-store", rpcUrl: d.settlement.rpcUrl, account: d.settlement.account,
   initArgs: [d.settlement.piltover, game.system] }); // ← needs the game system
 ```
-[`scripts/deploy.ts:20`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/scripts/deploy.ts#L20)
+[`scripts/deploy.ts:20`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/scripts/deploy.ts#L20)
 
 `migrateWorld` (`scripts/lib.ts`) generates that world's `dojo_dev.toml` from these
 values, runs `sozo build` then `sozo migrate`, and returns the parsed addresses,
@@ -100,16 +100,16 @@ depends on the previous. For your own app, this is the template:
 
 1. **Preflight** — install the Dojo toolchain (`asdf install`) + JS deps and
    verify the heavy prerequisites (katana binary, patched saya, dojo checkout).
-2. **Settlement Katana** (`:5050`, `SN_SEPOLIA`). [`up.sh:91`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L91)
-3. **Mock TEE registry** via `saya-ops` — the attestation verifier saya needs. [`up.sh:98`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L98)
+2. **Settlement Katana** (`:5050`, `SN_SEPOLIA`). [`up.sh:91`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L91)
+3. **Mock TEE registry** via `saya-ops` — the attestation verifier saya needs. [`up.sh:98`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L98)
 4. **piltover core + rollup config** via `katana init rollup --tee` — deploys the
-   mailbox on L1 and writes the appchain's chain config. [`up.sh:109`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L109)
-5. **Base `deployments.json`** — rpc urls, accounts, piltover, Torii urls. [`up.sh:125`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L125)
-6. **Appchain Katana** (`:5051`, rollup, `--tee mock --messaging.enabled`). [`up.sh:147`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L147)
-7. **saya-tee** sidecar — starts proving/settling appchain blocks. [`up.sh:159`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L159)
+   mailbox on L1 and writes the appchain's chain config. [`up.sh:109`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L109)
+5. **Base `deployments.json`** — rpc urls, accounts, piltover, Torii urls. [`up.sh:125`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L125)
+6. **Appchain Katana** (`:5051`, rollup, `--tee mock --messaging.enabled`). [`up.sh:147`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L147)
+7. **saya-tee** sidecar — starts proving/settling appchain blocks. [`up.sh:159`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L159)
 8. **Migrate the three worlds** (`scripts/deploy.ts`: score → game → store) and record addresses.
 9. **Two Torii instances** — settlement world `:8081`, appchain world `:8082`,
-   distinct relay ports. [`up.sh:185`](https://github.com/dojoengine/katana/blob/ae0e4ee74dc915b5db3b810eefc9c9b1452ca379/examples/cross-chain-game/up.sh#L185)
+   distinct relay ports. [`up.sh:185`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L185)
 10. **Client** (Vite, `:3001`).
 
 ```bash
