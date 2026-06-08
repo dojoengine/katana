@@ -139,8 +139,8 @@ body {
 .tab-badge.wait { background: var(--amber); box-shadow: 0 0 8px rgba(255,180,84,.6); }
 
 /* L1 bank/settlement page (its own tab). */
-.bank-page { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; justify-content: center; align-items: flex-start; padding: 34px 22px; }
-.bank-stack { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; }
+.bank-page, .board-page { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; justify-content: center; align-items: flex-start; padding: 34px 22px; }
+.bank-stack, .board-stack { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; }
 .bank-card { width: 100%; max-width: 560px; border: 1px solid var(--border-hi); background: linear-gradient(180deg, rgba(255,180,84,.04), transparent 40%), rgba(0,0,0,.25); padding: 22px 26px 24px; }
 .bank-chain { margin-bottom: 16px; }
 .bank-intro { color: var(--dim); font-size: 12.5px; line-height: 1.65; margin: 4px 0 18px; }
@@ -253,9 +253,11 @@ body {
 .tx-hash.dim { color: var(--ghost); }
 
 /* The grid fills the remaining frame height; each column scrolls independently. */
-.grid { flex: 1 1 auto; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 272px 1fr 440px; grid-template-rows: minmax(0, 1fr); gap: 0; }
+/* Dungeon tab: the scene (col-center) + optional right "Runs" panel. The leaderboard
+   now lives in its own tab, so there's no left column. */
+.grid { flex: 1 1 auto; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 1fr 440px; grid-template-rows: minmax(0, 1fr); gap: 0; }
 /* when the right "Runs" panel is hidden (SHOW_RUNS_PANEL=false), drop its column */
-.grid.grid-no-right { grid-template-columns: 272px 1fr; }
+.grid.grid-no-right { grid-template-columns: 1fr; }
 .grid > section { padding: 16px 18px; min-height: 0; }
 .col-left { border-right: 1px solid var(--border); overflow-y: auto; }
 .col-center { overflow-y: auto; display: flex; flex-direction: column; }

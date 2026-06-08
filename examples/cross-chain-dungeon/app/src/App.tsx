@@ -713,7 +713,7 @@ export default function App() {
   const [unclaimed, setUnclaimed] = useState<chain.WithdrawalRow[]>([]); // withdrawals not yet banked, oldest-first
   const [lastEnded, setLastEnded] = useState<chain.RunEndRow | null>(null);
   const [selected, setSelected] = useState<chain.OutcomeRow | null>(null);
-  const [tab, setTab] = useState<"dungeon" | "bank">("dungeon"); // dungeon = L2, bank = L1
+  const [tab, setTab] = useState<"dungeon" | "bank" | "leaderboard">("dungeon"); // dungeon = L2, bank = L1
   const [logsOpen, setLogsOpen] = useState(false); // floating service-logs window
   const [configOpen, setConfigOpen] = useState(false); // floating deployment-config window
   const [txOpen, setTxOpen] = useState(false); // floating transaction-log window
@@ -1116,10 +1116,6 @@ export default function App() {
             <span>:</span>
             <span>~/run</span>
             <span className="spacer" />
-            <span>tee: mock</span>
-            <span>·</span>
-            <span>saya: live</span>
-            <span>·</span>
             <button className="tut-launch" onClick={() => setTutorial(true)} title="how the appchain works">
               tutorial
             </button>
@@ -1128,11 +1124,9 @@ export default function App() {
           <div className="banner">
             <div>
               <h1 className="title">
-                CROSS<span className="x">-</span>CHAIN DUNGEON<span className="cur" />
+                DUNGEON DUNGEON DUNGEON<span className="cur" />
               </h1>
-              <div className="subtitle">
-                push-your-luck roguelite · play on <b>DUNGEON</b> appchain · settle on <b>{chain.SETTLEMENT_NAME.toUpperCase()}</b>
-              </div>
+              <div className="subtitle">push-your-luck roguelite</div>
             </div>
             <div className="chips">
               <span className="chip on">
@@ -1172,54 +1166,13 @@ export default function App() {
                 </span>
               )}
             </button>
+            <button className={`tab ${tab === "leaderboard" ? "on" : ""}`} onClick={() => setTab("leaderboard")}>
+              ▸ Leaderboard
+            </button>
           </div>
 
           {tab === "dungeon" && (
           <main className={`grid${SHOW_RUNS_PANEL ? "" : " grid-no-right"}`}>
-            {/* LEFT: leaderboard */}
-            <section className="col-left">
-              <div className="panel" data-tut="leaderboard">
-                <div className="panel-h">
-                  Leaderboard<span className="rule" />
-                </div>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>diver</th>
-                      <th style={{ textAlign: "right" }}>best</th>
-                      <th style={{ textAlign: "right" }}>gold</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {board.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="r">
-                          no runs yet
-                        </td>
-                      </tr>
-                    ) : (
-                      board.map((row, i) => (
-                        <tr key={row.player} className={BigInt(row.player) === BigInt(player || "0x0") ? "you" : ""}>
-                          <td className="r">{String(i + 1).padStart(2, "0")}</td>
-                          {names[addrKey(row.player)] ? (
-                            <td className="ctrl-name" title={row.player}>
-                              {names[addrKey(row.player)]}
-                            </td>
-                          ) : (
-                            <td title={row.player}>{chain.shortAddr(row.player)}</td>
-                          )}
-                          <td className="score">{row.bestScore.toLocaleString()}</td>
-                          <td className="rw">{row.totalGold.toLocaleString()}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-                <div className="legend">best run score per player · lives on L2</div>
-              </div>
-            </section>
-
             {/* CENTER: three distinct views — the New Game page (lobby), the Dungeon
                 run page, and the Outcome page — never share the screen. */}
             <section className="col-center" data-tut="play">
@@ -1590,6 +1543,52 @@ export default function App() {
                 piltover — the lag above is how far L1 settlement trails the appchain tip.
               </p>
             </section>
+            </div>
+          </main>
+          )}
+
+          {tab === "leaderboard" && (
+          <main className="board-page">
+            <div className="board-stack">
+              <section className="panel" data-tut="leaderboard">
+                <div className="panel-h">
+                  Leaderboard<span className="rule" />
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>diver</th>
+                      <th style={{ textAlign: "right" }}>best</th>
+                      <th style={{ textAlign: "right" }}>gold</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {board.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="r">
+                          no runs yet
+                        </td>
+                      </tr>
+                    ) : (
+                      board.map((row, i) => (
+                        <tr key={row.player} className={BigInt(row.player) === BigInt(player || "0x0") ? "you" : ""}>
+                          <td className="r">{String(i + 1).padStart(2, "0")}</td>
+                          {names[addrKey(row.player)] ? (
+                            <td className="ctrl-name" title={row.player}>
+                              {names[addrKey(row.player)]}
+                            </td>
+                          ) : (
+                            <td title={row.player}>{chain.shortAddr(row.player)}</td>
+                          )}
+                          <td className="score">{row.bestScore.toLocaleString()}</td>
+                          <td className="rw">{row.totalGold.toLocaleString()}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </section>
             </div>
           </main>
           )}

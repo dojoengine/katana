@@ -5,7 +5,7 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import * as chain from "./chain.ts";
 
-type Tab = "dungeon" | "bank";
+type Tab = "dungeon" | "bank" | "leaderboard";
 type Step = { tab?: Tab; target?: string; side?: "left" | "right"; title: string; body: ReactNode };
 
 const L1 = chain.SETTLEMENT_NAME; // "Starknet Sepolia" | "Starknet Mainnet"
@@ -86,7 +86,7 @@ const STEPS: Step[] = [
     ),
   },
   {
-    tab: "dungeon",
+    tab: "leaderboard",
     target: "leaderboard",
     title: "Leaderboard · on L2",
     body: (
