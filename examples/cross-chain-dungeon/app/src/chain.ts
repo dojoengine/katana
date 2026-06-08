@@ -100,6 +100,15 @@ function withSettlementLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** Canonicalize an address for a Torii `WHERE` clause. Torii stores addresses lowercase
+ *  and 64-hex zero-padded, and compares them as exact strings — so a mixed-case address
+ *  (e.g. from deployments.json) or one whose wallet form drops a leading zero byte
+ *  (any address < 2^248, like a Controller at 0x00cce9…) silently matches NOTHING.
+ *  Normalize via BigInt so any input format maps to Torii's canonical form. */
+function toriiAddr(a: string): string {
+  return "0x" + BigInt(a).toString(16).padStart(64, "0");
+}
+
 async function toriiSql<T = Record<string, string | number>>(base: string, sql: string): Promise<T[]> {
   const res = await fetch(`${base}/sql?query=${encodeURIComponent(sql)}`);
   if (!res.ok) {
@@ -235,7 +244,7 @@ export async function readRun(runNo: number): Promise<RunState | null> {
 export async function listRuns(player: string): Promise<RunState[]> {
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
-    `SELECT ${RUN_COLS} FROM "game-RunState" WHERE player = "${player}" AND alive = 1 ORDER BY run_no DESC`,
+    `SELECT ${RUN_COLS} FROM "game-RunState" WHERE player = "${toriiAddr(player)}" AND alive = 1 ORDER BY run_no DESC`,
   );
   return rows.map(toRun);
 }
@@ -320,7 +329,7 @@ export async function readLeaderboard(limit = 10): Promise<LeaderRow[]> {
 export async function readVault(player: string): Promise<number> {
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
-    `SELECT gold FROM "game-Vault" WHERE player = "${player}"`,
+    `SELECT gold FROM "game-Vault" WHERE player = "${toriiAddr(player)}"`,
   );
   return num(rows[0]?.gold ?? 0);
 }
@@ -334,7 +343,7 @@ export type WithdrawalRow = { withdrawNo: number; amount: number; block: number;
 export async function getWithdrawals(player: string): Promise<WithdrawalRow[]> {
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
-    `SELECT withdraw_no, amount, internal_event_id FROM "game-Withdrawal" WHERE player = "${player}" ORDER BY withdraw_no`,
+    `SELECT withdraw_no, amount, internal_event_id FROM "game-Withdrawal" WHERE player = "${toriiAddr(player)}" ORDER BY withdraw_no`,
   );
   return rows.map((r) => {
     const { block, txHash } = parseEventId(String(r.internal_event_id));
@@ -357,7 +366,7 @@ export function withdrawalMessageHash(player: string, amount: number, withdrawNo
 export async function getBankCount(player: string): Promise<number> {
   const rows = await toriiSql<Record<string, string | number>>(
     TORII_BANK,
-    `SELECT COUNT(*) AS c FROM "bank-Banked" WHERE player = "${player}"`,
+    `SELECT COUNT(*) AS c FROM "bank-Banked" WHERE player = "${toriiAddr(player)}"`,
   );
   return num(rows[0]?.c ?? 0);
 }
@@ -375,7 +384,7 @@ export type RunEndRow = { endNo: number; runNo: number; depth: number; loot: num
 export async function getLastRunEnded(player: string): Promise<RunEndRow | null> {
   const ended = await toriiSql<Record<string, string | number>>(
     TORII_GAME,
-    `SELECT end_no, run_no, score, loot, died FROM "game-RunEnded" WHERE player = "${player}" ORDER BY end_no DESC LIMIT 1`,
+    `SELECT end_no, run_no, score, loot, died FROM "game-RunEnded" WHERE player = "${toriiAddr(player)}" ORDER BY end_no DESC LIMIT 1`,
   );
   const r = ended[0];
   if (!r) return null;
@@ -559,18 +568,39 @@ export async function enterDungeon(account: Signer): Promise<string> {
   );
 }
 
-/** Bank settled withdrawals on Sepolia in one transaction: a multicall that consumes
- *  each L2→L1 message and mints its GOLD. Every row MUST already be settled — an
- *  unsettled `consume_message_from_appchain` reverts, and one revert fails the whole
- *  multicall (so the caller passes only settled rows). */
+/** Bank settled withdrawals on Sepolia. Fast path: one multicall that consumes each
+ *  L2→L1 message and mints its GOLD. Callers pass only settled rows (an unsettled
+ *  `consume_message_from_appchain` reverts).
+ *
+ *  Resilience: a single bad row reverts the WHOLE multicall. That can happen when a row
+ *  is already consumed but still listed as unclaimed — e.g. the settlement Torii had an
+ *  indexing gap so `getBankCount` undercounts (it reads Torii, not the chain). So if the
+ *  multicall fails, fall back to banking each row on its own and skip the ones that won't
+ *  consume, so the genuinely-claimable withdrawals still go through. Returns the last
+ *  successful tx hash; rethrows the original error only if nothing could be banked. */
 export async function bankMany(account: Signer, player: string, rows: WithdrawalRow[]): Promise<string> {
-  const calls = rows.map((w) => ({
+  if (!rows.length) throw new Error("no settled withdrawals to bank");
+  const mkCall = (w: WithdrawalRow) => ({
     contractAddress: BANK_SYSTEM,
     entrypoint: "bank",
     // bank(from_address = game system, player, amount, withdraw_no)
     calldata: [GAME_SYSTEM, player, "0x" + w.amount.toString(16), "0x" + w.withdrawNo.toString(16)],
-  }));
-  return settlementTx("bank", () => account.execute(calls).then((r) => r.transaction_hash));
+  });
+  try {
+    return await settlementTx("bank", () => account.execute(rows.map(mkCall)).then((r) => r.transaction_hash));
+  } catch (multicallErr) {
+    if (rows.length === 1) throw multicallErr; // single row — nothing to isolate
+    let last = "";
+    for (const w of rows) {
+      try {
+        last = await settlementTx("bank", () => account.execute([mkCall(w)]).then((r) => r.transaction_hash));
+      } catch {
+        // Skip a row that won't consume (already banked / not yet registered) and keep going.
+      }
+    }
+    if (!last) throw multicallErr; // nothing banked — surface the original multicall failure
+    return last;
+  }
 }
 
 // --- writes: appchain play actions (dev account by default, or a Controller) ---
