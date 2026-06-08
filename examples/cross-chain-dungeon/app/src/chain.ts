@@ -558,14 +558,18 @@ export async function buyGame(account: Signer, usdcAmount: bigint): Promise<stri
  *  Sends the L1→L2 message that starts the run for `account.address` on L2. */
 export async function enterDungeon(account: Signer): Promise<string> {
   const fee = await entryFee();
-  return settlementTx("enter", () =>
-    account
-      .execute([
-        { contractAddress: GAME_TOKEN, entrypoint: "approve", calldata: CallData.compile([ENTRY, cairo.uint256(fee)]) },
-        { contractAddress: ENTRY, entrypoint: "enter", calldata: [] },
-      ])
-      .then((r) => r.transaction_hash),
-  );
+  // Free entry: dev-mint exactly the entry fee and spend it in the same multicall, so
+  // the player never has to fund. The run is still started from L1 — `enter` is the L1
+  // call that sends the L1→L2 message — it just self-funds via the GAME faucet.
+  const calls =
+    fee > 0n
+      ? [
+          { contractAddress: GAME_TOKEN, entrypoint: "dev_mint", calldata: CallData.compile([cairo.uint256(fee)]) },
+          { contractAddress: GAME_TOKEN, entrypoint: "approve", calldata: CallData.compile([ENTRY, cairo.uint256(fee)]) },
+          { contractAddress: ENTRY, entrypoint: "enter", calldata: [] },
+        ]
+      : [{ contractAddress: ENTRY, entrypoint: "enter", calldata: [] }];
+  return settlementTx("enter", () => account.execute(calls).then((r) => r.transaction_hash));
 }
 
 /** Bank settled withdrawals on Sepolia. Fast path: one multicall that consumes each

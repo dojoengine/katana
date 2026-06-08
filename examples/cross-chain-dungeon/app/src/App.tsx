@@ -16,20 +16,6 @@ const addrKey = (a: string): string => {
   }
 };
 
-// Demo amount minted by the Dev-mint button.
-const DEV_MINT = 500n * 10n ** BigInt(chain.GAME_DECIMALS); // 500 GAME
-
-// One-off "rejected" shake for the New Game / Enter again button, played imperatively
-// via the Web Animations API so it restarts on every (spam) click — unlike a CSS class
-// toggle, which won't replay while the class is still applied.
-const SHAKE_FRAMES: Keyframe[] = [
-  { transform: "translateX(0)" },
-  { transform: "translateX(-5px)" },
-  { transform: "translateX(5px)" },
-  { transform: "translateX(-5px)" },
-  { transform: "translateX(5px)" },
-  { transform: "translateX(0)" },
-];
 
 // The game world is deployed (deployments.json carries a real GAME_SYSTEM). The global
 // run-outcome feed / leaderboard / stats are appchain-world state, not per-user, so they
@@ -720,10 +706,8 @@ export default function App() {
   useEffect(() => {
     if (player && wallet.username) setNames((prev) => ({ ...prev, [addrKey(player)]: wallet.username! }));
   }, [player, wallet.username]);
-  const [gameBal, setGameBal] = useState(0n);
   const [goldBal, setGoldBal] = useState(0n);
   const [vault, setVault] = useState(0); // accumulated GOLD on L2 awaiting bank
-  const [fee, setFee] = useState(0n); // GAME entry fee
   const [settled, setSettled] = useState(0);
   const [tip, setTip] = useState(0);
   const [unclaimed, setUnclaimed] = useState<chain.WithdrawalRow[]>([]); // withdrawals not yet banked, oldest-first
@@ -750,13 +734,6 @@ export default function App() {
   const [busyL1, setBusyL1] = useState<string | null>(null);
   const [busyL2, setBusyL2] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  // Brief "insufficient $GAME" flash on the New Game / Enter again button after a click
-  // with too little $GAME — reverts to the normal label after a couple of seconds.
-  const [insufficient, setInsufficient] = useState(false);
-  const insufficientTimer = useRef<ReturnType<typeof setTimeout>>();
-  // The New Game / Enter again button currently on screen (only one is mounted at a
-  // time), so a click can shake whichever is showing.
-  const shakeRef = useRef<HTMLButtonElement>(null);
   const inFlight = useRef(false);
 
   // Message log scroll-follow: newest renders at the bottom, so "caught up" means
@@ -791,13 +768,12 @@ export default function App() {
     inFlight.current = true;
     try {
       // Global reads (always shown, even on the disconnected starting page): world
-      // stats, the run-outcome feed, the leaderboard, the entry fee, and the
-      // settled/tip gauge. These come from the game world + RPC.
-      const [st, fd, lb, ef, sb, tp] = await Promise.all([
+      // stats, the run-outcome feed, the leaderboard, and the settled/tip gauge.
+      // These come from the game world + RPC.
+      const [st, fd, lb, sb, tp] = await Promise.all([
         chain.readStats(),
         chain.getOutcomeFeed(),
         chain.readLeaderboard(),
-        chain.entryFee(),
         chain.settledBlock(),
         chain.appchainBlock(),
       ]);
@@ -805,7 +781,6 @@ export default function App() {
       setFeed(fd);
       setBoard(lb);
       void resolveNames(lb.map((r) => r.player));
-      setFee(ef);
       setSettled(sb);
       setTip(tp);
 
@@ -813,10 +788,9 @@ export default function App() {
       // player) skips them — and the bank-world Torii (see the subscription effect) —
       // so idle work and memory stay down.
       if (player) {
-        const [rl, r, gb, gld, vt, wd, bc, le] = await Promise.all([
+        const [rl, r, gld, vt, wd, bc, le] = await Promise.all([
           chain.listRuns(player),
           selectedRun != null ? chain.readRun(selectedRun) : Promise.resolve(null),
-          chain.gameBalance(player),
           chain.goldBalance(player),
           chain.readVault(player),
           chain.getWithdrawals(player),
@@ -836,7 +810,6 @@ export default function App() {
             enteringRef.current = null;
           }
         }
-        setGameBal(gb);
         setGoldBal(gld);
         setVault(vt);
         // Everything past the banked count is unclaimed (oldest-first). The Claim
@@ -848,7 +821,6 @@ export default function App() {
         // Truly disconnected (the starting page) — clear everything.
         setRuns([]);
         setRunState(null);
-        setGameBal(0n);
         setGoldBal(0n);
         setVault(0);
         setUnclaimed([]);
@@ -1054,24 +1026,15 @@ export default function App() {
   // lobby for a just-closed transition. Never over a still-alive run.
   const showOutcome = freshOutcome && !entering && (!playing || runOver);
 
-  const onMint = actL1("mint", (acc) => chain.devMint(acc, DEV_MINT));
-  // "New game": charge $GAME on L1, fire the L1→L2 mint_run, and remember the run
-  // count at click time so the tick can auto-select the freshly minted run once it
-  // shows up on the appchain. Owns its own lifecycle (rather than `act`) because the
+  // "New game": fire the free, self-funding L1 enter (dev-mint → approve → enter, all
+  // in one multicall — see chain.enterDungeon), which sends the L1→L2 mint_run. Remember
+  // the run count at click time so the tick can auto-select the freshly minted run once
+  // it shows up on the appchain. Owns its own lifecycle (rather than `act`) because the
   // loader is gated on `enteringRef`, which must be cleared if the L1 tx fails — else
   // the lobby stays stuck behind the loader with no way to retry.
   const onNewGame = async () => {
     if (!wallet.l1Account) {
       setWalletOpen(true);
-      return;
-    }
-    if (gameBal < fee) {
-      // Flash "insufficient $GAME" on the button for ~2s, then revert to the normal label.
-      setInsufficient(true);
-      clearTimeout(insufficientTimer.current);
-      insufficientTimer.current = setTimeout(() => setInsufficient(false), 2000);
-      // Shake on every click (restarts mid-shake on spam clicks).
-      shakeRef.current?.animate(SHAKE_FRAMES, { duration: 400, easing: "ease-in-out" });
       return;
     }
     enteringRef.current = stats ? stats.totalRuns : 0;
@@ -1213,34 +1176,8 @@ export default function App() {
 
           {tab === "dungeon" && (
           <main className={`grid${SHOW_RUNS_PANEL ? "" : " grid-no-right"}`}>
-            {/* LEFT: funding + leaderboard */}
+            {/* LEFT: leaderboard */}
             <section className="col-left">
-              <div className="panel" data-tut="fund">
-                <div className="panel-h">
-                  Funding<span className="rule" />
-                </div>
-                <div className="bal game">
-                  <span className="k">GAME <small>entry credit</small></span>
-                  <span className="v">
-                    {chain.fmtToken(gameBal, chain.GAME_DECIMALS, 0)} <small>GAME</small>
-                  </span>
-                </div>
-                <div className="bal gold">
-                  <span className="k">GOLD <small>winnings · L1</small></span>
-                  <span className="v">
-                    {chain.fmtToken(goldBal, chain.GOLD_DECIMALS, 0)} <small>GOLD</small>
-                  </span>
-                </div>
-                <div className="row-actions">
-                  <button disabled={l1Busy || !actReady} onClick={onMint}>
-                    {b("mint") ? "…" : "Dev-mint"}
-                  </button>
-                </div>
-                <div className="legend">
-                  spend <b>$GAME</b> to enter · earn <b>$GOLD</b> by banking
-                </div>
-              </div>
-
               <div className="panel" data-tut="leaderboard">
                 <div className="panel-h">
                   Leaderboard<span className="rule" />
@@ -1316,17 +1253,14 @@ export default function App() {
                       Back to lobby
                     </button>
                     <button
-                      ref={shakeRef}
-                      className={`good ${insufficient ? "insufficient" : ""}`}
+                      className="good"
                       disabled={l1Busy || !actReady}
                       onClick={() => {
                         sfx("teleport");
                         void onEnterAgain();
                       }}
                     >
-                      {insufficient
-                        ? "insufficient $GAME"
-                        : `Enter again · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
+                      Enter again
                     </button>
                   </div>
                 </>
@@ -1462,17 +1396,14 @@ export default function App() {
                     <div className="newgame-sub">into the unknown</div>
                   </div>
                   <button
-                    ref={shakeRef}
-                    className={`good newgame-start ${insufficient ? "insufficient" : ""}`}
+                    className="good newgame-start"
                     disabled={l1Busy || !actReady}
                     onClick={() => {
                       sfx("teleport");
                       void onNewGame();
                     }}
                   >
-                    {insufficient
-                      ? "insufficient $GAME"
-                      : `+ New Game · ${chain.fmtToken(fee, chain.GAME_DECIMALS, 0)} $GAME`}
+                    + New Game
                   </button>
                   {runs.length > 0 && (
                     <div className="lobby-list">

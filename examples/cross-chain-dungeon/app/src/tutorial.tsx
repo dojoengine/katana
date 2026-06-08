@@ -35,24 +35,14 @@ const STEPS: Step[] = [
   },
   {
     tab: "dungeon",
-    target: "fund",
-    title: "Fund · on L1",
-    body: (
-      <>
-        <b>Dev-mint</b> some <b>$GAME</b> — your entry credit. $GOLD is the winnings you'll bank
-        later. Both live on L1.
-      </>
-    ),
-  },
-  {
-    tab: "dungeon",
     target: "play",
     title: "Enter · L1 → L2",
     body: (
       <>
-        Entering charges $GAME on L1 and calls piltover's <b>send_message_to_appchain</b>. The appchain's
-        <b> messaging service</b> relays it into the <b>mint_run</b> <code>#[l1_handler]</code> — no prover
-        needed — which starts your run on L2. That's the instant L1→L2 direction.
+        Entering is <b>free</b> — a one-click L1 tx (it dev-mints the entry credit for you) that calls
+        piltover's <b>send_message_to_appchain</b>. The appchain's <b>messaging service</b> relays it into
+        the <b>mint_run</b> <code>#[l1_handler]</code> — no prover needed — which starts your run on L2.
+        That's the instant L1→L2 direction.
       </>
     ),
   },
