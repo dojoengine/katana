@@ -14,7 +14,11 @@ type Manifest = { sprites: Record<string, SpriteMeta>; flats: Record<string, { f
 type Tex = { w: number; h: number; data: Uint32Array };
 
 const W = 320; // internal render width (scaled up, crunchy pixels)
-const H = 200;
+// Internal render HEIGHT — recomputed on resize to match the scene container's aspect
+// ratio (H = W * containerHeight / containerWidth), so the canvas fills the container
+// with no letterbox/pillarbox border. The horizontal FOV (camera plane) is fixed; only
+// the vertical view extent adapts to the container shape.
+let H = 200;
 // Move transition timings. We walk out + fade (OUT_MS), hold in the dark until the
 // run advances to the next room (capped at HOLD_MAX), then fade the new room in
 // (IN_MS). This keeps the next room — and any monster — hidden until you arrive.
@@ -287,8 +291,9 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce, 
     off.height = H;
     const octx = off.getContext("2d")!;
     octx.imageSmoothingEnabled = false;
-    const frame = octx.createImageData(W, H);
-    const buf = new Uint32Array(frame.data.buffer);
+    // Recreated whenever the internal height H changes (resize to a new aspect ratio).
+    let frame = octx.createImageData(W, H);
+    let buf = new Uint32Array(frame.data.buffer);
     const zbuf = new Float32Array(W);
 
     const dctx = canvas.getContext("2d")!;
@@ -307,6 +312,13 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce, 
         const now = performance.now();
         const dt = Math.min(0.05, (now - last) / 1000);
         last = now;
+        // Re-allocate the offscreen buffer when the aspect (H) changed on resize.
+        if (off.height !== H) {
+          off.height = H;
+          octx.imageSmoothingEnabled = false; // reset by the canvas resize
+          frame = octx.createImageData(W, H);
+          buf = new Uint32Array(frame.data.buffer);
+        }
         // ── room transition state machine (latches the rendered room) ──
         const live = runRef.current;
         if (e.phase === "load") {
@@ -531,18 +543,21 @@ export function DoomScene({ run, fx, fireNonce, walkNonce, useNonce, lootNonce, 
     };
   }, [ready]);
 
-  // size the canvas to its container (keeps 8:5)
+  // Size the canvas buffer to its container, and match the internal render height to
+  // the container's aspect ratio so the scene fills it with no border.
   const wrapRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const wrap = wrapRef.current;
     const canvas = canvasRef.current;
     if (!wrap || !canvas) return;
     const ro = new ResizeObserver(() => {
-      const w = wrap.clientWidth;
-      canvas.width = Math.max(160, Math.round(w));
-      canvas.height = Math.round((canvas.width * H) / W);
+      const cw = Math.max(160, Math.round(wrap.clientWidth));
+      const ch = Math.max(100, Math.round(wrap.clientHeight));
+      canvas.width = cw;
+      canvas.height = ch;
       const c = canvas.getContext("2d");
       if (c) c.imageSmoothingEnabled = false;
+      H = Math.max(2, Math.round((W * ch) / cw));
     });
     ro.observe(wrap);
     return () => ro.disconnect();

@@ -310,8 +310,10 @@ button.good.insufficient:hover:not(:disabled) {
   border-color: rgba(255, 107, 94, .6);
 }
 
-.arena { position: relative; }
-.stage { border: 1px solid var(--border); background: radial-gradient(120% 120% at 50% 18%, rgba(255,180,84,.05), transparent 60%), rgba(0,0,0,.25); position: relative; }
+/* The scene fills the available height: arena → stage → doom all flex-grow, so the
+   raycaster (whose internal height tracks the container's aspect) fills with no border. */
+.arena { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.stage { border: 1px solid var(--border); background: radial-gradient(120% 120% at 50% 18%, rgba(255,180,84,.05), transparent 60%), rgba(0,0,0,.25); position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .stage-h { display: flex; align-items: stretch; padding: 0; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 11px; letter-spacing: 1.5px; }
 .stage-h .kind { color: var(--amber-hi); }
 /* the back arrow is a full-height left "cell" of the bar, not a nested button */
@@ -319,11 +321,10 @@ button.good.insufficient:hover:not(:disabled) {
 .stage-h-label { flex: 1; display: inline-flex; align-items: center; padding: 6px 12px; }
 .stage-h-active { display: inline-flex; align-items: center; padding: 6px 12px; }
 /* ===== Doom raycaster viewport (see doom.tsx) ===== */
-/* Cap the scene so it never overflows the panel: bounded by a max width AND by
-   viewport height (the canvas is a fixed 8:5, so capping width caps height too —
-   min(820px, 52vh*1.6) keeps its height ≤ ~52vh). Centered when narrower. */
-.doom { position: relative; width: 100%; max-width: min(820px, 52vh * 1.6); margin: 0 auto; line-height: 0; background: #000; overflow: hidden; }
-.doom-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+/* Fills the stage (flex-grow); the canvas covers it exactly because doom.tsx renders
+   the raycaster at this box's aspect ratio — so no letterbox/pillarbox border. */
+.doom { position: relative; flex: 1 1 auto; min-height: 0; width: 100%; line-height: 0; background: #000; overflow: hidden; }
+.doom-canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 .doom-load { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); pointer-events: none; text-align: center; font-size: 11px; letter-spacing: 1.5px; color: var(--dim); text-shadow: var(--glow); }
 /* floating "loot obtained" feed, bottom-left of the scene (newest at the bottom) */
 .loot-feed { position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 3px; pointer-events: none; z-index: 3; }
@@ -402,7 +403,10 @@ button.good.insufficient:hover:not(:disabled) {
 .hud.hud-hurt { animation: shake .4s ease; }
 .hud.hud-hurt .hud-face pre { color: var(--red); text-shadow: 0 0 9px rgba(255,107,94,.6); }
 .hud.hud-heal .hud-face pre { color: var(--green); text-shadow: 0 0 9px rgba(115,230,160,.5); }
-.actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+/* Actions styled to match the stats bar (.hud): a framed strip of connected cells
+   with thin 1px dividers and the same dark amber-tinted gradient fill. */
+.actions { display: flex; gap: 1px; margin-top: 14px; flex-wrap: wrap; border: 1px solid var(--border-hi); background: var(--border); }
+.actions button { flex: 1; border: 0; border-radius: 0; padding: 12px 10px; background: linear-gradient(180deg, rgba(255,180,84,.05), rgba(0,0,0,.32)); }
 button.ghost { flex: none; width: auto; color: var(--dim); border-color: var(--border); }
 
 /* New Game page — its own view, shown instead of the dungeon run page (they never
