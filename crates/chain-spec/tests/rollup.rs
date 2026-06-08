@@ -83,6 +83,53 @@ fn valid_transactions() {
 }
 
 #[test]
+fn controller_class_queryable_at_canonical_hash_after_genesis() {
+    use katana_contracts::controller::{ControllerLatest, ControllerV108};
+    use katana_genesis::json::GenesisJson;
+
+    const CANONICAL_LATEST: Felt = Felt::from_hex_unchecked(
+        "0x743c83c41ce99ad470aa308823f417b2141e02e04571f5c0004e743556e7faf",
+    );
+    const CANONICAL_V108: Felt = Felt::from_hex_unchecked(
+        "0x511dd75da368f5311134dee2356356ac4da1538d2ad18aa66d57c47e3757d59",
+    );
+
+    let mut chain_spec = chain_spec(1, true);
+    chain_spec
+        .genesis
+        .classes
+        .insert(ControllerLatest::HASH, ControllerLatest::CLASS.clone().into());
+    chain_spec.genesis.classes.insert(ControllerV108::HASH, ControllerV108::CLASS.clone().into());
+
+    // Simulate `katana init rollup` -> genesis.json -> node reload.
+    let json = GenesisJson::try_from(chain_spec.genesis.clone()).unwrap();
+    chain_spec.genesis = Genesis::try_from(json).unwrap();
+
+    let provider = DbProviderFactory::new_in_memory();
+    let provider = provider.provider();
+    let ef = executor(chain_spec.clone());
+
+    let state = PreloadedStateProvider::new(provider.latest().unwrap(), chain_spec.state_updates());
+    let mut executor = ef.executor(Box::new(state), katana_primitives::env::BlockEnv::default());
+    executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
+
+    let output = executor.take_execution_output().unwrap();
+    for (i, (.., result)) in output.transactions.iter().enumerate() {
+        assert!(result.is_success(), "genesis tx {i} failed: {result:?}");
+    }
+
+    let genesis_state = executor.state();
+    assert!(
+        genesis_state.class(CANONICAL_LATEST).unwrap().is_some(),
+        "controller.latest must be queryable at canonical hash {CANONICAL_LATEST:#x}"
+    );
+    assert!(
+        genesis_state.class(CANONICAL_V108).unwrap().is_some(),
+        "controller.v1.0.8 must be queryable at canonical hash {CANONICAL_V108:#x}"
+    );
+}
+
+#[test]
 fn genesis_states() {
     let chain_spec = chain_spec(1, true);
 
