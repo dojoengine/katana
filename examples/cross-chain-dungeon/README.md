@@ -10,32 +10,31 @@ in-progress haul). Then **bank once** — withdraw the whole vault to Sepolia, w
 GOLD is minted on L1. The point: appchain value is provisional until you commit it
 to the settlement layer.
 
-It's the sibling of [`../cross-chain-game`](../cross-chain-game). Where that demo
-runs two local Katanas, this one runs **one** (the appchain) and settles to a real
-public chain — and adds a token economy on top of an external contract.
+It runs **one** local Katana (the appchain) and settles to a **real public chain**,
+with a token economy layered on top of an external contract (USDC).
 
 > New to the appchain architecture? Read the [guide](./docs/README.md) — it builds
 > the mental model (worlds, messaging, saya, Torii) using this game as the example.
 
-## What's different from cross-chain-game
+## Highlights
 
-| | cross-chain-game | **cross-chain-dungeon** |
-| --- | --- | --- |
-| Settlement layer | local Katana (`SN_SEPOLIA`) | **real Starknet (Sepolia default, mainnet supported)** |
-| Local nodes | 2 Katanas | **1** (appchain only) |
-| Economy | none | **two tokens: GAME (USDC→play) + GOLD (winnings, minted on bank)** |
-| External dependency | — | **Circle USDC on Sepolia** |
-| Gameplay | one roll | **a dungeon run, one tx per action; vault many runs, bank once** |
-| Ports | 5050/5051/8081/8082/3001 | **5070/8091/8092/3002** |
-| Controller | both chains | **both chains** (hosted keychain; funded on real Sepolia) |
+| | |
+| --- | --- |
+| Settlement layer | **real Starknet** (Sepolia default, mainnet supported) |
+| Local nodes | **1** — the appchain only |
+| Economy | **two tokens**: GAME (USDC→play) + GOLD (winnings, minted on bank) |
+| External dependency | **Circle USDC** on the settlement layer |
+| Gameplay | a dungeon run, **one tx per action**; vault many runs, bank once |
+| Ports | appchain `5070`, torii `8091`/`8092`, frontend `3002` |
+| Controller | one identity signs **both chains** (hosted keychain; funded on real Sepolia) |
 
 ## Prerequisites
 
 This is *not* fully one-click — settling to a real chain needs real accounts.
 
-1. **katana** built from this repo: `( cd ../../ && cargo build --release )`.
-2. **Patched saya v0.4.0** (`saya-ops`, `saya-tee`) on PATH — the Poseidon L1→L2
-   hash fix. See [`../cross-chain-game/saya-patch`](../cross-chain-game/saya-patch).
+1. A **katana** binary on PATH (or built from source).
+2. **Patched saya v0.4.0** (`saya-ops`, `saya-tee`) on PATH — a build with the
+   Poseidon L1→L2 message-hash fix.
 3. **Dojo toolchain** (`sozo`/`torii`/`scarb`) via `asdf install` (pinned in
    `.tool-versions`), and a sibling **dojo** checkout (the cairo packages depend on
    it by path, ref `sozo/v1.8.7`).

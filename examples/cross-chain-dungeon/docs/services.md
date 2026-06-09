@@ -2,10 +2,9 @@
 
 [← architecture](./architecture.md) · Next: [contracts →](./contracts.md)
 
-The processes that make up the running system. This is the same cast as
-[cross-chain-game's services](../../cross-chain-game/docs/services.md) with one big
-change — **the settlement layer is remote** — so there's no second local Katana,
-and saya/piltover/Torii all point at real Sepolia.
+The processes that make up the running system. The defining trait: **the settlement
+layer is remote** — there's no second local Katana, and saya/piltover/Torii all
+point at real Sepolia.
 
 ```
    Starknet Sepolia (remote)                     Local appchain (Katana rollup, :5070)
@@ -39,8 +38,8 @@ katana --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 \
   client and Torii must read/write the **pre-confirmed** block. See
   [interval-mining.md](./interval-mining.md).
 
-Port `5070` (and the toriis on `8091`/`8092`, the client on `3002`) are chosen
-distinct from cross-chain-game so both demos can run at once.
+The service ports are `5070` (appchain), `8091`/`8092` (the toriis), and `3002`
+(the client).
 
 ## piltover core — the cross-chain mailbox, on Sepolia
 
@@ -67,7 +66,7 @@ Two consequences of settling to a real chain:
 
 - **saya pays real gas** for every `update_state`. Give it a **dedicated** funded
   account, distinct from the operator — sharing one causes nonce contention that
-  stalls settlement (cross-chain-game hit exactly this). `init rollup` and `saya`
+  stalls settlement. `init rollup` and `saya`
   must use the *same* account (the piltover operator is the only `update_state`
   caller), and that account is the saya account here.
 - **`--mock-prove` still applies.** It exercises the settlement plumbing (message

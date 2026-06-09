@@ -6,8 +6,8 @@ cairo-version = "2.13"
 
 [dependencies]
 starknet = "2.13"
-# Dojo is consumed from the sibling checkout so the world class hash matches the
-# locally installed `sozo` (1.8.7) — same arrangement as ../../cross-chain-game.
+# Dojo is consumed from a sibling checkout so the world class hash matches the
+# locally installed `sozo` (1.8.7).
 dojo = { path = "../../../../../dojo/crates/dojo/core" }
 dojo_cairo_macros = { path = "../../../../../dojo/crates/dojo/macros" }
 

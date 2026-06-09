@@ -23,7 +23,7 @@ export const config = {
   rewardPerGold: BigInt(process.env.REWARD_PER_GOLD ?? "1000000000000000000"),
 };
 
-// Local appchain endpoints (distinct port band from cross-chain-game — see PLAN.md).
+// Local appchain endpoints.
 export const APPCHAIN_RPC = "http://localhost:5070";
 export const SEPOLIA_EXPLORER = "https://sepolia.voyager.online";
 export const APPCHAIN_EXPLORER = "http://localhost:5070/explorer";

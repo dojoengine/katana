@@ -19,7 +19,7 @@ CHAIN_DIR="$RUN_DIR/chain-config"
 APPCHAIN_DB="$RUN_DIR/appchain-db"   # persistent appchain state — survives restarts
 DEPLOYMENTS="$DEMO_DIR/app/src/deployments.json"
 
-# Ports — keep in sync with up.sh (distinct from cross-chain-game so both can run).
+# Ports — keep in sync with up.sh.
 APPCHAIN_PORT=5070
 TORII_SCORE_HTTP=8091; TORII_SCORE_GRPC=50091; TORII_SCORE_RELAY=9191
 TORII_GAME_HTTP=8092;  TORII_GAME_GRPC=50092;  TORII_GAME_RELAY=9194

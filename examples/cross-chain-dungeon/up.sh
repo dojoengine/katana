@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Bring up the cross-chain-dungeon demo. Unlike cross-chain-game, the settlement
-# layer is REAL Starknet Sepolia (remote) — only the appchain runs locally:
+# Bring up the cross-chain-dungeon demo. The settlement layer is REAL Starknet
+# Sepolia (remote) — only the appchain runs locally:
 #
 #   Starknet Sepolia (remote)
 #     + piltover core         (deployed by `katana init rollup --tee`)
@@ -25,7 +25,7 @@ APPCHAIN_DB="$RUN_DIR/appchain-db"   # persistent appchain state — survives re
 SERVICES="$DEMO_DIR/scripts/services"   # per-service launchers (each runnable standalone)
 mkdir -p "$RUN_DIR"
 
-# Ports — distinct from cross-chain-game (5051/8081/8082/3001) so both can run.
+# Ports.
 APPCHAIN_PORT=5070
 TORII_SCORE_HTTP=8091; TORII_SCORE_GRPC=50091; TORII_SCORE_RELAY=9191
 TORII_GAME_HTTP=8092;  TORII_GAME_GRPC=50092;  TORII_GAME_RELAY=9194
@@ -70,7 +70,7 @@ elif command -v katana >/dev/null 2>&1; then KATANA="$(command -v katana)"
 else fail "katana binary not found. Build it:  ( cd \"$REPO_ROOT\" && cargo build --release )"; fi
 
 for bin in saya-ops saya-tee; do
-  command -v "$bin" >/dev/null 2>&1 || fail "'$bin' not found on PATH. Install the patched saya v0.4.0 — see ../cross-chain-game/saya-patch/README.md."
+  command -v "$bin" >/dev/null 2>&1 || fail "'$bin' not found on PATH. Install the patched saya v0.4.0 (the Poseidon L1→L2 message-hash fix)."
 done
 for bin in sozo torii scarb; do
   command -v "$bin" >/dev/null 2>&1 || fail "'$bin' not found on PATH. Run 'asdf install' in this directory (see .tool-versions)."

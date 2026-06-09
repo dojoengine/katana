@@ -2,14 +2,13 @@
 
 [← deployment](./deployment.md) · [guide index](./README.md)
 
-The client splits the same way as any appchain app (see
-[cross-chain-game's client chapter](../../cross-chain-game/docs/client.md)): **send
+The client splits the same way as any appchain app: **send
 transactions** to systems / piltover / the token contracts, **read state** from
 Torii (plus a few raw RPC facts). The whole data layer is `app/src/chain.ts`; the
 poll loop and UI are in `app/src/App.tsx`; the wallet is `app/src/wallet.tsx`.
 
-This app keeps the **hand-written terminal CSS** (no tailwind/shadcn) but uses the
-same **live Torii subscriptions** as cross-chain-game: `subscribeToriiUpdates`
+This app keeps the **hand-written terminal CSS** (no tailwind/shadcn) and uses
+**live Torii subscriptions**: `subscribeToriiUpdates`
 (`chain.ts`) connects a `@dojoengine/torii-wasm` `ToriiClient` to both worlds
 (`game` on the appchain, `bank` on Sepolia) and refetches the instant a model is
 set or an event is emitted (`onEntityUpdated` / `onEventMessageUpdated`). A slow
@@ -60,7 +59,7 @@ signed by the wallet's L1 account; appchain actions by the local dev account:
 - **Bank (L2→L1):** `bankMany(player, rows)` — one Sepolia multicall of `bank.bank`,
   one call per settled withdrawal; each consumes its L2→L1 message and mints GOLD.
 
-Two practical notes carried over from cross-chain-game:
+Two practical notes about the write path:
 
 - **Serialize same-account writes.** Buy / enter / bank are all signed by the one
   settlement account, so they funnel through a promise-chain mutex

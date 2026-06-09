@@ -2,11 +2,10 @@
 
 This guide builds the mental model for an appchain app that **settles to a real
 public chain** and **leans on an external settlement-layer contract**, using the
-dungeon game as the running example. It mirrors the
-[`cross-chain-game` guide](../../cross-chain-game/docs/README.md); read that first
-if you want the gentler two-local-Katana version. Here we focus on what changes
-when the settlement layer is **real Starknet Sepolia** and there's a **token
-economy** in front of the cross-chain loop.
+dungeon game as the running example. It builds the model from the ground up —
+worlds, messaging, saya, Torii — for the case where the settlement layer is
+**real Starknet Sepolia** and there's a **token economy** in front of the
+cross-chain loop.
 
 ## Chapters
 

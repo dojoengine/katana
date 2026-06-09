@@ -163,7 +163,7 @@ export async function declareAndDeploy(
 ): Promise<string> {
   const { sierra, casm } = artifacts(pkg, contract);
   // Starknet >= 0.14.1 (Sepolia/mainnet) computes the compiled-class hash with
-  // Blake2s, not Poseidon (see dojoengine/katana#570). starknet.js 10.x's
+  // Blake2s, not Poseidon. starknet.js 10.x's
   // computeCompiledClassHash is Blake2s — compute it and pass it explicitly so
   // the declare's compiled_class_hash matches what the sequencer derives.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

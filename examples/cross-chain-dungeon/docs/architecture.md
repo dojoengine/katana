@@ -8,16 +8,14 @@ and **what the token economy adds** on top of the cross-chain loop.
 ## Two worlds, but only one local chain
 
 Like any Dojo appchain app this is built from **worlds** — an on-chain database
-(models) plus the systems that write to them (see the
-[cross-chain-game architecture](../../cross-chain-game/docs/architecture.md) for the
-Dojo primer). This demo has **two** worlds:
+(models) plus the systems that write to them. This demo has **two** worlds:
 
 | World | Chain | Holds | Why there |
 | --- | --- | --- | --- |
 | `game` | appchain (L2, local) | the live run, the GOLD vault, the leaderboard | play is high-frequency, cheap, instant |
 | `bank` | **Starknet Sepolia** (L1, real) | mints GOLD when a withdrawal settles | the durable, publicly-verifiable record |
 
-The difference from cross-chain-game: the settlement layer isn't a second local
+The defining choice: the settlement layer isn't a second local
 Katana — it's **real Starknet Sepolia**. So you run **one** node locally (the
 appchain), and everything on the settlement side (piltover, the `bank` world, the
 token contracts) is deployed to a public chain that other contracts and users can

@@ -1,7 +1,7 @@
 // Guided tutorial: a stepped, anchored walkthrough that highlights UI and explains
 // what happens *behind the dungeon* — the two chains, the cross-chain messages, and
 // saya's settlement. It deliberately ignores game strategy and focuses on the
-// appchain mechanics. Mirrors the cross-chain-game tutorial.
+// appchain mechanics.
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import * as chain from "./chain.ts";
 

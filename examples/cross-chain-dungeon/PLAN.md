@@ -10,8 +10,8 @@
 > client); sections below reflect the original single-token, per-run-claim plan.
 
 ## Overview
-A second Katana appchain example (sibling to `examples/cross-chain-game`) that
-settles to **real Starknet Sepolia** instead of a local settlement Katana. It
+A Katana appchain example that settles to **real Starknet Sepolia** instead of a
+local settlement Katana. It
 demonstrates an appchain app that **leans on an external settlement-layer contract**
 (Circle USDC on Sepolia) via a custom **GAME_TOKEN** economy, and runs **more
 gameplay on the appchain**: a dungeon run is one appchain transaction per action
@@ -41,7 +41,7 @@ changes only what the new requirements force.
   same plumbing as the first example), now pointed at Sepolia. Real Atlantic/SP1
   proving is explicitly out of scope (it was offered and declined).
 - Controller signing **appchain** actions. The hosted keychain can't switch to a
-  local custom appchain (the open issue from `cross-chain-game`); appchain actions
+  local custom appchain (a known limitation); appchain actions
   use the dev key here by design.
 - Mainnet. Sepolia only.
 - VRF-based randomness on the appchain (note it as a future upgrade; v1 uses
@@ -64,17 +64,15 @@ changes only what the new requirements force.
 - **`katana init rollup` can target real Sepolia.** Its prompt/flags already support
   a Sepolia settlement provider (account + private key + settlement-contract deploy).
 - **saya Poseidon patch still required.** A Starknet-settled appchain hashes L1→L2
-  messages with Poseidon; saya 0.4.0 ships keccak. Reuse `../cross-chain-game/
-  saya-patch/` (or its published successor). Without it, every entry (an L1→L2
-  message) stalls in settlement.
+  messages with Poseidon; saya 0.4.0 ships keccak. Use a patched saya build (or its
+  published successor). Without it, every entry (an L1→L2 message) stalls in
+  settlement.
 - **Toolchain pinned** to the same versions as the first example unless a newer
   Dojo/Torii is required: `scarb 2.13.1`, `sozo 1.8.7`, `torii 1.8.16`.
 - The appchain stays **local** (`localhost`), fee-less (`--dev.no-fee`), single
   instance. Only the settlement layer moves to Sepolia.
-- **Distinct ports from `cross-chain-game`** so both demos can run at once. The
-  first example uses appchain `5051` (+ settlement `5050`), Torii `8081`/`8082`
-  (gRPC `50081`/`50082`, relay `9181`/`9184`), frontend `3001`. This example has
-  **no local settlement node** (Sepolia is remote) and uses a disjoint band:
+- **Service ports.** This example has **no local settlement node** (Sepolia is
+  remote) and uses:
 
   | Service | Port |
   |---|---|
@@ -389,9 +387,8 @@ is a deliberate demo simplification (the dev key can act on any run); document i
   immutable test artifacts (note their addresses; redeploy on schema change).
 
 ## Verification Checklist
-- [ ] `examples/cross-chain-dungeon/up.sh` brings up: appchain `:5070`, saya, Torii
-      `:8091`/`:8092`, client `:3002`; piltover + mock TEE live on Sepolia. No port
-      clash with `cross-chain-game` running concurrently.
+- [ ] `up.sh` brings up: appchain `:5070`, saya, Torii `:8091`/`:8092`, client
+      `:3002`; piltover + mock TEE live on Sepolia.
 - [ ] `deployments.json` has real addresses for piltover, GameToken, TokenSale,
       Entry, score world+system, appchain game world+system, USDC.
 - [ ] Dev-mint: GAME `balance_of(player)` increases (RPC).

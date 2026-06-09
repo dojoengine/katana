@@ -2,10 +2,9 @@
 
 [← contracts](./contracts.md) · Next: [client →](./client.md)
 
-From source to a running system. The toolchain and `sozo migrate` mechanics are
-identical to [cross-chain-game's deployment chapter](../../cross-chain-game/docs/deployment.md)
-(`scarb 2.13.1` / `sozo 1.8.7` / `torii 1.8.16`, Dojo by path from a sibling
-checkout). What's new here: **plain-contract deploys alongside the Dojo migrations**,
+From source to a running system. The toolchain is `scarb 2.13.1` / `sozo 1.8.7` /
+`torii 1.8.16`, with Dojo consumed by path from a sibling checkout (standard `sozo
+migrate` mechanics). What's new here: **plain-contract deploys alongside the Dojo migrations**,
 **minter grants**, and a **real-Sepolia bootstrap** that needs funded accounts.
 
 ## Configuration (`.env`)
@@ -86,9 +85,9 @@ cp .env.example .env && ./up.sh     # Ctrl-C / ./down.sh tears down the local pr
   `compiled_class_hash` with **Blake2s**, not Poseidon, and reject a declare that
   sends the old hash with `Mismatch compiled class hash`. So the deploy scripts pin
   **starknet.js 10.x** (whose `computeCompiledClassHash` is Blake2s); 8.x's Poseidon
-  hash is rejected. `sozo 1.8.7` and the `katana` binary (dojoengine/katana#570)
-  already emit Blake2s, so the worlds and `init rollup` are fine. A local Katana
-  settlement layer accepts either, which is why `cross-chain-game` never hit this.
+  hash is rejected. `sozo 1.8.7` and a current `katana` binary already emit Blake2s,
+  so the worlds and `init rollup` are fine. A local Katana settlement layer accepts
+  either hash, so this only bites against a real Starknet settlement chain.
   The cairo **compiler** version is unrelated — scarb stays 2.13.1.
 
 ## Verify each stage
