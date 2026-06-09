@@ -76,10 +76,10 @@ By default the client signs with the **operator account** on Sepolia and the **d
 account** on the appchain — no login. The header **login** button can swap in a
 [Cartridge Controller](https://github.com/cartridge-gg/controller) that signs on
 **both chains** as one identity: buy / enter / bank on real Sepolia *and* the dungeon
-play actions on the local appchain, at the same address. It needs `CONTROLLER=1
-./up.sh` (Controller-capable appchain + HTTPS via `mkcert`) and a Cartridge Controller
-login — the **hosted keychain** (x.cartridge.gg) by default, with a self-hosted keychain
-as a fully-local fallback. Fund the Controller with a little STRK on real Sepolia. Full
+play actions on the local appchain, at the same address. The appchain is
+Controller-capable out of the box (`./up.sh` always enables it, plus HTTPS via
+`mkcert`); just log in with a Cartridge Controller — the **hosted keychain**
+(x.cartridge.gg) by default, with a self-hosted keychain as a fully-local fallback. Fund the Controller with a little STRK on real Sepolia. Full
 walkthrough: [docs/controller.md](./docs/controller.md).
 
 ## What's where
@@ -99,7 +99,7 @@ walkthrough: [docs/controller.md](./docs/controller.md).
 
 ## Deployed contracts
 
-From a fresh deploy (`FRESH=1 CONTROLLER=1 ./up.sh`) on **2026-06-08**. Settlement is real
+From a fresh deploy (`FRESH=1 ./up.sh`) on **2026-06-08**. Settlement is real
 **Starknet Sepolia**; the appchain is the local `DUNGEON` rollup. The Sepolia contracts
 (piltover, tokens, worlds) are **redeployed on every `FRESH=1`** — the always-current source
 is `app/src/deployments.json`. The appchain world/system and the TEE-registry mock are

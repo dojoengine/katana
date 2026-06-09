@@ -22,10 +22,10 @@ By default the app connects to the **hosted Cartridge keychain** (`x.cartridge.g
 your **real Cartridge Controller account**, already deployed by Cartridge. Just:
 
 ```bash
-CONTROLLER=1 ./up.sh
+./up.sh
 ```
 
-`CONTROLLER=1` appends `--paymaster --cartridge.paymaster --cartridge.controllers` to
+`up.sh` always appends `--paymaster --cartridge.paymaster --cartridge.controllers` to
 the **appchain** node (the settlement side is real Sepolia — Cartridge knows it
 natively, so only the appchain needs the middleware) and **declares the Controller
 account classes on the appchain** (`scripts/declare-controller-class.ts`, *all* bundled
@@ -64,10 +64,10 @@ hit **Dev-mint** (a session policy) once funded, or buy with USDC.
   chain, so on Sepolia — already upgraded — it never offers the appchain upgrade.)
 - **Per-chain sessions** — the appchain session isn't pre-approved on connect, so the
   first play may show a confirm modal rather than being silent.
-- **HTTPS for WebAuthn** — `CONTROLLER=1 ./up.sh` serves `https://localhost:3002` via
+- **HTTPS for WebAuthn** — `./up.sh` serves `https://localhost:3002` via
   `mkcert`; passkey login refuses an untrusted cert.
 
-The default operator path needs none of this — `./up.sh` and play.
+No login is required to play — without one the app signs with the operator account.
 
 ## Self-hosted keychain (fully-local fallback)
 
@@ -80,7 +80,7 @@ offline dev) — point the app at a self-hosted keychain instead:
 2. Point the app at it, then start:
    ```bash
    echo 'VITE_KEYCHAIN_URL=https://localhost:3010' > app/.env.local
-   CONTROLLER=1 ./up.sh
+   ./up.sh
    ```
 
 A self-hosted Controller is a **fresh localhost passkey** (RP-id `localhost`), so its

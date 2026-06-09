@@ -48,9 +48,8 @@ elif [[ -x "$REPO_ROOT/target/debug/katana"   ]]; then KATANA="$REPO_ROOT/target
 elif command -v katana >/dev/null 2>&1;            then KATANA="$(command -v katana)"
 else svc_fail "katana binary not found — build it: ( cd \"$REPO_ROOT\" && cargo build --release )"; fi
 
-# CONTROLLER=1 → appchain paymaster/session middleware + Controller auto-deploy.
-CONTROLLER_FLAGS=""
-[[ "${CONTROLLER:-}" == "1" ]] && CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
+# Appchain paymaster/session middleware + Controller auto-deploy — always on.
+CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
 
 # Kill whatever holds a TCP port so re-running a service script restarts it cleanly.
 free_port() {

@@ -79,21 +79,18 @@ done
 echo "→ katana: $KATANA"
 echo "→ settlement: $SETTLEMENT_NAME ($SETTLEMENT_RPC_URL)"
 
-# Optional Cartridge Controller (one identity on both chains). Default ./up.sh uses the
-# operator account (no login). CONTROLLER=1 makes the APPCHAIN Controller-capable — the
-# paymaster/session middleware + Controller auto-deploy — so the same Controller that
-# signs buy/enter/bank on Sepolia can also sign the play actions here. Settlement is real
-# Sepolia (Cartridge knows it natively), so ONLY the appchain needs these flags. The app
-# uses the hosted keychain (x.cartridge.gg) by default — a real Cartridge Controller
-# account; set VITE_KEYCHAIN_URL in app/.env.local to point at a self-hosted keychain
-# instead (fully-local fallback). See docs/controller.md.
-CONTROLLER_FLAGS=""
-if [[ "${CONTROLLER:-}" == "1" ]]; then
-  CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
-  command -v paymaster-service >/dev/null 2>&1 \
-    || echo "  note: 'paymaster-service' not on PATH — katana will try to fetch it (cartridge-gg/paymaster); see docs/controller.md." >&2
-  echo "→ Controller mode ON: appchain Controller-capable. Login with a Cartridge Controller (hosted keychain)."
-fi
+# Cartridge Controller (one identity on both chains) — always on. The APPCHAIN is
+# Controller-capable — the paymaster/session middleware + Controller auto-deploy — so
+# the same Controller that signs buy/enter/bank on Sepolia can also sign the play
+# actions here. Settlement is real Sepolia (Cartridge knows it natively), so ONLY the
+# appchain needs these flags. The app uses the hosted keychain (x.cartridge.gg) by
+# default — a real Cartridge Controller account; set VITE_KEYCHAIN_URL in
+# app/.env.local to point at a self-hosted keychain instead (fully-local fallback).
+# See docs/controller.md.
+CONTROLLER_FLAGS="--paymaster --cartridge.paymaster --cartridge.controllers"
+command -v paymaster-service >/dev/null 2>&1 \
+  || echo "  note: 'paymaster-service' not on PATH — katana will try to fetch it (cartridge-gg/paymaster); see docs/controller.md." >&2
+echo "→ appchain is Controller-capable. Login with a Cartridge Controller (hosted keychain)."
 
 APPCHAIN_PID=""; SAYA_PID=""; TORII_SCORE_PID=""; TORII_GAME_PID=""
 cleanup() {
@@ -192,16 +189,14 @@ SAYA_PID=$!
 # 6. Deploy the economy + worlds (GAME_TOKEN, score, game, TokenSale, Entry, grants).
 ( cd "$DEMO_DIR" && bun run scripts/deploy.ts )
 
-# 6b. (CONTROLLER mode) Declare the Controller account class on the appchain.
+# 6b. Declare the Controller account class on the appchain.
 #     Workaround for katana #584: `katana init rollup` round-trips genesis.json,
 #     shifting the embedded controller class hash, so the canonical class the keychain
 #     deploys isn't present after boot. Without it the Controller can't auto-deploy on
 #     the appchain and its play actions fall back to the settlement chain. Declaring the
 #     on-disk artifact here lands the canonical hash so the Controller can sign appchain txs.
-if [[ "${CONTROLLER:-}" == "1" ]]; then
-  echo "→ declaring Controller account class on the appchain (katana #584 workaround)…"
-  ( cd "$DEMO_DIR" && bun run scripts/declare-controller-class.ts )
-fi
+echo "→ declaring Controller account class on the appchain (katana #584 workaround)…"
+( cd "$DEMO_DIR" && bun run scripts/declare-controller-class.ts )
 
 # 7. Torii indexers (bank world on Sepolia, game world on the appchain). RESET=1 wipes
 #    each db for a clean re-index on a full bring-up; restarting either script on its
