@@ -72,10 +72,9 @@ Every deploy and every `saya update_state` is a **real Sepolia transaction**:
 
 ## Using Controller (optional)
 
-By default the client signs with the **operator account** on Sepolia and the **dev
-account** on the appchain — no login. The header **login** button can swap in a
-[Cartridge Controller](https://github.com/cartridge-gg/controller) that signs on
-**both chains** as one identity: buy / enter / bank on real Sepolia *and* the dungeon
+Nothing signs by default — **log in** (the lobby button) with a
+[Cartridge Controller](https://github.com/cartridge-gg/controller), ONE identity that
+signs on **both chains**: buy / enter / bank on real Sepolia *and* the dungeon
 play actions on the local appchain, at the same address. The appchain is
 Controller-capable out of the box (`./up.sh` always enables it, plus HTTPS via
 `mkcert`); just log in with a Cartridge Controller — the **hosted keychain**

@@ -2,9 +2,9 @@
 
 [← client](./client.md) · [guide index](./README.md)
 
-The demo runs on the **operator account** by default (no login). Optionally a single
-**Cartridge Controller** can sign everything — buy / enter / bank on **real Sepolia**
-*and* the dungeon play actions on the **local appchain** — at one address.
+The demo signs with a single **Cartridge Controller** — buy / enter / bank on **real
+Sepolia** *and* the dungeon play actions on the **local appchain** — at one address.
+It's the primary login (injected Sepolia wallets are a fallback under "more").
 
 ## How it works
 
@@ -14,7 +14,7 @@ signers — `l1Account` (Sepolia) and `l2Account` (appchain). Each wraps the raw
 switches to `shortString("DUNGEON")`, executes the play action, then switches back to
 Sepolia for the next L1 op. The **player** is the Controller address (same on both
 chains), so a run entered on Sepolia is played and banked by that same Controller.
-Details in [client.md](./client.md#wallets-operator-default-optional-controller).
+Details in [client.md](./client.md#wallets-controller-primary).
 
 ## Setup (hosted keychain)
 
@@ -67,7 +67,8 @@ hit **Dev-mint** (a session policy) once funded, or buy with USDC.
 - **HTTPS for WebAuthn** — `./up.sh` serves `https://localhost:3002` via
   `mkcert`; passkey login refuses an untrusted cert.
 
-No login is required to play — without one the app signs with the operator account.
+A login is required to play — the wallet picker offers the Controller (primary) and
+injected Sepolia wallets (Argent X / Braavos) under "more".
 
 ## Self-hosted keychain (fully-local fallback)
 

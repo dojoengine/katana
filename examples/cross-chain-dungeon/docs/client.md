@@ -98,13 +98,14 @@ progress, and the exact L2→L1 message: route (`game system → bank system`), 
 and `bank` consumes. `withdrawalMessageHash` in `chain.ts` mirrors the cairo
 `compute_message_hash_appc_to_sn` (poseidon over `[from, to, payload_len, ...payload]`).
 
-## Wallets (operator default, optional Controller)
+## Wallets (Controller primary)
 
-By default the client signs with the **operator account** (a real funded Sepolia
-account from `deployments.json`) on Sepolia and the **dev account** on the appchain —
-no login needed. The header **login** button can swap in a
+Nothing signs by default — the **login** button connects a
 [Cartridge Controller](https://github.com/cartridge-gg/controller) that signs on
-**both chains** as one identity.
+**both chains** as one identity (injected Sepolia wallets are a fallback under
+"more"; they play via the appchain dev key on a local boot). The committed
+`deployments.json` carries **no account keys** — `up.sh` writes the dev accounts in
+on a local boot.
 
 `wallet.tsx` builds a two-chain Controller: `ControllerConnector` gets both RPCs and
 `StarknetConfig` both chains. It exposes two signers — `l1Account` (buy / enter /

@@ -5,28 +5,20 @@
     "rpcUrl": "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_9",
     "explorer": "https://sepolia.voyager.online",
     "torii": "http://localhost:8091",
-    "account": {
-      "address": "0x0",
-      "privateKey": "0x0"
-    },
-    "piltover": "0x0",
-    "usdc": "0x0",
-    "gameToken": "0x0",
-    "goldToken": "0x0",
-    "bankWorld": "0x0",
-    "bankSystem": "0x0",
-    "tokenSale": "0x0",
-    "entry": "0x0"
+    "piltover": "0x6ddda1669a4f594c2a6c922e47081e3b9fd627d0da045b53012bae636f8d6fe",
+    "usdc": "0x0512feAc6339Ff7889822cb5aA2a86C848e9D392bB0E3E237C008674feeD8343",
+    "gameToken": "0x476d79c46f186018f7bfe9c5ad12a640b5a59ad0b0602275a1fa274e95b8de1",
+    "goldToken": "0x3b17b4ebfa73a9bafc951b6de0b9110d65af78e4555a90356bcc48b9cb8e763",
+    "bankWorld": "0x10cf0deda44ff218a29f9223945c5a01cd7c86667349334c43f4f4c53befae1",
+    "bankSystem": "0x3ab197dc7b89760f445f4640a3fe2a018b2d5f991b17b59f6a119eab2c2d6c",
+    "tokenSale": "0x7f48c547103fa23dcc10eb2ec17f72a8b3ba57fb16dbfbebf4217a28a8be73d",
+    "entry": "0x158828443eea1b9fbca6e913642740b7683588e33a8ab9826048a8992e9c412"
   },
   "appchain": {
     "rpcUrl": "http://localhost:5070",
     "explorer": "http://localhost:5070/explorer",
     "torii": "http://localhost:8092",
-    "account": {
-      "address": "0x0",
-      "privateKey": "0x0"
-    },
-    "gameWorld": "0x0",
-    "gameSystem": "0x0"
+    "gameWorld": "0x7f6c1c800301783a1a5a9378a6c3cdf237ad9ae21bb715c0bf5e408a450ab6e",
+    "gameSystem": "0x6d3d2eab82c4b17ee17eeae58f9981db04a8e9beeaa887b355ce7e57f085e97"
   }
 }

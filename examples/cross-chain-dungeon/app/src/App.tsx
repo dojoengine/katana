@@ -315,9 +315,9 @@ function OutcomeModal({ outcome, onClose }: { outcome: chain.OutcomeRow; onClose
   );
 }
 
-/** Account modal: shows the currently connected account, and a picker to switch the
- *  signing method — operator account ↔ Cartridge Controller. Opened from the account
- *  chip in the header. */
+/** Account modal: shows the currently connected account, and a picker to choose the
+ *  signer — Cartridge Controller (primary) or an injected wallet. Opened from the
+ *  account chip in the header. */
 function WalletModal({ onClose }: { onClose: () => void }) {
   const wallet = useWallet();
   useEffect(() => {
@@ -329,12 +329,7 @@ function WalletModal({ onClose }: { onClose: () => void }) {
   const [showMore, setShowMore] = useState(false);
   const connected = wallet.method !== null; // a signer is active
   const isCtrl = wallet.method === "controller";
-  const signerName =
-    wallet.method === "controller"
-      ? "Cartridge Controller"
-      : wallet.method === "injected"
-        ? wallet.label || "Wallet"
-        : "Operator account";
+  const signerName = wallet.method === "controller" ? "Cartridge Controller" : wallet.label || "Wallet";
   const pick = (fn: () => Promise<void>) => () => void fn().then(onClose).catch(() => {});
 
   return (
@@ -387,12 +382,6 @@ function WalletModal({ onClose }: { onClose: () => void }) {
             </button>
             <div className={`wallet-extra ${showMore ? "open" : ""}`}>
               <div className="wallet-extra-inner">
-                <button className="wallet-opt" tabIndex={showMore ? 0 : -1} onClick={pick(wallet.useOperator)}>
-                  <span className="wo-title">Operator account</span>
-                  <span className="wo-sub">
-                    prefunded Sepolia dev key · <span className="mono">{chain.shortHex(chain.operatorAccount.address)}</span>
-                  </span>
-                </button>
                 <button
                   className="wallet-opt"
                   tabIndex={showMore ? 0 : -1}
@@ -777,9 +766,17 @@ function ConfigPanel() {
       <Field label="game world" value={chain.GAME_WORLD} />
       <Field label="game system" value={chain.GAME_SYSTEM} />
 
-      <div className="cfg-sec">Accounts</div>
-      <Field label="settlement (operator)" value={chain.operatorAccount.address} href={l1(chain.operatorAccount.address)} />
-      <Field label="appchain (dev)" value={chain.appchainAccount.address} />
+      {/* Dev accounts exist only on a local up.sh boot (the committed deployments.json
+          carries no account keys). */}
+      {(chain.operatorAccount || chain.appchainAccount) && (
+        <>
+          <div className="cfg-sec">Accounts</div>
+          {chain.operatorAccount && (
+            <Field label="settlement (operator)" value={chain.operatorAccount.address} href={l1(chain.operatorAccount.address)} />
+          )}
+          {chain.appchainAccount && <Field label="appchain (dev)" value={chain.appchainAccount.address} />}
+        </>
+      )}
     </div>
   );
 }

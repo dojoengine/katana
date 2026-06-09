@@ -70,21 +70,15 @@ const APPCHAIN_TX_WAIT = {
 };
 const SETTLEMENT_TX_WAIT = { retryInterval: 1000 };
 
-// Default signers. The operator is a real funded Sepolia account (from
-// deployments.json); the wallet layer can swap a Controller in for L1 ops. The
-// appchain account is the rollup dev account and always signs the play actions.
-export const operatorAccount = new Account({
-  provider: settlementProvider,
-  address: deployments.settlement.account.address,
-  signer: deployments.settlement.account.privateKey,
-  cairoVersion: "1",
-});
-export const appchainAccount = new Account({
-  provider: appchainProvider,
-  address: deployments.appchain.account.address,
-  signer: deployments.appchain.account.privateKey,
-  cairoVersion: "1",
-});
+// Optional dev signers. A local `up.sh` boot writes the operator + appchain dev
+// accounts into deployments.json; the committed file omits them (no secrets in the
+// repo), so both are null in a build straight from the repo — a connected wallet
+// (Cartridge Controller) signs everything instead.
+type DevAccount = { address: string; privateKey: string };
+const devAccount = (provider: RpcProvider, acct: DevAccount | undefined): Account | null =>
+  acct ? new Account({ provider, address: acct.address, signer: acct.privateKey, cairoVersion: "1" }) : null;
+export const operatorAccount = devAccount(settlementProvider, (deployments.settlement as { account?: DevAccount }).account);
+export const appchainAccount = devAccount(appchainProvider, (deployments.appchain as { account?: DevAccount }).account);
 
 /** Anything that can submit a tx (starknet.js Account or a Controller account). */
 // Minimal signer: anything that can submit a tx — a starknet.js Account (dev keys),
@@ -638,6 +632,9 @@ async function appchainCall(entrypoint: string, arg: string, account?: Signer): 
           const r = await account.execute(call);
           return r.transaction_hash;
         }
+        // No dev key in this build (committed deployments.json carries no accounts) —
+        // play actions need a connected wallet.
+        if (!appchainAccount) throw new Error("no appchain signer — log in with a Cartridge Controller to play.");
         // Dev-key fast path. Interval mining (--block-time) means `latest` (the last mined
         // block) lags the pre-confirmed block, and starknet.js reads BOTH the nonce and the
         // fee estimate against `latest` by default. Two consequences, both fixed by pinning
