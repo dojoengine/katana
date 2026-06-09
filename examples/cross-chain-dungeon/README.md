@@ -90,7 +90,8 @@ walkthrough: [docs/controller.md](./docs/controller.md).
 | `cairo/game` | appchain dungeon world (`game` namespace) — run, actions, GOLD vault, leaderboard |
 | `cairo/score` | settlement `bank` world (`bank` namespace) — mints GOLD when a withdrawal settles |
 | `cairo/token` | `game_token` (GAME), `gold_token` (GOLD), `token_sale` (USDC→GAME), `entry` (charge + L1→L2) |
-| `scripts/` | `deploy.ts` + `lib.ts` (deploy economy + migrate worlds) |
+| `scripts/` | `deploy.ts` + `lib.ts` (deploy economy + migrate worlds), `declare-controller-class.ts` |
+| `scripts/services/` | one launcher per long-lived service — `appchain.sh`, `saya.sh`, `torii-bank.sh`, `torii-game.sh`, `frontend.sh`. Run any on its own (e.g. `RESET=1 scripts/services/torii-bank.sh` to re-index the bank indexer); `up.sh` does the bootstrap/deploy then delegates to these |
 | `app/` | React + Vite terminal client (`app/src/chain.ts`, `App.tsx`, `wallet.tsx`) |
 | `design/ui-mockup.html` | the standalone terminal-UI design mockup |
 | `up.sh` / `down.sh` | one-command bring-up / teardown |

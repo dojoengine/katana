@@ -22,6 +22,7 @@ REPO_ROOT="$(cd "$DEMO_DIR/../.." && pwd)"
 RUN_DIR="$DEMO_DIR/.run"
 CHAIN_DIR="$RUN_DIR/chain-config"
 APPCHAIN_DB="$RUN_DIR/appchain-db"   # persistent appchain state — survives restarts
+SERVICES="$DEMO_DIR/scripts/services"   # per-service launchers (each runnable standalone)
 mkdir -p "$RUN_DIR"
 
 # Ports — distinct from cross-chain-game (5051/8081/8082/3001) so both can run.
@@ -178,28 +179,14 @@ node -e '
 #    --data-dir persists appchain state to disk so a katana restart keeps the game
 #    world + runs (an in-memory chain would lose them and force a full redeploy).
 echo "→ starting appchain node on :${APPCHAIN_PORT}…"
-"$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 --data-dir "$APPCHAIN_DB" --http.port "$APPCHAIN_PORT" \
-  --http.cors_origins '*' --explorer --messaging.enabled $CONTROLLER_FLAGS \
-  > "$RUN_DIR/appchain.log" 2>&1 &
+"$SERVICES/appchain.sh" > "$RUN_DIR/appchain.log" 2>&1 &
 APPCHAIN_PID=$!
 until curl -s -o /dev/null "http://localhost:$APPCHAIN_PORT/" 2>/dev/null; do sleep 0.5; done
 
 # 5. saya-tee sidecar: proves appchain blocks, submits update_state to piltover
 #    on Sepolia. saya 0.4.0 must be the Poseidon-patched build (see saya-patch).
 echo "→ starting saya-tee --mock-prove sidecar (settling to Sepolia)…"
-rm -rf "$RUN_DIR/saya-db"
-saya-tee tee start --mock-prove \
-  --rollup-rpc "http://localhost:$APPCHAIN_PORT" \
-  --settlement-rpc "$SETTLEMENT_RPC_URL" \
-  --settlement-piltover-address "$PILTOVER" \
-  --tee-registry-address "$TEE_REGISTRY" \
-  --settlement-account-address "$SAYA_ADDRESS" \
-  --settlement-account-private-key "$SAYA_PRIVATE_KEY" \
-  --prover-private-key 0xdeadbeef \
-  --db-dir "$RUN_DIR/saya-db" \
-  --batch-size "${SAYA_BATCH_SIZE:-1}" \
-  --attestor-poll-interval-ms 1000 \
-  > "$RUN_DIR/saya.log" 2>&1 &
+RESET=1 "$SERVICES/saya.sh" > "$RUN_DIR/saya.log" 2>&1 &
 SAYA_PID=$!
 
 # 6. Deploy the economy + worlds (GAME_TOKEN, score, game, TokenSale, Entry, grants).
@@ -216,31 +203,15 @@ if [[ "${CONTROLLER:-}" == "1" ]]; then
   ( cd "$DEMO_DIR" && bun run scripts/declare-controller-class.ts )
 fi
 
-BANK_WORLD=$(node -e 'console.log(require(process.argv[1]).settlement.bankWorld)' "$DEMO_DIR/app/src/deployments.json")
-GAME_WORLD=$(node -e 'console.log(require(process.argv[1]).appchain.gameWorld)' "$DEMO_DIR/app/src/deployments.json")
-
-# 7. Torii indexers. The bank world lives on Sepolia — torii resolves the world's
-#    deploy block from the contract, so it won't rescan all of Sepolia. The game
-#    world is on the local appchain.
+# 7. Torii indexers (bank world on Sepolia, game world on the appchain). RESET=1 wipes
+#    each db for a clean re-index on a full bring-up; restarting either script on its
+#    own resumes from its db (pass RESET=1 to force a re-index after a flaky-RPC gap).
 echo "→ starting torii ($SETTLEMENT_NAME: bank world) on :${TORII_SCORE_HTTP}…"
-rm -rf "$RUN_DIR/torii-score.db" "$RUN_DIR/torii-game.db"
-torii --rpc "$SETTLEMENT_RPC_URL" --world "$BANK_WORLD" \
-  --http.port "$TORII_SCORE_HTTP" --grpc.port "$TORII_SCORE_GRPC" \
-  --relay.port "$TORII_SCORE_RELAY" --relay.webrtc_port $((TORII_SCORE_RELAY+1)) --relay.websocket_port $((TORII_SCORE_RELAY+2)) \
-  --http.cors_origins '*' \
-  --db-dir "$RUN_DIR/torii-score.db" > "$RUN_DIR/torii-score.log" 2>&1 &
+RESET=1 "$SERVICES/torii-bank.sh" > "$RUN_DIR/torii-score.log" 2>&1 &
 TORII_SCORE_PID=$!
 
 echo "→ starting torii (appchain: game world) on :${TORII_GAME_HTTP}…"
-# --indexing.preconfirmed indexes the appchain's pre-confirmed (pending) block, so a
-# play action's model writes show up in Torii immediately instead of waiting for the
-# 5s --block-time tick. Pairs with the client resolving play txns on PRE_CONFIRMED
-# (app/src/chain.ts) so click-to-state stays snappy despite interval mining.
-torii --rpc "http://localhost:$APPCHAIN_PORT" --world "$GAME_WORLD" \
-  --http.port "$TORII_GAME_HTTP" --grpc.port "$TORII_GAME_GRPC" \
-  --relay.port "$TORII_GAME_RELAY" --relay.webrtc_port $((TORII_GAME_RELAY+1)) --relay.websocket_port $((TORII_GAME_RELAY+2)) \
-  --http.cors_origins '*' --indexing.preconfirmed \
-  --db-dir "$RUN_DIR/torii-game.db" > "$RUN_DIR/torii-game.log" 2>&1 &
+RESET=1 "$SERVICES/torii-game.sh" > "$RUN_DIR/torii-game.log" 2>&1 &
 TORII_GAME_PID=$!
 until curl -s -o /dev/null "http://localhost:$TORII_GAME_HTTP/" 2>/dev/null; do sleep 0.5; done
 
@@ -256,5 +227,6 @@ APP_SCHEME=https; [[ "${HTTP:-}" == "1" ]] && APP_SCHEME=http
 echo "    frontend       : $APP_SCHEME://localhost:$FRONTEND_PORT"
 echo ""
 
-# 8. Frontend (foreground; Ctrl-C stops everything).
-( cd "$DEMO_DIR/app" && exec bun run dev )
+# 8. Frontend (foreground; Ctrl-C stops everything via the trap above). Not exec'd, so
+#    up.sh stays alive to run the cleanup trap when the frontend exits.
+"$SERVICES/frontend.sh"
