@@ -1446,11 +1446,13 @@ export default function App() {
                     className="good newgame-start"
                     disabled={l1Busy || !actReady}
                     onClick={() => {
-                      sfx("teleport");
+                      // disconnected → onNewGame just opens the connect modal; save the
+                      // enter-the-dungeon sfx for an actual entry
+                      if (wallet.method !== null) sfx("teleport");
                       void onNewGame();
                     }}
                   >
-                    + New Game
+                    {wallet.method === null ? "Login" : "+ New Game"}
                   </button>
                   {runs.length > 0 && (
                     <div className="lobby-list">
