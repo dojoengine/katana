@@ -4,7 +4,7 @@
 
 The demo signs with a single **Cartridge Controller** — buy / enter / bank on **real
 Sepolia** *and* the dungeon play actions on the **local appchain** — at one address.
-It's the primary login (injected Sepolia wallets are a fallback under "more").
+It's the only login: the Login button prompts the Controller connect directly.
 
 ## How it works
 
@@ -14,7 +14,7 @@ signers — `l1Account` (Sepolia) and `l2Account` (appchain). Each wraps the raw
 switches to `shortString("DUNGEON")`, executes the play action, then switches back to
 Sepolia for the next L1 op. The **player** is the Controller address (same on both
 chains), so a run entered on Sepolia is played and banked by that same Controller.
-Details in [client.md](./client.md#wallets-controller-primary).
+Details in [client.md](./client.md#wallets-controller-only).
 
 ## Setup (hosted keychain)
 
@@ -62,13 +62,15 @@ hit **Dev-mint** (a session policy) once funded, or buy with USDC.
   in `app/.env.local` so the keychain sits on the appchain, Connect → it shows an
   **Upgrade** screen → upgrade → unset the var. (The upgrade gate reads the *current*
   chain, so on Sepolia — already upgraded — it never offers the appchain upgrade.)
+  **Unsetting it matters**: while set, the keychain pins to `http://localhost:5070`,
+  which a hidden iframe can't reach under Chrome's Local Network Access rules — the
+  silent session probe then finds nothing and auto-reconnect on page load stops working.
 - **Per-chain sessions** — the appchain session isn't pre-approved on connect, so the
   first play may show a confirm modal rather than being silent.
 - **HTTPS for WebAuthn** — `./up.sh` serves `https://localhost:3002` via
   `mkcert`; passkey login refuses an untrusted cert.
 
-A login is required to play — the wallet picker offers the Controller (primary) and
-injected Sepolia wallets (Argent X / Braavos) under "more".
+A Controller login is required to play — there is no other wallet option.
 
 ## Self-hosted keychain (fully-local fallback)
 
