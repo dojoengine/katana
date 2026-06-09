@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import * as chain from "./chain.ts";
 import { useWallet } from "./wallet.tsx";
 import { Tutorial } from "./tutorial.tsx";
 import { DoomScene } from "./doom.tsx";
-import { sfx, initSfx } from "./sfx.ts";
+import { sfx, initSfx, isSfxMuted, setSfxMuted, getSfxVolume, setSfxVolume } from "./sfx.ts";
 import { lookupAddresses } from "@cartridge/controller";
 
 // Canonical key for an address — strips zero-padding so Torii's format and
@@ -142,6 +142,81 @@ function Gauge({ settled, tip }: { settled: number; tip: number }) {
       >
         <span className="n">{String(Math.max(settled, 0)).padStart(4, "0")}</span> / <span className="n">{String(tip).padStart(4, "0")}</span>
       </span>
+    </div>
+  );
+}
+
+/** Settings modal — currently just a sound-fx toggle (persisted in localStorage). */
+function SettingsModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const [muted, setMuted] = useState(isSfxMuted());
+  const [vol, setVol] = useState(getSfxVolume());
+  const toggleSound = () => {
+    const next = !muted;
+    setSfxMuted(next);
+    setMuted(next);
+    if (!next) sfx("switch"); // little confirmation blip when turning sound back on
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-h">
+          <span>⚙ settings</span>
+          <button className="modal-x" onClick={onClose} aria-label="close">
+            ✕
+          </button>
+        </div>
+        <div className="settings">
+          <div className="settings-row">
+            <div>
+              <div className="settings-label">Sound effects</div>
+              <div className="settings-sub">action + callout audio</div>
+            </div>
+            <button
+              className={`toggle ${muted ? "" : "on"}`}
+              onClick={toggleSound}
+              role="switch"
+              aria-checked={!muted}
+            >
+              {muted ? "Off" : "On"}
+            </button>
+          </div>
+          <div className="settings-row">
+            <div>
+              <div className="settings-label">Volume</div>
+              <div className="settings-sub">sound fx level</div>
+            </div>
+            <div className="vol-control">
+              <input
+                type="range"
+                className="vol-slider"
+                style={{ "--pct": `${Math.round(vol * 100)}%` } as CSSProperties}
+                min={0}
+                max={1}
+                step={0.05}
+                value={vol}
+                disabled={muted}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  setSfxVolume(v);
+                  setVol(v);
+                }}
+                onPointerUp={() => {
+                  if (!muted) sfx("switch"); // preview at the new level on release
+                }}
+                aria-label="sound fx volume"
+              />
+              <span className="vol-pct">{Math.round(vol * 100)}%</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -722,6 +797,7 @@ export default function App() {
   // button reopens it after dismissal.
   const [tutorial, setTutorial] = useState(true);
   const closeTutorial = () => setTutorial(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Outcome screen only shows for a run that ends *this session*: baseline the last
   // RunEnded seen at load, then show the veil only when a newer one appears. A reload
   // re-baselines, so a prior run's outcome doesn't reappear.
@@ -1118,6 +1194,10 @@ export default function App() {
             <span className="spacer" />
             <button className="tut-launch" onClick={() => setTutorial(true)} title="how the appchain works">
               tutorial
+            </button>
+            <span>·</span>
+            <button className="tut-launch settings-btn" onClick={() => setSettingsOpen(true)} title="settings" aria-label="settings">
+              ⚙
             </button>
           </div>
 
@@ -1639,6 +1719,7 @@ export default function App() {
       )}
       {selected && <OutcomeModal outcome={selected} onClose={() => setSelected(null)} />}
       {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} />}
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {wdDetail && (
         <WithdrawalModal w={wdDetail} player={player} settled={settled} tip={tip} onClose={() => setWdDetail(null)} />
       )}

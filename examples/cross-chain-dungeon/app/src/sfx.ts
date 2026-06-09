@@ -19,6 +19,45 @@ const VOL: Record<string, number> = {
 let ctx: AudioContext | null = null;
 const buffers: Record<string, AudioBuffer> = {};
 
+// Mute preference, persisted across reloads. When muted, sfx() is a no-op.
+let muted = false;
+try {
+  muted = localStorage.getItem("sfx-muted") === "1";
+} catch {
+  /* localStorage unavailable */
+}
+export function isSfxMuted(): boolean {
+  return muted;
+}
+export function setSfxMuted(v: boolean): void {
+  muted = v;
+  try {
+    localStorage.setItem("sfx-muted", v ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+// Master volume (0..1), persisted. Multiplies the per-clip levels.
+let volume = 1;
+try {
+  const v = parseFloat(localStorage.getItem("sfx-volume") ?? "");
+  if (!Number.isNaN(v)) volume = Math.min(1, Math.max(0, v));
+} catch {
+  /* localStorage unavailable */
+}
+export function getSfxVolume(): number {
+  return volume;
+}
+export function setSfxVolume(v: number): void {
+  volume = Math.min(1, Math.max(0, v));
+  try {
+    localStorage.setItem("sfx-volume", String(volume));
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Create the audio context and preload every clip. Safe to call repeatedly. */
 export function initSfx() {
   if (ctx) return;
@@ -39,14 +78,14 @@ export function initSfx() {
 
 /** Play a preloaded clip. No-op if not loaded yet; resumes the context on demand. */
 export function sfx(name: string, vol = 1) {
-  if (!ctx) return;
+  if (!ctx || muted) return;
   if (ctx.state === "suspended") void ctx.resume();
   const buf = buffers[name];
   if (!buf) return;
   const src = ctx.createBufferSource();
   src.buffer = buf;
   const gain = ctx.createGain();
-  gain.gain.value = (VOL[name] ?? 0.6) * vol;
+  gain.gain.value = (VOL[name] ?? 0.6) * vol * volume;
   src.connect(gain).connect(ctx.destination);
   src.start();
 }

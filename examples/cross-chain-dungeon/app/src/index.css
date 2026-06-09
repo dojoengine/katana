@@ -512,6 +512,32 @@ button.ghost { flex: none; width: auto; color: var(--dim); border-color: var(--b
 .kv-row { display: flex; gap: 12px; padding: 4px 0; border-bottom: 1px dotted var(--ghost); }
 .kv-row dt { color: var(--dim); width: 110px; flex: none; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
 .kv-row dd { margin: 0; color: var(--ink); flex: 1; }
+/* settings modal */
+.modal-sm { width: min(420px, 94vw); }
+.settings { padding: 6px 12px 12px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.settings-label { color: var(--ink); font-size: 13px; }
+.settings-sub { color: var(--dim); font-size: 11px; margin-top: 2px; }
+.toggle { all: unset; display: inline-block; cursor: pointer; min-width: 52px; text-align: center; padding: 6px 12px; border: 1px solid var(--border-hi); color: var(--dim); text-transform: uppercase; letter-spacing: 1px; font-size: 11px; }
+.toggle:hover { border-color: var(--amber); color: var(--amber); }
+.toggle.on { border-color: rgba(115,230,160,.5); color: var(--green); background: rgba(115,230,160,.08); }
+.vol-control { display: flex; align-items: center; gap: 10px; }
+/* Themed range slider: square dark track with an amber fill (driven by the --pct
+   inline var) and a small amber-glow thumb — matching the terminal/Doom aesthetic. */
+.vol-slider { -webkit-appearance: none; appearance: none; width: 120px; height: 16px; background: transparent; cursor: pointer; margin: 0; }
+.vol-slider::-webkit-slider-runnable-track {
+  height: 6px; border: 1px solid var(--border-hi);
+  background: linear-gradient(to right, var(--amber) var(--pct, 100%), rgba(0,0,0,.45) var(--pct, 100%));
+}
+.vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 7px; height: 14px; margin-top: -5px;
+  background: var(--amber-hi); border: 1px solid var(--bg); box-shadow: var(--glow);
+}
+.vol-slider::-moz-range-track { height: 6px; border: 1px solid var(--border-hi); background: rgba(0,0,0,.45); }
+.vol-slider::-moz-range-progress { height: 6px; background: var(--amber); }
+.vol-slider::-moz-range-thumb { width: 7px; height: 14px; border: 1px solid var(--bg); border-radius: 0; background: var(--amber-hi); box-shadow: var(--glow); }
+.vol-slider:disabled { cursor: not-allowed; opacity: .35; }
+.vol-pct { color: var(--dim); font-size: 11px; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
 /* tx hash on a single line (modal is sized to fit the full 0x… hash) */
 .kv-row dd.mono-wrap { white-space: nowrap; font-size: 12px; }
 
@@ -591,6 +617,7 @@ tr.you { background: rgba(255,180,84,.05); }
 /* titlebar launcher */
 .tut-launch { all: unset; cursor: pointer; color: var(--amber); }
 .tut-launch:hover { color: var(--amber-hi); text-shadow: var(--glow); }
+.settings-btn { font-size: 1.3em; padding: 0 6px; line-height: 1; }
 
 /* account chip = the login button (disconnected) / open-profile button (connected) */
 .acct-chip { background: none; font: inherit; cursor: pointer; }
