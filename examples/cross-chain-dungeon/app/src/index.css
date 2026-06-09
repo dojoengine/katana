@@ -538,6 +538,11 @@ button.ghost { flex: none; width: auto; color: var(--dim); border-color: var(--b
 .vol-slider::-moz-range-thumb { width: 7px; height: 14px; border: 1px solid var(--bg); border-radius: 0; background: var(--amber-hi); box-shadow: var(--glow); }
 .vol-slider:disabled { cursor: not-allowed; opacity: .35; }
 .vol-pct { color: var(--dim); font-size: 11px; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+/* networks section: title on top, chips stacked full-width below, separated from the
+   sound settings above by a dashed rule */
+.settings-col { flex-direction: column; align-items: stretch; gap: 9px; border-top: 1px dashed var(--border); margin-top: 8px; padding-top: 14px; }
+.settings-chips { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }
+.settings-chips .chip { justify-content: flex-start; padding: 6px 10px; }
 /* tx hash on a single line (modal is sized to fit the full 0x… hash) */
 .kv-row dd.mono-wrap { white-space: nowrap; font-size: 12px; }
 

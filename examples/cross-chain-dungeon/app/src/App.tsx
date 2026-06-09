@@ -156,6 +156,9 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
   const [muted, setMuted] = useState(isSfxMuted());
   const [vol, setVol] = useState(getSfxVolume());
+  // Throttle the while-sliding preview blip so dragging tracks the level audibly
+  // without machine-gunning a blip per tick.
+  const lastBlip = useRef(0);
   const toggleSound = () => {
     const next = !muted;
     setSfxMuted(next);
@@ -206,13 +209,32 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                   const v = parseFloat(e.target.value);
                   setSfxVolume(v);
                   setVol(v);
+                  // preview while sliding, throttled to one blip per ~120ms
+                  const now = performance.now();
+                  if (!muted && now - lastBlip.current > 120) {
+                    lastBlip.current = now;
+                    sfx("switch");
+                  }
                 }}
                 onPointerUp={() => {
-                  if (!muted) sfx("switch"); // preview at the new level on release
+                  if (!muted) sfx("switch"); // settle blip at the final level
                 }}
                 aria-label="sound fx volume"
               />
               <span className="vol-pct">{Math.round(vol * 100)}%</span>
+            </div>
+          </div>
+          <div className="settings-row settings-col">
+            <div className="settings-label">Networks</div>
+            <div className="settings-chips">
+              <span className="chip on">
+                <span className="led" />
+                {chain.SETTLEMENT_NETWORK.toUpperCase()} · settlement
+              </span>
+              <span className="chip on">
+                <span className="led" />
+                DUNGEON · appchain
+              </span>
             </div>
           </div>
         </div>
@@ -1209,14 +1231,6 @@ export default function App() {
               <div className="subtitle">push-your-luck roguelite</div>
             </div>
             <div className="chips">
-              <span className="chip on">
-                <span className="led" />
-                {chain.SETTLEMENT_NETWORK.toUpperCase()} · settlement
-              </span>
-              <span className="chip on">
-                <span className="led" />
-                DUNGEON · appchain
-              </span>
               <button
                 className={`chip ${wallet.method !== null ? "on" : ""} acct-chip`}
                 onClick={() => setWalletOpen(true)}
