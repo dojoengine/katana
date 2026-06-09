@@ -538,6 +538,15 @@ button.ghost { flex: none; width: auto; color: var(--dim); border-color: var(--b
 .vol-slider::-moz-range-thumb { width: 7px; height: 14px; border: 1px solid var(--bg); border-radius: 0; background: var(--amber-hi); box-shadow: var(--glow); }
 .vol-slider:disabled { cursor: not-allowed; opacity: .35; }
 .vol-pct { color: var(--dim); font-size: 11px; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+/* generic error toast (bottom-right) — click the message for the full error modal */
+.err-toast { position: fixed; right: 16px; bottom: 16px; z-index: 9000; display: flex; align-items: stretch; border: 1px solid rgba(255,107,94,.5); background: rgba(20,4,3,.94); box-shadow: 0 8px 30px rgba(0,0,0,.55); animation: errin .18s ease-out; }
+@keyframes errin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.err-toast-msg { all: unset; cursor: pointer; padding: 10px 13px; color: var(--red); font-size: 12px; letter-spacing: .5px; }
+.err-toast-msg:hover { color: #ffb0a8; text-shadow: 0 0 12px rgba(255,107,94,.5); }
+.err-toast-x { all: unset; cursor: pointer; display: flex; align-items: center; padding: 0 11px; color: var(--dim); border-left: 1px solid rgba(255,107,94,.3); font-size: 11px; }
+.err-toast-x:hover { color: var(--red); }
+.err-detail { margin: 0; padding: 12px; max-height: 50vh; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #ffb0a8; font-size: 12px; line-height: 1.5; }
+
 /* networks section: title on top, chips stacked full-width below, separated from the
    sound settings above by a dashed rule */
 .settings-col { flex-direction: column; align-items: stretch; gap: 9px; border-top: 1px dashed var(--border); margin-top: 8px; padding-top: 14px; }

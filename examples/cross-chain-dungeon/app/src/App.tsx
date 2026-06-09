@@ -243,6 +243,29 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Full error details behind the generic error toast. */
+function ErrorModal({ message, onClose }: { message: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-h">
+          <span>⚠ error details</span>
+          <button className="modal-x" onClick={onClose} aria-label="close">
+            ✕
+          </button>
+        </div>
+        <pre className="err-detail">{message}</pre>
+      </div>
+    </div>
+  );
+}
+
 /** Detail modal for a clicked run-outcome entry, with a link to its appchain tx. */
 function OutcomeModal({ outcome, onClose }: { outcome: chain.OutcomeRow; onClose: () => void }) {
   useEffect(() => {
@@ -832,6 +855,7 @@ export default function App() {
   const [busyL1, setBusyL1] = useState<string | null>(null);
   const [busyL2, setBusyL2] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [errOpen, setErrOpen] = useState(false); // full-error modal behind the toast
   const inFlight = useRef(false);
 
   // Message log scroll-follow: newest renders at the bottom, so "caught up" means
@@ -1689,10 +1713,17 @@ export default function App() {
           </main>
           )}
 
+          {/* RPC/action failures: never surface the raw error — a generic toast,
+              clickable for the full message in a modal. */}
           {err && (
-            <footer className="statusline">
-              <span style={{ color: "var(--red)" }}>{chain.shortHex(err, 48, 0)}</span>
-            </footer>
+            <div className="err-toast" role="alert">
+              <button className="err-toast-msg" onClick={() => setErrOpen(true)} title="show error details">
+                ⚠ something unexpected happened
+              </button>
+              <button className="err-toast-x" onClick={() => setErr(null)} aria-label="dismiss">
+                ✕
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -1736,6 +1767,7 @@ export default function App() {
       {selected && <OutcomeModal outcome={selected} onClose={() => setSelected(null)} />}
       {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {errOpen && err && <ErrorModal message={err} onClose={() => setErrOpen(false)} />}
       {wdDetail && (
         <WithdrawalModal w={wdDetail} player={player} settled={settled} tip={tip} onClose={() => setWdDetail(null)} />
       )}
