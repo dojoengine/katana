@@ -117,6 +117,14 @@ jobs:
               if: steps.cache.outputs.cache-hit != 'true'
               run: make
 
+            # Build the Explorer UI so jobs that compile katana-explorer get a
+            # prebuilt ui/dist from the fixtures artifact instead of relying on
+            # the crate's build script to produce it mid-compile. Runs
+            # unconditionally because the fixtures cache does not cover ui/dist
+            # (no-op when `make` above already built it).
+            - name: Build Explorer UI
+              run: make build-explorer
+
             - name: Upload test artifacts
               uses: actions/upload-artifact@v4
               with:
@@ -126,6 +134,7 @@ jobs:
                   if-no-files-found: error
                   path: |
                       crates/contracts/build
+                      crates/explorer/ui/dist
                       tests/vrf/build
                       tests/snos/snos/build
                       tests/fixtures/db/spawn_and_move
