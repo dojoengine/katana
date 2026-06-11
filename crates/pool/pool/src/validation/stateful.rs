@@ -126,6 +126,16 @@ impl Validator for TxValidator {
             let tx_nonce = tx.nonce();
             let address = tx.sender();
 
+            // L1-handler txns carry the L1->L2 message nonce (assigned by the
+            // settlement core / piltover), NOT a sequential account nonce. They must
+            // bypass account-nonce ordering: a message whose nonce is ahead of the
+            // target contract's account nonce would otherwise be tagged `Dependent`
+            // and dropped from the pool forever, so the handler never executes. This
+            // mirrors the L1Handler exemption in `validate` below.
+            if let ExecutableTx::L1Handler(_) = tx.transaction {
+                return Ok(ValidationOutcome::Valid(tx));
+            }
+
             // For declare transactions, perform a static check if there's already an existing class
             // with the same hash.
             if let ExecutableTx::Declare(ref declare_tx) = tx.transaction {
@@ -343,5 +353,69 @@ fn map_pre_validation_err(
             let tx_nonce = incoming_tx_nonce.0;
             Ok(InvalidTransactionError::InvalidNonce { address, current_nonce, tx_nonce })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use katana_chain_spec::ChainSpec;
+    use katana_executor::blockifier::cache::ClassCache;
+    use katana_executor::ExecutionFlags;
+    use katana_pool_api::validation::{ValidationOutcome, Validator};
+    use katana_primitives::chain::ChainId;
+    use katana_primitives::env::BlockEnv;
+    use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, L1HandlerTx};
+    use katana_primitives::{address, Felt, B256};
+    use katana_provider::api::state::StateFactoryProvider;
+    use katana_provider::test_utils::test_provider;
+    use katana_provider::ProviderFactory;
+    use parking_lot::Mutex;
+    use starknet::macros::selector;
+
+    use super::TxValidator;
+
+    fn validator() -> TxValidator {
+        let provider = test_provider().provider();
+        let state = provider.latest().unwrap();
+        TxValidator::new(
+            state,
+            ExecutionFlags::new(),
+            None,
+            BlockEnv::default(),
+            Arc::new(Mutex::new(())),
+            Arc::new(ChainSpec::dev()),
+            ClassCache::new().unwrap(),
+        )
+    }
+
+    // Regression: an L1-handler tx carries the L1->L2 message nonce assigned by the
+    // settlement core, NOT a sequential account nonce. The pool must not subject it to
+    // account-nonce ordering. Before the fix, a message whose nonce was ahead of the
+    // target contract account nonce (the normal case) was tagged `Dependent` and
+    // dropped from the pool forever, so `mint_run`-style l1_handlers never executed.
+    #[tokio::test]
+    async fn l1_handler_with_nonce_gap_is_valid() {
+        let validator = validator();
+
+        // Message nonce 12, but the target contract account nonce is 0 (empty state).
+        let tx = ExecutableTxWithHash::new(ExecutableTx::L1Handler(L1HandlerTx {
+            nonce: Felt::from(12_u64),
+            chain_id: ChainId::default(),
+            paid_fee_on_l1: 0,
+            version: Felt::ZERO,
+            message_hash: B256::ZERO,
+            calldata: vec![Felt::ZERO, Felt::ONE],
+            contract_address: address!("0x1337"),
+            entry_point_selector: selector!("mint_run"),
+        }));
+
+        let outcome = validator.validate(tx).await.expect("validation should not error");
+        let is_valid = matches!(outcome, ValidationOutcome::Valid(_));
+        assert!(
+            is_valid,
+            "L1Handler must bypass account-nonce ordering (was tagged Dependent before the fix)"
+        );
     }
 }
