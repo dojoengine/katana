@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780690668582,
+  "lastUpdate": 1781155319242,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -31547,6 +31547,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 243,
             "range": "± 17",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3bc9937383049a8c71a8fe049acd930b1eba917c",
+          "message": "Enable tee-snp and tee-mock TEE features in release builds (#590)\n\n## Problem\n\nThe published portable linux_amd64 release binary\n(`katana_v1.8.0-rc.1_linux_amd64.tar.gz`) rejects `--tee sev-snp` at\nstartup:\n\n```\nerror: failed to build node\n    SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled\n```\n\nThis was caught by katana-tee-vm's CI boot test, which embeds the katana\nrelease binary in an AMD SEV-SNP confidential VM: see\ndojoengine/katana-tee-vm#9 and specifically [this\ncomment](https://github.com/dojoengine/katana-tee-vm/pull/9#issuecomment-4676804486).\n\nThe same build also drops the mock TEE provider: `--tee mock` fails with\n`Mock TEE provider requires the 'tee-mock' feature`.\n\n## Root cause\n\nThe portable `katana_<version>_linux_amd64.tar.gz` asset is produced by\nthe **reproducible build** pipeline, not the regular release matrix:\n\n`release.yml` (`release-reproducible-linux-amd64` job) →\n`scripts/build-reproducible-katana.sh` → `reproducible.Dockerfile` →\n`scripts/build-gnu.sh`\n\n`build-gnu.sh` builds with `--no-default-features --features\n\"client,init-slot,jemalloc\"`, which drops `tee-snp` even though it is in\nthe `katana` crate's default features (`katana-cli/tee-snp` →\n`katana-sequencer-node/tee-snp` + `katana-tee/snp` → `sev` / `sev-snp`\nattestation SDK). The runtime bail above is the `#[cfg(not(feature =\n\"tee-snp\"))]` branch in `crates/node/sequencer/src/lib.rs`.\n\n`tee-mock` (`katana/tee-mock` → `katana-cli/tee-mock` →\n`katana-sequencer-node/tee-mock` + `katana-tee/mock`) is not in default\nfeatures at all, so it is absent from every release leg unless listed\nexplicitly.\n\nVerified empirically on the v1.8.0-rc.1 assets: the portable binary\ncontains the cfg-gated \"requires the 'tee-snp' feature\" bail string\n(i.e. compiled **without** the feature), while the `_native` binary\ninstead contains the `SevSnpProvider` init path (compiled **with** it).\n\n## Fix\n\nAdd `tee-snp` and `tee-mock` to the explicit feature list in\n`scripts/build-gnu.sh`:\n\n- **`tee-snp`** — required so the released binary supports `--tee\nsev-snp` (used by katana-tee-vm to run Katana inside an AMD SEV-SNP\nconfidential VM). This was the only build leg missing it.\n- **`tee-mock`** — enables `--tee mock`, letting operators and\nintegration tests exercise the TEE RPC surface (attestation quote\nendpoints, fork-block binding, etc.) on machines without SNP hardware.\nThe mock provider has no extra native dependencies (`katana-tee`'s\n`mock` feature is an empty feature list, purely a cfg gate).\n\n| Release leg | tee-snp before | After |\n|---|---|---|\n| linux_amd64 (portable, reproducible build) | ❌ | ✅ (this PR, +\ntee-mock) |\n| linux_amd64_native | ✅ (default features) | unchanged |\n| linux_arm64 / linux_arm64_native | ✅ (default features) | unchanged |\n| darwin_arm64 (both) | ✅ (default features) | unchanged |\n| win32_amd64 | ❌ (intentionally dropped — openssl-src perl issue, and\nSEV-SNP is Linux-only AMD tech) | unchanged |\n\nNo arch concerns: the v1.8.0-rc.1 linux_arm64 binaries already built\nsuccessfully with `tee-snp` via default features, and `crates/tee` has\nno `target_arch` gates — so nothing needed changing for arm64.\n\n## tee-mock is now a default feature of the `katana` bin crate\n\nThe change to `build-gnu.sh` only covers the portable reproducible\nlinux_amd64 asset. The other release matrix legs (`linux_amd64_native`,\n`linux_arm64`/`_native`, `darwin_arm64`/`_native`) build with the bin\ncrate's **default** features, so they would still ship without the mock\nprovider. This PR therefore also adds `tee-mock` to `default` in\n`bin/katana/Cargo.toml`:\n\n```toml\ndefault = [\n\t\"client\",\n\t\"init-custom-settlement-chain\",\n\t\"init-slot\",\n\t\"jemalloc\",\n\t\"katana-cli/explorer\",\n\t\"katana-cli/tee-snp\",\n\t\"tee-mock\",\n]\n```\n\nWith this, **every** release asset built with default features gets\n`--tee mock` support for exercising the TEE RPC surface without SNP\nhardware. This is safe to default everywhere because `tee-mock` is\ndependency-free end to end: `katana-tee`'s `mock` feature is an empty\nfeature list (a pure `cfg` gate), so it pulls in zero new crates —\n`Cargo.lock` is unchanged by this commit.\n\n**Windows leg:** unaffected. The `win32` build in `release.yml` uses\n`--no-default-features` with an explicit feature list\n(`client,init-custom-settlement-chain,init-slot,jemalloc,katana-cli/explorer`)\nspecifically to drop `tee-snp` (its `sev-snp` → vendored-openssl chain\nfails on the runner's perl). Since Windows doesn't inherit defaults at\nall, adding `tee-mock` to defaults can't break that leg; and even if it\nwere added to the explicit Windows list later, it would be harmless\nsince it carries no dependencies.\n\n## Validation\n\n- `cargo tree -p katana --no-default-features --features\n\"client,init-slot,jemalloc,tee-snp,tee-mock\" --target\nx86_64-unknown-linux-gnu -e features` confirms the full chains resolve:\n`katana-tee feature \"snp\"` (with `sev-snp v0.3.0`) and `katana-tee\nfeature \"mock\"` via `katana-sequencer-node feature \"tee-mock\"` both\nenter the graph.\n- `cargo tree --locked -p katana -e features -i katana-tee` (default\nfeatures) now shows `katana-tee feature \"mock\"` activated; before the\nCargo.toml change it was absent. `cargo metadata --locked` passes and\n`Cargo.lock` is untouched.\n- Full build is validated by CI / the release workflow (the change is to\na release build script; cross-compiling the C deps locally on macOS\nisn't practical). Note the reproducible pipeline's two-pass\nbyte-for-byte comparison will also verify that the added `sev-snp` →\nvendored-openssl dependency chain stays deterministic. `tee-mock` adds\nno new dependencies.\n\n## Follow-up\n\nAfter merging, a new release (v1.8.0-rc.2 or a re-release) is needed so\nthe published portable linux_amd64 asset includes the features and\nkatana-tee-vm can re-tag against it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-06-10T23:49:04-05:00",
+          "tree_id": "3325061247f9774bc0d173c6758f5eff26596f13",
+          "url": "https://github.com/dojoengine/katana/commit/3bc9937383049a8c71a8fe049acd930b1eba917c"
+        },
+        "date": 1781155317945,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2588500,
+            "range": "± 8734",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2967985,
+            "range": "± 13203",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 36,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 27,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 36,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 26,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 658,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 895,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 83,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 40,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 164,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 158,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 161,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 262,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 212,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 310,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 170,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 347,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 142,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 108,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 94,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 66,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 94,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 64,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 94,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 66,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 94,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 66,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 94,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 66,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 50,
+            "range": "± 15",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 26,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 50,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 26,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 12,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 14743,
+            "range": "± 44",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3645,
+            "range": "± 96",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 361,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 833,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 166,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 159,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1578,
+            "range": "± 132",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2343,
+            "range": "± 383",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 679,
+            "range": "± 151",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 951,
+            "range": "± 155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 27323,
+            "range": "± 378",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6699,
+            "range": "± 284",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 163,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 237,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 296,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 283,
+            "range": "± 11",
             "unit": "ns/iter"
           }
         ]
