@@ -20,5 +20,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 futures-util.workspace = true
+katana-provider = { workspace = true, features = [ "test-utils" ] }
 rand.workspace = true
 starknet.workspace = true
