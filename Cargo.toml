@@ -3,7 +3,6 @@ resolver = "2"
 
 members = [
 	"bin/katana",
-	"bin/saya",
 	"bin/saya-tee",
 	"crates/bootstrap",
 	"crates/cartridge",
@@ -62,28 +61,10 @@ members = [
 	# "tests/snos",
 ]
 
-# # All three saya binaries stay as nested workspaces — each has transitive deps
-# # that conflict with katana's pinned versions. Build each via:
-# #
-# #   cargo build --manifest-path bin/<name>/Cargo.toml
-# #
-# # - bin/saya-tee: cartridge-gg/katana-tee@56aa752 strict-pins
-# #   alloy-primitives = "=1.3.1" and the verifier's `sol!` macro relies on
-# #   alloy-sol-types 1.3.x (vs the 1.5.x pulled in by risc0-ethereum-contracts).
-# #
-# # - bin/saya: SNOS pulls karnotxyz/sequencer's starknet_os, which links the
-# #   native `ckzg` library. Katana's alloy-consensus also links `ckzg`, and
-# #   Cargo only allows one package to link a given native lib in a workspace.
-# #
-# # - bin/saya-ops: depends on a saya-era cairo-lang-starknet-classes API
-# #   (`extract_sierra_program(false)`, four-arg `from_contract_class`). Adapting
-# #   ~26 source call sites to katana's version is deferred to a follow-up.
-# #
-# # Saya libraries (crates/saya/{core,tracing}) and tests/saya-e2e DO join the
-# # unified workspace — they don't pull the conflicting transitive deps.
-# exclude = [
-# 	"bin/saya",
-# ]
+# NOTE: bin/saya (the SNOS/validity prover binary) was removed from the
+# workspace: its generate-pie -> karnotxyz starknet_os chain hard-requires
+# c-kzg 1.x, which collides with alloy's optional c-kzg 2.x on the native
+# `links = "ckzg"` slot. Only the TEE prover (bin/saya-tee) is kept.
 
 [workspace.package]
 edition = "2021"
@@ -297,9 +278,7 @@ piltover = { path = "crates/contracts/contracts/piltover/piltover" }
 paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main
 paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main
 
-# saya — only deps needed by saya-core / saya-tracing / tests/saya-e2e (the
-# saya bins are excluded from the workspace and carry their own pins in
-# bin/saya{,-tee,-ops}/Cargo.toml).
+# saya — deps needed by saya-core / bin/saya-tee / tests/saya-e2e.
 celestia-rpc = { version = "0.16.2", default-features = false }
 celestia-types = { version = "0.20.0", default-features = false }
 ciborium = { version = "0.2.2", default-features = false }
