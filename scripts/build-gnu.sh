@@ -129,13 +129,17 @@ echo "  OFFLINE_FLAG: ${OFFLINE_FLAG:-<none>}"
 # `--tee sev-snp` (used by katana-tee-vm to run Katana inside an AMD SEV-SNP
 # confidential VM). Without it the binary fails at startup with:
 #   "SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled"
+#
+# `tee-mock` enables `--tee mock`, letting operators and tests exercise the
+# TEE RPC surface without SNP hardware. Without it the binary fails with:
+#   "Mock TEE provider requires the 'tee-mock' feature"
 cargo build \
     $OFFLINE_FLAG \
     --locked \
     --target x86_64-unknown-linux-gnu \
     --profile performance \
     --no-default-features \
-    --features "client,init-slot,jemalloc,tee-snp" \
+    --features "client,init-slot,jemalloc,tee-snp,tee-mock" \
     --bin katana
 
 BINARY_PATH="$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/performance/katana"
