@@ -23,7 +23,6 @@ SIMPLE_DB := $(DB_FIXTURES_DIR)/simple
 CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
-AMDSEV_DIR := misc/AMDSEV
 
 VRF_DIR := $(CONTRACTS_DIR)/vrf
 AVNU_DIR := $(CONTRACTS_DIR)/avnu/contracts
@@ -57,7 +56,7 @@ SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZ
 
 .DEFAULT_GOAL := all
 .SILENT: clean
-.PHONY: all usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts tee-sev-snp clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
+.PHONY: all usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
 
 all: fixtures build-explorer
 	@echo "All build artifacts generated successfully."
@@ -68,7 +67,6 @@ usage help:
 	@echo "    snos-deps:                 Install SNOS test dependencies (pyenv, Python 3.9.15)."
 	@echo "    build-explorer:            Build the explorer."
 	@echo "    contracts:                 Build the contracts."
-	@echo "    tee-sev-snp:               Build AMD SEV-SNP TEE VM components (prompts y/N to build glibc katana unless KATANA_BINARY is set)."
 	@echo "    fixtures:            	  Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
@@ -139,20 +137,6 @@ contracts: install-scarb
 	@cd $(VRF_TEST_DIR) && ASDF_SCARB_VERSION=$(VRF_TEST_BUILD_SCARB_VERSION) asdf exec scarb build || { echo "Test VRF contracts build failed!"; exit 1; }
 	@mkdir -p tests/vrf/build
 	@find $(VRF_TEST_DIR)/target/dev -maxdepth 1 -type f -exec cp {} tests/vrf/build \;
-
-tee-sev-snp:
-	@echo "Building AMD SEV-SNP TEE VM components..."
-	@if [ -n "$(KATANA_BINARY)" ]; then \
-		echo "Using katana binary: $(KATANA_BINARY)"; \
-		$(AMDSEV_DIR)/build.sh --katana "$(KATANA_BINARY)"; \
-	elif [ ! -t 0 ]; then \
-		echo "Error: non-interactive run requires KATANA_BINARY."; \
-		echo "Example: make tee-sev-snp KATANA_BINARY=/path/to/katana"; \
-		exit 1; \
-	else \
-		$(AMDSEV_DIR)/build.sh; \
-	fi
-
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."

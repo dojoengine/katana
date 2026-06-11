@@ -70,12 +70,12 @@ export SEPOLIA_PROVER_PRIVATE_KEY=0x…
 
 - An AMD EPYC host with SEV-SNP enabled in BIOS and a host kernel built with
   SEV-SNP support. See [`docs/amdsev.md`](./amdsev.md) for the architecture
-  and [`misc/AMDSEV/README.md`](../misc/AMDSEV/README.md) for hardware
+  and the [dojoengine/katana-tee-vm](https://github.com/dojoengine/katana-tee-vm) README for hardware
   bring-up.
 - QEMU 10.2.0 (older versions lack required SEV-SNP features) — build via
-  `misc/AMDSEV/build-qemu.sh`.
+  `scripts/build-qemu.sh` in [katana-tee-vm](https://github.com/dojoengine/katana-tee-vm).
 - The full TEE boot artifact set (OVMF, vmlinuz, initrd, katana binary)
-  produced by `misc/AMDSEV/build.sh`.
+  produced by [katana-tee-vm](https://github.com/dojoengine/katana-tee-vm)'s `build.sh`.
 
 [saya]: https://github.com/cartridge-gg/saya
 
@@ -196,24 +196,29 @@ covers only the orchestration around it.
 
 ### 1. Build the TEE VM artifacts
 
-On the SEV-SNP host:
+On the SEV-SNP host, the build scripts live in the dedicated
+[dojoengine/katana-tee-vm](https://github.com/dojoengine/katana-tee-vm) repository:
 
 ```bash
-./misc/AMDSEV/build.sh
+git clone https://github.com/dojoengine/katana-tee-vm
+cd katana-tee-vm
+./build.sh --katana /path/to/katana
 ```
 
 Outputs `OVMF.fd`, `vmlinuz`, `initrd.img`, `katana`, and `build-info.txt` to
-`misc/AMDSEV/output/qemu/`. The build is reproducible — set
+`output/qemu/`. The build is reproducible — set
 `SOURCE_DATE_EPOCH` explicitly to get byte-identical artifacts across
 machines, which is what makes the launch measurement verifiable by third
-parties. See `misc/AMDSEV/build-config` for the pinned package versions and
+parties. See katana-tee-vm's `build-config` for the pinned package versions and
 SHA256s.
 
 For mainnet, use the reproducible Docker-pinned variant:
 
 ```bash
+# In the katana repo:
 ./scripts/build-reproducible-katana.sh
-./misc/AMDSEV/build.sh --katana ./target/x86_64-unknown-linux-gnu/performance/katana
+# Then in the katana-tee-vm checkout:
+./build.sh --katana <katana-repo>/target/x86_64-unknown-linux-gnu/performance/katana
 ```
 
 This is the variant `release.yml` produces.
@@ -241,11 +246,12 @@ saya-ops core-contract \
     declare-and-deploy-tee-registry \
     --salt 0x…
 
-# Compute the launch measurement for the artifacts you just built.
-./target/debug/snp-digest \
-    --ovmf   misc/AMDSEV/output/qemu/OVMF.fd \
-    --kernel misc/AMDSEV/output/qemu/vmlinuz \
-    --initrd misc/AMDSEV/output/qemu/initrd.img \
+# Compute the launch measurement for the artifacts you just built
+# (snp-digest is built from the snp-tools crate in katana-tee-vm).
+snp-digest \
+    --ovmf   output/qemu/OVMF.fd \
+    --kernel output/qemu/vmlinuz \
+    --initrd output/qemu/initrd.img \
     --append "console=ttyS0" \
     --vcpus 1 --cpu epyc-v4 --vmm qemu --guest-features 0x1
 
@@ -271,7 +277,8 @@ virtio-serial control channel together and invokes QEMU with the correct
 `-object sev-snp-guest,…,kernel-hashes=on` flags.
 
 ```bash
-sudo ./misc/AMDSEV/start-vm.sh \
+# From the katana-tee-vm checkout:
+sudo ./start-vm.sh \
     --katana-args "--chain,/mnt/data/chain-config,--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--http.cors-origins,*"
 ```
 

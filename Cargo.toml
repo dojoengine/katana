@@ -50,7 +50,6 @@ members = [
 	"crates/tracing",
 	"crates/trie",
 	"crates/utils",
-	"misc/AMDSEV/snp-tools",
 	"tests/db-compat",
 	"tests/reverse-proxy",
 	"tests/saya-tee",
