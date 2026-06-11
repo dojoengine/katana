@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use jsonrpsee::MethodResponse;
 use katana_pool::api::TransactionPool;
 use katana_primitives::felt;
-use katana_rpc_types::FeeEstimate;
+use katana_rpc_types::{FeeEstimate, SimulatedTransactionsResponse};
 use katana_utils::arbitrary;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -347,6 +347,181 @@ async fn passthrough_malformed_estimate_fee() {
     assert_eq!(calls_count, 0);
 }
 
+/// ## Case:
+///
+/// The sender address 0x1 is already deployed and requires no extra deployment.
+///
+/// ## Expected:
+///
+/// The request is forwarded unchanged and the response is passed through.
+#[tokio::test(flavor = "multi_thread")]
+async fn simulate_transactions_forwards_when_deployed_account() {
+    let expected = SimulatedTransactionsResponse {
+        transactions: vec![make_simulated_tx(arbitrary!(FeeEstimate))],
+    };
+
+    let rpc_responses = HashMap::from_iter([("starknet_simulateTransactions", expected.clone())]);
+    let test = setup_simulate_test(HashMap::new(), rpc_responses).await;
+
+    let tx = make_invoke_tx(DEPLOYER_ADDRESS);
+    let response = test.call("starknet_simulateTransactions", &json!(["latest", [tx], []])).await;
+
+    // If it is deployed, a getAccountCalldata request should not be made.
+    assert!(!test.mock_api_state.has_get_account_calldata_request(DEPLOYER_ADDRESS));
+
+    let calls = test.rpc.simulate_transactions_calls();
+    assert_eq!(calls.len(), 1, "expected only one call to simulateTransactions");
+    assert_eq!(calls[0].tx_count, 1, "rpc service should get 1 tx (no deploy)");
+
+    let actual: SimulatedTransactionsResponse = get_result(response);
+    assert_eq!(actual, expected, "response is passed through as is");
+}
+
+/// ## Case:
+///
+/// Address 0xDEAD is not yet deployed and belongs to a Controller account.
+///
+/// ## Expected:
+///
+/// The middleware prepends a deploy transaction to the simulate request and returns the
+/// simulation results for the original transactions only.
+#[tokio::test(flavor = "multi_thread")]
+async fn simulate_transactions_prepends_deploy_tx_for_controller() {
+    let cartridge_responses = HashMap::from_iter([(
+        CONTROLLER_ADDRESS,
+        controller_calldata_response(CONTROLLER_ADDRESS),
+    )]);
+
+    // The rpc service will receive 2 txs (1 deploy + 1 original).
+    let expected = SimulatedTransactionsResponse {
+        transactions: vec![
+            make_simulated_tx(arbitrary!(FeeEstimate)), // prepended controller deploy tx
+            make_simulated_tx(arbitrary!(FeeEstimate)),
+        ],
+    };
+    let rpc_responses = HashMap::from_iter([("starknet_simulateTransactions", expected.clone())]);
+
+    let test = setup_simulate_test(cartridge_responses, rpc_responses).await;
+
+    let tx = make_invoke_tx(CONTROLLER_ADDRESS);
+    let response = test.call("starknet_simulateTransactions", &json!(["latest", [tx], []])).await;
+
+    // If it is undeployed, a getAccountCalldata request should be made.
+    assert!(test.mock_api_state.has_get_account_calldata_request(CONTROLLER_ADDRESS));
+
+    let calls = test.rpc.simulate_transactions_calls();
+    assert_eq!(calls.len(), 1, "expected only one call to simulateTransactions");
+    assert_eq!(calls[0].tx_count, 2, "rpc service should receive 2 txs (deploy + original)");
+
+    // The middleware should remove the deploy tx result and return only the original tx result
+    // before sending it back to the caller.
+    let actual: SimulatedTransactionsResponse = get_result(response);
+
+    assert_eq!(actual.transactions.len(), 1, "response should have 1 result for the original tx");
+    assert_eq!(actual.transactions[..], expected.transactions[1..]);
+}
+
+/// ## Case:
+///
+/// Address 0xBEEF is not deployed and the Cartridge API does not recognize it as a Controller.
+///
+/// ## Expected:
+///
+/// Even though the address is undeployed, no deploy transaction is created and the original
+/// request is forwarded unchanged.
+#[tokio::test(flavor = "multi_thread")]
+async fn simulate_transactions_forwards_for_undeployed_non_controller() {
+    let expected = SimulatedTransactionsResponse {
+        transactions: vec![make_simulated_tx(arbitrary!(FeeEstimate))],
+    };
+    let rpc_responses = HashMap::from_iter([("starknet_simulateTransactions", expected.clone())]);
+
+    let test = setup_simulate_test(HashMap::new(), rpc_responses).await;
+
+    let tx = make_invoke_tx(NON_CONTROLLER_ADDRESS);
+    let response = test.call("starknet_simulateTransactions", &json!(["latest", [tx], []])).await;
+
+    // If it is undeployed, a getAccountCalldata request should be made regardless if it's a
+    // Controller or not.
+    assert!(test.mock_api_state.has_get_account_calldata_request(NON_CONTROLLER_ADDRESS));
+
+    let calls = test.rpc.simulate_transactions_calls();
+    assert_eq!(calls.len(), 1, "expected only one call to simulateTransactions");
+    assert_eq!(calls[0].tx_count, 1, "rpc service should get 1 tx (no deploy)");
+
+    let actual: SimulatedTransactionsResponse = get_result(response);
+    assert_eq!(actual, expected, "response is passed through as is");
+}
+
+/// ## Case:
+///
+/// Three invoke transactions all from undeployed Controller address 0xDEAD.
+///
+/// ## Expected:
+///
+/// The middleware deduplicates by sender address, creating only one deploy transaction despite
+/// three transactions from the same sender.
+///
+/// Inner service receives 4 txs (1 deploy + 3 original); middleware returns 3 results.
+#[tokio::test(flavor = "multi_thread")]
+async fn simulate_transactions_deduplicates_same_controller() {
+    let expected = SimulatedTransactionsResponse {
+        transactions: vec![
+            make_simulated_tx(arbitrary!(FeeEstimate)), // prepended controller deploy tx
+            make_simulated_tx(arbitrary!(FeeEstimate)),
+            make_simulated_tx(arbitrary!(FeeEstimate)),
+            make_simulated_tx(arbitrary!(FeeEstimate)),
+        ],
+    };
+
+    let cartridge_responses = HashMap::from_iter([(
+        CONTROLLER_ADDRESS,
+        controller_calldata_response(CONTROLLER_ADDRESS),
+    )]);
+
+    // rpc service receives 4 txs (1 deploy + 3 original).
+    let rpc_responses = HashMap::from_iter([("starknet_simulateTransactions", expected.clone())]);
+
+    let setup = setup_simulate_test(cartridge_responses, rpc_responses).await;
+
+    let tx1 = make_invoke_tx(CONTROLLER_ADDRESS);
+    let tx2 = make_invoke_tx(CONTROLLER_ADDRESS);
+    let tx3 = make_invoke_tx(CONTROLLER_ADDRESS);
+    let res =
+        setup.call("starknet_simulateTransactions", &json!(["latest", [tx1, tx2, tx3], []])).await;
+
+    // If it is undeployed, a getAccountCalldata request should be made.
+    assert!(setup.mock_api_state.has_get_account_calldata_request(CONTROLLER_ADDRESS));
+
+    let calls = setup.rpc.simulate_transactions_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].tx_count, 4, "rpc service should get 4 txs (1 deploy + 3 og)");
+
+    let actual: SimulatedTransactionsResponse = get_result(res);
+    assert_eq!(actual.transactions.len(), 3, "response should not include the deploy tx result");
+    assert_eq!(actual.transactions[..], expected.transactions[1..]);
+}
+
+/// ## Case:
+///
+/// When starknet_simulateTransactions is called with malformed params, the middleware should
+/// gracefully fall through to the inner service rather than erroring.
+///
+/// ## Expected:
+///
+/// Inner service receives request unchanged.
+#[tokio::test(flavor = "multi_thread")]
+async fn passthrough_malformed_simulate_transactions() {
+    let setup = setup_simulate_test(HashMap::new(), HashMap::new()).await;
+
+    // Malformed params — not a valid [block_id, transactions, flags] sequence.
+    setup.call("starknet_simulateTransactions", &json!(["not_valid"])).await;
+
+    // The inner service should have received the request (fallthrough).
+    let calls = setup.rpc.simulate_transactions_calls();
+    assert_eq!(calls.len(), 1);
+}
+
 mod setup {
     use std::collections::HashMap;
     use std::future::Future;
@@ -440,6 +615,23 @@ mod setup {
         cartridge_api_responses: HashMap<ContractAddress, GetAccountCalldataResponse>,
         inner_rpc_responses: HashMap<&'static str, Vec<FeeEstimate>>,
     ) -> TestSetup {
+        let mock_rpc = MockRpcService::new(inner_rpc_responses);
+        setup_test_with_mock(cartridge_api_responses, mock_rpc).await
+    }
+
+    pub async fn setup_simulate_test(
+        cartridge_api_responses: HashMap<ContractAddress, GetAccountCalldataResponse>,
+        inner_simulate_responses: HashMap<&'static str, SimulatedTransactionsResponse>,
+    ) -> TestSetup {
+        let mock_rpc =
+            MockRpcService::new(HashMap::new()).with_simulate_responses(inner_simulate_responses);
+        setup_test_with_mock(cartridge_api_responses, mock_rpc).await
+    }
+
+    async fn setup_test_with_mock(
+        cartridge_api_responses: HashMap<ContractAddress, GetAccountCalldataResponse>,
+        mock_rpc: MockRpcService,
+    ) -> TestSetup {
         let (mock_url, mock_api_state) = start_mock_cartridge_api(cartridge_api_responses).await;
 
         let chain_spec = Arc::new(ChainSpec::dev());
@@ -457,6 +649,7 @@ mod setup {
             versioned_constant_overrides: None,
         };
 
+        let (block_notify, _) = tokio::sync::broadcast::channel(64);
         let starknet_api = StarknetApi::new(
             chain_spec,
             pool.clone(),
@@ -467,6 +660,7 @@ mod setup {
             storage,
             RpcCache::new(),
             ClassCache::new().unwrap(),
+            block_notify,
         );
 
         let cartridge_api = ::cartridge::CartridgeApiClient::new(mock_url);
@@ -481,7 +675,6 @@ mod setup {
             deployer_private_key,
         );
 
-        let mock_rpc = MockRpcService::new(inner_rpc_responses);
         let service = layer.layer(mock_rpc.clone());
 
         TestSetup { controller_deployment_service: service, rpc: mock_rpc, mock_api_state, pool }
@@ -523,6 +716,24 @@ mod setup {
             fee_data_availability_mode: DataAvailabilityMode::L1,
             is_query: false,
         })
+    }
+
+    /// Creates a simulated transaction result with the given fee estimate. The trace is a
+    /// minimal reverted invoke trace — the middleware only cares about the number of results, not
+    /// their contents.
+    pub fn make_simulated_tx(fee_estimation: FeeEstimate) -> SimulatedTransactions {
+        SimulatedTransactions {
+            transaction_trace: TxTrace::Invoke(InvokeTxTrace {
+                execute_invocation: ExecuteInvocation::Reverted(RevertedInvocation {
+                    revert_reason: String::new(),
+                }),
+                validate_invocation: None,
+                fee_transfer_invocation: None,
+                state_diff: None,
+                execution_resources: ExecutionResources { l1_gas: 0, l2_gas: 0, l1_data_gas: 0 },
+            }),
+            fee_estimation,
+        }
     }
 
     pub fn make_execute_outside() -> OutsideExecution {
@@ -682,6 +893,11 @@ mod setup {
         pub tx_count: usize,
     }
 
+    #[derive(Clone, Debug, Default)]
+    pub struct SimulateTransactionsRecordedCall {
+        pub tx_count: usize,
+    }
+
     #[derive(Clone, Debug)]
     pub struct OutsideExecuteRecordedCall {
         pub outside_execution: OutsideExecution,
@@ -694,11 +910,14 @@ mod setup {
 
     #[derive(Clone, Default)]
     pub struct MockRpcService {
-        /// Pre-configured response JSON per method name.
+        /// Pre-configured `starknet_estimateFee` response per method name.
         responses: Arc<HashMap<&'static str, Vec<FeeEstimate>>>,
+        /// Pre-configured `starknet_simulateTransactions` response per method name.
+        simulate_responses: Arc<HashMap<&'static str, SimulatedTransactionsResponse>>,
 
         any_calls: Arc<Mutex<HashMap<String, Vec<AnyRecordedCall>>>>,
         estimate_fee_calls: Arc<Mutex<Vec<EstimateFeeRecordedCall>>>,
+        simulate_transactions_calls: Arc<Mutex<Vec<SimulateTransactionsRecordedCall>>>,
         outside_execute_calls: Arc<Mutex<Vec<(ContractAddress, OutsideExecuteRecordedCall)>>>,
     }
 
@@ -707,8 +926,20 @@ mod setup {
             Self { responses: Arc::new(responses), ..Default::default() }
         }
 
+        pub fn with_simulate_responses(
+            mut self,
+            responses: HashMap<&'static str, SimulatedTransactionsResponse>,
+        ) -> Self {
+            self.simulate_responses = Arc::new(responses);
+            self
+        }
+
         pub fn estimate_fee_calls(&self) -> Vec<EstimateFeeRecordedCall> {
             self.estimate_fee_calls.lock().clone()
+        }
+
+        pub fn simulate_transactions_calls(&self) -> Vec<SimulateTransactionsRecordedCall> {
+            self.simulate_transactions_calls.lock().clone()
         }
 
         pub fn outside_execute_calls_count(&self) -> usize {
@@ -756,6 +987,21 @@ mod setup {
                     self.estimate_fee_calls.lock().push(EstimateFeeRecordedCall { tx_count });
                 }
 
+                "starknet_simulateTransactions" => {
+                    // Params are positional: [block_id, transactions, simulation_flags]. The txs
+                    // are the second element, so skip the block_id first.
+                    let params = request.params();
+                    let mut seq = params.sequence();
+
+                    let _block_id: Result<serde_json::Value, _> = seq.next();
+                    let txs: Result<Vec<serde_json::Value>, _> = seq.next();
+                    let tx_count = txs.ok().map(|v| v.len()).unwrap_or(0);
+
+                    self.simulate_transactions_calls
+                        .lock()
+                        .push(SimulateTransactionsRecordedCall { tx_count });
+                }
+
                 "cartridge_addExecuteFromOutside" | "cartridge_addExecuteOutsideTransaction" => {
                     #[derive(Deserialize)]
                     struct NamedAddExecuteOutsideParams {
@@ -766,10 +1012,7 @@ mod setup {
                     }
 
                     fn parse_params<T: DeserializeOwned>(request: &Request<'_>) -> Option<T> {
-                        match request.params().parse() {
-                            Ok(params) => Some(params),
-                            Err(..) => None,
-                        }
+                        request.params().parse().ok()
                     }
 
                     let NamedAddExecuteOutsideParams {
@@ -794,7 +1037,13 @@ mod setup {
                 }
             }
 
-            let response = if let Some(resp) = self.responses.get(method.as_str()) {
+            let response = if let Some(resp) = self.simulate_responses.get(method.as_str()) {
+                MethodResponse::response(
+                    request.id().clone(),
+                    jsonrpsee::ResponsePayload::success(resp.clone()),
+                    usize::MAX,
+                )
+            } else if let Some(resp) = self.responses.get(method.as_str()) {
                 MethodResponse::response(
                     request.id().clone(),
                     jsonrpsee::ResponsePayload::success(resp.clone()),

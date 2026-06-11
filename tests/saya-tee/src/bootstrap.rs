@@ -1,14 +1,19 @@
 //! L2 contract deployment via `saya-ops`.
 //!
 //! Shells out to the `saya-ops` binary (built from
-//! `dojoengine/saya@5a3b8c9`) to declare and deploy:
+//! `dojoengine/saya@5ff9948` — `main` post-PR-#73, with `ProgramInfo`
+//! enum + `katana_tee_config_hash` plumbing) to declare and deploy:
 //!
 //! 1. The `mock_amd_tee_registry` contract — a permissive `IAMDTeeRegistry` mock from
 //!    `cartridge-gg/piltover` (added in piltover#15), vendored into saya at
 //!    `contracts/tee_registry_mock.json` and embedded in the `saya-ops` binary.
 //! 2. The Piltover core contract.
-//! 3. `setup-program` against Piltover, pointing the `fact_registry_address` at the deployed mock
-//!    TEE registry so its on-chain `verify_sp1_proof` becomes a passthrough.
+//!
+//! After deployment we configure the Piltover for TEE settlement directly
+//! via cainome calls (`set_program_info(KatanaTee variant)` + `set_facts_registry`)
+//! rather than going through `saya-ops setup-program`, which only emits the
+//! `StarknetOs` variant and would cause the on-chain `validate_input` to
+//! panic with cross-mode mismatch when saya-tee later submits `TeeInput`.
 //!
 //! `saya-ops` is resolved via `SAYA_OPS_BIN` env var or `$PATH`. Address
 //! parsing scrapes the `info!`-logged "X address: Felt(0x…)" lines from
@@ -17,16 +22,31 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use katana_chain_spec::tee::compute_katana_tee_config_hash;
+use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
+use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
+use starknet::core::types::{BlockId, BlockTag, Call};
+use starknet::macros::{selector, short_string};
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider};
+use starknet::signers::{LocalWallet, SigningKey};
 use starknet_types_core::felt::Felt;
 
 use crate::nodes::L2InProcess;
 
-const CHAIN_ID_SHORT_STRING: &str = "katana_e2e";
-const FACT_REGISTRY_SALT: &str = "0x53fac7";
 const PILTOVER_SALT: &str = "0x9117f0";
 const TEE_REGISTRY_SALT: &str = "0x7ee";
+
+/// Cairo enum variant index for `ProgramInfo::KatanaTee`. `StarknetOs` is index 0.
+const KATANA_TEE_VARIANT_INDEX: Felt = Felt::ONE;
+
+/// L3 chain id felt. Mirrors `nodes::spawn_l3`'s `ChainId::parse("KATANA")`.
+/// Used to compute the `katana_tee_config_hash` that L3's `tee_generateQuote`
+/// will bind into `report_data` and that on-chain Piltover asserts against.
+const L3_CHAIN_ID: Felt = short_string!("KATANA");
 
 /// Runs the full L2 bootstrap sequence.
 pub async fn bootstrap_l2(l2: &L2InProcess) -> Result<BootstrapResult> {
@@ -53,8 +73,15 @@ pub async fn bootstrap_l2(l2: &L2InProcess) -> Result<BootstrapResult> {
     let piltover_address = saya.deploy_core_contract()?;
     println!("  piltover_address={}", hex(&piltover_address));
 
-    println!("Configuring Piltover with mock TEE registry as fact_registry_address");
-    saya.setup_program(piltover_address, tee_registry_address)?;
+    println!("Configuring Piltover for KatanaTee settlement + mock TEE registry as fact_registry");
+    configure_piltover_for_tee(
+        l2,
+        piltover_address,
+        tee_registry_address,
+        account_address,
+        account_private_key,
+    )
+    .await?;
 
     Ok(BootstrapResult {
         piltover_address,
@@ -62,6 +89,73 @@ pub async fn bootstrap_l2(l2: &L2InProcess) -> Result<BootstrapResult> {
         account_address: account_address.into(),
         account_private_key,
     })
+}
+
+/// Configures the freshly-deployed Piltover for TEE settlement, bypassing
+/// `saya-ops setup-program` (which only emits the `StarknetOs` `ProgramInfo`
+/// variant). Sets the `KatanaTee` variant whose `katana_tee_config_hash`
+/// matches what L3's `tee_generateQuote` will compute, so the on-chain
+/// `validate_input` assertion `tee_input.katana_tee_config_hash ==
+/// KatanaTeeProgramInfo.katana_tee_config_hash` holds at settlement time.
+///
+/// Bundles `set_program_info` + `set_facts_registry` in one multicall.
+async fn configure_piltover_for_tee(
+    l2: &L2InProcess,
+    piltover_address: Felt,
+    tee_registry_address: Felt,
+    account_address: Felt,
+    account_private_key: Felt,
+) -> Result<()> {
+    let provider = l2.provider();
+    let l2_chain_id =
+        provider.chain_id().await.context("failed to fetch L2 chain id for account setup")?;
+
+    let signer = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(account_private_key));
+    let mut account = SingleOwnerAccount::new(
+        provider.clone(),
+        signer,
+        account_address,
+        l2_chain_id,
+        ExecutionEncoding::New,
+    );
+    account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
+
+    let katana_tee_config_hash =
+        compute_katana_tee_config_hash(L3_CHAIN_ID, DEFAULT_STRK_FEE_TOKEN_ADDRESS.into());
+
+    // ProgramInfo::KatanaTee(KatanaTeeProgramInfo { katana_tee_config_hash })
+    // serializes as [variant_index=1, katana_tee_config_hash].
+    let set_program_info = Call {
+        to: piltover_address,
+        selector: selector!("set_program_info"),
+        calldata: vec![KATANA_TEE_VARIANT_INDEX, katana_tee_config_hash],
+    };
+    let set_facts_registry = Call {
+        to: piltover_address,
+        selector: selector!("set_facts_registry"),
+        calldata: vec![tee_registry_address],
+    };
+
+    let result = account
+        .execute_v3(vec![set_program_info, set_facts_registry])
+        .send()
+        .await
+        .context("set_program_info + set_facts_registry multicall failed")?;
+
+    wait_for_tx(&provider, result.transaction_hash).await
+}
+
+async fn wait_for_tx(provider: &JsonRpcClient<HttpTransport>, tx_hash: Felt) -> Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        match provider.get_transaction_receipt(tx_hash).await {
+            Ok(_) => return Ok(()),
+            Err(_) if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            Err(e) => return Err(anyhow!("tx {tx_hash:#x} not accepted: {e}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -110,23 +204,6 @@ impl SayaOps {
         cmd.args(["core-contract", "deploy", "--salt", PILTOVER_SALT]);
         let output = run(cmd, "core-contract deploy")?;
         parse_address("Core contract address", &output)
-    }
-
-    fn setup_program(&self, core_contract: Felt, fact_registry: Felt) -> Result<()> {
-        let mut cmd = self.base_command()?;
-        cmd.args([
-            "core-contract",
-            "setup-program",
-            "--core-contract-address",
-            &hex(&core_contract),
-            "--fact-registry-address",
-            &hex(&fact_registry),
-            "--chain-id",
-            CHAIN_ID_SHORT_STRING,
-        ]);
-        let _ = FACT_REGISTRY_SALT; // currently unused — left for future fact-registry-mock variant
-        run(cmd, "core-contract setup-program")?;
-        Ok(())
     }
 
     fn base_command(&self) -> Result<Command> {
@@ -192,8 +269,8 @@ fn resolve_saya_ops_bin() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("SAYA_OPS_BIN") {
         return Ok(PathBuf::from(path));
     }
-    // Use `which` from the `which` crate if available; fall back to a manual
-    // PATH search to keep the dep set minimal.
+    // The bin target is `ops` (saya `bin/ops` package, renamed from `saya-ops`
+    // in dojoengine/saya@5ff9948). Manual PATH search keeps the dep set minimal.
     if let Ok(path) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path) {
             let candidate = dir.join("saya-ops");
@@ -204,7 +281,7 @@ fn resolve_saya_ops_bin() -> Result<PathBuf> {
     }
     Err(anyhow!(
         "`saya-ops` binary not found. Set SAYA_OPS_BIN env var or add it to $PATH. Build from \
-         dojoengine/saya@5a3b8c9 with `cargo install --path bin/ops`."
+         dojoengine/saya@5ff9948 with `cargo install --path bin/saya-ops`."
     ))
 }
 

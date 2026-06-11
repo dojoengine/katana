@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use alloy_primitives::U256;
 use katana_chain_spec::rollup::utils::GenesisTransactionsBuilder;
-use katana_chain_spec::rollup::{ChainSpec, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
+use katana_chain_spec::rollup::ChainSpec;
 use katana_chain_spec::{FeeContracts, SettlementLayer};
 use katana_contracts::contracts;
 use katana_executor::blockifier::cache::ClassCache;
@@ -11,7 +11,7 @@ use katana_executor::{BlockLimits, ExecutorFactory};
 use katana_genesis::allocation::{
     DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
 };
-use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
@@ -20,6 +20,7 @@ use katana_primitives::transaction::TxType;
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::Felt;
 use katana_provider::api::state::StateFactoryProvider;
+use katana_provider::providers::PreloadedStateProvider;
 use katana_provider::{DbProviderFactory, ProviderFactory};
 use url::Url;
 
@@ -36,16 +37,15 @@ fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
     genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
     let id = ChainId::parse("KATANA").unwrap();
-    let fee_contracts = FeeContracts {
-        eth: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
-        strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
-    };
+    let fee_contracts =
+        FeeContracts { eth: DEFAULT_STRK_FEE_TOKEN_ADDRESS, strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS };
 
     let settlement = SettlementLayer::Starknet {
         block: 0,
         id: ChainId::default(),
         core_contract: Default::default(),
         rpc_url: Url::parse("http://localhost:5050").unwrap(),
+        proof_kind: Default::default(),
     };
 
     ChainSpec { id, genesis, settlement, fee_contracts }
@@ -69,8 +69,10 @@ fn valid_transactions() {
     let provider = provider.provider();
     let ef = executor(chain_spec.clone());
 
-    let mut executor =
-        ef.executor(provider.latest().unwrap(), katana_primitives::env::BlockEnv::default());
+    // Mirror `init_rollup_genesis`: wrap the executor's source state with the rollup's
+    // pre-allocated overlay so the genesis `transfer` invokes find the STRK contract.
+    let state = PreloadedStateProvider::new(provider.latest().unwrap(), chain_spec.state_updates());
+    let mut executor = ef.executor(Box::new(state), katana_primitives::env::BlockEnv::default());
     executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
 
     let output = executor.take_execution_output().unwrap();
@@ -81,6 +83,53 @@ fn valid_transactions() {
 }
 
 #[test]
+fn controller_class_queryable_at_canonical_hash_after_genesis() {
+    use katana_contracts::controller::{ControllerLatest, ControllerV108};
+    use katana_genesis::json::GenesisJson;
+
+    const CANONICAL_LATEST: Felt = Felt::from_hex_unchecked(
+        "0x743c83c41ce99ad470aa308823f417b2141e02e04571f5c0004e743556e7faf",
+    );
+    const CANONICAL_V108: Felt = Felt::from_hex_unchecked(
+        "0x511dd75da368f5311134dee2356356ac4da1538d2ad18aa66d57c47e3757d59",
+    );
+
+    let mut chain_spec = chain_spec(1, true);
+    chain_spec
+        .genesis
+        .classes
+        .insert(ControllerLatest::HASH, ControllerLatest::CLASS.clone().into());
+    chain_spec.genesis.classes.insert(ControllerV108::HASH, ControllerV108::CLASS.clone().into());
+
+    // Simulate `katana init rollup` -> genesis.json -> node reload.
+    let json = GenesisJson::try_from(chain_spec.genesis.clone()).unwrap();
+    chain_spec.genesis = Genesis::try_from(json).unwrap();
+
+    let provider = DbProviderFactory::new_in_memory();
+    let provider = provider.provider();
+    let ef = executor(chain_spec.clone());
+
+    let state = PreloadedStateProvider::new(provider.latest().unwrap(), chain_spec.state_updates());
+    let mut executor = ef.executor(Box::new(state), katana_primitives::env::BlockEnv::default());
+    executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
+
+    let output = executor.take_execution_output().unwrap();
+    for (i, (.., result)) in output.transactions.iter().enumerate() {
+        assert!(result.is_success(), "genesis tx {i} failed: {result:?}");
+    }
+
+    let genesis_state = executor.state();
+    assert!(
+        genesis_state.class(CANONICAL_LATEST).unwrap().is_some(),
+        "controller.latest must be queryable at canonical hash {CANONICAL_LATEST:#x}"
+    );
+    assert!(
+        genesis_state.class(CANONICAL_V108).unwrap().is_some(),
+        "controller.v1.0.8 must be queryable at canonical hash {CANONICAL_V108:#x}"
+    );
+}
+
+#[test]
 fn genesis_states() {
     let chain_spec = chain_spec(1, true);
 
@@ -88,8 +137,8 @@ fn genesis_states() {
     let provider = provider.provider();
     let ef = executor(chain_spec.clone());
 
-    let mut executor =
-        ef.executor(provider.latest().unwrap(), katana_primitives::env::BlockEnv::default());
+    let state = PreloadedStateProvider::new(provider.latest().unwrap(), chain_spec.state_updates());
+    let mut executor = ef.executor(Box::new(state), katana_primitives::env::BlockEnv::default());
     executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
 
     let genesis_state = executor.state();
@@ -110,8 +159,9 @@ fn genesis_states() {
     // -----------------------------------------------------------------------
     // Contracts
 
-    // check that the default fee token is deployed
-    let res = genesis_state.class_hash_of_contract(DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS).unwrap();
+    // STRK fee token is pre-allocated to the canonical Starknet mainnet address rather than
+    // deployed via UDC — see `rollup::ChainSpec::state_updates`.
+    let res = genesis_state.class_hash_of_contract(DEFAULT_STRK_FEE_TOKEN_ADDRESS).unwrap();
     assert_eq!(res, Some(erc20_class_hash));
 
     // Rollup mode deploys each UDC via the master account with salt=0 and no ctor args; the
@@ -147,8 +197,8 @@ fn transaction_order() {
         TxType::Invoke,        // UDC deploy
         TxType::Declare,       // Legacy UDC declare
         TxType::Invoke,        // Legacy UDC deploy
-        TxType::Declare,       // ERC20 declare
-        TxType::Invoke,        // ERC20 deploy
+        // ERC20 declare/deploy intentionally absent — the STRK fee token is
+        // pre-allocated to genesis state by ChainSpec::state_updates instead.
         TxType::Declare,       // Account class declare (V2)
         TxType::DeployAccount, // Dev account
         TxType::Invoke,        // Balance transfer
@@ -187,10 +237,10 @@ fn predeployed_acccounts(#[case] with_balance: bool) {
 
         let mut transactions = GenesisTransactionsBuilder::new(&chain_spec).build();
 
-        // We only want to check that for each predeployed accounts, there should be a deploy
-        // account and transfer balance (invoke) transactions. So we skip the first 9
-        // transactions (master account, UDC, legacy UDC, ERC20, etc).
-        let account_transactions = &transactions.split_off(9);
+        // Skip the prefix txs (master account declare/deploy, UDC + legacy UDC declare/deploy,
+        // Account class declare) so we're left with just the per-account work. STRK is
+        // pre-allocated to state rather than declared/deployed here, so the prefix is 7 txs.
+        let account_transactions = &transactions.split_off(7);
 
         if with_balance {
             assert_eq!(account_transactions.len(), n_accounts * 2);
@@ -219,10 +269,10 @@ fn dev_predeployed_acccounts(#[case] with_balance: bool) {
         let chain_spec = chain_spec(n_accounts, with_balance);
         let mut transactions = GenesisTransactionsBuilder::new(&chain_spec).build();
 
-        // We only want to check that for each predeployed accounts, there should be a deploy
-        // account and transfer balance (invoke) transactions. So we skip the first 9
-        // transactions (master account, UDC, legacy UDC, ERC20, etc).
-        let account_transactions = &transactions.split_off(9);
+        // Skip the prefix txs (master account declare/deploy, UDC + legacy UDC declare/deploy,
+        // Account class declare) so we're left with just the per-account work. STRK is
+        // pre-allocated to state rather than declared/deployed here, so the prefix is 7 txs.
+        let account_transactions = &transactions.split_off(7);
 
         if with_balance {
             assert_eq!(account_transactions.len(), n_accounts as usize * 2);

@@ -28,8 +28,8 @@ WORKDIR /tmp
 RUN . /opt/asdf/asdf.sh \
 	&& asdf plugin add vrf https://github.com/cartridge-gg/vrf.git \
 	&& asdf plugin add paymaster https://github.com/cartridge-gg/paymaster.git \
-	&& VRF_VERSION="$(awk '$1==\"vrf\" {print $2}' /tmp/.tool-versions)" \
-	&& PAYMASTER_VERSION="$(awk '$1==\"paymaster\" {print $2}' /tmp/.tool-versions)" \
+	&& VRF_VERSION="$(awk '$1=="vrf" {print $2}' /tmp/.tool-versions)" \
+	&& PAYMASTER_VERSION="$(awk '$1=="paymaster" {print $2}' /tmp/.tool-versions)" \
 	&& asdf install vrf "${VRF_VERSION}" \
 	&& asdf install paymaster "${PAYMASTER_VERSION}" \
 	&& cp "$(asdf which vrf-server)" /usr/local/bin/vrf-server \

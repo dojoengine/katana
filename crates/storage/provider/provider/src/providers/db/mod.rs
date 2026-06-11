@@ -36,6 +36,9 @@ use katana_provider_api::block::{
     BlockWriter, HeaderProvider,
 };
 use katana_provider_api::env::BlockEnvProvider;
+use katana_provider_api::messaging::{
+    self, MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
+};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
@@ -918,6 +921,52 @@ impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
         let key = id.to_string();
         let value = PruningCheckpoint { block: block_number };
         self.0.put::<tables::StagePruningCheckpoints>(key, value)?;
+        Ok(())
+    }
+}
+
+impl<Tx: DbTxMut> MessagingCheckpointProvider for DbProvider<Tx> {
+    fn messaging_checkpoint(
+        &self,
+        id: &str,
+    ) -> ProviderResult<Option<messaging::MessagingCheckpoint>> {
+        let result = self.0.get::<tables::MessagingCheckpoints>(id.to_string())?;
+        Ok(result.map(|c| messaging::MessagingCheckpoint { block: c.block, tx_index: c.tx_index }))
+    }
+
+    fn set_messaging_checkpoint(
+        &self,
+        id: &str,
+        checkpoint: &messaging::MessagingCheckpoint,
+    ) -> ProviderResult<()> {
+        let value = katana_db::models::stage::MessagingCheckpoint {
+            block: checkpoint.block,
+            tx_index: checkpoint.tx_index,
+        };
+        self.0.put::<tables::MessagingCheckpoints>(id.to_string(), value)?;
+        Ok(())
+    }
+}
+
+impl<Tx: DbTx> MessagingL1ToL2IndexProvider for DbProvider<Tx> {
+    fn l2_txs_for_l1(&self, l1_tx_hash: &[u8; 32]) -> ProviderResult<Vec<TxHash>> {
+        let mut cursor = self.0.cursor_dup::<tables::MessagingL1ToL2>()?;
+        let mut entries = Vec::new();
+        if let Some(walker) = cursor.walk_dup(Some(*l1_tx_hash), None)? {
+            for result in walker {
+                let (_, l2_hash) = result?;
+                entries.push(l2_hash);
+            }
+        }
+        Ok(entries)
+    }
+}
+
+impl<Tx: DbTxMut> MessagingL1ToL2IndexWriter for DbProvider<Tx> {
+    fn record_l1_to_l2(&self, l1_tx_hash: &[u8; 32], l2_tx_hash: TxHash) -> ProviderResult<()> {
+        // DupSort put: same (key, value) pair is silently ignored on duplicate inserts,
+        // giving idempotent behavior.
+        self.0.put::<tables::MessagingL1ToL2>(*l1_tx_hash, l2_tx_hash)?;
         Ok(())
     }
 }

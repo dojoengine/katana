@@ -40,6 +40,8 @@ const INSPECT_TABLES: &[Tables] = &[
     Tables::StagePruningCheckpoints,
     Tables::StateHistoryRetention,
     Tables::MigrationCheckpoints,
+    Tables::MessagingCheckpoints,
+    Tables::MessagingL1ToL2,
 ];
 
 use ratatui::backend::CrosstermBackend;
@@ -99,6 +101,8 @@ macro_rules! try_count_entries {
             }
             Tables::StateHistoryRetention => $tx.entries::<tables::StateHistoryRetention>().ok(),
             Tables::MigrationCheckpoints => $tx.entries::<tables::MigrationCheckpoints>().ok(),
+            Tables::MessagingCheckpoints => $tx.entries::<tables::MessagingCheckpoints>().ok(),
+            Tables::MessagingL1ToL2 => $tx.entries::<tables::MessagingL1ToL2>().ok(),
             // State trie tables are excluded from the inspector
             _ => None,
         }
@@ -367,6 +371,13 @@ fn fetch_table_data<Tx: DbTx>(tx: &Tx, table: Tables, offset: usize, limit: usiz
         Tables::Classes => detail!(tables::Classes),
         Tables::ContractInfoChangeSet => detail!(tables::ContractInfoChangeSet),
         Tables::StorageChangeSet => detail!(debug tables::StorageChangeSet),
+
+        Tables::MessagingCheckpoints => tabular!(
+            tables::MessagingCheckpoints,
+            "MessagingCheckpoints",
+            ["id", "block", "tx_index"],
+            |k, v| vec![format!("{k}"), format!("{}", v.block), format!("{}", v.tx_index)]
+        ),
 
         // State trie tables are excluded
         _ => FetchResult { columns: vec![], rows: vec![], tabular: true, value_type: "" },

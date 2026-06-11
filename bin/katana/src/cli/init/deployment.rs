@@ -1,62 +1,44 @@
 use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
+use katana_chain_spec::settlement_check::{
+    self, SettlementChainProvider, SettlementValidationError,
+};
+use katana_chain_spec::tee::compute_katana_tee_config_hash;
+use katana_chain_spec::SettlementProofKind;
 use katana_contracts::piltover::AppchainCoreContract;
-use katana_primitives::block::{BlockHash, BlockNumber};
-use katana_primitives::cairo::ShortString;
+use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
+use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::ContractClass;
-use katana_primitives::{felt, ContractAddress, Felt};
+use katana_primitives::version::StarknetVersion;
+use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_types::block::GetBlockWithTxHashesResponse;
 use katana_rpc_types::class::Class;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_utils::{TxWaiter, TxWaitingError};
-use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
+use piltover::{
+    AppchainContract, AppchainContractReader, KatanaTeeProgramInfo, ProgramInfo,
+    StarknetOsProgramInfo,
+};
+use settlement_check::{
+    compute_starknet_os_config_hash, BOOTLOADER_PROGRAM_HASH, LAYOUT_BRIDGE_PROGRAM_HASH,
+    SNOS_PROGRAM_HASH,
+};
 use spinoff::{spinners, Color, Spinner};
 use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAccount};
 use starknet::contract::{ContractFactory, UdcSelector};
-use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
 use starknet::providers::{Provider, ProviderError};
 use starknet::signers::LocalWallet;
 use thiserror::Error;
 use tracing::trace;
 
-use super::settlement::SettlementChainProvider;
-
 type SettlementInitializerAccount = SingleOwnerAccount<SettlementChainProvider, LocalWallet>;
 
-/// The StarknetOS program (SNOS) is the cairo program that executes the state
-/// transition of a new Katana block from the previous block.
-/// This program hash is required to be known by the settlement contract in order to
-/// only accept a new state from a valid SNOS program.
-///
-/// This program can be found here: <https://github.com/starkware-libs/sequencer/blob/v0.16.0-rc.0/crates/apollo_starknet_os_program/src/cairo/starkware/starknet/core/os/os.cairo>.
-const SNOS_PROGRAM_HASH: Felt =
-    felt!("0x10e5341a417427d140af8f5def7d2cc687d84591ff8ec241623c590b5ca8c80");
-
-/// To execute the SNOS program, a specific layout named "all_cairo" is required.
-/// However, this layout can't be verified by the Cairo verifier that lives on Starknet.
-///
-/// This is why we're using an other program, the Layout Bridge program, which act as a verifier
-/// written in Cairo which uses a layout supported by the Cairo verifier.
-///
-/// By verifying a SNOS proof using the Layout Bridge program, a new proof is generated which can be
-/// verified by the Cairo verifier.
-///
-/// For the same reason as above, the Layout Bridge program is required to be known by the
-/// settlement contract for security reasons.
-///
-/// This program can be found here: <https://github.com/starkware-libs/cairo-lang/blob/8276ac35830148a397e1143389f23253c8b80e93/src/starkware/cairo/cairo_verifier/layouts/all_cairo/cairo_verifier.cairo>.
-const LAYOUT_BRIDGE_PROGRAM_HASH: Felt =
-    felt!("0x43c5c4cc37c4614d2cf3a833379052c3a38cd18d688b617e2c720e8f941cb8");
-
-/// The bootloader program hash is the program hash of the bootloader program.
-///
-/// This program is used to run the layout bridge program in SHARP. This program hash is also
-/// required since the fact is computed based on the bootloader program hash and its output.
-///
-/// TODO: waiting for SHARP team to confirm if it's a custom bootloader or if we
-/// can find it in cairo-lang.
-const BOOTLOADER_PROGRAM_HASH: Felt =
-    felt!("0x5ab580b04e3532b6b18f81cfa654a05e29dd8e2352d88df1e765a84072db07");
+/// STRK fee-token address bound into the SNOS and Katana-TEE config hashes committed to the
+/// settlement contract. Must match the address the chain's executor uses for fee charging — for
+/// `katana init`-generated chains that's [`DEFAULT_STRK_FEE_TOKEN_ADDRESS`] (pre-allocated by
+/// [`katana_chain_spec::rollup::ChainSpec::state_updates`]).
+const DEFAULT_FEE_TOKEN_ADDRESS: Felt = DEFAULT_STRK_FEE_TOKEN_ADDRESS.0;
 
 #[derive(Debug)]
 pub struct DeploymentOutcome {
@@ -64,6 +46,12 @@ pub struct DeploymentOutcome {
     pub contract_address: ContractAddress,
     /// The block number at which the contract was deployed.
     pub block_number: BlockNumber,
+    /// Whether the Piltover Appchain class was declared during this run.
+    /// `false` means it was already present on the settlement chain and reused.
+    pub class_declared: bool,
+    /// The SNOS config hash that was wired into Piltover via `set_program_info(...)`.
+    /// Derived from the chain id and the appchain's fee token address.
+    pub config_hash: Felt,
 }
 
 /// Deploys the settlement contract in the settlement layer and initializes it with the right
@@ -72,10 +60,15 @@ pub struct DeploymentOutcome {
 /// `fact_registry` is the address written into Piltover via `set_facts_registry(...)`. In ZK mode
 /// this is the Herodotus Atlantic integrity contract; in TEE mode it is the `IAMDTeeRegistry`
 /// contract that verifies SP1 Groth16 proofs.
+///
+/// `tee` selects the `ProgramInfo` variant the contract is configured for. After the variant is
+/// committed at construction time, Piltover's `validate_input` panics on cross-mode submission, so
+/// this flag must match the kind of `update_state` input the operator intends to settle with.
 pub async fn deploy_settlement_contract(
     mut account: SettlementInitializerAccount,
     chain_id: Felt,
     fact_registry: Felt,
+    tee: bool,
 ) -> Result<DeploymentOutcome, ContractInitError> {
     // This is important! Otherwise all the estimate fees after a transaction will be executed
     // against invalid state.
@@ -99,18 +92,39 @@ pub async fn deploy_settlement_contract(
         let class_hash = AppchainCoreContract::HASH;
 
         // Check if the class has already been declared,
-        match account.provider().get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await {
+        let class_declared = match account
+            .provider()
+            .get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash)
+            .await
+        {
             Ok(..) => {
                 // Class has already been declared, no need to do anything...
+                false
             }
 
             Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
                 sp.update_text("Declaring contract...");
                 let class = (*AppchainCoreContract::CLASS).clone();
+
+                // Starknet >= 0.14.1 switched the canonical compiled class hash from Poseidon
+                // to Blake2s and rejects declares using the old algorithm; older chains still
+                // expect Poseidon. Read the chain's protocol version and pick accordingly.
+                let chain_version = settlement_chain_starknet_version(&starknet_client).await?;
+                let casm_hash = if chain_version >= StarknetVersion::V0_14_1 {
+                    class
+                        .clone()
+                        .compile()
+                        .map_err(|e| ContractInitError::Other(anyhow!(e)))?
+                        .class_hash_blake2s()
+                        .map_err(|e| ContractInitError::Other(anyhow!(e)))?
+                } else {
+                    AppchainCoreContract::CASM_HASH
+                };
+
                 let rpc_class = prepare_contract_declaration_params(class)?;
 
                 let res = account
-                    .declare_v3(rpc_class.into(), AppchainCoreContract::CASM_HASH)
+                    .declare_v3(rpc_class.into(), casm_hash)
                     .send()
                     .await
                     .inspect(|res| {
@@ -120,16 +134,21 @@ pub async fn deploy_settlement_contract(
                     .map_err(ContractInitError::DeclarationError)?;
 
                 TxWaiter::new(res.transaction_hash, &starknet_client).await?;
+                true
             }
 
             Err(err) => return Err(ContractInitError::Provider(err)),
-        }
+        };
 
         sp.update_text("Deploying contract...");
 
         let salt = Felt::from(rand::random::<u64>());
         let factory = ContractFactory::new_with_udc(class_hash, &account, UdcSelector::Legacy);
 
+        // Left at zero for now — the rollup chain spec pre-allocates the STRK fee token before
+        // executing the genesis block, so the actual post-genesis state root is non-zero. Updating
+        // this to publish the real genesis state root is a follow-up that needs SNOS to accept a
+        // non-empty starting state.
         const INITIAL_STATE_ROOT: Felt = Felt::ZERO;
         /// When updating the piltover contract with the genesis block (ie block number 0), in the
         /// attached StarknetOsOutput, the [previous block number] is expected to be
@@ -177,27 +196,11 @@ pub async fn deploy_settlement_contract(
         let deployed_appchain_contract = request.deployed_address();
         let appchain = AppchainContract::new(deployed_appchain_contract, &account);
 
-        // Compute the chain's config hash
-        let snos_config_hash = compute_config_hash(
-            chain_id,
-            // NOTE:
-            //
-            // This is the default fee token contract address of chains generated using `katana
-            // init`. We shouldn't hardcode this and need to handle this more
-            // elegantly.
-            felt!("0x2e7442625bab778683501c0eadbc1ea17b3535da040a12ac7d281066e915eea"),
-        );
-
         // 1. Program Info
 
         sp.update_text("Setting program info...");
 
-        let program_info = ProgramInfo {
-            snos_config_hash,
-            snos_program_hash: SNOS_PROGRAM_HASH,
-            bootloader_program_hash: BOOTLOADER_PROGRAM_HASH,
-            layout_bridge_program_hash: LAYOUT_BRIDGE_PROGRAM_HASH,
-        };
+        let program_info = build_program_info(tee, chain_id);
 
         let res = appchain
             .set_program_info(&program_info)
@@ -231,17 +234,20 @@ pub async fn deploy_settlement_contract(
         // FINAL CHECKS
         // -----------------------------------------------------------------------
 
-        check_program_info(
+        let config_hash = check_program_info(
             chain_id,
             deployed_appchain_contract.into(),
             account.provider(),
             fact_registry,
+            tee,
         )
         .await?;
 
         Ok(DeploymentOutcome {
             block_number: deployment_block,
             contract_address: deployed_appchain_contract.into(),
+            class_declared,
+            config_hash,
         })
     }
     .await;
@@ -259,65 +265,42 @@ pub async fn deploy_settlement_contract(
 
 /// Checks that the settlement contract is correctly configured.
 ///
-/// The values checked are:-
-/// * Program info (config hash, and StarknetOS program hash)
-/// * Fact registry contract address (compared against `expected_fact_registry`)
-/// * Layout bridge program hash
+/// Delegates the program-info comparison (program hashes for `StarknetOs`, config hash for
+/// `KatanaTee`, and cross-mode mismatch) to [`settlement_check::validate_starknet_settlement`] —
+/// the same code path that runs on every node startup. Then verifies the fact-registry address
+/// against `expected_fact_registry` (which is not checked at startup).
 ///
-/// `expected_fact_registry` is the Herodotus Atlantic address in ZK mode and the
-/// `IAMDTeeRegistry` address in TEE mode.
+/// `expected_fact_registry` is the Herodotus Atlantic address in StarknetOs mode and the
+/// `IAMDTeeRegistry` address in TEE mode. `tee` must match the variant the contract was
+/// constructed with; cross-mode lookup surfaces as
+/// [`SettlementValidationError::InvalidProgramInfoVariant`] via the `Settlement` variant.
+///
+/// On success, returns the config hash that was verified.
 pub async fn check_program_info(
     chain_id: Felt,
     appchain_address: ContractAddress,
     provider: &SettlementChainProvider,
     expected_fact_registry: Felt,
-) -> Result<(), ContractInitError> {
-    let appchain = AppchainContractReader::new(appchain_address.into(), provider);
+    tee: bool,
+) -> Result<Felt, ContractInitError> {
+    let proof_kind =
+        if tee { SettlementProofKind::Tee } else { SettlementProofKind::ValidityProof };
 
-    // Compute the chain's config hash
-    let config_hash = compute_config_hash(
+    settlement_check::validate_starknet_settlement(
         chain_id,
-        // NOTE:
-        //
-        // This is the default fee token contract address of chains generated using `katana init`.
-        // We shouldn't hardcode this and need to handle this more elegantly.
-        felt!("0x2e7442625bab778683501c0eadbc1ea17b3535da040a12ac7d281066e915eea"),
-    );
+        DEFAULT_FEE_TOKEN_ADDRESS,
+        appchain_address,
+        provider,
+        proof_kind,
+    )
+    .await?;
 
-    // Assert that the values are correctly set
-    let (program_info_res, facts_registry_res) =
-        tokio::join!(appchain.get_program_info().call(), appchain.get_facts_registry().call());
-
-    let actual_program_info = program_info_res.map_err(|e| ContractInitError::Other(anyhow!(e)))?;
-    let facts_registry = facts_registry_res.map_err(|e| ContractInitError::Other(anyhow!(e)))?;
-
-    if actual_program_info.layout_bridge_program_hash != LAYOUT_BRIDGE_PROGRAM_HASH {
-        return Err(ContractInitError::InvalidLayoutBridgeProgramHash {
-            actual: actual_program_info.layout_bridge_program_hash,
-            expected: LAYOUT_BRIDGE_PROGRAM_HASH,
-        });
-    }
-
-    if actual_program_info.bootloader_program_hash != BOOTLOADER_PROGRAM_HASH {
-        return Err(ContractInitError::InvalidBootloaderProgramHash {
-            actual: actual_program_info.bootloader_program_hash,
-            expected: BOOTLOADER_PROGRAM_HASH,
-        });
-    }
-
-    if actual_program_info.snos_program_hash != SNOS_PROGRAM_HASH {
-        return Err(ContractInitError::InvalidSnosProgramHash {
-            actual: actual_program_info.snos_program_hash,
-            expected: SNOS_PROGRAM_HASH,
-        });
-    }
-
-    if actual_program_info.snos_config_hash != config_hash {
-        return Err(ContractInitError::InvalidConfigHash {
-            actual: actual_program_info.snos_config_hash,
-            expected: config_hash,
-        });
-    }
+    let appchain = AppchainContractReader::new(appchain_address.into(), provider);
+    let facts_registry = appchain
+        .get_facts_registry()
+        .call()
+        .await
+        .map_err(|e| ContractInitError::Other(anyhow!(e)))?;
 
     if facts_registry != expected_fact_registry.into() {
         return Err(ContractInitError::InvalidFactRegistry {
@@ -326,7 +309,37 @@ pub async fn check_program_info(
         });
     }
 
-    Ok(())
+    let config_hash = if tee {
+        compute_katana_tee_config_hash(chain_id, DEFAULT_FEE_TOKEN_ADDRESS)
+    } else {
+        compute_starknet_os_config_hash(chain_id, DEFAULT_FEE_TOKEN_ADDRESS)
+    };
+    Ok(config_hash)
+}
+
+/// Builds the `ProgramInfo` enum variant the deployment will commit to.
+///
+/// `StarknetOs` carries the bootloader / SNOS-program / layout-bridge program hashes and the
+/// `StarknetOsConfig3`-tagged config hash. `KatanaTee` carries the `KatanaTeeConfig1`-tagged
+/// environment hash that the off-chain Katana node binds into SEV-SNP `report_data`. The two
+/// hashes are domain-separated by their version tag, so they are never byte-equal even for the
+/// same `(chain_id, fee_token)`.
+fn build_program_info(tee: bool, chain_id: Felt) -> ProgramInfo {
+    if tee {
+        ProgramInfo::KatanaTee(KatanaTeeProgramInfo {
+            katana_tee_config_hash: compute_katana_tee_config_hash(
+                chain_id,
+                DEFAULT_FEE_TOKEN_ADDRESS,
+            ),
+        })
+    } else {
+        ProgramInfo::StarknetOs(StarknetOsProgramInfo {
+            snos_config_hash: compute_starknet_os_config_hash(chain_id, DEFAULT_FEE_TOKEN_ADDRESS),
+            snos_program_hash: SNOS_PROGRAM_HASH,
+            bootloader_program_hash: BOOTLOADER_PROGRAM_HASH,
+            layout_bridge_program_hash: LAYOUT_BRIDGE_PROGRAM_HASH,
+        })
+    }
 }
 
 /// Error that can happen during the initialization of the core contract.
@@ -341,31 +354,11 @@ pub enum ContractInitError {
     #[error("failed to initialize contract: {0:#?}")]
     Initialization(AccountError<<SettlementInitializerAccount as Account>::SignError>),
 
-    #[error(
-        "invalid program info: layout bridge program hash mismatch - expected {expected:#x}, got \
-         {actual:#x}"
-    )]
-    InvalidLayoutBridgeProgramHash { expected: Felt, actual: Felt },
-
-    #[error(
-        "invalid program info: bootloader program hash mismatch - expected {expected:#x}, got \
-         {actual:#x}"
-    )]
-    InvalidBootloaderProgramHash { expected: Felt, actual: Felt },
-
-    #[error(
-        "invalid program info: snos program hash mismatch - expected {expected:#x}, got \
-         {actual:#x}"
-    )]
-    InvalidSnosProgramHash { expected: Felt, actual: Felt },
-
-    #[error(
-        "invalid program info: config hash mismatch - expected {expected:#x}, got {actual:#x}"
-    )]
-    InvalidConfigHash { expected: Felt, actual: Felt },
-
     #[error("invalid program state: fact registry mismatch - expected {expected:}, got {actual}")]
     InvalidFactRegistry { expected: Felt, actual: Felt },
+
+    #[error(transparent)]
+    Settlement(#[from] SettlementValidationError),
 
     #[error(transparent)]
     TxWaitingError(#[from] TxWaitingError),
@@ -392,38 +385,17 @@ fn prepare_contract_declaration_params(class: ContractClass) -> Result<Flattened
     Ok(class.try_into()?)
 }
 
-// NOTE: The reason why we're using the same address for both fee tokens is because we don't yet
-// support having native fee token on the chain.
-fn compute_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
-    compute_starknet_os_config_hash(chain_id, fee_token)
-}
-
-// https://github.com/starkware-libs/sequencer/blob/e13acc4c582352e777f5beae3476d157e6bdf4cf/crates/apollo_starknet_os_program/src/cairo/starkware/starknet/core/os/os_config/os_config.cairo#L10
-fn compute_starknet_os_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
-    // A constant representing the StarkNet OS config version.
-    const STARKNET_OS_CONFIG_VERSION: ShortString = ShortString::from_ascii("StarknetOsConfig3");
-    compute_hash_on_elements(&[STARKNET_OS_CONFIG_VERSION.into(), chain_id, fee_token])
-}
-
-#[cfg(test)]
-mod tests {
-    use katana_primitives::{felt, Felt};
-    use starknet::core::chain_id::{MAINNET, SEPOLIA};
-
-    use super::compute_starknet_os_config_hash;
-
-    const STRK_FEE_TOKEN: Felt =
-        felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d");
-
-    // Source:
-    //
-    // - https://github.com/starkware-libs/cairo-lang/blob/v0.14.0.1/src/starkware/starknet/core/os/os_config/os_config_hash.json
-    // - https://docs.starknet.io/tools/important-addresses/#fee_tokens
-    #[rstest::rstest]
-    #[case::mainnet(felt!("0x70c7b342f93155315d1cb2da7a4e13a3c2430f51fb5696c1b224c3da5508dfb"), MAINNET)]
-    #[case::testnet(felt!("0x1b9900f77ff5923183a7795fcfbb54ed76917bc1ddd4160cc77fa96e36cf8c5"), SEPOLIA)]
-    fn calculate_config_hash(#[case] config_hash: Felt, #[case] chain: Felt) {
-        let computed = compute_starknet_os_config_hash(chain, STRK_FEE_TOKEN);
-        assert_eq!(computed, config_hash);
-    }
+/// Reads the Starknet protocol version of the settlement chain from the latest block header.
+async fn settlement_chain_starknet_version(
+    client: &StarknetClient,
+) -> Result<StarknetVersion, ContractInitError> {
+    let block = client
+        .get_block_with_tx_hashes(BlockIdOrTag::Latest)
+        .await
+        .map_err(|e| ContractInitError::Other(anyhow!(e)))?;
+    let version_str = match block {
+        GetBlockWithTxHashesResponse::Block(b) => b.starknet_version,
+        GetBlockWithTxHashesResponse::PreConfirmed(b) => b.starknet_version,
+    };
+    StarknetVersion::parse(&version_str).map_err(|e| ContractInitError::Other(anyhow!(e)))
 }

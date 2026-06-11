@@ -48,6 +48,7 @@ use anyhow::Result;
 
 mod assertions;
 mod bootstrap;
+mod messaging;
 mod nodes;
 mod saya;
 
@@ -109,6 +110,32 @@ async fn main() -> Result<()> {
         )
         .await?;
     }
+
+    // 7. Regression: drive a cross-chain message in each direction through a *settled* block. The
+    //    loop above only settles plain transfer blocks, so it never builds a `messages_commitment`
+    //    over a real message. A block that consumes an L1->L2 message only settles if saya-tee
+    //    hashes L1->L2 messages with the Poseidon formula Katana commits to (not the Ethereum
+    //    keccak formula); otherwise piltover's `update_state` rejects it with 'tee: invalid
+    //    messages' and `wait_for_settlement` below times out.
+    // Deploy the l1-handler contract on the appchain (declare blocks settle as
+    // plain blocks before the message phases).
+    let handler = messaging::deploy_msg_handler(&l3).await?;
+    println!("Deployed appchain l1-handler contract at {}", hex_felt(&handler));
+
+    println!("--- L1 -> L2 message, then settle ---");
+    let tip_before = messaging::current_tip(&l3).await?;
+    messaging::send_l1_to_l2(&l2, bootstrap.piltover_address, handler).await?;
+    println!(
+        "Sent send_message_to_appchain on L2; waiting for the appchain to relay the L1-handler"
+    );
+    messaging::wait_for_relay(&l3, tip_before, Duration::from_secs(30)).await?;
+    assertions::wait_for_settlement(&l2, &l3, bootstrap.piltover_address, Duration::from_secs(180))
+        .await?;
+
+    println!("--- L2 -> L1 message, then settle ---");
+    messaging::send_l2_to_l1(&l3, handler).await?;
+    assertions::wait_for_settlement(&l2, &l3, bootstrap.piltover_address, Duration::from_secs(180))
+        .await?;
 
     println!("=== saya-tee e2e test PASSED ===");
     Ok(())

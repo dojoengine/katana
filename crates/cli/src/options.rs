@@ -322,16 +322,6 @@ impl StarknetOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Environment options")]
 pub struct EnvironmentOptions {
-    /// The chain ID.
-    ///
-    /// The chain ID. If a raw hex string (`0x` prefix) is provided, then it'd
-    /// used as the actual chain ID. Otherwise, it's represented as the raw
-    /// ASCII values. It must be a valid Cairo short string.
-    #[arg(long, conflicts_with = "chain")]
-    #[arg(value_parser = ChainId::parse)]
-    #[serde(default)]
-    pub chain_id: Option<ChainId>,
-
     /// The maximum number of steps available for the account validation logic.
     #[arg(long)]
     #[arg(default_value_t = DEFAULT_VALIDATION_MAX_STEPS)]
@@ -356,7 +346,6 @@ impl Default for EnvironmentOptions {
         EnvironmentOptions {
             validate_max_steps: DEFAULT_VALIDATION_MAX_STEPS,
             invoke_max_steps: DEFAULT_INVOCATION_MAX_STEPS,
-            chain_id: None,
             #[cfg(feature = "native")]
             compile_native: false,
         }
@@ -1187,4 +1176,168 @@ fn default_grpc_addr() -> IpAddr {
 #[cfg(all(feature = "server", feature = "grpc"))]
 fn default_grpc_port() -> u16 {
     katana_sequencer_node::config::grpc::DEFAULT_GRPC_PORT
+}
+
+const DEFAULT_MESSAGING_INTERVAL: u64 = 2;
+
+fn default_messaging_interval() -> u64 {
+    DEFAULT_MESSAGING_INTERVAL
+}
+
+/// Messaging service options.
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[command(next_help_heading = "Messaging options")]
+#[serde(default)]
+pub struct MessagingOptions {
+    /// Enable the messaging service.
+    ///
+    /// When enabled, Katana consumes L1 -> L2 messages from the settlement chain configured
+    /// on the chain spec. Requires the chain spec (loaded via `--chain` or assembled from
+    /// `--settlement.*` overrides) to define a settlement layer.
+    #[arg(long = "messaging.enabled", id = "messaging_enabled")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Polling interval for new settlement blocks, in seconds. Must be at least 1.
+    #[arg(long = "messaging.interval", value_name = "SECS")]
+    #[arg(default_value_t = DEFAULT_MESSAGING_INTERVAL)]
+    #[arg(value_parser = clap::value_parser!(u64).range(1..))]
+    #[serde(default = "default_messaging_interval")]
+    pub interval: u64,
+
+    /// Override the starting block on the settlement chain.
+    ///
+    /// Useful for replay / debugging. When set, takes precedence over the persisted
+    /// checkpoint and the chain spec's deployment block.
+    #[arg(long = "messaging.from-block", value_name = "N")]
+    #[serde(default)]
+    pub from_block: Option<u64>,
+}
+
+impl Default for MessagingOptions {
+    fn default() -> Self {
+        Self { enabled: false, interval: DEFAULT_MESSAGING_INTERVAL, from_block: None }
+    }
+}
+
+impl MessagingOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if !self.enabled {
+                self.enabled = other.enabled;
+            }
+            if self.interval == DEFAULT_MESSAGING_INTERVAL {
+                self.interval = other.interval;
+            }
+            if self.from_block.is_none() {
+                self.from_block = other.from_block;
+            }
+        }
+    }
+}
+
+/// Chain specification: where the chain spec file lives, plus per-field overrides for the
+/// settlement layer.
+///
+/// `path` points at a chain spec file (loaded via `--chain`). The `settlement_*` fields let
+/// users drop in an Ethereum (e.g. anvil) or Starknet endpoint without authoring a full chain
+/// spec file. When the active chain spec already has a settlement layer, only the supplied
+/// fields are overwritten — the rest of the layer is preserved. When the chain spec has no
+/// settlement, all three values must be supplied to construct a fresh one.
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[command(next_help_heading = "Chain spec")]
+#[serde(default)]
+pub struct ChainSpec {
+    /// Path to the chain configuration file.
+    #[arg(long = "chain", id = "chain", hide = true)]
+    #[arg(value_parser = crate::utils::parse_chain_config_dir)]
+    #[serde(skip)]
+    pub path: Option<katana_chain_spec::rollup::ChainConfigDir>,
+
+    /// The chain ID.
+    ///
+    /// If a raw hex string (`0x` prefix) is provided, it is used as the actual chain id.
+    /// Otherwise, it is interpreted as the raw ASCII values and must be a valid Cairo short
+    /// string. Mutually exclusive with `--chain` (a chain spec file already encodes its id).
+    #[arg(long = "chain-id", alias = "chain.id", conflicts_with = "chain")]
+    #[arg(value_parser = ChainId::parse)]
+    #[serde(default)]
+    pub chain_id: Option<ChainId>,
+
+    /// Settlement layer overrides.
+    #[command(flatten)]
+    #[serde(default)]
+    pub settlement: SettlementOptions,
+}
+
+impl ChainSpec {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.chain_id.is_none() {
+                self.chain_id = other.chain_id;
+            }
+            self.settlement.merge(Some(&other.settlement));
+            // `path` is intentionally not merged from TOML config — it's CLI-only.
+        }
+    }
+}
+
+/// The settlement chains Katana supports for messaging.
+///
+/// This is the type-level whitelist for the `--settlement.chain` CLI flag and the
+/// `[chain.settlement].chain` TOML key. Settlement chains outside this enum (e.g., the
+/// `Sovereign` variant of [`katana_chain_spec::SettlementLayer`]) are not supported by the
+/// messaging service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, Serialize, Deserialize)]
+#[clap(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum SettlementChainKind {
+    Ethereum,
+    Starknet,
+}
+
+/// Per-field overrides for the chain spec's settlement layer.
+///
+/// Set via `--settlement.*` CLI flags or under the `[chain.settlement]` section of the
+/// TOML config. When the active chain spec already has a settlement layer, only the supplied
+/// fields are overwritten — the rest of the layer is preserved. When the chain spec has no
+/// settlement, all three values must be supplied to construct a fresh one.
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct SettlementOptions {
+    /// Override the settlement chain type.
+    #[arg(long = "settlement.chain", id = "settlement_chain", value_name = "CHAIN")]
+    #[serde(default)]
+    pub chain: Option<SettlementChainKind>,
+
+    /// Override the settlement chain RPC URL.
+    #[arg(long = "settlement.rpc-url", id = "settlement_rpc_url", value_name = "URL")]
+    #[serde(default)]
+    pub rpc_url: Option<Url>,
+
+    /// Override the settlement core contract address.
+    #[arg(long = "settlement.core-contract", id = "settlement_core_contract", value_name = "ADDR")]
+    #[serde(default)]
+    pub core_contract: Option<String>,
+}
+
+impl SettlementOptions {
+    /// True if any settlement override field is set.
+    pub fn any_set(&self) -> bool {
+        self.chain.is_some() || self.rpc_url.is_some() || self.core_contract.is_some()
+    }
+
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.chain.is_none() {
+                self.chain = other.chain;
+            }
+            if self.rpc_url.is_none() {
+                self.rpc_url = other.rpc_url.clone();
+            }
+            if self.core_contract.is_none() {
+                self.core_contract = other.core_contract.clone();
+            }
+        }
+    }
 }

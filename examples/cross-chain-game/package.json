@@ -1,0 +1,16 @@
+{
+  "name": "cross-chain-game-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy:settlement": "bun run scripts/deploy-settlement.ts",
+    "deploy:appchain": "bun run scripts/deploy-appchain.ts"
+  },
+  "dependencies": {
+    "starknet": "8.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0"
+  }
+}

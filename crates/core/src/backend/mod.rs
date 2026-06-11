@@ -21,7 +21,7 @@ use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::api::trie::TrieWriter;
-use katana_provider::providers::EmptyStateProvider;
+use katana_provider::providers::{EmptyStateProvider, PreloadedStateProvider};
 use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
 use katana_trie::bonsai::databases::HashMapDb;
 use katana_trie::{
@@ -45,6 +45,8 @@ pub struct Backend<PF> {
     pub block_context_generator: RwLock<BlockContextGenerator>,
     pub executor_factory: Arc<dyn ExecutorFactory>,
     pub gas_oracle: GasPriceOracle,
+    /// When true, skip state trie computation during block production.
+    pub no_state_trie: bool,
 }
 
 impl<PF> std::fmt::Debug for Backend<PF> {
@@ -65,12 +67,14 @@ impl<PF> Backend<PF> {
         storage: PF,
         gas_oracle: GasPriceOracle,
         executor_factory: Arc<dyn ExecutorFactory>,
+        no_state_trie: bool,
     ) -> Self {
         Self {
             storage,
             chain_spec,
             gas_oracle,
             executor_factory,
+            no_state_trie,
             block_context_generator: RwLock::new(BlockContextGenerator::default()),
         }
     }
@@ -180,6 +184,7 @@ where
             transactions,
             &receipts,
             &mut execution_output.states.state_updates,
+            self.no_state_trie,
         )?;
 
         let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
@@ -290,12 +295,22 @@ where
         let block = chain_spec.block();
         let header = block.header.clone();
 
-        let mut executor =
-            self.executor_factory.executor(Box::new(EmptyStateProvider), BlockEnv::default());
+        // Pre-allocated genesis state — currently the STRK fee token at its canonical mainnet
+        // address. The executor needs to see this when processing the genesis transactions
+        // (they `transfer` from this contract); the same state is merged into the execution
+        // output below so it gets persisted alongside the tx-derived deltas.
+        let preallocated = chain_spec.state_updates();
+
+        let mut executor = self.executor_factory.executor(
+            Box::new(PreloadedStateProvider::new(EmptyStateProvider, preallocated.clone())),
+            BlockEnv::default(),
+        );
         executor.execute_block(block).context("failed to execute genesis block")?;
 
         let mut output =
             executor.take_execution_output().context("failed to get execution output")?;
+
+        merge_preallocated_state(&mut output.states, preallocated);
 
         let mut traces = Vec::with_capacity(output.transactions.len());
         let mut receipts = Vec::with_capacity(output.transactions.len());
@@ -358,6 +373,51 @@ where
     }
 }
 
+/// Folds a pre-allocated [`StateUpdatesWithClasses`] into the executor's output so both halves of
+/// the rollup genesis state are persisted together.
+///
+/// Pre-allocated entries win on collision: this matches the read order in
+/// [`katana_provider::providers::PreloadedStateProvider`] (overlay first, then inner), so the
+/// committed state reflects what the executor actually observed during execution. In practice the
+/// genesis transactions never deploy/declare/write into the pre-allocated address space, so
+/// collisions are not expected.
+fn merge_preallocated_state(
+    output_states: &mut StateUpdatesWithClasses,
+    mut preallocated: StateUpdatesWithClasses,
+) {
+    for (hash, class) in std::mem::take(&mut preallocated.classes) {
+        output_states.classes.entry(hash).or_insert(class);
+    }
+
+    let pre = preallocated.state_updates;
+    let out = &mut output_states.state_updates;
+
+    for (addr, hash) in pre.deployed_contracts {
+        out.deployed_contracts.entry(addr).or_insert(hash);
+    }
+    for (hash, compiled) in pre.declared_classes {
+        out.declared_classes.entry(hash).or_insert(compiled);
+    }
+    for hash in pre.deprecated_declared_classes {
+        out.deprecated_declared_classes.insert(hash);
+    }
+    for (addr, nonce) in pre.nonce_updates {
+        out.nonce_updates.entry(addr).or_insert(nonce);
+    }
+    for (addr, slots) in pre.storage_updates {
+        let entry = out.storage_updates.entry(addr).or_default();
+        for (k, v) in slots {
+            entry.entry(k).or_insert(v);
+        }
+    }
+    for (addr, hash) in pre.replaced_classes {
+        out.replaced_classes.entry(addr).or_insert(hash);
+    }
+    for (hash, compiled) in pre.migrated_compiled_classes {
+        out.migrated_compiled_classes.entry(hash).or_insert(compiled);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UncommittedBlock<'a, P: TrieWriter> {
     header: PartialHeader,
@@ -365,6 +425,7 @@ pub struct UncommittedBlock<'a, P: TrieWriter> {
     receipts: &'a [ReceiptWithTxHash],
     state_updates: &'a StateUpdates,
     provider: P,
+    no_state_trie: bool,
 }
 
 impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
@@ -374,8 +435,16 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
         receipts: &'a [ReceiptWithTxHash],
         state_updates: &'a StateUpdates,
         trie_provider: P,
+        no_state_trie: bool,
     ) -> Self {
-        Self { header, transactions, receipts, state_updates, provider: trie_provider }
+        Self {
+            header,
+            transactions,
+            receipts,
+            state_updates,
+            provider: trie_provider,
+            no_state_trie,
+        }
     }
 
     pub fn commit(self) -> SealedBlock {
@@ -527,6 +596,10 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
 
     // state_commitment = hPos("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
     fn compute_new_state_root(&self) -> Felt {
+        if self.no_state_trie {
+            return Felt::ZERO;
+        }
+
         let class_trie_root = self
             .provider
             .trie_insert_declared_classes(
@@ -601,10 +674,19 @@ fn commit_block<P: BlockHashProvider + TrieWriter>(
     transactions: Vec<TxWithHash>,
     receipts: &[ReceiptWithTxHash],
     state_updates: &mut StateUpdates,
+    no_state_trie: bool,
 ) -> Result<SealedBlock, BlockProductionError> {
     // Update special contract address 0x1
     update_block_hash_registry_contract(&provider, state_updates, header.number)?;
-    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider).commit())
+    Ok(UncommittedBlock::new(
+        header,
+        transactions,
+        receipts,
+        state_updates,
+        provider,
+        no_state_trie,
+    )
+    .commit())
 }
 
 fn commit_genesis_block(
@@ -614,7 +696,11 @@ fn commit_genesis_block(
     receipts: &[ReceiptWithTxHash],
     state_updates: &mut StateUpdates,
 ) -> Result<SealedBlock, BlockProductionError> {
-    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider).commit())
+    // Genesis always computes the state trie so the recomputed genesis hash
+    // matches the chain spec's stored hash; the runtime `no_state_trie` flag
+    // only applies to ongoing block production.
+    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider, false)
+        .commit())
 }
 
 #[derive(Debug)]

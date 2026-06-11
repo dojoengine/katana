@@ -1,0 +1,24 @@
+{
+  "settlement": {
+    "rpcUrl": "http://localhost:5050",
+    "explorer": "http://localhost:5050/explorer",
+    "torii": "http://localhost:8081",
+    "account": {
+      "address": "0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec",
+      "privateKey": "0xc5b2fcab997346f3ea1c00b002ecf6f382c5f9c9659a3894eb783c5320f912"
+    },
+    "piltover": "",
+    "scoreWorld": "",
+    "scoreSystem": "",
+    "storeWorld": "",
+    "storeSystem": ""
+  },
+  "appchain": {
+    "rpcUrl": "http://localhost:5051",
+    "explorer": "http://localhost:5051/explorer",
+    "torii": "http://localhost:8082",
+    "account": { "address": "", "privateKey": "" },
+    "gameWorld": "",
+    "gameSystem": ""
+  }
+}

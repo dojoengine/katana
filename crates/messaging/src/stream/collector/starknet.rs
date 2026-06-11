@@ -1,0 +1,361 @@
+use std::pin::Pin;
+
+use alloy_primitives::B256;
+use anyhow::Result;
+use futures::Future;
+use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::chain::ChainId;
+use katana_primitives::hash::StarkHash;
+use katana_primitives::transaction::L1HandlerTx;
+use katana_primitives::{hash, ContractAddress, Felt};
+use katana_rpc_types::event::{EmittedEvent, EventFilter};
+use katana_starknet::rpc::{StarknetRpcClient, StarknetRpcClientError};
+use starknet::macros::selector;
+use tracing::{debug, trace};
+use url::Url;
+
+use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
+use crate::LOG_TARGET;
+
+/// Errors produced by [`StarknetCollector`].
+#[derive(Debug, thiserror::Error)]
+pub enum StarknetCollectorError {
+    #[error("starknet provider error: {0}")]
+    Provider(#[from] StarknetRpcClientError),
+
+    /// A Starknet event was found whose shape didn't match the expected
+    /// `MessageSent` schema.
+    #[error("malformed settlement chain message: {0}")]
+    MalformedMessage(String),
+}
+
+/// TODO: This may come from the configuration.
+pub const MESSAGE_SENT_EVENT_KEY: Felt = selector!("MessageSent");
+
+/// Starknet settlement chain message collector.
+#[derive(Debug)]
+pub struct StarknetCollector {
+    provider: StarknetRpcClient,
+    messaging_contract_address: ContractAddress,
+}
+
+impl StarknetCollector {
+    pub fn new(rpc_url: Url, messaging_contract_address: ContractAddress) -> Result<Self> {
+        let provider = StarknetRpcClient::new(rpc_url);
+        Ok(Self { provider, messaging_contract_address })
+    }
+
+    async fn fetch_events(
+        provider: &StarknetRpcClient,
+        contract_address: ContractAddress,
+        from_block: BlockIdOrTag,
+        to_block: BlockIdOrTag,
+    ) -> Result<Vec<EmittedEvent>, StarknetRpcClientError> {
+        trace!(target: LOG_TARGET, from_block = ?from_block, to_block = ?to_block, "Fetching starknet events.");
+
+        let mut events = vec![];
+
+        let filter = EventFilter {
+            from_block: Some(from_block),
+            to_block: Some(to_block),
+            address: Some(contract_address),
+            keys: Some(vec![vec![MESSAGE_SENT_EVENT_KEY]]),
+        };
+
+        let chunk_size = 200;
+        let mut continuation_token: Option<String> = None;
+
+        loop {
+            let event_page =
+                provider.get_events(filter.clone(), continuation_token, chunk_size).await?;
+
+            event_page.events.into_iter().for_each(|event| {
+                if event.block_number.is_some() {
+                    events.push(event);
+                }
+            });
+
+            continuation_token = event_page.continuation_token;
+
+            if continuation_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(events)
+    }
+}
+
+impl MessageCollector for StarknetCollector {
+    type Error = StarknetCollectorError;
+
+    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Self::Error>> + Send + '_>> {
+        Box::pin(async { Ok(self.provider.block_number().await?.block_number) })
+    }
+
+    fn gather(
+        &self,
+        from_block: u64,
+        from_tx_index: u64,
+        to_block: u64,
+        chain_id: ChainId,
+    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Self::Error>> + Send + '_>> {
+        Box::pin(async move {
+            let mut messages: Vec<OrderedMessage> = Vec::new();
+
+            let events = Self::fetch_events(
+                &self.provider,
+                self.messaging_contract_address,
+                BlockIdOrTag::Number(from_block),
+                BlockIdOrTag::Number(to_block),
+            )
+            .await?;
+
+            // Starknet events don't carry a native tx index, so we assign one by
+            // counting `MessageSent` events scoped to each block.
+            let mut tx_index_in_block: std::collections::HashMap<u64, u64> =
+                std::collections::HashMap::new();
+
+            for e in events.iter() {
+                let Some(block) = e.block_number else { continue };
+                let tx_index = *tx_index_in_block.entry(block).or_insert(0);
+                tx_index_in_block.insert(block, tx_index + 1);
+
+                // Skip messages already processed on a previous run.
+                if block == from_block && tx_index < from_tx_index {
+                    continue;
+                }
+
+                debug!(target: LOG_TARGET, block, tx_index, "Converting event into L1HandlerTx.");
+
+                if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
+                    messages.push(OrderedMessage {
+                        block,
+                        tx_index,
+                        l1_tx_hash: e.transaction_hash.to_bytes_be(),
+                        tx,
+                    });
+                }
+            }
+
+            Ok(GatherResult { to_block, messages })
+        })
+    }
+}
+
+// --- Conversion functions ---
+
+fn l1_handler_tx_from_event(
+    event: &EmittedEvent,
+    chain_id: ChainId,
+) -> Result<L1HandlerTx, StarknetCollectorError> {
+    let keys = &event.event.keys;
+    let data = &event.event.data;
+
+    // Validate event shape before any indexing — the `MessageSent` schema requires
+    // exactly 4 keys (event_key, random_hash, from_address, to_address) and at least
+    // 3 data entries (selector, nonce, payload_length, ...payload).
+    if keys.len() != 4 {
+        return Err(StarknetCollectorError::MalformedMessage(format!(
+            "MessageSent event expected 4 keys, got {}",
+            keys.len()
+        )));
+    }
+    if data.len() < 3 {
+        return Err(StarknetCollectorError::MalformedMessage(format!(
+            "MessageSent event expected at least 3 data entries (selector, nonce, \
+             payload_length), got {}",
+            data.len()
+        )));
+    }
+
+    if keys[0] != MESSAGE_SENT_EVENT_KEY {
+        return Err(StarknetCollectorError::MalformedMessage(format!(
+            "MessageSent event key mismatch: expected {MESSAGE_SENT_EVENT_KEY:#x}, got {:#x}",
+            keys[0]
+        )));
+    }
+
+    let from_address = keys[2];
+    let to_address = keys[3];
+    let entry_point_selector = data[0];
+    let nonce = data[1];
+
+    let mut calldata = vec![from_address];
+    calldata.extend(&data[3..]);
+
+    let message_hash = compute_starknet_to_appchain_message_hash(
+        from_address,
+        to_address,
+        nonce,
+        entry_point_selector,
+        &calldata,
+    );
+
+    let message_hash = B256::from_slice(message_hash.to_bytes_be().as_slice());
+
+    Ok(L1HandlerTx {
+        nonce,
+        calldata,
+        chain_id,
+        message_hash,
+        paid_fee_on_l1: 30000_u128,
+        entry_point_selector,
+        version: Felt::ZERO,
+        contract_address: to_address.into(),
+    })
+}
+
+fn compute_starknet_to_appchain_message_hash(
+    from_address: Felt,
+    to_address: Felt,
+    nonce: Felt,
+    entry_point_selector: Felt,
+    payload: &[Felt],
+) -> Felt {
+    let mut buf: Vec<Felt> =
+        vec![from_address, to_address, nonce, entry_point_selector, Felt::from(payload.len())];
+
+    for p in payload {
+        buf.push(*p);
+    }
+
+    hash::Poseidon::hash_array(&buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use katana_primitives::utils::transaction::compute_l1_handler_tx_hash;
+    use katana_rpc_types::event::RawEvent;
+    use starknet::macros::felt;
+
+    use super::*;
+
+    #[test]
+    fn l1_handler_tx_from_event_parse_ok() {
+        let from_address = selector!("from_address");
+        let to_address = selector!("to_address");
+        let selector = selector!("selector");
+        let chain_id = ChainId::parse("KATANA").unwrap();
+        let nonce = Felt::ONE;
+        let calldata = vec![from_address, Felt::THREE];
+
+        let transaction_hash: Felt = compute_l1_handler_tx_hash(
+            Felt::ZERO,
+            to_address.into(),
+            selector,
+            &calldata,
+            chain_id.into(),
+            nonce,
+        );
+
+        let event = EmittedEvent {
+            from_address: felt!(
+                "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+            )
+            .into(),
+            event: RawEvent {
+                keys: vec![
+                    MESSAGE_SENT_EVENT_KEY,
+                    selector!("random_hash"),
+                    from_address,
+                    to_address,
+                ],
+                data: vec![selector, nonce, Felt::from(calldata.len() as u128), Felt::THREE],
+            },
+            block_hash: Some(selector!("block_hash")),
+            block_number: Some(0),
+            transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
+        };
+
+        let message_hash = compute_starknet_to_appchain_message_hash(
+            from_address,
+            to_address,
+            nonce,
+            selector,
+            &calldata,
+        );
+
+        let expected = L1HandlerTx {
+            nonce,
+            calldata,
+            chain_id,
+            message_hash: B256::from_slice(message_hash.to_bytes_be().as_slice()),
+            paid_fee_on_l1: 30000_u128,
+            version: Felt::ZERO,
+            entry_point_selector: selector,
+            contract_address: to_address.into(),
+        };
+
+        let tx = l1_handler_tx_from_event(&event, chain_id).unwrap();
+
+        assert_eq!(tx, expected);
+    }
+
+    #[test]
+    fn l1_handler_tx_from_event_parse_bad_selector() {
+        let from_address = selector!("from_address");
+        let to_address = selector!("to_address");
+        let selector = selector!("selector");
+        let nonce = Felt::ONE;
+        let calldata = [from_address, Felt::THREE];
+        let transaction_hash = Felt::ZERO;
+
+        let event = EmittedEvent {
+            from_address: felt!(
+                "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+            )
+            .into(),
+            event: RawEvent {
+                keys: vec![
+                    selector!("AnOtherUnexpectedEvent"),
+                    selector!("random_hash"),
+                    from_address,
+                    to_address,
+                ],
+                data: vec![selector, nonce, Felt::from(calldata.len() as u128), Felt::THREE],
+            },
+            block_hash: Some(selector!("block_hash")),
+            block_number: Some(0),
+            transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
+        };
+
+        let err = l1_handler_tx_from_event(&event, ChainId::default()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("event key mismatch"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn l1_handler_tx_from_event_parse_missing_key_data() {
+        let from_address = selector!("from_address");
+        let transaction_hash = Felt::ZERO;
+
+        let event = EmittedEvent {
+            from_address: felt!(
+                "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+            )
+            .into(),
+            event: RawEvent {
+                keys: vec![
+                    selector!("AnOtherUnexpectedEvent"),
+                    selector!("random_hash"),
+                    from_address,
+                ],
+                data: vec![],
+            },
+            block_hash: Some(selector!("block_hash")),
+            block_number: Some(0),
+            transaction_hash,
+            transaction_index: 0,
+            event_index: 0,
+        };
+
+        let err = l1_handler_tx_from_event(&event, ChainId::default()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("expected 4 keys"), "unexpected error: {msg}");
+    }
+}

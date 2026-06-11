@@ -1,6 +1,6 @@
 //! Starknet JSON-RPC specifications: <https://github.com/starkware-libs/starknet-specs>
 
-use jsonrpsee::core::RpcResult;
+use jsonrpsee::core::{RpcResult, SubscriptionResult};
 use jsonrpsee::proc_macros::rpc;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
@@ -18,9 +18,15 @@ use katana_rpc_types::broadcasted::{
 };
 use katana_rpc_types::class::{CasmClass, Class};
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
-use katana_rpc_types::message::MsgFromL1;
+use katana_rpc_types::message::{MessageStatus, MsgFromL1};
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::StateUpdate;
+// Used by the `#[subscription(item = ...)]` proc macro attribute.
+#[allow(unused_imports)]
+use katana_rpc_types::subscription::{
+    EmittedEventWithFinalityStatus, SubscriptionBlockHeader, TransactionStatusUpdate,
+    TxWithFinalityStatus,
+};
 use katana_rpc_types::trace::{
     SimulatedTransactionsResponse, TraceBlockTransactionsResponse, TxTrace,
 };
@@ -88,6 +94,20 @@ pub trait StarknetApi {
     /// dropped from it).
     #[method(name = "getTransactionStatus")]
     async fn get_transaction_status(&self, transaction_hash: TxHash) -> RpcResult<TxStatus>;
+
+    /// Returns the status of every L2 L1Handler transaction spawned from the given
+    /// settlement chain (L1) transaction. Returns an empty list if the L1 transaction
+    /// is unknown to this node, either because it hasn't been ingested yet or because
+    /// it never emitted any `MessageSent`/`LogMessageToL2` events.
+    ///
+    /// `transaction_hash` is the raw 32-byte L1 transaction hash. We use `B256` (not
+    /// `Felt`) because Ethereum L1 hashes can exceed STARK_PRIME and modular reduction
+    /// would corrupt the lookup key.
+    #[method(name = "getMessagesStatus")]
+    async fn get_messages_status(
+        &self,
+        transaction_hash: katana_primitives::B256,
+    ) -> RpcResult<Vec<MessageStatus>>;
 
     /// Get the details and status of a submitted transaction.
     #[method(name = "getTransactionByHash")]
@@ -248,4 +268,98 @@ pub trait StarknetApi {
         &self,
         block_id: ConfirmedBlockIdOrTag,
     ) -> RpcResult<TraceBlockTransactionsResponse>;
+}
+
+/// WebSocket Subscription API.
+///
+/// Spec: <https://github.com/starkware-libs/starknet-specs/blob/v0.9.0/api/starknet_ws_api.json>
+#[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
+#[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
+pub trait StarknetSubscriptionApi {
+    /// Subscribe to new block headers. Emits a [`SubscriptionBlockHeader`] for each new block.
+    ///
+    /// ## Parameters
+    ///
+    /// * `block_id` — Optional starting block for historical backfill. When provided, the server
+    ///   replays headers from that block up to the current tip before switching to live streaming.
+    #[subscription(
+        name = "subscribeNewHeads" => "subscriptionNewHeads",
+        unsubscribe = "unsubscribe",
+        item = SubscriptionBlockHeader
+    )]
+    async fn subscribe_new_heads(&self, block_id: Option<BlockIdOrTag>) -> SubscriptionResult;
+
+    /// Subscribe to emitted events. Emits an [`EmittedEventWithFinalityStatus`] for each matching
+    /// event.
+    ///
+    /// ## Parameters
+    ///
+    /// * `from_address` — If set, only events emitted by this contract address are delivered.
+    /// * `keys` — Positional key filter as defined by the Starknet spec. Each element is an array
+    ///   of acceptable values for that key position; an empty inner array means "any value" at that
+    ///   position. If the outer array is `None`, no key filtering is applied.
+    /// * `block_id` — Optional starting block for historical backfill (same semantics and limits as
+    ///   `subscribe_new_heads`).
+    #[subscription(
+        name = "subscribeEvents" => "subscriptionEvents",
+        unsubscribe = "unsubscribeEvents",
+        item = EmittedEventWithFinalityStatus
+    )]
+    async fn subscribe_events(
+        &self,
+        from_address: Option<ContractAddress>,
+        keys: Option<Vec<Vec<Felt>>>,
+        block_id: Option<BlockIdOrTag>,
+    ) -> SubscriptionResult;
+
+    /// Subscribe to status updates for a specific transaction. Emits a
+    /// [`TransactionStatusUpdate`] each time the transaction's finality or execution status
+    /// changes (e.g. `RECEIVED` → `ACCEPTED_ON_L2`).
+    ///
+    /// ## Parameters
+    ///
+    /// * `transaction_hash` — The hash of the transaction to track. The server immediately emits
+    ///   the current status if the transaction is already known (in the mempool or in storage),
+    ///   then continues to emit updates until the transaction reaches a final state.
+    #[subscription(
+        name = "subscribeTransactionStatus" => "subscriptionTransactionStatus",
+        unsubscribe = "unsubscribeTransactionStatus",
+        item = TransactionStatusUpdate
+    )]
+    async fn subscribe_transaction_status(&self, transaction_hash: TxHash) -> SubscriptionResult;
+
+    /// Subscribe to new transaction receipts. Emits a [`TxReceiptWithBlockInfo`] for each
+    /// transaction included in a new block.
+    ///
+    /// ## Parameters
+    ///
+    /// * `sender_address` — If set, only receipts for transactions sent by one of these addresses
+    ///   are delivered. The spec defines a `TOO_MANY_ADDRESSES_IN_FILTER` (code 67) error when the
+    ///   list is too large (server-enforced limit).
+    #[subscription(
+        name = "subscribeNewTransactionReceipts" => "subscriptionNewTransactionReceipts",
+        unsubscribe = "unsubscribeNewTransactionReceipts",
+        item = TxReceiptWithBlockInfo
+    )]
+    async fn subscribe_new_transaction_receipts(
+        &self,
+        sender_address: Option<Vec<ContractAddress>>,
+    ) -> SubscriptionResult;
+
+    /// Subscribe to new transactions. Emits a [`TxWithFinalityStatus`] for each transaction
+    /// included in a new block.
+    ///
+    /// ## Parameters
+    ///
+    /// * `sender_address` — If set, only transactions sent by one of these addresses are delivered.
+    ///   Same `TOO_MANY_ADDRESSES_IN_FILTER` (code 67) limit applies.
+    #[subscription(
+        name = "subscribeNewTransactions" => "subscriptionNewTransaction",
+        unsubscribe = "unsubscribeNewTransactions",
+        item = TxWithFinalityStatus
+    )]
+    async fn subscribe_new_transactions(
+        &self,
+        sender_address: Option<Vec<ContractAddress>>,
+    ) -> SubscriptionResult;
 }

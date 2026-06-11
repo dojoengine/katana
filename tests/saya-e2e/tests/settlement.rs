@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use piltover::ProgramInfo;
 use saya_e2e::{
     compose_up, env, get_facts_registry, get_program_info, provider, wait_for_settlement,
     ComposeGuard,
@@ -24,9 +25,13 @@ async fn test_program_info_and_fact_registry() {
     let provider = provider(&env::settlement_rpc_url());
     let piltover_address = env::piltover_address();
 
-    let program_info = get_program_info(&provider, piltover_address)
+    let program_info = match get_program_info(&provider, piltover_address)
         .await
-        .expect("failed to query piltover get_program_info");
+        .expect("failed to query piltover get_program_info")
+    {
+        ProgramInfo::StarknetOs(info) => info,
+        ProgramInfo::KatanaTee(_) => panic!("expected StarknetOs program info, got KatanaTee"),
+    };
 
     let facts_registry = get_facts_registry(&provider, piltover_address)
         .await

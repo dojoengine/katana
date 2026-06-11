@@ -18,7 +18,11 @@
 #   OVMF_FILE      - OVMF.fd firmware image
 #   KERNEL_FILE    - vmlinuz kernel image
 #   INITRD_FILE    - initrd.img initial ramdisk
-#   KERNEL_CMDLINE - "console=ttyS0"
+#   KERNEL_CMDLINE - "console=ttyS0" plus (for sealed storage):
+#                      KATANA_EXPECTED_LUKS_UUID=<uuid>
+#                    Sealed and unsealed variants produce different
+#                    measurements. Verifiers must pin the expected
+#                    cmdline variant.
 #
 # SEV-SNP guest configuration:
 #   GUEST_POLICY      - 0x30000 (SMT allowed, debug disabled)
@@ -44,22 +48,44 @@ set -euo pipefail
 
 usage() {
     echo "Usage: $0 [BOOT_COMPONENTS_DIR] [--katana-args CSV] [--no-start]"
+    echo "          [--data-disk PATH] [--luks-uuid UUID] [--unsealed]"
     echo ""
     echo "Starts a SEV-SNP VM and launches Katana asynchronously via control channel."
+    echo "Sealed storage is the default — the disk is wrapped in LUKS2 + dm-integrity"
+    echo "and unlocked inside the guest via SNP_GET_DERIVED_KEY."
     echo ""
     echo "Arguments:"
-    echo "  BOOT_COMPONENTS_DIR  Optional path containing OVMF.fd, vmlinuz, initrd.img"
+    echo "  BOOT_COMPONENTS_DIR   Optional path containing OVMF.fd, vmlinuz, initrd.img"
     echo ""
     echo "Options:"
-    echo "  --katana-args CSV    Comma-separated Katana CLI args sent after boot"
-    echo "  --no-start           Boot VM without sending Katana start command"
-    echo "  -h, --help           Show this help"
+    echo "  --katana-args CSV     Comma-separated Katana CLI args sent after boot"
+    echo "  --no-start            Boot VM without sending Katana start command"
+    echo "  --data-disk PATH      Persistent data disk file attached as /dev/sda"
+    echo "                        (default: ~/.katana/data.img, auto-created if absent)"
+    echo "                        A user-specified PATH must already exist."
+    echo "                        Env var: KATANA_DATA_DISK"
+    echo "  --luks-uuid UUID      Override the LUKS UUID used for sealed storage."
+    echo "                        Default: read from ~/.katana/luks-uuid, auto-generated"
+    echo "                        with uuidgen on first run and reused after. Stable per"
+    echo "                        host so the launch measurement is stable per host."
+    echo "                        Env var: KATANA_LUKS_UUID"
+    echo "  --unsealed            Skip sealed storage — boot with plain ext4 on /dev/sda."
+    echo "                        Used for dev iteration and CI runs without Docker. The"
+    echo "                        kernel cmdline does NOT carry KATANA_EXPECTED_LUKS_UUID,"
+    echo "                        which produces a different (and pinnable) launch"
+    echo "                        measurement from the canonical sealed boot."
+    echo "  -h, --help            Show this help"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOOT_DIR="${SCRIPT_DIR}/output/qemu"
 KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp"
 AUTO_START_KATANA=1
+DATA_DISK="${KATANA_DATA_DISK:-}"
+DATA_DISK_DEFAULT="${HOME}/.katana/data.img"
+LUKS_UUID="${KATANA_LUKS_UUID:-}"
+LUKS_UUID_FILE="${HOME}/.katana/luks-uuid"
+UNSEALED=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -74,6 +100,29 @@ while [[ $# -gt 0 ]]; do
 
         --no-start)
             AUTO_START_KATANA=0
+            shift
+            ;;
+
+        --data-disk)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --data-disk requires a value"
+                exit 1
+            }
+            DATA_DISK="$2"
+            shift 2
+            ;;
+
+        --luks-uuid)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --luks-uuid requires a value"
+                exit 1
+            }
+            LUKS_UUID="$2"
+            shift 2
+            ;;
+
+        --unsealed)
+            UNSEALED=1
             shift
             ;;
 
@@ -95,6 +144,41 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Sealed storage is canonical. Resolve the LUKS UUID unless the operator
+# explicitly opted out with --unsealed. Default: read from ~/.katana/luks-uuid,
+# generating with uuidgen on first run. This keeps the measurement stable per
+# host across boots while different operators get distinct UUIDs.
+#
+# UUIDs are normalised to lowercase before any persist/print/cmdline use:
+# macOS uuidgen emits uppercase, cryptsetup luksUUID always returns lowercase
+# at runtime, and the init does an exact string compare.
+if [[ "$UNSEALED" -eq 0 ]]; then
+    if [[ -z "$LUKS_UUID" ]]; then
+        if [[ -f "$LUKS_UUID_FILE" ]]; then
+            LUKS_UUID="$(tr -d '[:space:]' < "$LUKS_UUID_FILE")"
+            LUKS_UUID="$(printf '%s' "$LUKS_UUID" | tr '[:upper:]' '[:lower:]')"
+            echo "Reusing LUKS UUID from $LUKS_UUID_FILE: $LUKS_UUID"
+        else
+            command -v uuidgen >/dev/null 2>&1 \
+                || { echo "Error: uuidgen not found and no UUID provided"; exit 1; }
+            LUKS_UUID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+            mkdir -p "$(dirname "$LUKS_UUID_FILE")"
+            printf '%s\n' "$LUKS_UUID" > "$LUKS_UUID_FILE"
+            echo "Generated new LUKS UUID and stored at $LUKS_UUID_FILE: $LUKS_UUID"
+        fi
+    else
+        LUKS_UUID="$(printf '%s' "$LUKS_UUID" | tr '[:upper:]' '[:lower:]')"
+    fi
+
+    if [[ ! "$LUKS_UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        echo "Error: LUKS UUID must be canonical (e.g. from uuidgen): got '$LUKS_UUID'"
+        exit 1
+    fi
+elif [[ -n "$LUKS_UUID" ]]; then
+    echo "Error: --unsealed and --luks-uuid are mutually exclusive"
+    exit 1
+fi
 
 # ------------------------------------------------------------------------------
 # Launch measurement inputs (must match values documented above)
@@ -123,10 +207,24 @@ HOST_RPC_PORT=15051
 # Katana control channel
 CONTROL_PORT_NAME="org.katana.control.0"
 CONTROL_SOCKET="/tmp/katana-tee-vm-control.$$.sock"
-CONTROL_TIMEOUT=60
+# How long to wait for both (a) the guest's virtio-serial control port to be
+# ready and (b) Katana to report `running` after `start`. AMD's OVMF SEV fork
+# is built with DEBUG verbosity, and the serial-to-file backend serialises
+# every log line — clearing OVMF alone can take 60-90s on a cold boot before
+# the kernel even loads. First-boot sealed mode adds luksFormat on top.
+# Override via $KATANA_CONTROL_TIMEOUT for slow hosts or the rare hang.
+CONTROL_TIMEOUT="${KATANA_CONTROL_TIMEOUT:-300}"
 
-# VM data disk (required by init script)
-DISK_IMAGE="$(mktemp /tmp/katana-tee-vm-data.XXXXXX.img)"
+# VM data disk (required by init script). Persistent on host; NOT cleaned up
+# on exit. Sealed-mode guests treat the disk as LUKS-encrypted; unsealed
+# guests treat it as plain ext4.
+if [[ -z "$DATA_DISK" ]]; then
+    DATA_DISK="$DATA_DISK_DEFAULT"
+    CREATE_DEFAULT_DISK=1
+else
+    CREATE_DEFAULT_DISK=0
+fi
+DISK_IMAGE="$DATA_DISK"
 DISK_SIZE_MB=1024
 
 # Logs
@@ -142,7 +240,14 @@ send_control_command() {
     local cmd="$1"
     local response
 
-    response="$(printf '%s\n' "$cmd" | socat -t 2 -T 2 - UNIX-CONNECT:"$CONTROL_SOCKET" 2>/dev/null | head -n1 || true)"
+    # Keep stdin open for a window after the command. socat closes the write
+    # side of the unix socket as soon as stdin EOFs, and QEMU treats that as
+    # a full chardev disconnect — the guest's reply written to the virtio-
+    # serial port is then dropped before it can flow back. The delay gives
+    # the guest's read → handle → respond round-trip time to land before
+    # socat tears the connection down. 2s comfortably covers `start`, where
+    # the handler exec's /bin/katana in the background before responding.
+    response="$( { printf '%s\n' "$cmd"; sleep 2; } | socat -t 2 -T 4 - UNIX-CONNECT:"$CONTROL_SOCKET" 2>/dev/null | head -n1 || true)"
     [[ -n "$response" ]] || return 1
     echo "$response"
 }
@@ -173,7 +278,7 @@ cleanup() {
 
     [[ -f "$SERIAL_LOG" ]] && rm -f "$SERIAL_LOG"
     [[ -S "$CONTROL_SOCKET" ]] && rm -f "$CONTROL_SOCKET"
-    [[ -f "$DISK_IMAGE" ]] && rm -f "$DISK_IMAGE"
+    # NOTE: $DISK_IMAGE is persistent — not cleaned up.
 
     echo "=== Cleanup complete ==="
     exit "$exit_code"
@@ -212,12 +317,41 @@ for file in "$OVMF_FILE" "$KERNEL_FILE" "$INITRD_FILE"; do
     echo "  Found: $file ($(ls -lh "$file" | awk '{print $5}'))"
 done
 
-# Prepare required ext4 data disk for /dev/sda
+# Prepare data disk for /dev/sda.
+# ┌─ path exists? ─┬─ sealed mode? ─┬─ action ───────────────────────────┐
+# │  yes           │  yes / no      │  attach as-is                       │
+# │  no            │  no            │  dd + mkfs.ext4 (only for default) │
+# │  no            │  yes           │  dd only (guest luksFormat's it)   │
+# │  no + explicit │  any           │  error (operator must provision)   │
+# └────────────────┴────────────────┴─────────────────────────────────────┘
 echo ""
 echo "Preparing VM data disk..."
-dd if=/dev/zero of="$DISK_IMAGE" bs=1M count="$DISK_SIZE_MB" status=none
-mkfs.ext4 -F -q "$DISK_IMAGE"
-echo "  Disk image: $DISK_IMAGE (${DISK_SIZE_MB}MB, ext4)"
+if [[ ! -f "$DISK_IMAGE" ]]; then
+    if [[ "$CREATE_DEFAULT_DISK" -ne 1 ]]; then
+        echo "Error: --data-disk path does not exist: $DISK_IMAGE"
+        echo "  Provision the disk explicitly before booting, or drop --data-disk to use the default."
+        exit 1
+    fi
+    mkdir -p "$(dirname "$DISK_IMAGE")"
+    dd if=/dev/zero of="$DISK_IMAGE" bs=1M count="$DISK_SIZE_MB" status=none
+    if [[ -z "$LUKS_UUID" ]]; then
+        # Unsealed: put an ext4 fs on the raw disk directly.
+        mkfs.ext4 -F -q "$DISK_IMAGE"
+        echo "  Created: $DISK_IMAGE (${DISK_SIZE_MB}MB, plain ext4)"
+    else
+        # Sealed: leave raw; guest will luksFormat on first boot.
+        echo "  Created: $DISK_IMAGE (${DISK_SIZE_MB}MB, raw — guest will luksFormat on first boot)"
+    fi
+else
+    echo "  Reusing existing disk: $DISK_IMAGE"
+fi
+
+# Build the effective measured kernel command line. Adding the UUID produces
+# a different launch measurement from the unsealed boot; verifiers pin the
+# exact variant they expect.
+if [[ -n "$LUKS_UUID" ]]; then
+    KERNEL_CMDLINE="${KERNEL_CMDLINE} KATANA_EXPECTED_LUKS_UUID=${LUKS_UUID}"
+fi
 
 echo ""
 echo "Starting TEE QEMU VM..."
@@ -297,6 +431,35 @@ if [[ "$AUTO_START_KATANA" -eq 1 ]]; then
         fi
     done
     echo "Control socket ready"
+
+    # The host-side socket appears the moment QEMU starts, but the GUEST
+    # control loop is only ready after firmware → kernel → initrd boot.
+    # Probe with `status` until the guest answers (any non-empty response
+    # qualifies — `stopped exit=never` is the expected pre-start reply),
+    # then send `start`. Without this loop, the start command would race
+    # the boot and almost always lose, especially with sealed-mode first
+    # boot adding luksFormat on top of OVMF DEBUG verbosity.
+    echo ""
+    echo "Waiting for guest control loop..."
+    waited=0
+    while true; do
+        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "Error: QEMU process died before guest control loop was ready"
+            show_serial_tail
+            exit 1
+        fi
+        if [[ -n "$(send_control_command "status" || true)" ]]; then
+            echo "  Guest control loop is responding"
+            break
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        if [[ "$waited" -ge "$CONTROL_TIMEOUT" ]]; then
+            echo "Error: Timeout waiting for guest control loop"
+            show_serial_tail
+            exit 1
+        fi
+    done
 
     echo ""
     echo "Sending async Katana start command..."

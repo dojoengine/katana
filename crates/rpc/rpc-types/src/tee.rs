@@ -52,6 +52,11 @@ pub struct BlockAttestation {
     /// commitment is `Poseidon` over the individual message hashes in that range.
     pub messages_commitment: Felt,
 
+    /// Versioned Katana TEE environment config hash attested in `report_data`.
+    ///
+    /// Always non-zero in v1 — precomputed by the node from its chain spec.
+    pub katana_tee_config_hash: Felt,
+
     /// All L2→L1 messages emitted in the attested block range.
     pub l2_to_l1_messages: Vec<L2ToL1Message>,
 

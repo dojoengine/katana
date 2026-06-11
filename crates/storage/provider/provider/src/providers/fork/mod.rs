@@ -22,6 +22,10 @@ use katana_provider_api::block::{
     BlockWriter, HeaderProvider,
 };
 use katana_provider_api::env::BlockEnvProvider;
+use katana_provider_api::messaging::{
+    MessagingCheckpoint, MessagingCheckpointProvider, MessagingL1ToL2IndexProvider,
+    MessagingL1ToL2IndexWriter,
+};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
@@ -680,6 +684,32 @@ impl<Tx1: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1> {
 
     fn set_prune_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
         self.local_db.set_prune_checkpoint(id, block_number)
+    }
+}
+
+impl<Tx1: DbTxMut> MessagingCheckpointProvider for ForkedProvider<Tx1> {
+    fn messaging_checkpoint(&self, id: &str) -> ProviderResult<Option<MessagingCheckpoint>> {
+        self.local_db.messaging_checkpoint(id)
+    }
+
+    fn set_messaging_checkpoint(
+        &self,
+        id: &str,
+        checkpoint: &MessagingCheckpoint,
+    ) -> ProviderResult<()> {
+        self.local_db.set_messaging_checkpoint(id, checkpoint)
+    }
+}
+
+impl<Tx1: DbTx> MessagingL1ToL2IndexProvider for ForkedProvider<Tx1> {
+    fn l2_txs_for_l1(&self, l1_tx_hash: &[u8; 32]) -> ProviderResult<Vec<TxHash>> {
+        self.local_db.l2_txs_for_l1(l1_tx_hash)
+    }
+}
+
+impl<Tx1: DbTxMut> MessagingL1ToL2IndexWriter for ForkedProvider<Tx1> {
+    fn record_l1_to_l2(&self, l1_tx_hash: &[u8; 32], l2_tx_hash: TxHash) -> ProviderResult<()> {
+        self.local_db.record_l1_to_l2(l1_tx_hash, l2_tx_hash)
     }
 }
 

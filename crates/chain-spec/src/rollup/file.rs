@@ -359,6 +359,7 @@ mod tests {
                 id: ChainId::default(),
                 core_contract: ContractAddress::default(),
                 rpc_url: Url::parse("http://localhost:5050").expect("valid url"),
+                proof_kind: Default::default(),
             },
         }
     }
@@ -374,6 +375,37 @@ mod tests {
         assert_eq!(chain_spec.id, read_spec.id);
         assert_eq!(chain_spec.fee_contracts, read_spec.fee_contracts);
         assert_eq!(chain_spec.settlement, read_spec.settlement);
+    }
+
+    /// Pre-existing chain spec files (written before `proof_kind` existed) must still parse, with
+    /// the missing field defaulting to `ValidityProof`.
+    #[test]
+    fn settlement_starknet_proof_kind_defaults_when_missing() {
+        use crate::SettlementProofKind;
+
+        let toml = r#"
+[id]
+Id = "0x4b4154414e41"
+
+[fee-contract]
+strk = "0x0"
+
+[settlement.starknet]
+rpc_url = "http://localhost:5050/"
+core_contract = "0x0"
+block = 0
+
+[settlement.starknet.id]
+Id = "0x4b4154414e41"
+"#;
+
+        let parsed: super::ChainSpecFile = toml::from_str(toml).expect("parses without proof_kind");
+        match parsed.settlement {
+            crate::SettlementLayer::Starknet { proof_kind, .. } => {
+                assert_eq!(proof_kind, SettlementProofKind::ValidityProof);
+            }
+            _ => panic!("expected Starknet settlement"),
+        }
     }
 
     #[test]

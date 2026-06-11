@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Context, Result};
 use console::Style;
 use katana_chain_spec::rollup::ChainConfigDir;
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::{ChainSpec, SettlementLayer, SettlementProofKind};
 use katana_db::Db;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{
@@ -66,7 +66,7 @@ pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
 pub const DEFAULT_LOG_FILTER: &str =
     "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
      executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
-     messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,katana_stage::downloader=trace,\
+     messaging=trace,node=error,explorer=info,rpc=trace,pool=trace,katana_stage::downloader=trace,\
      katana_paymaster=trace,middleware::cartridge=trace,middleware::cartridge::vrf=trace,\
      rpc::cartridge=debug,info";
 
@@ -119,6 +119,7 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
             serde_json::json!({
                 "accounts": accounts.map(|a| serde_json::json!(a)).collect::<Vec<_>>(),
                 "seed": format!("{}", seed),
+                "settlement": chain.settlement(),
             })
         )
     } else {
@@ -140,6 +141,10 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
 
         print_genesis_contracts(chain, account_class_hash);
         print_genesis_accounts(accounts);
+
+        if let Some(settlement) = chain.settlement() {
+            print_settlement(settlement);
+        }
 
         println!(
             r"
@@ -203,6 +208,58 @@ PREDEPLOYED CONTRACTS
 | Contract        | Account Contract
 | Class Hash      | {hash:#064x}"
         )
+    }
+}
+
+fn print_settlement(settlement: &SettlementLayer) {
+    match settlement {
+        SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
+            println!(
+                r"
+
+SETTLEMENT
+==================
+
+| Settlement      | Ethereum
+| Chain ID        | {id}
+| RPC URL         | {rpc_url}
+| Account         | {account}
+| Core Contract   | {core_contract}
+| Deployed Block  | {block}"
+            );
+        }
+
+        SettlementLayer::Starknet { id, rpc_url, core_contract, block, proof_kind } => {
+            let proof_kind = match proof_kind {
+                SettlementProofKind::ValidityProof => "Validity Proof",
+                SettlementProofKind::Tee => "TEE",
+            };
+
+            println!(
+                r"
+
+SETTLEMENT
+==================
+
+| Settlement      | Starknet
+| Chain ID        | {id}
+| RPC URL         | {rpc_url}
+| Core Contract   | {core_contract}
+| Deployed Block  | {block}
+| Proof System    | {proof_kind}"
+            );
+        }
+
+        SettlementLayer::Sovereign { .. } => {
+            println!(
+                r"
+
+SETTLEMENT
+==================
+
+| Settlement      | Sovereign"
+            );
+        }
     }
 }
 

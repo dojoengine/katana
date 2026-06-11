@@ -18,7 +18,7 @@ Build scripts for creating TEE (Trusted Execution Environment) components to run
 # From repository root - builds everything (OVMF, kernel, katana, initrd)
 ./misc/AMDSEV/build.sh
 
-# Or with a pre-built katana binary (must be statically linked)
+# Or with a pre-built Linux glibc katana binary
 ./misc/AMDSEV/build.sh --katana /path/to/katana
 ```
 
@@ -26,9 +26,9 @@ Output is written to `misc/AMDSEV/output/qemu/`.
 
 ### Katana Binary
 
-If `--katana` is not provided, `build.sh` prompts for confirmation (`y/N`) before building a statically linked katana binary using musl libc via `scripts/build-musl.sh`.
+If `--katana` is not provided, `build.sh` prompts for confirmation (`y/N`) before building a normal dynamically linked Linux glibc binary via `scripts/build-gnu.sh`.
 
-**Important:** The initrd is minimal and contains no libc or shared libraries. Only statically linked binaries will work. If providing a custom binary with `--katana`, ensure it is statically linked (e.g., built with musl).
+For reproducibility, the initrd does not copy glibc or shared libraries from the build host. Instead, `build-initrd.sh` downloads the exact runtime `.deb` packages listed in `build-config`, verifies their SHA-256 checksums, then copies the ELF interpreter and the shared libraries declared by Katana with `readelf`. If providing a custom dynamic binary with `--katana`, build it against a glibc compatible with the pinned runtime and make sure any extra shared libraries it needs are covered by `GLIBC_RUNTIME_PACKAGES` and `GLIBC_RUNTIME_PACKAGE_SHA256S`.
 
 ## Scripts
 

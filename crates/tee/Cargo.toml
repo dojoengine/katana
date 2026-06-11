@@ -18,6 +18,8 @@ serde.workspace = true
 sev = { workspace = true, optional = true }
 sev-snp = { workspace = true, optional = true }
 thiserror.workspace = true
+tracing = { workspace = true, optional = true }
+zeroize = { workspace = true, optional = true }
 katana-tracing.workspace = true
 katana-starknet.workspace = true
 
@@ -43,8 +45,16 @@ tempfile.workspace = true
 
 [features]
 default = [  ]
-snp = [ "dep:bincode", "dep:sev-snp" ]
+snp = [ "dep:bincode", "dep:sev-snp", "dep:tracing", "dep:zeroize" ]
 # Exposes `MockAttester` and `AttesterKind::Mock` for use by integration test
 # crates that need to serve `tee_generateQuote` without real SEV-SNP hardware.
 # Not intended for production binaries.
-tee-mock = []
+mock = []
+
+# `snp-derivekey`: tiny standalone binary run once in the measured SEV-SNP initrd
+# to derive a 32-byte key from SNP_GET_DERIVED_KEY and emit it on stdout. Used by
+# the initrd's LUKS unseal flow. Only built when the `snp` feature is enabled.
+[[bin]]
+name = "snp-derivekey"
+path = "src/bin/derivekey.rs"
+required-features = [ "snp" ]

@@ -13,11 +13,13 @@ use katana_rpc_types::tee::{BlockAttestation, EventProofResponse};
 pub trait TeeApi {
     /// Generate a TEE attestation quote for the requested block state.
     ///
-    /// The quote includes a commitment to the requested block's state root
-    /// and block hash, allowing verifiers to cryptographically verify
-    /// that the state was attested from within a trusted execution environment.
+    /// The quote commits to the block's transition fields and to a versioned
+    /// `katana_tee_config_hash` that the node precomputes from its chain spec
+    /// at startup. Verifiers can recompute the same hash from on-chain config
+    /// and reject attestations bound to a different environment.
     ///
-    /// `prev_block_id` is optional and included in the response for transition-style flows.
+    /// `prev_block_id` is optional and included in the response for
+    /// transition-style flows; `None` is the genesis case.
     #[method(name = "generateQuote")]
     async fn generate_quote(
         &self,

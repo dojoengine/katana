@@ -161,50 +161,29 @@ impl<'a> TxWaiter<'a> {
         expected_finality_status: Option<FinalityStatus>,
         must_succeed: bool,
     ) -> Option<Result<TxReceiptWithBlockInfo, TxWaitingError>> {
-        match &receipt.block {
-            ReceiptBlockInfo::PreConfirmed { .. } => {
-                // pending receipt doesn't include finality status, so we cant check it.
-                if expected_finality_status.is_some() {
-                    return None;
-                }
-
-                if !must_succeed {
-                    return Some(Ok(receipt));
-                }
-
-                match execution_status_from_receipt(&receipt.receipt) {
-                    ExecutionResult::Succeeded => Some(Ok(receipt)),
-                    ExecutionResult::Reverted { reason } => {
-                        Some(Err(TxWaitingError::TransactionReverted(reason.clone())))
-                    }
-                }
+        // Phase 1: gate on finality status.
+        match (&receipt.block, expected_finality_status) {
+            // Pre-confirmed receipts have no finality status — keep waiting if one was requested.
+            (ReceiptBlockInfo::PreConfirmed { .. }, Some(_)) => return None,
+            // L2-final receipt while caller is waiting for L1 finality — keep waiting.
+            (ReceiptBlockInfo::Block { .. }, Some(FinalityStatus::AcceptedOnL1))
+                if finality_status_from_receipt(&receipt.receipt)
+                    == FinalityStatus::AcceptedOnL2 =>
+            {
+                return None
             }
+            _ => {}
+        }
 
-            ReceiptBlockInfo::Block { .. } => {
-                if let Some(expected_status) = expected_finality_status {
-                    match finality_status_from_receipt(&receipt.receipt) {
-                        FinalityStatus::AcceptedOnL2
-                            if expected_status == FinalityStatus::AcceptedOnL1 =>
-                        {
-                            None
-                        }
+        // Phase 2: gate on execution result, only when the caller required success.
+        if !must_succeed {
+            return Some(Ok(receipt));
+        }
 
-                        _ => {
-                            if !must_succeed {
-                                return Some(Ok(receipt));
-                            }
-
-                            match execution_status_from_receipt(&receipt.receipt) {
-                                ExecutionResult::Succeeded => Some(Ok(receipt)),
-                                ExecutionResult::Reverted { reason } => {
-                                    Some(Err(TxWaitingError::TransactionReverted(reason.clone())))
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Some(Ok(receipt))
-                }
+        match execution_status_from_receipt(&receipt.receipt) {
+            ExecutionResult::Succeeded => Some(Ok(receipt)),
+            ExecutionResult::Reverted { reason } => {
+                Some(Err(TxWaitingError::TransactionReverted(reason.clone())))
             }
         }
     }
@@ -341,6 +320,21 @@ mod tests {
     #[test]
     fn wait_for_no_finality_status() {
         let receipt = mock_receipt(AcceptedOnL2, Succeeded);
+        assert!(eval_receipt!(receipt.clone(), false).unwrap().is_ok());
+
+        // With must_succeed=true, a succeeded receipt resolves Ok.
+        let receipt = mock_receipt(AcceptedOnL2, Succeeded);
+        assert!(eval_receipt!(receipt.clone(), true).unwrap().is_ok());
+
+        // With must_succeed=true, a reverted receipt surfaces TransactionReverted — previously
+        // this case silently returned Ok because the must_succeed check was skipped when no
+        // expected finality status was provided.
+        let receipt = mock_receipt(AcceptedOnL2, Reverted { reason: Default::default() });
+        let evaluation = eval_receipt!(receipt.clone(), true).unwrap();
+        assert_matches!(evaluation, Err(TxWaitingError::TransactionReverted(_)));
+
+        // With must_succeed=false, a reverted receipt still resolves Ok.
+        let receipt = mock_receipt(AcceptedOnL2, Reverted { reason: Default::default() });
         assert!(eval_receipt!(receipt.clone(), false).unwrap().is_ok());
     }
 

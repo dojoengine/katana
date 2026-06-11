@@ -8,14 +8,12 @@ use alloy_primitives::U256;
 use anyhow::bail;
 use anyhow::{Context, Result};
 pub use clap::Parser;
-use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::ChainSpec;
 use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::{
     DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
 };
-use katana_messaging::MessagingConfig;
 use katana_sequencer_node::config::db::DbConfig;
 use katana_sequencer_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
 use katana_sequencer_node::config::execution::ExecutionConfig;
@@ -37,8 +35,8 @@ use tracing::info;
 use url::Url;
 
 use crate::file::NodeArgsConfig;
-use crate::options::*;
-use crate::utils::{self, parse_chain_config_dir, parse_seed, prompt_db_migration};
+use crate::options::{ChainSpec as ChainSpecArgs, *};
+use crate::utils::{self, parse_seed, prompt_db_migration};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
 
@@ -48,11 +46,6 @@ pub struct SequencerNodeArgs {
     /// Don't print anything on startup.
     #[arg(long)]
     pub silent: bool,
-
-    /// Path to the chain configuration file.
-    #[arg(long, hide = true)]
-    #[arg(value_parser = parse_chain_config_dir)]
-    pub chain: Option<ChainConfigDir>,
 
     /// Disable auto and interval mining, and mine on demand instead via an endpoint.
     #[arg(long)]
@@ -68,19 +61,17 @@ pub struct SequencerNodeArgs {
     #[arg(value_name = "TOTAL")]
     pub block_cairo_steps_limit: Option<u64>,
 
+    /// Disable state trie computation during block production.
+    ///
+    /// When set, block headers carry `state_root = 0` and no trie data is
+    /// written to the database. This skips a significant amount of work but
+    /// breaks state proofs (`pathfinder_getProof`) and changes block hashes.
+    #[arg(long)]
+    pub no_state_trie: bool,
+
     /// Configuration file
     #[arg(long)]
     pub config: Option<PathBuf>,
-
-    /// Configure the messaging with an other chain.
-    ///
-    /// Configure the messaging to allow Katana listening/sending messages on a
-    /// settlement chain that can be Ethereum or an other Starknet sequencer.
-    #[arg(long)]
-    #[arg(value_name = "PATH")]
-    #[arg(value_parser = katana_messaging::MessagingConfig::parse)]
-    #[arg(conflicts_with = "chain")]
-    pub messaging: Option<MessagingConfig>,
 
     #[arg(long = "l1.provider", value_name = "URL", alias = "l1-provider")]
     #[arg(help = "The Ethereum RPC provider to sample the gas prices from to enable the gas \
@@ -132,6 +123,12 @@ pub struct SequencerNodeArgs {
 
     #[command(flatten)]
     pub tee: TeeOptions,
+
+    #[command(flatten)]
+    pub chain: ChainSpecArgs,
+
+    #[command(flatten)]
+    pub messaging: MessagingOptions,
 
     #[cfg(all(feature = "server", feature = "grpc"))]
     #[command(flatten)]
@@ -352,7 +349,7 @@ impl SequencerNodeArgs {
         let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
-        let (chain, cs_messaging) = self.chain_spec()?;
+        let chain = self.chain_spec()?;
         let metrics = self.metrics_config();
         let gateway = self.gateway_config();
         #[cfg(all(feature = "server", feature = "grpc"))]
@@ -363,10 +360,7 @@ impl SequencerNodeArgs {
 
         let paymaster = self.paymaster_config(&chain)?;
 
-        // the `katana init` will automatically generate a messaging config. so if katana is run
-        // with `--chain` then the `--messaging` flag is not required. this is temporary and
-        // the messagign config will eventually be removed slowly.
-        let messaging = if cs_messaging.is_some() { cs_messaging } else { self.messaging.clone() };
+        let messaging = self.build_messaging_config(&chain)?;
 
         Ok(Config {
             db,
@@ -392,6 +386,7 @@ impl SequencerNodeArgs {
             block_time: self.block_time,
             no_mining: self.no_mining,
             block_cairo_steps_limit: self.block_cairo_steps_limit,
+            no_state_trie: self.no_state_trie,
         }
     }
 
@@ -457,18 +452,17 @@ impl SequencerNodeArgs {
         }
     }
 
-    fn chain_spec(&self) -> Result<(Arc<ChainSpec>, Option<MessagingConfig>)> {
-        if let Some(path) = &self.chain {
+    fn chain_spec(&self) -> Result<Arc<ChainSpec>> {
+        let mut chain_spec = if let Some(path) = &self.chain.path {
             let mut cs = katana_chain_spec::rollup::read(path)?;
             cs.genesis.sequencer_address = *DEFAULT_SEQUENCER_ADDRESS;
-            let messaging_config = MessagingConfig::from_chain_spec(&cs);
-            Ok((Arc::new(ChainSpec::Rollup(cs)), Some(messaging_config)))
+            ChainSpec::Rollup(cs)
         }
         // exclusively for development mode
         else {
             let mut chain_spec = katana_chain_spec::dev::DEV_UNALLOCATED.clone();
 
-            if let Some(id) = self.starknet.environment.chain_id {
+            if let Some(id) = self.chain.chain_id {
                 chain_spec.id = id;
             }
 
@@ -493,8 +487,68 @@ impl SequencerNodeArgs {
                 katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
             }
 
-            Ok((Arc::new(ChainSpec::Dev(chain_spec)), None))
+            ChainSpec::Dev(chain_spec)
+        };
+
+        apply_chain_overrides(&mut chain_spec, &self.chain)?;
+
+        Ok(Arc::new(chain_spec))
+    }
+
+    /// Build the messaging config from chain spec settlement + CLI options.
+    /// Returns None when `--messaging.enabled` is false. Errors when enabled but the
+    /// chain spec has no settlement layer.
+    fn build_messaging_config(
+        &self,
+        chain: &ChainSpec,
+    ) -> Result<Option<katana_messaging::MessagingConfig>> {
+        if !self.messaging.enabled {
+            return Ok(None);
         }
+        // The CLI value_parser rejects interval=0, but TOML config can still reach here with one.
+        // Catch it before we hand the value to the messenger (which would panic in
+        // `tokio::time::interval` construction).
+        if self.messaging.interval == 0 {
+            anyhow::bail!(
+                "messaging.interval must be at least 1 second (got 0); set a non-zero value via \
+                 --messaging.interval or the [messaging].interval TOML key"
+            );
+        }
+        let settlement = chain.settlement().ok_or_else(|| {
+            anyhow::anyhow!(
+                "--messaging.enabled requires a settlement layer. Provide one via --chain with a \
+                 chain spec that defines settlement, or --settlement.* override flags."
+            )
+        })?;
+        let (settlement_cfg, deployment_block) = match settlement {
+            katana_chain_spec::SettlementLayer::Ethereum {
+                rpc_url, core_contract, block, ..
+            } => (
+                katana_messaging::SettlementChainConfig::Ethereum {
+                    rpc_url: rpc_url.clone(),
+                    contract_address: *core_contract,
+                },
+                *block,
+            ),
+            katana_chain_spec::SettlementLayer::Starknet {
+                rpc_url, core_contract, block, ..
+            } => (
+                katana_messaging::SettlementChainConfig::Starknet {
+                    rpc_url: rpc_url.clone(),
+                    contract_address: *core_contract,
+                },
+                *block,
+            ),
+            katana_chain_spec::SettlementLayer::Sovereign { .. } => {
+                anyhow::bail!("sovereign settlement does not support messaging");
+            }
+        };
+        Ok(Some(katana_messaging::MessagingConfig {
+            settlement: settlement_cfg,
+            interval: self.messaging.interval,
+            from_block: self.messaging.from_block.unwrap_or(deployment_block),
+            confirmation_depth: 0,
+        }))
     }
 
     fn dev_config(&self) -> DevConfig {
@@ -734,6 +788,10 @@ impl SequencerNodeArgs {
             self.no_mining = config.no_mining.unwrap_or_default();
         }
 
+        if !self.no_state_trie {
+            self.no_state_trie = config.no_state_trie.unwrap_or_default();
+        }
+
         if self.block_time.is_none() {
             self.block_time = config.block_time;
         }
@@ -746,9 +804,8 @@ impl SequencerNodeArgs {
             }
         }
 
-        if self.messaging.is_none() {
-            self.messaging = config.messaging;
-        }
+        self.messaging.merge(config.messaging.as_ref());
+        self.chain.merge(config.chain.as_ref());
 
         #[cfg(feature = "server")]
         {
@@ -803,6 +860,172 @@ impl SequencerNodeArgs {
 
     fn tracer_config(&self) -> Option<katana_tracing::TracerConfig> {
         self.tracer.config()
+    }
+}
+
+/// Apply CLI / config-file settlement overrides on top of the loaded chain spec.
+///
+/// Behaviour:
+/// - If no overrides are set, this is a no-op.
+/// - When the chain spec already has a settlement layer (Rollup, or Dev/FullNode with `Some(...)`),
+///   supplied fields overwrite the corresponding fields. Unspecified fields are preserved from the
+///   existing layer.
+/// - When the chain spec has no settlement layer (Dev/FullNode with `None`), all three override
+///   fields (`settlement-chain`, `settlement-rpc-url`, `settlement-contract`) must be supplied to
+///   construct a fresh layer.
+/// - If overrides change the chain *type* (e.g. existing `Ethereum` plus `--settlement.chain
+///   starknet`), all three fields must be supplied — we cannot meaningfully reuse the previous
+///   fields across chain types.
+fn apply_chain_overrides(chain: &mut ChainSpec, overrides: &ChainSpecArgs) -> Result<()> {
+    if !overrides.settlement.any_set() {
+        return Ok(());
+    }
+
+    match chain {
+        ChainSpec::Dev(spec) => {
+            let settlement = match spec.settlement.take() {
+                Some(existing) => apply_partial_overrides(existing, overrides)?,
+                None => build_settlement_from_overrides(overrides)?,
+            };
+            spec.settlement = Some(settlement);
+        }
+        ChainSpec::FullNode(spec) => {
+            let settlement = match spec.settlement.take() {
+                Some(existing) => apply_partial_overrides(existing, overrides)?,
+                None => build_settlement_from_overrides(overrides)?,
+            };
+            spec.settlement = Some(settlement);
+        }
+        ChainSpec::Rollup(spec) => {
+            spec.settlement = apply_partial_overrides(spec.settlement.clone(), overrides)?;
+        }
+    }
+    Ok(())
+}
+
+/// Build a fresh [`katana_chain_spec::SettlementLayer`] from a fully-populated set of
+/// overrides. Errors if any of `settlement_chain`, `settlement_rpc_url`,
+/// `settlement_core_contract` is missing.
+///
+/// Note: when constructing fresh, certain fields are not configurable from the CLI:
+/// - Ethereum `id`: hardcoded to `1` (mainnet). Production rollups should use `--chain` with a
+///   chain spec that fills this in correctly.
+/// - Ethereum `account`: defaulted; not consumed by the messaging path.
+/// - Starknet `id`: defaulted to [`katana_primitives::chain::ChainId`] default (id = 0).
+/// - Starknet `proof_kind`: defaulted to `ValidityProof`.
+fn build_settlement_from_overrides(
+    overrides: &ChainSpecArgs,
+) -> Result<katana_chain_spec::SettlementLayer> {
+    use katana_chain_spec::{SettlementLayer, SettlementProofKind};
+    use katana_primitives::chain::ChainId;
+    use katana_primitives::ContractAddress;
+
+    let chain = overrides.settlement.chain.ok_or_else(|| {
+        anyhow::anyhow!(
+            "missing --settlement.chain; required to construct a settlement layer from overrides"
+        )
+    })?;
+    let rpc_url = overrides.settlement.rpc_url.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "missing --settlement.rpc-url; required to construct a settlement layer from overrides"
+        )
+    })?;
+    let contract = overrides.settlement.core_contract.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "missing --settlement.core-contract; required to construct a settlement layer from \
+             overrides"
+        )
+    })?;
+
+    match chain {
+        SettlementChainKind::Ethereum => {
+            let core_contract = contract.parse::<alloy_primitives::Address>().context(
+                "parse --settlement.core-contract as an Ethereum address (0x-prefixed hex)",
+            )?;
+
+            Ok(SettlementLayer::Ethereum {
+                id: 1, // Default to mainnet; non-default ids must come from a chain spec file.
+                rpc_url,
+                account: alloy_primitives::Address::default(),
+                core_contract,
+                block: 0,
+            })
+        }
+        SettlementChainKind::Starknet => {
+            let felt = katana_primitives::Felt::from_hex(contract).context(
+                "parse --settlement.core-contract as a Starknet contract address (0x-prefixed hex)",
+            )?;
+            Ok(SettlementLayer::Starknet {
+                id: ChainId::default(),
+                rpc_url,
+                core_contract: ContractAddress::new(felt),
+                block: 0,
+                proof_kind: SettlementProofKind::default(),
+            })
+        }
+    }
+}
+
+/// Apply per-field overrides on top of an existing [`SettlementLayer`].
+///
+/// If the override changes the chain type (Ethereum <-> Starknet), this defers to
+/// [`build_settlement_from_overrides`] which requires all three fields.
+fn apply_partial_overrides(
+    existing: katana_chain_spec::SettlementLayer,
+    overrides: &ChainSpecArgs,
+) -> Result<katana_chain_spec::SettlementLayer> {
+    use katana_chain_spec::SettlementLayer;
+    use katana_primitives::ContractAddress;
+
+    let target_chain = overrides.settlement.chain;
+
+    match (&existing, target_chain) {
+        // No chain-type change requested, or matches existing → patch fields in place.
+        (SettlementLayer::Ethereum { .. }, None | Some(SettlementChainKind::Ethereum)) => {
+            let SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } = existing
+            else {
+                unreachable!("matched on Ethereum variant above");
+            };
+
+            let rpc_url = overrides.settlement.rpc_url.clone().unwrap_or(rpc_url);
+            let core_contract = if let Some(addr) = &overrides.settlement.core_contract {
+                addr.parse::<alloy_primitives::Address>().context(
+                    "parse --settlement.core-contract as an Ethereum address (0x-prefixed hex)",
+                )?
+            } else {
+                core_contract
+            };
+
+            Ok(SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block })
+        }
+
+        (SettlementLayer::Starknet { .. }, None | Some(SettlementChainKind::Starknet)) => {
+            let SettlementLayer::Starknet { id, rpc_url, core_contract, block, proof_kind } =
+                existing
+            else {
+                unreachable!("matched on Starknet variant above");
+            };
+
+            let rpc_url = overrides.settlement.rpc_url.clone().unwrap_or(rpc_url);
+            let core_contract = if let Some(addr) = &overrides.settlement.core_contract {
+                let felt = katana_primitives::Felt::from_hex(addr).context(
+                    "parse --settlement.core-contract as a Starknet contract address (0x-prefixed \
+                     hex)",
+                )?;
+                ContractAddress::new(felt)
+            } else {
+                core_contract
+            };
+
+            Ok(SettlementLayer::Starknet { id, rpc_url, core_contract, block, proof_kind })
+        }
+
+        // Sovereign existing settlement: any override has to construct a non-Sovereign layer
+        // from scratch — all three fields required.
+        (SettlementLayer::Sovereign { .. }, _) => build_settlement_from_overrides(overrides),
+
+        // Chain type swap (Ethereum <-> Starknet): treat as constructing fresh.
+        _ => build_settlement_from_overrides(overrides),
     }
 }
 
@@ -1248,5 +1471,311 @@ explorer = true
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
         assert!(!config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
+    }
+
+    mod chain_overrides {
+        use katana_chain_spec::{dev, SettlementLayer, SettlementProofKind};
+        use katana_primitives::{eth_address, ContractAddress};
+
+        use super::*;
+
+        fn dev_with(settlement: Option<SettlementLayer>) -> ChainSpec {
+            let mut spec = dev::DEV_UNALLOCATED.clone();
+            spec.settlement = settlement;
+            ChainSpec::Dev(spec)
+        }
+
+        fn ethereum_layer() -> SettlementLayer {
+            SettlementLayer::Ethereum {
+                id: 1,
+                rpc_url: "http://eth.example:8545".parse().unwrap(),
+                account: alloy_primitives::Address::ZERO,
+                core_contract: eth_address!("0x0000000000000000000000000000000000000001"),
+                block: 100,
+            }
+        }
+
+        fn starknet_layer() -> SettlementLayer {
+            SettlementLayer::Starknet {
+                id: ChainId::SEPOLIA,
+                rpc_url: "http://sn.example:5050".parse().unwrap(),
+                core_contract: ContractAddress::new(Felt::from(0x1234u32)),
+                block: 42,
+                proof_kind: SettlementProofKind::ValidityProof,
+            }
+        }
+
+        fn overrides(
+            chain: Option<SettlementChainKind>,
+            rpc_url: Option<&str>,
+            core_contract: Option<&str>,
+        ) -> ChainSpecArgs {
+            ChainSpecArgs {
+                path: None,
+                chain_id: None,
+                settlement: SettlementOptions {
+                    chain,
+                    rpc_url: rpc_url.map(|s| s.parse().unwrap()),
+                    core_contract: core_contract.map(String::from),
+                },
+            }
+        }
+
+        fn dev_settlement(spec: ChainSpec) -> Option<SettlementLayer> {
+            match spec {
+                ChainSpec::Dev(s) => s.settlement,
+                other => panic!("expected Dev, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn noop_when_no_overrides_set() {
+            // No settlement on the spec stays no-settlement.
+            let mut spec = dev_with(None);
+            apply_chain_overrides(&mut spec, &overrides(None, None, None)).unwrap();
+            assert!(dev_settlement(spec).is_none());
+
+            // Existing settlement stays exactly equal (every field preserved).
+            let mut spec = dev_with(Some(ethereum_layer()));
+            apply_chain_overrides(&mut spec, &overrides(None, None, None)).unwrap();
+            assert_eq!(dev_settlement(spec), Some(ethereum_layer()));
+        }
+
+        #[test]
+        fn dev_with_no_settlement_and_all_three_builds_fresh_ethereum() {
+            let mut spec = dev_with(None);
+            let ovs = overrides(
+                Some(SettlementChainKind::Ethereum),
+                Some("http://eth.example:8545"),
+                Some("0x0000000000000000000000000000000000000123"),
+            );
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
+                // Defaulted fields when constructing from overrides.
+                assert_eq!(id, 1);
+                assert_eq!(account, alloy_primitives::Address::default());
+                assert_eq!(block, 0);
+                // Supplied fields.
+                assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
+                assert_eq!(core_contract, eth_address!("0x0000000000000000000000000000000000000123"));
+            });
+        }
+
+        #[test]
+        fn dev_with_no_settlement_and_all_three_builds_fresh_starknet() {
+            let mut spec = dev_with(None);
+            let o = overrides(
+                Some(SettlementChainKind::Starknet),
+                Some("http://sn.example:5050"),
+                Some("0x1234"),
+            );
+            apply_chain_overrides(&mut spec, &o).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet {
+                id, rpc_url, core_contract, block, proof_kind,
+            } => {
+                assert_eq!(id, ChainId::default());
+                assert_eq!(block, 0);
+                assert_eq!(proof_kind, SettlementProofKind::ValidityProof);
+                assert_eq!(rpc_url.as_str(), "http://sn.example:5050/");
+                assert_eq!(core_contract, ContractAddress::new(Felt::from(0x1234u32)));
+            });
+        }
+
+        #[test]
+        fn dev_with_no_settlement_errors_on_partial_overrides() {
+            // Case 1: Overriding settlement chain kind i.e., --settlement.chain only.
+
+            let mut spec = dev_with(None);
+            let ovs = overrides(Some(SettlementChainKind::Ethereum), None, None);
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            assert!(err.to_string().contains("missing --settlement.rpc-url"));
+
+            // Case 2: Overriding settlement rpc url i.e., --settlement.rpc-url only.
+
+            let mut spec = dev_with(None);
+            let ovs = overrides(None, Some("http://eth.example:8545"), None);
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            assert!(err.to_string().contains("missing --settlement.chain"));
+
+            // Case 3: Overriding settlement core contract i.e., --settlement.core-contract only.
+
+            let mut spec = dev_with(None);
+            let ovs = overrides(None, None, Some("0x1"));
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            assert!(err.to_string().contains("missing --settlement.chain"));
+        }
+
+        #[test]
+        fn dev_with_ethereum_settlement_partial_overrides() {
+            // Case 1: Overriding settlement rpc url i.e., --settlement.rpc-url only.
+
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(None, Some("http://other:8545"), None);
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
+                // Override applied.
+                assert_eq!(rpc_url.as_str(), "http://other:8545/");
+                // Original fields preserved.
+                assert_eq!(id, 1);
+                assert_eq!(account, alloy_primitives::Address::ZERO);
+                assert_eq!(core_contract, eth_address!("0x0000000000000000000000000000000000000001"));
+                assert_eq!(block, 100);
+            });
+
+            // Case 2: Overriding settlement core contract i.e., --settlement.core-contract only.
+
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(None, None, Some("0x000000000000000000000000000000000000beef"));
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, core_contract, block, .. } => {
+                // Override applied.
+                assert_eq!(core_contract, eth_address!("0x000000000000000000000000000000000000beef"));
+                // Other fields preserved.
+                assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
+                assert_eq!(block, 100);
+            });
+        }
+
+        #[test]
+        fn dev_with_starknet_settlement_partial_overrides() {
+            // Case 1: Overriding settlement rpc url i.e., --settlement.rpc-url only.
+
+            let mut spec = dev_with(Some(starknet_layer()));
+            let ovs = overrides(None, Some("http://other:5050"), None);
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet { id, rpc_url, core_contract, block, proof_kind } => {
+                assert_eq!(rpc_url.as_str(), "http://other:5050/");
+                // Original fields preserved.
+                assert_eq!(id, ChainId::SEPOLIA);
+                assert_eq!(core_contract, address!("0x1234"));
+                assert_eq!(block, 42);
+                assert_eq!(proof_kind, SettlementProofKind::ValidityProof);
+            });
+
+            // Case 2: Overriding settlement core contract i.e., --settlement.core-contract only.
+
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(None, None, Some("0x000000000000000000000000000000000000beef"));
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, core_contract, block, .. } => {
+                // Override applied.
+                assert_eq!(core_contract, eth_address!("0x000000000000000000000000000000000000beef"));
+                // Other fields preserved.
+                assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
+                assert_eq!(block, 100);
+            });
+        }
+
+        #[test]
+        fn dev_existing_ethereum_with_matching_chain_kind_still_patches() {
+            // Setting --settlement.chain to the current kind is allowed and behaves
+            // like a partial override (no fresh-construction requirement).
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs =
+                overrides(Some(SettlementChainKind::Ethereum), Some("http://other:8545"), None);
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, block, .. } => {
+                assert_eq!(rpc_url.as_str(), "http://other:8545/");
+                assert_eq!(block, 100);
+            });
+        }
+
+        #[test]
+        fn chain_swap_with_all_three_builds_fresh_layer() {
+            // Existing Ethereum + Starknet override with all three fields → fresh Starknet.
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(
+                Some(SettlementChainKind::Starknet),
+                Some("http://sn.example:5050"),
+                Some("0xabcd"),
+            );
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet { rpc_url, core_contract, block, .. } => {
+                assert_eq!(rpc_url.as_str(), "http://sn.example:5050/");
+                assert_eq!(core_contract, address!("0xabcd"));
+                // Block is reset because we built a fresh layer.
+                assert_eq!(block, 0);
+            });
+        }
+
+        #[test]
+        fn chain_swap_with_partial_overrides_errors() {
+            // Chain-type swap demands all three fields (cannot reuse fields across types).
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(Some(SettlementChainKind::Starknet), None, None);
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            assert!(err.to_string().contains("missing --settlement.rpc-url"));
+        }
+
+        #[test]
+        fn sovereign_settlement_requires_all_three_fields() {
+            let mut spec = dev_with(Some(SettlementLayer::Sovereign {}));
+            let ovs = overrides(Some(SettlementChainKind::Ethereum), None, None);
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            assert!(err.to_string().contains("missing --settlement.rpc-url"));
+        }
+
+        #[test]
+        fn sovereign_settlement_replaced_with_fresh_layer() {
+            let mut spec = dev_with(Some(SettlementLayer::Sovereign {}));
+            let ovs = overrides(
+                Some(SettlementChainKind::Ethereum),
+                Some("http://eth.example:8545"),
+                Some("0x0000000000000000000000000000000000000123"),
+            );
+            apply_chain_overrides(&mut spec, &ovs).unwrap();
+
+            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, block, rpc_url, core_contract, .. } => {
+                assert_eq!(id, 1);
+                assert_eq!(block, 0);
+                assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
+                assert_eq!(core_contract, eth_address!("0x0000000000000000000000000000000000000123"));
+            });
+        }
+
+        #[test]
+        fn invalid_ethereum_contract_address_errors() {
+            // Fresh-construction path.
+            let mut spec = dev_with(None);
+            let ovs = overrides(
+                Some(SettlementChainKind::Ethereum),
+                Some("http://eth.example:8545"),
+                Some("not-an-address"),
+            );
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+
+            assert!(err
+                .chain()
+                .any(|e| e.to_string().contains("parse --settlement.core-contract")));
+
+            // Partial-patch path on an existing Ethereum layer.
+            let mut spec = dev_with(Some(ethereum_layer()));
+            let ovs = overrides(None, None, Some("not-an-address"));
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+
+            assert!(err
+                .chain()
+                .any(|e| e.to_string().contains("parse --settlement.core-contract")));
+        }
+
+        #[test]
+        fn invalid_starknet_contract_address_errors() {
+            // Partial-patch path on an existing Starknet layer.
+            let mut spec = dev_with(Some(starknet_layer()));
+            let ovs = overrides(None, None, Some("not-a-felt"));
+            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+
+            assert!(err
+                .chain()
+                .any(|e| e.to_string().contains("parse --settlement.core-contract")));
+        }
     }
 }

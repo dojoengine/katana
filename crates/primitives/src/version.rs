@@ -36,6 +36,11 @@ impl StarknetVersion {
     pub const V0_13_2: Self = Self::new([0, 13, 2, 0]);
     /// Starknet version 0.13.4.
     pub const V0_13_4: Self = Self::new([0, 13, 4, 0]);
+    /// Starknet version 0.14.1.
+    ///
+    /// First release that requires `declare` transactions to commit to the Blake2s-based
+    /// compiled class hash; Poseidon-based hashes are rejected from this version onward.
+    pub const V0_14_1: Self = Self::new([0, 14, 1, 0]);
 }
 
 #[derive(Debug, thiserror::Error)]

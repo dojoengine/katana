@@ -180,6 +180,15 @@ impl StarknetApiError {
         self.to_string()
     }
 
+    /// Convert into a [`jsonrpsee::core::SubscriptionError`] preserving the structured
+    /// JSON-RPC error code and data (unlike the blanket `ToString` conversion).
+    pub fn into_subscription_error(self) -> jsonrpsee::core::SubscriptionError {
+        let err_obj = jsonrpsee::types::ErrorObjectOwned::from(self);
+        let raw = serde_json::value::to_raw_value(&err_obj)
+            .expect("ErrorObjectOwned is always serializable");
+        jsonrpsee::core::SubscriptionError::from_json(raw)
+    }
+
     /// Returns the error data.
     pub fn data(&self) -> Option<serde_json::Value> {
         match self {

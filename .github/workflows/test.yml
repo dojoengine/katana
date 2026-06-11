@@ -7,27 +7,35 @@ on:
             - "release/**"
         paths:
             - "Cargo.toml"
+            - "Cargo.lock"
             - "bin/**/*.rs"
             - "bin/**/Cargo.toml"
             - "crates/**/*.rs"
             - "crates/**/Cargo.toml"
             - "crates/explorer/**"
+            - "tests/**/*.rs"
+            - "tests/**/Cargo.toml"
             - ".gitmodules"
             - "Makefile"
             - ".github/workflows/test.yml"
+            - "!**/README.md"
 
     pull_request:
         types: [opened, synchronize, ready_for_review]
         paths:
             - "Cargo.toml"
+            - "Cargo.lock"
             - "bin/**/*.rs"
             - "bin/**/Cargo.toml"
             - "crates/**/*.rs"
             - "crates/**/Cargo.toml"
             - "crates/explorer/**"
+            - "tests/**/*.rs"
+            - "tests/**/Cargo.toml"
             - ".gitmodules"
             - "Makefile"
             - ".github/workflows/test.yml"
+            - "!**/README.md"
 
 # Cancel in progress workflow when a new one is triggered by running in a concurrency group
 # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs
@@ -57,10 +65,13 @@ jobs:
                   filters: |
                       broader-rust:
                         - 'Cargo.toml'
+                        - 'Cargo.lock'
                         - 'bin/**/*.rs'
                         - 'bin/**/Cargo.toml'
                         - 'crates/**/*.rs'
                         - 'crates/**/Cargo.toml'
+                        - 'tests/**/*.rs'
+                        - 'tests/**/Cargo.toml'
                         - '!crates/explorer/**'
                         - '.github/workflows/test.yml'
 
@@ -286,7 +297,15 @@ jobs:
               run: ./scripts/clippy.sh
 
     test:
-        needs: [detect-changes, fmt, clippy, generate-test-artifacts, build-katana-binary-ubuntu, build-katana-binary-macos]
+        needs:
+            [
+                detect-changes,
+                fmt,
+                clippy,
+                generate-test-artifacts,
+                build-katana-binary-ubuntu,
+                build-katana-binary-macos,
+            ]
         runs-on: ${{ matrix.runner }}
         timeout-minutes: ${{ matrix.os == 'macos' && 60 || 30 }}
         strategy:
@@ -346,6 +365,8 @@ jobs:
             - name: Install Foundry (macOS)
               if: matrix.os == 'macos'
               uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: v1.7.1
 
             - name: Download test artifacts
               uses: actions/download-artifact@v5
@@ -608,7 +629,6 @@ jobs:
     saya-tee-e2e:
         needs: [detect-changes, fmt, clippy, generate-test-artifacts]
         runs-on: ubuntu-latest-32-cores
-        timeout-minutes: 45
         if: |
             needs.detect-changes.outputs.broader-rust == 'true' &&
             (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
@@ -637,7 +657,7 @@ jobs:
             - name: Clone Saya repository
               run: |
                   git clone https://github.com/dojoengine/saya /tmp/saya
-                  git -C /tmp/saya checkout 5a3b8c9
+                  git -C /tmp/saya checkout v0.4.1
 
             - uses: software-mansion/setup-scarb@v1
               with:

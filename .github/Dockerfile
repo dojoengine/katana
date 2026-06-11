@@ -117,10 +117,12 @@ ENV PATH="$ASDF_DATA_DIR/shims:$PATH"
 # - 2.8.2: main contracts
 # - 2.11.4: AVNU contracts
 # - 2.12.2: VRF contracts
+# - 2.13.1: Piltover submodule (cartridge-gg/piltover#feat/tee-persistent)
 RUN asdf plugin add scarb && \
 	asdf install scarb 2.8.2 && \
 	asdf install scarb 2.11.4 && \
 	asdf install scarb 2.12.2 && \
+	asdf install scarb 2.13.1 && \
 	asdf set scarb 2.8.2
 
 # Install sozo via asdf

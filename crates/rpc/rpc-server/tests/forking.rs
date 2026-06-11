@@ -439,7 +439,7 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
     let forked_events = result.events;
 
     let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap())?;
-    assert_matches!(token, MaybeForkedContinuationToken::Token(_));
+    assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
 
     for (a, b) in events.iter().zip(forked_events) {
         assert_eq!(a.block_number, Some(FORK_BLOCK_NUMBER));
@@ -496,6 +496,44 @@ async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) {
         assert_eq!(a.event.keys, b.event.keys);
         assert_eq!(a.event.data, b.event.data);
     }
+}
+
+// Regression test for the upstream-forwarding path in `events_inner` on
+// forked chains. A `getEvents(from=0, to=latest)` query that overlaps the
+// pre-fork range MUST be forwarded to the upstream RPC as a single
+// `starknet_getEvents` call. A regressed implementation that walks every
+// pre-fork block locally would issue ~268K single-block upstream calls for
+// this fixture, taking hours; the upstream-forwarding path completes in
+// at most a few round-trips. A 60-second wall-clock budget catches the
+// regression cleanly without flaking on healthy CI.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_events_from_zero_does_not_walk_pre_fork_blocks() -> Result<()> {
+    let (_sequencer, provider, _) = setup_test().await;
+
+    let filter = EventFilter {
+        keys: None,
+        address: None,
+        to_block: Some(BlockIdOrTag::PreConfirmed),
+        from_block: Some(BlockIdOrTag::Number(0)),
+    };
+
+    let budget = std::time::Duration::from_secs(60);
+    let result =
+        tokio::time::timeout(budget, provider.get_events(filter, None, 100)).await.expect(
+            "getEvents(from=0) on a forked chain should complete in under 60s. If this test times \
+             out, the upstream-forwarding path in events_inner has likely regressed back to \
+             per-block iteration over the pre-fork range.",
+        )?;
+
+    // A silent empty result would mean upstream forwarding was skipped without
+    // falling through to local iteration — also a regression.
+    assert!(
+        !result.events.is_empty(),
+        "expected upstream-forwarded events query to return at least one event from the pre-fork \
+         range"
+    );
+
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -641,7 +679,7 @@ async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: B
     let katana_events = result.events;
 
     let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap()).unwrap();
-    assert_matches!(token, MaybeForkedContinuationToken::Token(_));
+    assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
     similar_asserts::assert_eq!(katana_events, forked_events);
 }
 

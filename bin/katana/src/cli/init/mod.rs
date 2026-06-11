@@ -61,17 +61,18 @@ use std::str::FromStr;
 use anyhow::Context;
 use clap::{Args, Subcommand};
 use deployment::DeploymentOutcome;
-use katana_chain_spec::rollup::{ChainConfigDir, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
-use katana_chain_spec::{rollup, FeeContracts, SettlementLayer};
+use katana_chain_spec::rollup::ChainConfigDir;
+use katana_chain_spec::settlement_check::SettlementChainProvider;
+use katana_chain_spec::{rollup, FeeContracts, SettlementLayer, SettlementProofKind};
 use katana_cli::utils::ShortStringValueParser;
+use katana_contracts::piltover::AppchainCoreContract;
 use katana_genesis::allocation::DevAllocationsGenerator;
-use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 use katana_genesis::Genesis;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt, U256};
-use settlement::SettlementChainProvider;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::providers::Provider;
 use starknet::signers::SigningKey;
@@ -79,7 +80,6 @@ use url::Url;
 
 mod deployment;
 mod prompt;
-mod settlement;
 #[cfg(feature = "init-slot")]
 mod slot;
 
@@ -245,36 +245,96 @@ impl RollupArgs {
             prompt::prompt_rollup().await?
         };
 
+        let proof_kind = if output.proof_impl.is_tee() {
+            SettlementProofKind::Tee
+        } else {
+            SettlementProofKind::ValidityProof
+        };
+
         let settlement = SettlementLayer::Starknet {
             rpc_url: output.rpc_url.clone(),
             id: ChainId::parse(&output.settlement_id)?,
             block: output.deployment_outcome.block_number,
             core_contract: output.deployment_outcome.contract_address,
+            proof_kind,
         };
 
         let id = ChainId::parse(&output.id)?;
 
+        // Rollups are Cartridge Controller–ready by default: seed 3 dev accounts because
+        // the Cartridge paymaster sidecar reserves accounts 0/1/2 (relayer, gas tank,
+        // estimate) — with fewer, its bootstrap aborts.
         #[cfg_attr(not(feature = "init-slot"), allow(unused_mut))]
-        let mut genesis = generate_genesis();
+        let mut genesis = generate_genesis(3);
         #[cfg(feature = "init-slot")]
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
+        // Declare the Controller account classes so a Cartridge Controller can be
+        // deployed/used on this chain (same helper the `--dev` path uses).
+        katana_slot_controller::add_controller_classes(&mut genesis);
 
-        // At the moment, the fee token is limited to a predefined token.
+        // STRK is pre-allocated by rollup::ChainSpec::state_updates at the canonical Starknet
+        // mainnet address. ETH mirrors STRK on rollup — the on-disk config keeps only one address
+        // (see FileFeeContract).
         let fee_contracts = FeeContracts {
-            eth: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
-            strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
+            eth: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
+            strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
 
         let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
 
-        if let Some(path) = self.output_path {
-            let dir = ChainConfigDir::create(path)?;
-            rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
-        } else {
+        let dir = match &self.output_path {
+            Some(path) => ChainConfigDir::create(path)?,
             // Write to the local chain config directory by default if user
             // doesn't specify the output path
-            rollup::write_local(&chain_spec).context("failed to write chain spec file")?;
+            None => ChainConfigDir::create_local(&chain_spec.id)?,
+        };
+        rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
+
+        // ----- Print initialization summary -----
+
+        println!(
+            r"
+CHAIN
+=====
+
+| Chain ID        | {chain_id} ({chain_id_felt:#x})
+| Config file     | {config_path}
+| Genesis file    | {genesis_path}
+
+
+SETTLEMENT LAYER
+================
+
+| Proof category  | {proof_category}
+| Proof type      | {proof_implementation}
+| Chain ID        | {settlement_id} ({settlement_id_felt:#x})
+| RPC URL         | {rpc_url}
+| Core contract   | {core_contract}
+| Deployed block  | #{deployed_block}
+| Fact registry   | {fact_registry:#066x}
+| Config hash     | {config_hash:#066x}",
+            chain_id = output.id,
+            chain_id_felt = Felt::from(output.id),
+            config_path = dir.config_path().display(),
+            genesis_path = dir.genesis_path().display(),
+            proof_category = output.proof_impl.category_label(),
+            proof_implementation = output.proof_impl.implementation_label(),
+            settlement_id = output.settlement_id,
+            settlement_id_felt = Felt::from(output.settlement_id),
+            rpc_url = output.rpc_url,
+            core_contract = output.deployment_outcome.contract_address,
+            deployed_block = output.deployment_outcome.block_number,
+            fact_registry = output.effective_fact_registry,
+            config_hash = output.deployment_outcome.config_hash,
+        );
+
+        // Only show the Piltover class hash when we actually declared/deployed it ourselves.
+        // For --settlement-contract (user-supplied), check_program_info validates program info
+        // but not the on-chain class hash, so printing it would risk misleading the operator.
+        if output.deployment_outcome.class_declared {
+            println!("| Class hash      | {:#066x} (declared this run)", AppchainCoreContract::HASH);
         }
+        println!();
 
         Ok(())
     }
@@ -344,16 +404,17 @@ impl RollupArgs {
             let chain_id = Felt::from(id);
 
             let deployment_outcome = if let Some(contract) = self.settlement_contract {
-                match deployment::check_program_info(
+                let config_hash = match deployment::check_program_info(
                     chain_id,
                     contract,
                     &settlement_provider,
                     effective_fact_registry,
+                    self.tee,
                 )
                 .await
                 .with_context(|| "settlement contract validation failed.".to_string())
                 {
-                    Ok(..) => (),
+                    Ok(hash) => hash,
                     Err(err) => return Some(Err(err)),
                 };
 
@@ -362,6 +423,8 @@ impl RollupArgs {
                     block_number: self
                         .settlement_contract_deployed_block
                         .expect("must exist at this point"),
+                    class_declared: false,
+                    config_hash,
                 }
             }
             // If settlement contract is not provided, then we will deploy it.
@@ -378,6 +441,7 @@ impl RollupArgs {
                     account,
                     chain_id,
                     effective_fact_registry,
+                    self.tee,
                 )
                 .await
                 .with_context(|| "failed to deploy settlement contract".to_string())
@@ -387,11 +451,16 @@ impl RollupArgs {
                 }
             };
 
+            let proof_impl =
+                if self.tee { ProofImpl::AmdSevSnpSp1Groth16 } else { ProofImpl::Stark };
+
             Some(Ok(PersistentOutcome {
                 id,
                 deployment_outcome,
                 rpc_url: settlement_provider.url().clone(),
                 settlement_id: ShortString::try_from(l1_chain_id).unwrap(),
+                effective_fact_registry,
+                proof_impl,
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
             }))
@@ -414,27 +483,43 @@ impl SovereignArgs {
         let id = ChainId::parse(&output.id)?;
 
         #[cfg_attr(not(feature = "init-slot"), allow(unused_mut))]
-        let mut genesis = generate_genesis();
+        let mut genesis = generate_genesis(1);
         #[cfg(feature = "init-slot")]
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
 
-        // At the moment, the fee token is limited to a predefined token.
-        // At the moment, the fee token is limited to a predefined token.
+        // STRK is pre-allocated by rollup::ChainSpec::state_updates at the canonical Starknet
+        // mainnet address. ETH mirrors STRK on rollup — the on-disk config keeps only one address
+        // (see FileFeeContract).
         let fee_contracts = FeeContracts {
-            eth: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
-            strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
+            eth: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
+            strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
 
         let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
 
-        if let Some(path) = self.output_path {
-            let dir = ChainConfigDir::create(path)?;
-            rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
-        } else {
-            // Write to the local chain config directory by default if user
-            // doesn't specify the output path
-            rollup::write_local(&chain_spec).context("failed to write chain spec file")?;
-        }
+        let dir = match &self.output_path {
+            Some(path) => ChainConfigDir::create(path)?,
+            None => ChainConfigDir::create_local(&chain_spec.id)?,
+        };
+        rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
+
+        // ----- Print initialization summary -----
+
+        println!(
+            r"
+CHAIN
+=====
+
+| Chain ID        | {chain_id} ({chain_id_felt:#x})
+| Mode            | Sovereign
+| Config file     | {config_path}
+| Genesis file    | {genesis_path}
+",
+            chain_id = output.id,
+            chain_id_felt = Felt::from(output.id),
+            config_path = dir.config_path().display(),
+            genesis_path = dir.genesis_path().display(),
+        );
 
         Ok(())
     }
@@ -470,8 +555,47 @@ struct PersistentOutcome {
 
     pub deployment_outcome: DeploymentOutcome,
 
+    /// The fact registry address that was wired into the Piltover core contract via
+    /// `set_facts_registry(...)`. In ZK mode this is the Herodotus Atlantic integrity contract;
+    /// in TEE mode it is the `IAMDTeeRegistry` contract.
+    pub effective_fact_registry: Felt,
+
+    /// The proof implementation the chain was initialized with. Sourced from `--tee` for the
+    /// CLI-flag path and from the interactive proof-mode + variant prompts for the prompt path.
+    pub proof_impl: ProofImpl,
+
     #[cfg(feature = "init-slot")]
     pub slot_paymasters: Option<Vec<slot::PaymasterAccountArgs>>,
+}
+
+/// A specific proof implementation. Each variant belongs to one of the two top-level proof
+/// categories — Validity Proof or TEE — exposed via [`ProofImpl::category_label`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProofImpl {
+    /// STARK proofs verified via Herodotus Atlantic on the settlement chain.
+    Stark,
+    /// AMD SEV-SNP attestations verified via SP1 Groth16 in the IAMDTeeRegistry contract.
+    AmdSevSnpSp1Groth16,
+}
+
+impl ProofImpl {
+    pub(super) fn category_label(self) -> &'static str {
+        match self {
+            Self::Stark => "Validity Proof",
+            Self::AmdSevSnpSp1Groth16 => "TEE",
+        }
+    }
+
+    pub(super) fn implementation_label(self) -> &'static str {
+        match self {
+            Self::Stark => "STARK (Atlantic)",
+            Self::AmdSevSnpSp1Groth16 => "AMD SEV-SNP + SP1 Groth16",
+        }
+    }
+
+    pub(super) fn is_tee(self) -> bool {
+        matches!(self, Self::AmdSevSnpSp1Groth16)
+    }
 }
 
 /// Selects the fact-registry address that Piltover's `set_facts_registry(...)` will be wired to,
@@ -498,8 +622,8 @@ fn resolve_effective_fact_registry(
     }
 }
 
-fn generate_genesis() -> Genesis {
-    let accounts = DevAllocationsGenerator::new(1)
+fn generate_genesis(num_accounts: u16) -> Genesis {
+    let accounts = DevAllocationsGenerator::new(num_accounts)
         .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
         .generate();
     let mut genesis = Genesis::default();

@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use katana_db::abstraction::Database;
 use katana_fork::Backend;
@@ -97,6 +98,14 @@ pub trait ProviderFactory: Send + Sync + Debug + 'static {
 
     fn provider(&self) -> Self::Provider;
     fn provider_mut(&self) -> Self::ProviderMut;
+
+    /// Returns the upstream RPC client and fork block number when this factory
+    /// is forked. RPC handlers that iterate ranges (e.g. `starknet_getEvents`)
+    /// use this to forward pre-fork-range queries directly to the upstream
+    /// chain instead of walking every pre-fork block locally.
+    fn fork_handle(&self) -> Option<(Arc<StarknetClient>, BlockNumber)> {
+        None
+    }
 }
 
 #[auto_impl::auto_impl(Box)]
@@ -145,16 +154,18 @@ pub struct ForkProviderFactory {
     block_id: BlockNumber,
     fork_factory: DbProviderFactory,
     local_factory: DbProviderFactory,
+    starknet_client: Arc<StarknetClient>,
 }
 
 impl ForkProviderFactory {
     pub fn new(db: katana_db::Db, block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
-        let backend = Backend::new(starknet_client).expect("failed to create backend");
+        let starknet_client = Arc::new(starknet_client);
+        let backend = Backend::new((*starknet_client).clone()).expect("failed to create backend");
 
         let local_factory = DbProviderFactory::new(db);
         let fork_factory = DbProviderFactory::new_in_memory();
 
-        Self { local_factory, fork_factory, backend, block_id }
+        Self { local_factory, fork_factory, backend, block_id, starknet_client }
     }
 
     pub fn new_in_memory(block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
@@ -189,5 +200,9 @@ impl ProviderFactory for ForkProviderFactory {
             self.local_factory.provider_mut(),
             ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.clone()),
         )
+    }
+
+    fn fork_handle(&self) -> Option<(Arc<StarknetClient>, BlockNumber)> {
+        Some((self.starknet_client.clone(), self.block_id))
     }
 }

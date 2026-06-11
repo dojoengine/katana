@@ -16,6 +16,7 @@ katana-genesis.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-types.workspace = true
+katana-slot-controller.workspace = true
 katana-starknet.workspace = true
 katana-utils.workspace = true
 
@@ -24,7 +25,6 @@ ratatui = "0.29"
 
 cairo-lang-starknet-classes.workspace = true
 anyhow.workspace = true
-async-trait.workspace = true
 byte-unit = "5.1.4"
 cainome.workspace = true
 clap.workspace = true
@@ -68,6 +68,7 @@ default = [
 	"init-slot",
 	"jemalloc",
 	"katana-cli/explorer",
+	"katana-cli/tee-snp",
 ]
 
 client = [ "dep:colored_json", "dep:serde_json" ]
@@ -76,3 +77,6 @@ init-slot = [  ]
 jemalloc = [  ]
 debug = [  ]
 native = [ "katana-cli/native" ]
+
+tee-snp = [ "katana-cli/tee-snp" ]
+tee-mock = [ "katana-cli/tee-mock" ]

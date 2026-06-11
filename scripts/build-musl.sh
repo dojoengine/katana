@@ -147,7 +147,7 @@ cargo build \
     --target x86_64-unknown-linux-musl \
     --profile performance \
     --no-default-features \
-    --features "cartridge,client,init-slot,jemalloc" \
+    --features "client,init-slot,jemalloc" \
     --bin katana
 
 BINARY_PATH="$PROJECT_ROOT/target/x86_64-unknown-linux-musl/performance/katana"

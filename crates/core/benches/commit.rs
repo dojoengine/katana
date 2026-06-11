@@ -147,6 +147,7 @@ fn commit_small(c: &mut Criterion) {
         small_receipts.as_slice(),
         &small_state_updates,
         provider_mut,
+        false,
     );
 
     c.bench_function("Serial", |b| {
@@ -176,6 +177,7 @@ fn commit_big(c: &mut Criterion) {
         big_receipts.as_slice(),
         &big_state_updates,
         provider_mut,
+        false,
     );
 
     c.bench_function("Serial", |b| {

@@ -24,9 +24,14 @@
 use anyhow as _;
 use std::fmt::Debug;
 
+// `zeroize` is used only by the `snp-derivekey` binary, not this library.
+// Acknowledge the workspace dep here so `unused_crate_dependencies` stays quiet.
+#[cfg(feature = "snp")]
+use zeroize as _;
+
 mod error;
 
-#[cfg(any(test, feature = "tee-mock"))]
+#[cfg(any(test, feature = "mock"))]
 pub mod mock;
 
 #[cfg(feature = "snp")]
@@ -35,7 +40,7 @@ mod snp;
 pub mod amd;
 
 pub use error::TeeError;
-#[cfg(any(test, feature = "tee-mock"))]
+#[cfg(any(test, feature = "mock"))]
 pub use mock::MockAttester;
 #[cfg(feature = "snp")]
 pub use snp::SevSnpAttester;
@@ -64,7 +69,7 @@ pub trait Attester: Send + Sync + Debug {
 /// TEE attester kind enumeration.
 ///
 /// `SevSnp` is the only variant intended for production use. `Mock` is gated
-/// behind the `tee-mock` feature and exists exclusively to let integration test
+/// behind the `mock` feature and exists exclusively to let integration test
 /// crates serve `tee_generateQuote` on machines without AMD SEV-SNP hardware.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
@@ -74,7 +79,7 @@ pub enum AttesterKind {
     #[value(name = "sev-snp", alias = "snp")]
     SevSnp,
     /// Software-only mock attester (test infrastructure only).
-    #[cfg(any(test, feature = "tee-mock"))]
+    #[cfg(any(test, feature = "mock"))]
     #[value(name = "mock")]
     Mock,
 }
@@ -83,7 +88,7 @@ impl std::fmt::Display for AttesterKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SevSnp => write!(f, "sev-snp"),
-            #[cfg(any(test, feature = "tee-mock"))]
+            #[cfg(any(test, feature = "mock"))]
             Self::Mock => write!(f, "mock"),
         }
     }
@@ -95,7 +100,7 @@ impl std::str::FromStr for AttesterKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "sev-snp" | "snp" => Ok(Self::SevSnp),
-            #[cfg(any(test, feature = "tee-mock"))]
+            #[cfg(any(test, feature = "mock"))]
             "mock" => Ok(Self::Mock),
             other => Err(format!("Unknown TEE attester: '{other}'. Available attesters: sev-snp")),
         }

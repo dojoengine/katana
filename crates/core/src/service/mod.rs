@@ -8,9 +8,10 @@ use katana_pool::api::{PendingTransactions, PoolOrd, TransactionPool};
 use katana_pool::TxPool;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
+use tokio::sync::broadcast;
 use tracing::{error, info};
 
-use self::block_producer::BlockProducer;
+use self::block_producer::{BlockProducer, MinedBlockOutcome};
 use self::metrics::BlockProducerMetrics;
 
 pub mod block_producer;
@@ -36,6 +37,8 @@ where
     pub(crate) miner: TransactionMiner<O>,
     /// the pool that holds all transactions
     pub(crate) pool: TxPool,
+    /// Broadcast sender for notifying subscribers of new blocks.
+    block_notify: broadcast::Sender<MinedBlockOutcome>,
     /// Metrics for recording the service operations
     metrics: BlockProducerMetrics,
 }
@@ -49,8 +52,9 @@ where
         pool: TxPool,
         miner: TransactionMiner<O>,
         block_producer: BlockProducer<PF>,
+        block_notify: broadcast::Sender<MinedBlockOutcome>,
     ) -> Self {
-        Self { block_producer, miner, pool, metrics: BlockProducerMetrics::default() }
+        Self { block_producer, miner, pool, block_notify, metrics: BlockProducerMetrics::default() }
     }
 }
 
@@ -78,6 +82,9 @@ where
                         let steps_used = outcome.stats.cairo_steps_used;
                         this.metrics.l1_gas_processed_total.increment(gas_used as u64);
                         this.metrics.cairo_steps_processed_total.increment(steps_used as u64);
+
+                        // notify subscribers of the new block
+                        let _ = this.block_notify.send(outcome.clone());
 
                         // remove mined transactions from the pool
                         this.pool.remove_transactions(&outcome.txs);

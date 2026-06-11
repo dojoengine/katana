@@ -1,12 +1,13 @@
-use jsonrpsee::core::client;
+use jsonrpsee::core::client::{self, ClientT, Subscription, SubscriptionClientT};
 use jsonrpsee::http_client::HttpClient;
+use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use katana_primitives::block::ConfirmedBlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 pub use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_api::starknet::StarknetApiClient;
+use katana_rpc_api::starknet::{StarknetApiClient, StarknetSubscriptionApiClient};
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, GetBlockWithReceiptsResponse,
     GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
@@ -21,6 +22,10 @@ use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::StateUpdate;
+use katana_rpc_types::subscription::{
+    EmittedEventWithFinalityStatus, SubscriptionBlockHeader, TransactionStatusUpdate,
+    TxWithFinalityStatus,
+};
 use katana_rpc_types::trace::{
     SimulatedTransactionsResponse, TraceBlockTransactionsResponse, TxTrace,
 };
@@ -31,32 +36,54 @@ use katana_rpc_types::{
     CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, ResultPageRequest,
     SimulationFlag, SyncingResponse, TxStatus,
 };
+use serde::de::DeserializeOwned;
 use url::Url;
 
 type Result<T> = std::result::Result<T, StarknetRpcClientError>;
 
+// Some blocks can have very large responses (e.g., getBlockWithReceipts for mainnet blocks
+// 1256131 (~19MB) and 1256132 (~16MB) exceed the default 10MB limit).
+const MAX_RESPONSE_SIZE: u32 = 50 * 1024 * 1024;
+
 #[derive(Debug, Clone)]
-pub struct StarknetRpcClient {
-    client: HttpClient,
+pub struct StarknetRpcClient<C = HttpClient> {
+    client: C,
 }
 
-impl StarknetRpcClient {
+impl StarknetRpcClient<HttpClient> {
     pub fn new(url: Url) -> Self {
-        // Some blocks can have very large responses (e.g., getBlockWithReceipts for mainnet blocks
-        // 1256131 (~19MB) and 1256132 (~16MB) exceed the default 10MB limit).
-        const MAX_RESPONSE_SIZE: u32 = 50 * 1024 * 1024;
-
         HttpClient::builder()
             .max_response_size(MAX_RESPONSE_SIZE)
             .build(url)
-            .map(Self::new_with_client)
+            .map(|client| Self { client })
             .unwrap()
     }
+}
 
-    pub fn new_with_client(client: HttpClient) -> Self {
-        StarknetRpcClient { client }
+impl<C> StarknetRpcClient<C> {
+    pub fn new_with_client(client: C) -> Self {
+        Self { client }
     }
+}
 
+impl StarknetRpcClient<WsClient> {
+    /// Open a WebSocket connection to the given URL.
+    ///
+    /// The resulting client supports both the regular Starknet JSON-RPC methods and the WebSocket
+    /// subscription methods.
+    pub async fn new_ws(url: Url) -> Result<Self> {
+        let client = WsClientBuilder::default()
+            .max_response_size(MAX_RESPONSE_SIZE)
+            .build(url.as_str())
+            .await?;
+        Ok(Self { client })
+    }
+}
+
+impl<C> StarknetRpcClient<C>
+where
+    C: ClientT + Send + Sync,
+{
     ////////////////////////////////////////////////////////////////////////////
     // Read API methods
     ////////////////////////////////////////////////////////////////////////////
@@ -358,6 +385,117 @@ impl StarknetRpcClient {
         block_id: ConfirmedBlockIdOrTag,
     ) -> Result<TraceBlockTransactionsResponse> {
         self.client.trace_block_transactions(block_id).await.map_err(Into::into)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Subscription API methods
+////////////////////////////////////////////////////////////////////////////////
+
+impl<C> StarknetRpcClient<C>
+where
+    C: SubscriptionClientT + Send + Sync,
+{
+    /// Subscribe to new block headers. If `block_id` is provided, the server replays headers from
+    /// that block up to the current tip before switching to live streaming.
+    pub async fn subscribe_new_heads(
+        &self,
+        block_id: Option<BlockIdOrTag>,
+    ) -> Result<SubscriptionStream<SubscriptionBlockHeader>> {
+        let sub =
+            StarknetSubscriptionApiClient::subscribe_new_heads(&self.client, block_id).await?;
+        Ok(SubscriptionStream::new(sub))
+    }
+
+    /// Subscribe to emitted events matching the given filter. If `block_id` is provided, the
+    /// server replays matching events from that block up to the current tip before switching to
+    /// live streaming.
+    pub async fn subscribe_events(
+        &self,
+        from_address: Option<ContractAddress>,
+        keys: Option<Vec<Vec<Felt>>>,
+        block_id: Option<BlockIdOrTag>,
+    ) -> Result<SubscriptionStream<EmittedEventWithFinalityStatus>> {
+        let sub = StarknetSubscriptionApiClient::subscribe_events(
+            &self.client,
+            from_address,
+            keys,
+            block_id,
+        )
+        .await?;
+        Ok(SubscriptionStream::new(sub))
+    }
+
+    /// Subscribe to status updates for a specific transaction.
+    pub async fn subscribe_transaction_status(
+        &self,
+        transaction_hash: TxHash,
+    ) -> Result<SubscriptionStream<TransactionStatusUpdate>> {
+        let sub = StarknetSubscriptionApiClient::subscribe_transaction_status(
+            &self.client,
+            transaction_hash,
+        )
+        .await?;
+        Ok(SubscriptionStream::new(sub))
+    }
+
+    /// Subscribe to receipts for transactions included in new blocks. If `sender_address` is
+    /// provided, only receipts for transactions sent by one of those addresses are delivered.
+    pub async fn subscribe_new_transaction_receipts(
+        &self,
+        sender_address: Option<Vec<ContractAddress>>,
+    ) -> Result<SubscriptionStream<TxReceiptWithBlockInfo>> {
+        let sub = StarknetSubscriptionApiClient::subscribe_new_transaction_receipts(
+            &self.client,
+            sender_address,
+        )
+        .await?;
+        Ok(SubscriptionStream::new(sub))
+    }
+
+    /// Subscribe to transactions included in new blocks. If `sender_address` is provided, only
+    /// transactions sent by one of those addresses are delivered.
+    pub async fn subscribe_new_transactions(
+        &self,
+        sender_address: Option<Vec<ContractAddress>>,
+    ) -> Result<SubscriptionStream<TxWithFinalityStatus>> {
+        let sub =
+            StarknetSubscriptionApiClient::subscribe_new_transactions(&self.client, sender_address)
+                .await?;
+        Ok(SubscriptionStream::new(sub))
+    }
+}
+
+/// A stream of notifications from a Starknet WebSocket subscription.
+///
+/// Wraps the underlying jsonrpsee subscription so callers don't depend on it directly. Items are
+/// pulled with [`SubscriptionStream::next`]; the subscription can be explicitly closed with
+/// [`SubscriptionStream::unsubscribe`] or by dropping the stream.
+#[derive(Debug)]
+pub struct SubscriptionStream<T> {
+    inner: Subscription<T>,
+}
+
+impl<T: DeserializeOwned> SubscriptionStream<T> {
+    fn new(inner: Subscription<T>) -> Self {
+        Self { inner }
+    }
+
+    /// Wait for the next notification.
+    ///
+    /// Returns `None` when the subscription has been closed (either by the server, by the client
+    /// calling [`Self::unsubscribe`], or by a transport-level disconnect). Each `Some` value
+    /// carries either a successfully decoded notification or a deserialization error.
+    pub async fn next(&mut self) -> Option<Result<T>> {
+        self.inner.next().await.map(|r| r.map_err(|e| client::Error::from(e).into()))
+    }
+
+    /// Explicitly unsubscribe from this subscription.
+    ///
+    /// Dropping the stream also attempts to unsubscribe, but the explicit call surfaces any
+    /// failure to do so.
+    pub async fn unsubscribe(self) -> Result<()> {
+        self.inner.unsubscribe().await.map_err(Into::into)
     }
 }
 

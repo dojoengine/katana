@@ -13,7 +13,7 @@ on:
       - "release/**"
 
 env:
-  RUST_VERSION: 1.86.0
+  RUST_VERSION: 1.89.0
   CARGO_TERM_COLOR: always
   REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
 
@@ -23,6 +23,7 @@ jobs:
     if: (github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'prepare-release') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
+      source_date_epoch: ${{ steps.release_info.outputs.source_date_epoch }}
       tag_name: ${{ steps.release_info.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +41,7 @@ jobs:
             cargo install cargo-get
             echo "tag_name=v$(cargo get workspace.package.version)" >> $GITHUB_OUTPUT
           fi
+          echo "source_date_epoch=$(git log -1 --format=%ct)" >> $GITHUB_OUTPUT
 
   build-contracts:
     runs-on: ubuntu-latest
@@ -48,6 +50,8 @@ jobs:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build contracts
         run: make contracts
@@ -69,6 +73,7 @@ jobs:
       ARCH: ${{ matrix.job.arch }}
       NATIVE_BUILD: ${{ matrix.job.native_build }}
     strategy:
+      fail-fast: false
       matrix:
         job:
           # The OS is used for the runner
@@ -82,11 +87,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
             arch: amd64
             native_build: true
-          - os: ubuntu-latest-8-cores
-            platform: linux
-            target: x86_64-unknown-linux-gnu
-            arch: amd64
-            native_build: false
           - os: ubuntu-latest-8-cores-arm64
             platform: linux
             target: aarch64-unknown-linux-gnu
@@ -204,11 +204,30 @@ jobs:
           # See: https://github.com/jemalloc/jemalloc/issues/467
           echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
 
+      # katana-grpc's build script invokes tonic-build, which requires protoc.
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build binary
         if: ${{ matrix.job.native_build == false }}
         shell: bash
         run: |
-          cargo build -p katana --bin katana --profile performance --target ${{ matrix.job.target }}
+          # tee-snp pulls in sev-snp -> openssl (vendored), which fails on
+          # Windows because openssl-src needs a perl with Locale::Maketext::Simple
+          # that the runner's msys2 perl lacks. SEV-SNP is Linux-only AMD tech
+          # anyway, so drop tee-snp from katana's default features on Windows.
+          # katana-cli's own defaults (grpc, server) are still pulled in via the
+          # binary's regular dep on katana-cli.
+          if [[ "$PLATFORM_NAME" == "win32" ]]; then
+            cargo build -p katana --bin katana \
+              --no-default-features \
+              --features client,init-custom-settlement-chain,init-slot,jemalloc,katana-cli/explorer \
+              --profile performance --target ${{ matrix.job.target }}
+          else
+            cargo build -p katana --bin katana --profile performance --target ${{ matrix.job.target }}
+          fi
 
       - name: Build binary ( w/ cairo-native )
         if: ${{ matrix.job.native_build == true }}
@@ -267,6 +286,82 @@ jobs:
           path: ${{ steps.artifacts.outputs.file_name }}
           retention-days: 1
 
+  release-reproducible-linux-amd64:
+    name: x86_64-unknown-linux-gnu (ubuntu-latest-8-cores, reproducible)
+    needs: [prepare, build-contracts]
+    runs-on: ubuntu-latest-8-cores
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-artifacts
+          path: ./crates/contracts/build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build reproducible release artifact
+        id: artifacts
+        shell: bash
+        env:
+          SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.source_date_epoch }}
+          VERSION_NAME: ${{ needs.prepare.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          ./scripts/build-reproducible-katana.sh \
+            --version "$VERSION_NAME" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --output-dir dist/reproducible-katana
+
+          source dist/reproducible-katana/manifest.env
+          echo "file_name=dist/reproducible-katana/${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ./dist/reproducible-katana/katana
+            ./dist/reproducible-katana/*.tar.gz
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-x86_64-unknown-linux-gnu
+          path: ${{ steps.artifacts.outputs.file_name }}
+          retention-days: 1
+
+      - name: Summary
+        shell: bash
+        env:
+          VERSION_NAME: ${{ needs.prepare.outputs.tag_name }}
+          SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.source_date_epoch }}
+        run: |
+          set -euo pipefail
+          source dist/reproducible-katana/manifest.env
+          GLIBC_BUILD_VERSION="$(grep '^GLIBC_BUILD_VERSION=' dist/reproducible-katana/build-info.txt | cut -d= -f2-)"
+          GLIBC_MIN_REQUIRED="$(grep '^GLIBC_MIN_REQUIRED=' dist/reproducible-katana/build-info.txt | cut -d= -f2-)"
+          {
+            echo "## Reproducible Katana Linux amd64"
+            echo ""
+            echo "**Version:** ${VERSION_NAME}"
+            echo "**SOURCE_DATE_EPOCH:** ${SOURCE_DATE_EPOCH}"
+            echo "**Binary SHA-256:** \`${BINARY_SHA256}\`"
+            echo "**Binary SHA-384:** \`${BINARY_SHA384}\`"
+            echo "**glibc (build env):** ${GLIBC_BUILD_VERSION}"
+            echo "**glibc (binary requires ≥):** ${GLIBC_MIN_REQUIRED}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build-sidecars:
     name: sidecar-${{ matrix.sidecar }}-${{ matrix.job.target }}
     needs: [prepare]
@@ -275,6 +370,7 @@ jobs:
       PLATFORM_NAME: ${{ matrix.job.platform }}
       ARCH: ${{ matrix.job.arch }}
     strategy:
+      fail-fast: false
       matrix:
         sidecar: [paymaster-service, vrf-server]
         job:
@@ -305,6 +401,9 @@ jobs:
           target: ${{ matrix.job.target }}
           cache-on-failure: true
           cache-key: sidecar-${{ matrix.job.target }}
+          # Building third-party crates; don't fail their builds on rustc
+          # warnings (default is `-D warnings`).
+          rustflags: ""
 
       - name: Read sidecar versions
         id: sidecar_versions
@@ -312,9 +411,9 @@ jobs:
         run: |
           # Parse the sidecar-versions.toml for the current sidecar
           SIDECAR="${{ matrix.sidecar }}"
-          REPO=$(grep -A3 "\[${SIDECAR}\]" sidecar-versions.toml | grep 'repo' | sed 's/.*= *"\(.*\)"/\1/')
-          REV=$(grep -A3 "\[${SIDECAR}\]" sidecar-versions.toml | grep 'rev' | sed 's/.*= *"\(.*\)"/\1/')
-          PACKAGE=$(grep -A3 "\[${SIDECAR}\]" sidecar-versions.toml | grep 'package' | sed 's/.*= *"\(.*\)"/\1/')
+          REPO=$(grep -A3 "\[${SIDECAR}\]" sidecar-versions.toml | grep 'repo' | sed 's/.*= *"\(.*\)".*/\1/')
+          REV=$(grep -A3 "\[${SIDECAR}\]" sidecar-versions.toml | grep 'rev' | sed 's/.*= *"\(.*\)".*/\1/')
+          PACKAGE=$(grep -A3 "\[${SIDECAR}\]" sidecar-versions.toml | grep 'package' | sed 's/.*= *"\(.*\)".*/\1/')
           echo "repo=${REPO}" >> $GITHUB_OUTPUT
           echo "rev=${REV}" >> $GITHUB_OUTPUT
           echo "package=${PACKAGE}" >> $GITHUB_OUTPUT
@@ -375,7 +474,7 @@ jobs:
 
   generate-checksums:
     runs-on: ubuntu-latest
-    needs: [prepare, release, build-sidecars]
+    needs: [prepare, release, release-reproducible-linux-amd64, build-sidecars]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -398,7 +497,7 @@ jobs:
 
   create-draft-release:
     runs-on: ubuntu-latest
-    needs: [prepare, release, build-sidecars, generate-checksums]
+    needs: [prepare, release, release-reproducible-linux-amd64, build-sidecars, generate-checksums]
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     env:

@@ -13,10 +13,10 @@ use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::core::middleware::layer::Either;
 use jsonrpsee::RpcModule;
-use katana_chain_spec::{ChainSpec, SettlementLayer};
+use katana_chain_spec::{settlement_check, ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
-use katana_core::service::block_producer::BlockProducer;
+use katana_core::service::block_producer::{BlockProducer, MinedBlockOutcome};
 use katana_db::migration;
 use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::BlockifierFactory;
@@ -25,6 +25,7 @@ use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 #[cfg(feature = "grpc")]
 use katana_grpc::{GrpcServer, GrpcServerHandle};
+use katana_messaging::service::{MessagingService, MessagingServiceHandle};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -33,17 +34,23 @@ use katana_pool::TxPool;
 use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
+use katana_primitives::Felt;
+use katana_provider::api::messaging::{
+    MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
+};
 use katana_provider::{
-    DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
+    DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
+    ProviderRW,
 };
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::katana::KatanaApiServer;
 use katana_rpc_api::node::NodeApiServer;
 use katana_rpc_api::paymaster::PaymasterApiServer;
-use katana_rpc_api::starknet::StarknetApiServer;
+use katana_rpc_api::starknet::{StarknetApiServer, StarknetSubscriptionApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
+#[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::dev::DevApi;
@@ -54,6 +61,7 @@ use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
 use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
+#[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
 use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::node::NodeInfo;
@@ -63,6 +71,7 @@ use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
 use starknet::signers::SigningKey;
+use tokio::sync::broadcast;
 use tower::layer::util::{Identity, Stack};
 use tracing::info;
 
@@ -100,15 +109,18 @@ where
     task_manager: TaskManager,
     backend: Arc<Backend<P>>,
     block_producer: BlockProducer<P>,
+    block_notify: broadcast::Sender<MinedBlockOutcome>,
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
+    messaging_service: Option<MessagingService<P>>,
 }
 
 impl<P> Node<P>
 where
-    P: ProviderFactory + Clone,
-    <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
+    P: ProviderFactory + Clone + Send + Sync + 'static,
+    <P as ProviderFactory>::Provider: ProviderRO + MessagingL1ToL2IndexProvider,
+    <P as ProviderFactory>::ProviderMut:
+        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
 {
     /// Build the node components from the given [`Config`].
     ///
@@ -208,6 +220,7 @@ where
             executor_factory,
             block_context_generator,
             chain_spec: config.chain.clone(),
+            no_state_trie: config.sequencing.no_state_trie,
         });
 
         let skip_dev_genesis =
@@ -254,6 +267,10 @@ where
             rpc_modules.merge(proxy.into_rpc())?;
         };
 
+        // --- build block notification channel
+
+        let (block_notify, _) = broadcast::channel::<MinedBlockOutcome>(64);
+
         // --- build starknet api
 
         let starknet_api_cfg = StarknetApiConfig {
@@ -277,15 +294,17 @@ where
             provider.clone(),
             RpcCache::new(),
             class_cache.clone(),
+            block_notify.clone(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
+            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetSubscriptionApiServer::into_rpc(starknet_api.clone()))?;
+
             #[cfg(feature = "explorer")]
             if config.rpc.explorer {
                 rpc_modules.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
             }
-
-            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -374,32 +393,55 @@ where
 
         // --- build tee api (if configured)
         if let Some(ref tee_config) = config.tee {
-            use katana_tee::{Attester, AttesterKind};
+            #[cfg(not(any(feature = "tee-snp", feature = "tee-mock")))]
+            {
+                let _ = tee_config;
+                anyhow::bail!(
+                    "TEE configuration provided but no TEE attester feature is compiled in \
+                     (enable 'tee-snp' or 'tee-mock')"
+                );
+            }
 
-            let attester: Arc<dyn Attester> = match tee_config.attester {
-                AttesterKind::SevSnp => {
-                    #[cfg(feature = "tee-snp")]
-                    {
-                        Arc::new(
-                            katana_tee::SevSnpAttester::new()
-                                .context("Failed to initialize SEV-SNP attester")?,
-                        )
+            #[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
+            {
+                use katana_tee::{Attester, AttesterKind};
+
+                let attester: Arc<dyn Attester> = match tee_config.attester {
+                    AttesterKind::SevSnp => {
+                        #[cfg(feature = "tee-snp")]
+                        {
+                            Arc::new(
+                                katana_tee::SevSnpAttester::new()
+                                    .context("Failed to initialize SEV-SNP attester")?,
+                            )
+                        }
+                        #[cfg(not(feature = "tee-snp"))]
+                        {
+                            anyhow::bail!(
+                                "SEV-SNP TEE attester requires the 'tee-snp' feature to be enabled"
+                            );
+                        }
                     }
-                    #[cfg(not(feature = "tee-snp"))]
-                    {
-                        anyhow::bail!(
-                            "SEV-SNP TEE attester requires the 'tee-snp' feature to be enabled"
-                        );
-                    }
-                }
-                #[cfg(feature = "tee-mock")]
-                AttesterKind::Mock => Arc::new(katana_tee::MockAttester::new()),
-            };
+                    #[cfg(feature = "tee-mock")]
+                    AttesterKind::Mock => Arc::new(katana_tee::MockAttester::new()),
+                    // The `Mock` variant on `AttesterKind` is gated on
+                    // `feature = "mock"` in `katana-tee`, but cargo features
+                    // unify across the workspace — so the variant can be visible
+                    // here even when this crate's own `tee-mock` feature is off.
+                    #[allow(unreachable_patterns)]
+                    _ => anyhow::bail!("Mock TEE attester requires the 'tee-mock' feature"),
+                };
 
-            let api = TeeApi::new(provider.clone(), attester, tee_config.fork_block_number);
-            rpc_modules.merge(TeeApiServer::into_rpc(api))?;
+                let api = TeeApi::new(
+                    provider.clone(),
+                    attester,
+                    tee_config.fork_block_number,
+                    &backend.chain_spec,
+                );
+                rpc_modules.merge(TeeApiServer::into_rpc(api))?;
 
-            info!(target: "node", attester = ?tee_config.attester, "TEE API enabled");
+                info!(target: "node", attester = ?tee_config.attester, "TEE API enabled");
+            }
         }
 
         // --- build rpc middleware
@@ -497,6 +539,20 @@ where
             None
         };
 
+        // --- build messaging server
+
+        let messaging_service = config.messaging.as_ref().map(|cfg| {
+            MessagingService::new(
+                backend.chain_spec.id(),
+                pool.clone(),
+                provider.clone(),
+                cfg.settlement.clone(),
+            )
+            .interval(cfg.interval)
+            .from_block(cfg.from_block)
+            .confirmation_depth(cfg.confirmation_depth)
+        });
+
         Ok(Node {
             db,
             provider,
@@ -507,9 +563,11 @@ where
             grpc_server,
             gateway_server,
             block_producer,
+            block_notify,
             metrics_server,
-            config: Arc::new(config),
+            messaging_service,
             task_manager,
+            config: Arc::new(config),
         })
     }
 }
@@ -637,9 +695,10 @@ impl Node<ForkProviderFactory> {
 
 impl<P> Node<P>
 where
-    P: ProviderFactory + Clone,
+    P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut: ProviderRW,
+    <P as ProviderFactory>::ProviderMut:
+        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
 {
     /// Start the node.
     ///
@@ -647,6 +706,27 @@ where
     pub async fn launch(self) -> Result<LaunchedNode<P>> {
         let chain = self.backend.chain_spec.id();
         info!(%chain, "Starting node.");
+
+        // --- validate the on-chain settlement contract for rollup chains
+
+        if let ChainSpec::Rollup(spec) = self.config.chain.as_ref() {
+            if let SettlementLayer::Starknet { rpc_url, core_contract, proof_kind, .. } =
+                &spec.settlement
+            {
+                let provider =
+                    settlement_check::SettlementChainProvider::new(rpc_url.clone(), Felt::ZERO);
+
+                settlement_check::validate_starknet_settlement(
+                    spec.id.id(),
+                    spec.fee_contracts.strk.into(),
+                    *core_contract,
+                    &provider,
+                    *proof_kind,
+                )
+                .await
+                .context("settlement core contract validation failed")?;
+            }
+        }
 
         // --- start the metrics server (if configured)
 
@@ -661,17 +741,15 @@ where
         };
 
         let pool = self.pool.clone();
-        let backend = self.backend.clone();
         let block_producer = self.block_producer.clone();
 
         // --- build and run sequencing task
 
         let sequencing = Sequencing::new(
             pool.clone(),
-            backend.clone(),
             self.task_manager.task_spawner(),
             block_producer.clone(),
-            self.config.messaging.clone(),
+            self.block_notify.clone(),
         );
 
         self.task_manager
@@ -723,6 +801,10 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
+        // --- start the messaging server (skipped when messaging is disabled)
+
+        let messaging_handle = self.messaging_service.as_ref().map(|s| s.start()).transpose()?;
+
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
@@ -730,9 +812,17 @@ where
             #[cfg(feature = "grpc")]
             grpc: grpc_handle,
             metrics: metrics_handle,
+            messaging: messaging_handle,
         })
     }
+}
 
+impl<P> Node<P>
+where
+    P: ProviderFactory + Clone,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
     /// Returns a reference to the node's database environment (if any).
     pub fn provider(&self) -> &P {
         &self.provider
@@ -750,6 +840,11 @@ where
     /// Returns a reference to the node's JSON-RPC server.
     pub fn rpc(&self) -> &NodeRpcServer<P> {
         &self.rpc_server
+    }
+
+    /// Returns a reference to the node's messaging server, if messaging is enabled.
+    pub fn messaging_server(&self) -> Option<&MessagingService<P>> {
+        self.messaging_service.as_ref()
     }
 
     /// Returns a reference to the node's database.
@@ -786,6 +881,8 @@ where
     grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
+    /// Handle to the messaging server (if running).
+    messaging: Option<MessagingServiceHandle>,
 }
 
 impl<P> LaunchedNode<P>
@@ -812,6 +909,11 @@ where
     /// Returns a reference to the metrics server handle (if enabled).
     pub fn metrics(&self) -> Option<&MetricsServerHandle> {
         self.metrics.as_ref()
+    }
+
+    /// Returns a reference to the messaging server handle (if running).
+    pub fn messaging(&self) -> Option<&MessagingServiceHandle> {
+        self.messaging.as_ref()
     }
 
     /// Returns a reference to the gRPC server handle (if enabled).
@@ -841,6 +943,13 @@ where
         // Stop metrics server if it's running
         if let Some(mut handle) = self.metrics {
             handle.stop()?;
+        }
+
+        // Stop messaging server if running. Signal and then await so the final
+        // checkpoint write completes before we tear down the provider.
+        if let Some(mut handle) = self.messaging {
+            handle.stop();
+            handle.stopped().await;
         }
 
         self.node.task_manager.shutdown().await;

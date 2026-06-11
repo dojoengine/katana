@@ -1,10 +1,12 @@
 use katana_primitives::chain::ChainId;
 use katana_primitives::eth::Address as EthAddress;
 use katana_primitives::execution::EntryPointSelector;
-use katana_primitives::transaction::L1HandlerTx;
+use katana_primitives::transaction::{L1HandlerTx, TxHash};
 use katana_primitives::utils::transaction::compute_l1_to_l2_message_hash;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
+
+use crate::ExecutionResult;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct L1ToL2Message {
@@ -25,6 +27,35 @@ pub struct L2ToL1Message {
     pub from_address: ContractAddress,
     pub to_address: Felt,
     pub payload: Vec<Felt>,
+}
+
+/// Finality status of an L1->L2 message.
+///
+/// Mirrors `TXN_FINALITY_STATUS` from the Starknet JSON-RPC spec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageFinalityStatus {
+    #[serde(rename = "PRE_CONFIRMED")]
+    PreConfirmed,
+    #[serde(rename = "ACCEPTED_ON_L2")]
+    AcceptedOnL2,
+    #[serde(rename = "ACCEPTED_ON_L1")]
+    AcceptedOnL1,
+}
+
+/// Status of a single L1->L2 message returned by `starknet_getMessagesStatus`.
+///
+/// Mirrors the spec's `MESSAGE_STATUS` shape: the L2 L1Handler transaction hash, its
+/// finality status, and the inline execution status / failure reason.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageStatus {
+    /// L2 L1Handler transaction hash spawned by the L1 message.
+    pub transaction_hash: TxHash,
+    /// Finality of the message handler on L2.
+    pub finality_status: MessageFinalityStatus,
+    /// Execution outcome of the handler. Flattened: serializes as `execution_status`
+    /// (+ `revert_reason` when reverted).
+    #[serde(flatten)]
+    pub execution_result: ExecutionResult,
 }
 
 /// Message from L1.

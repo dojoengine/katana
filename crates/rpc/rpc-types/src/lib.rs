@@ -19,6 +19,7 @@ pub mod node;
 pub mod outside_execution;
 pub mod receipt;
 pub mod state_update;
+pub mod subscription;
 pub mod tee;
 pub mod trace;
 pub mod transaction;

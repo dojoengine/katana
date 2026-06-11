@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::str::FromStr;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use alloy_network::Ethereum;
@@ -8,9 +8,11 @@ use alloy_primitives::{Address, U256};
 use alloy_provider::{Provider, RootProvider};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, FilterSet, Log, Topic};
 use alloy_sol_types::{sol, SolEvent};
+use alloy_transport::TransportError;
 use anyhow::Result;
-use async_trait::async_trait;
+use futures::Future;
 use katana_primitives::chain::ChainId;
+use katana_primitives::eth::Address as EthAddress;
 use katana_primitives::message::L1ToL2Message;
 use katana_primitives::receipt::MessageToL1;
 use katana_primitives::transaction::L1HandlerTx;
@@ -19,17 +21,30 @@ use katana_primitives::utils::transaction::{
 };
 use katana_primitives::{ContractAddress, Felt};
 use tracing::{debug, trace};
+use url::Url;
 
-use super::{MessagingConfig, Messenger, MessengerResult, LOG_TARGET};
+use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
+use crate::LOG_TARGET;
+
+/// Errors produced by [`EthereumCollector`].
+#[derive(Debug, thiserror::Error)]
+pub enum EthereumCollectorError {
+    #[error("ethereum provider error: {0}")]
+    Provider(#[from] TransportError),
+
+    /// An Ethereum log was found whose shape didn't match the expected
+    /// `LogMessageToL2` schema.
+    #[error("malformed settlement chain message: {0}")]
+    MalformedMessage(String),
+}
 
 sol! {
     #[sol(rpc, rename_all = "snakecase")]
     #[derive(serde::Serialize, serde::Deserialize)]
-    StarknetMessagingLocal,
-    "../../crates/contracts/contracts/messaging/solidity/IStarknetMessagingLocal_ABI.json"
-}
+    interface StarknetMessagingLocal {
+        function addMessageHashesFromL2(uint256[] msgHashes) external payable;
+    }
 
-sol! {
     #[derive(Debug, PartialEq)]
     event LogMessageToL2(
         address indexed from_address,
@@ -41,121 +56,120 @@ sol! {
     );
 }
 
+/// Ethereum settlement chain message collector.
 #[derive(Debug)]
-pub struct EthereumMessaging {
+pub struct EthereumCollector {
     provider: Arc<RootProvider<Ethereum>>,
     messaging_contract_address: Address,
 }
 
-impl EthereumMessaging {
-    pub async fn new(config: MessagingConfig) -> Result<EthereumMessaging> {
-        Ok(EthereumMessaging {
-            provider: Arc::new(RootProvider::<Ethereum>::new_http(reqwest::Url::parse(
-                &config.rpc_url,
-            )?)),
-            messaging_contract_address: config.contract_address.parse::<Address>()?,
-        })
+impl EthereumCollector {
+    pub fn new(rpc_url: Url, messaging_contract_address: EthAddress) -> Result<Self> {
+        let provider = Arc::new(RootProvider::<Ethereum>::new_http(rpc_url));
+        Ok(Self { provider, messaging_contract_address })
     }
 
-    /// Fetches logs in given block range and returns a `HashMap` with the list of logs mapped to
-    /// their block number.
-    ///
-    /// There is not pagination in ethereum, and no hard limit on block range.
-    /// Fetching too much block may result in RPC request error.
-    /// For this reason, the caller may wisely choose the range.
-    ///
-    /// # Arguments
-    ///
-    /// * `from_block` - The first block of which logs must be fetched.
-    /// * `to_block` - The last block of which logs must be fetched.
-    pub async fn fetch_logs(&self, from_block: u64, to_block: u64) -> MessengerResult<Vec<Log>> {
-        trace!(target: LOG_TARGET, from_block = ?from_block, to_block = ?to_block, "Fetching logs.");
-
-        let mut logs = vec![];
+    /// Fetches logs in the given block range.
+    async fn fetch_logs(
+        provider: &RootProvider<Ethereum>,
+        contract_address: Address,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<Log>, EthereumCollectorError> {
+        trace!(target: LOG_TARGET, from_block, to_block, "Fetching ethereum logs.");
 
         let filters = Filter {
             block_option: FilterBlockOption::Range {
                 from_block: Some(BlockNumberOrTag::Number(from_block)),
                 to_block: Some(BlockNumberOrTag::Number(to_block)),
             },
-            address: FilterSet::<Address>::from(self.messaging_contract_address),
+            address: FilterSet::<Address>::from(contract_address),
             topics: [
-                Topic::from(
-                    //  LogMessageToL2 (index_topic_1 address fromAddress, index_topic_2 uint256
-                    // toAddress,  index_topic_3 uint256 selector, uint256[]
-                    // payload, uint256 nonce, uint256 fee)
-                    "0xdb80dd488acf86d17c747445b0eabb5d57c541d3bd7b6b87af987858e5066b2b"
-                        .parse::<U256>()
-                        .unwrap(),
-                ),
+                Topic::from(LogMessageToL2::SIGNATURE_HASH),
                 Default::default(),
                 Default::default(),
                 Default::default(),
             ],
         };
 
-        self.provider
+        let logs = provider
             .get_logs(&filters)
             .await?
             .into_iter()
             .filter(|log| log.block_number.is_some())
-            .for_each(|log| {
-                logs.push(log);
-            });
+            .collect();
 
         Ok(logs)
     }
 }
 
-#[async_trait]
-impl Messenger for EthereumMessaging {
-    type MessageHash = U256;
-    type MessageTransaction = L1HandlerTx;
+impl MessageCollector for EthereumCollector {
+    type Error = EthereumCollectorError;
 
-    async fn gather_messages(
+    fn latest_block(&self) -> Pin<Box<dyn Future<Output = Result<u64, Self::Error>> + Send + '_>> {
+        Box::pin(async { Ok(self.provider.get_block_number().await?) })
+    }
+
+    fn gather(
         &self,
         from_block: u64,
-        max_blocks: u64,
+        from_tx_index: u64,
+        to_block: u64,
         chain_id: ChainId,
-    ) -> MessengerResult<(u64, Vec<Self::MessageTransaction>)> {
-        let chain_latest_block: u64 = self.provider.get_block_number().await?;
-        trace!(target: LOG_TARGET, from_block, max_blocks, ?chain_id, latest_block = chain_latest_block, "Gathering messages ethereum.");
+    ) -> Pin<Box<dyn Future<Output = Result<GatherResult, Self::Error>> + Send + '_>> {
+        Box::pin(async move {
+            let mut messages = vec![];
 
-        // +1 as the from_block counts as 1 block fetched.
-        let to_block = if from_block + max_blocks + 1 < chain_latest_block {
-            from_block + max_blocks
-        } else {
-            chain_latest_block
-        };
+            let logs = Self::fetch_logs(
+                &self.provider,
+                self.messaging_contract_address,
+                from_block,
+                to_block,
+            )
+            .await?;
 
-        let mut l1_handler_txs = vec![];
+            for log in &logs {
+                let Some(block) = log.block_number else { continue };
+                let Some(tx_index) = log.transaction_index else { continue };
+                let Some(l1_tx_hash) = log.transaction_hash else { continue };
 
-        trace!(target: LOG_TARGET, from_block, to_block, "Fetching logs from {from_block} to {to_block}.");
-        self.fetch_logs(from_block, to_block).await?.iter().for_each(|l| {
-            debug!(
-                target: LOG_TARGET,
-                log = ?l,
-                "Converting log into L1HandlerTx.",
-            );
+                // Skip messages already processed on a previous run.
+                if block == from_block && tx_index < from_tx_index {
+                    continue;
+                }
 
-            if let Ok(tx) = l1_handler_tx_from_log(l.clone(), chain_id) {
-                l1_handler_txs.push(tx)
+                debug!(target: LOG_TARGET, block, tx_index, "Converting log into L1HandlerTx.");
+
+                if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {
+                    messages.push(OrderedMessage { block, tx_index, l1_tx_hash: l1_tx_hash.0, tx });
+                }
             }
-        });
 
-        Ok((to_block, l1_handler_txs))
+            Ok(GatherResult { to_block, messages })
+        })
     }
 }
 
-// TODO: refactor this as a method of the message log struct
-fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1HandlerTx> {
-    let log = LogMessageToL2::decode_log(log.as_ref()).unwrap();
+// --- Conversion functions ---
+
+fn l1_handler_tx_from_log(
+    log: Log,
+    chain_id: ChainId,
+) -> Result<L1HandlerTx, EthereumCollectorError> {
+    let log = LogMessageToL2::decode_log(log.as_ref()).map_err(|e| {
+        EthereumCollectorError::MalformedMessage(format!("decode LogMessageToL2 log: {e}"))
+    })?;
 
     let from_address = log.from_address;
     let contract_address = ContractAddress::from(log.to_address);
     let entry_point_selector = felt_from_u256(log.selector);
     let nonce = felt_from_u256(log.nonce);
-    let paid_fee_on_l1: u128 = log.fee.try_into().expect("Fee does not fit into u128.");
+    let paid_fee_on_l1: u128 = log.fee.try_into().map_err(|_| {
+        EthereumCollectorError::MalformedMessage(format!(
+            "L1->L2 fee {} does not fit into u128",
+            log.fee
+        ))
+    })?;
     let payload = log.payload.clone().into_iter().map(felt_from_u256).collect::<Vec<_>>();
 
     let message = L1ToL2Message {
@@ -174,8 +188,6 @@ fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1Hand
         message.nonce,
     );
 
-    // In an l1_handler transaction, the first element of the calldata is always the Ethereum
-    // address of the sender (msg.sender). https://docs.starknet.io/documentation/architecture_and_concepts/Network_Architecture/messaging-mechanism/#l1-l2-messages
     let mut calldata = vec![Felt::from_bytes_be_slice(from_address.as_slice())];
     calldata.extend(payload.clone());
 
@@ -207,6 +219,7 @@ fn parse_messages(messages: &[MessageToL1]) -> Vec<U256> {
 }
 
 fn felt_from_u256(v: U256) -> Felt {
+    use std::str::FromStr;
     Felt::from_str(format!("{v:#064x}").as_str()).unwrap()
 }
 
@@ -262,8 +275,6 @@ mod tests {
             nonce.into(),
         );
 
-        // the first element of the calldata is always the Ethereum address of the sender
-        // (msg.sender).
         let calldata = vec![Felt::from_bytes_be_slice(from_address.as_slice())]
             .into_iter()
             .chain(payload.clone())
