@@ -69,6 +69,7 @@ default = [
 	"jemalloc",
 	"katana-cli/explorer",
 	"katana-cli/tee-snp",
+	"tee-mock",
 ]
 
 client = [ "dep:colored_json", "dep:serde_json" ]

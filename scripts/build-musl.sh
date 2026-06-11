@@ -141,13 +141,17 @@ echo "  RUSTFLAGS: $RUSTFLAGS"
 echo "  OFFLINE_FLAG: ${OFFLINE_FLAG:-<none>}"
 
 # Build the binary
+#
+# tee-snp must be requested explicitly: this binary runs inside the SEV-SNP
+# guest VM, and --no-default-features drops the workspace default that would
+# otherwise enable it.
 cargo build \
     $OFFLINE_FLAG \
     --locked \
     --target x86_64-unknown-linux-musl \
     --profile performance \
     --no-default-features \
-    --features "client,init-slot,jemalloc" \
+    --features "client,init-slot,jemalloc,tee-snp" \
     --bin katana
 
 BINARY_PATH="$PROJECT_ROOT/target/x86_64-unknown-linux-musl/performance/katana"

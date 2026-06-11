@@ -3,7 +3,7 @@ description = "SEV-SNP utility tools for development"
 edition = "2021"
 license = "Apache-2.0"
 name = "snp-tools"
-version = "0.1.0"
+version = "1.8.0-rc.2"
 
 [[bin]]
 name = "snp-digest"

@@ -90,7 +90,7 @@ edition = "2021"
 license = "Apache-2.0"
 license-file = "LICENSE"
 repository = "https://github.com/dojoengine/katana/"
-version = "1.7.0"
+version = "1.8.0-rc.2"
 
 [profile.performance]
 codegen-units = 1
@@ -213,6 +213,7 @@ tokio = { version = "1.39.2", features = [ "full" ] }
 tokio-util = "0.7.12"
 toml = "0.8"
 url = { version = "2.4.0", features = [ "serde" ] }
+zeroize = "1.8"
 
 # serde
 serde = { version = "1.0", features = [ "derive" ] }
