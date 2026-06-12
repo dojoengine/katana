@@ -280,7 +280,8 @@ impl RollupArgs {
             strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
 
-        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
+        let chain_spec =
+            rollup::ChainSpec { id, genesis, settlement, fee_contracts, settlement_runtime: None };
 
         let dir = match &self.output_path {
             Some(path) => ChainConfigDir::create(path)?,
@@ -332,7 +333,10 @@ SETTLEMENT LAYER
         // For --settlement-contract (user-supplied), check_program_info validates program info
         // but not the on-chain class hash, so printing it would risk misleading the operator.
         if output.deployment_outcome.class_declared {
-            println!("| Class hash      | {:#066x} (declared this run)", AppchainCoreContract::HASH);
+            println!(
+                "| Class hash      | {:#066x} (declared this run)",
+                AppchainCoreContract::HASH
+            );
         }
         println!();
 
@@ -495,7 +499,8 @@ impl SovereignArgs {
             strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
 
-        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
+        let chain_spec =
+            rollup::ChainSpec { id, genesis, settlement, fee_contracts, settlement_runtime: None };
 
         let dir = match &self.output_path {
             Some(path) => ChainConfigDir::create(path)?,

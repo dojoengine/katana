@@ -66,6 +66,7 @@ use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::node::NodeInfo;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
+use katana_settlement::{SettlementService, SettlementServiceHandle};
 use katana_stage::Sequencing;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::TaskManager;
@@ -113,6 +114,7 @@ where
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
     messaging_service: Option<MessagingService<P>>,
+    settlement_service: Option<SettlementService<P, MinedBlockOutcome>>,
 }
 
 impl<P> Node<P>
@@ -391,8 +393,13 @@ where
             (None, None)
         };
 
-        // --- build tee api (if configured)
-        if let Some(ref tee_config) = config.tee {
+        // --- build tee attester + api (if configured)
+
+        // The attester is shared between the TEE RPC API and the settlement service so both
+        // attest through the same hardware (or mock) instance.
+        let attester: Option<Arc<dyn katana_tee::Attester>> = if let Some(ref tee_config) =
+            config.tee
+        {
             #[cfg(not(any(feature = "tee-snp", feature = "tee-mock")))]
             {
                 let _ = tee_config;
@@ -432,16 +439,23 @@ where
                     _ => anyhow::bail!("Mock TEE attester requires the 'tee-mock' feature"),
                 };
 
-                let api = TeeApi::new(
-                    provider.clone(),
-                    attester,
-                    tee_config.fork_block_number,
-                    &backend.chain_spec,
-                );
-                rpc_modules.merge(TeeApiServer::into_rpc(api))?;
-
-                info!(target: "node", attester = ?tee_config.attester, "TEE API enabled");
+                Some(attester)
             }
+        } else {
+            None
+        };
+
+        #[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
+        if let (Some(tee_config), Some(attester)) = (&config.tee, &attester) {
+            let api = TeeApi::new(
+                provider.clone(),
+                attester.clone(),
+                tee_config.fork_block_number,
+                &backend.chain_spec,
+            );
+            rpc_modules.merge(TeeApiServer::into_rpc(api))?;
+
+            info!(target: "node", attester = ?tee_config.attester, "TEE API enabled");
         }
 
         // --- build rpc middleware
@@ -553,6 +567,42 @@ where
             .confirmation_depth(cfg.confirmation_depth)
         });
 
+        // --- build settlement service (if configured)
+
+        let settlement_service = match (&config.settlement, &attester) {
+            (Some(cfg), Some(attester)) => {
+                let tee_config = config.tee.as_ref().expect("qed; attester implies tee config");
+
+                // Fork mode attests with the sharding report schema, which carries no message
+                // data — Piltover's appchain `TeeInput` path can't validate it.
+                if tee_config.fork_block_number.is_some() {
+                    anyhow::bail!("settlement of forked chains is not supported");
+                }
+
+                // A mock attester's quotes can never yield a real SP1 proof (the SP1 program
+                // verifies the AMD signature), so the prover backend is forced by the attester.
+                let mock_prove = !matches!(tee_config.attester, katana_tee::AttesterKind::SevSnp);
+
+                Some(SettlementService::new(
+                    provider.clone(),
+                    attester.clone(),
+                    &backend.chain_spec,
+                    block_notify.clone(),
+                    cfg.clone(),
+                    mock_prove,
+                ))
+            }
+
+            (Some(_), None) => {
+                anyhow::bail!(
+                    "settlement is configured but TEE attestation is not; enable a TEE attester \
+                     with --tee"
+                )
+            }
+
+            _ => None,
+        };
+
         Ok(Node {
             db,
             provider,
@@ -566,6 +616,7 @@ where
             block_notify,
             metrics_server,
             messaging_service,
+            settlement_service,
             task_manager,
             config: Arc::new(config),
         })
@@ -805,6 +856,16 @@ where
 
         let messaging_handle = self.messaging_service.as_ref().map(|s| s.start()).transpose()?;
 
+        // --- start the settlement service (skipped when settlement is not configured)
+        //
+        // Launched after the settlement contract validation above, so the service only ever
+        // trusts a cursor read from a contract with the expected program info and config hash.
+
+        let settlement_handle = match &self.settlement_service {
+            Some(service) => Some(service.start().await?),
+            None => None,
+        };
+
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
@@ -813,6 +874,7 @@ where
             grpc: grpc_handle,
             metrics: metrics_handle,
             messaging: messaging_handle,
+            settlement: settlement_handle,
         })
     }
 }
@@ -883,6 +945,8 @@ where
     metrics: Option<MetricsServerHandle>,
     /// Handle to the messaging server (if running).
     messaging: Option<MessagingServiceHandle>,
+    /// Handle to the settlement service (if running).
+    settlement: Option<SettlementServiceHandle>,
 }
 
 impl<P> LaunchedNode<P>
@@ -914,6 +978,11 @@ where
     /// Returns a reference to the messaging server handle (if running).
     pub fn messaging(&self) -> Option<&MessagingServiceHandle> {
         self.messaging.as_ref()
+    }
+
+    /// Returns a reference to the settlement service handle (if running).
+    pub fn settlement(&self) -> Option<&SettlementServiceHandle> {
+        self.settlement.as_ref()
     }
 
     /// Returns a reference to the gRPC server handle (if enabled).
@@ -948,6 +1017,13 @@ where
         // Stop messaging server if running. Signal and then await so the final
         // checkpoint write completes before we tear down the provider.
         if let Some(mut handle) = self.messaging {
+            handle.stop();
+            handle.stopped().await;
+        }
+
+        // Stop settlement service if running. Signal and then await so an in-flight
+        // `update_state` submission is not torn down mid-watch.
+        if let Some(mut handle) = self.settlement {
             handle.stop();
             handle.stopped().await;
         }

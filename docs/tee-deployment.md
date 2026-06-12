@@ -1,12 +1,11 @@
 # Running a Katana appchain with TEE settlement
 
-This guide walks through standing up the two long-running services that make a
-Katana appchain settle to Starknet via a TEE attestor:
-
-1. **`katana`** — the appchain sequencer. Produces blocks locally.
-2. **`saya-tee`** — the prover/attestor. Takes blocks off the appchain, proves
-   them (mock or real), and submits state updates to the Piltover core contract
-   on the settlement chain.
+This guide walks through standing up a Katana appchain that settles to
+Starknet via a TEE attestor. Settlement is **embedded in the katana node**:
+the same process that sequences blocks also attests them, proves the
+attestations (mock or real SP1), and submits state updates to the Piltover
+core contract on the settlement chain. There is no separate prover binary to
+operate.
 
 The settlement chain in this guide is Starknet Sepolia, but the same flow works
 against any Starknet network — swap the RPC URL and chain ID.
@@ -15,59 +14,61 @@ against any Starknet network — swap the RPC URL and chain ID.
 >
 > | Mode | TEE | Prover | When to use |
 > | --- | --- | --- | --- |
-> | **Development** | `--tee mock` (no enclave) | `saya-tee --mock-prove` (mock proofs) | Local iteration, CI, integration tests. **Never use for production — the mock attestor and mock verifier accept anything.** |
-> | **Production** | `--tee sev-snp` running inside an AMD SEV-SNP confidential VM | Real Stone/SHARP prover | Mainnet, testnet with real users, anywhere quotes must be verifiable. |
+> | **Development** | `--tee mock` (no enclave) | Mock proofs (forced by the mock attester) | Local iteration, CI, integration tests. **Never use for production — the mock attester and mock verifier accept anything.** |
+> | **Production** | `--tee sev-snp` running inside an AMD SEV-SNP confidential VM | Real SP1 Groth16 proofs via the prover network | Mainnet, testnet with real users, anywhere quotes must be verifiable. |
 >
 > Pick a mode up front — the bootstrap step deploys different settlement
-> contracts for each, and the runtime flags differ. The two are not
+> contracts for each, and the runtime config differs. The two are not
 > interchangeable after the chain is initialized.
 
 ## Architecture
 
 ```
-   ┌─────────────┐     blocks      ┌──────────────┐    state update    ┌─────────────────┐
-   │   katana    │ ──────────────► │   saya-tee   │ ─────────────────► │ Piltover core   │
-   │ (appchain)  │                 │  (attestor)  │                    │ (settlement L2) │
-   └─────────────┘                 └──────────────┘                    └─────────────────┘
-        :6969                                                          ▲
-                                                                       │ verifies attestor
-                                                                       │
-                                                                ┌──────┴───────┐
-                                                                │ TEE registry │
-                                                                └──────────────┘
+   ┌───────────────────────────────────────┐    update_state    ┌─────────────────┐
+   │                katana                 │ ─────────────────► │ Piltover core   │
+   │  (appchain sequencer + settlement)    │                    │ (settlement L2) │
+   │                                       │                    └─────────────────┘
+   │  blocks ─► attest ─► prove ─► settle  │                            ▲
+   └───────────────────────────────────────┘                            │ verifies SP1 proof
+        :6969                                                           │
+                                                                 ┌──────┴───────┐
+                                                                 │ TEE registry │
+                                                                 └──────────────┘
 ```
 
-The Piltover core and TEE registry contracts live on the settlement chain. The
-registry holds the set of attestors that the core will accept state updates
-from; `saya-tee` registers itself there at startup.
+The Piltover core and TEE registry contracts live on the settlement chain.
+Piltover's `validate_input` verifies each state update's SP1 proof through the
+registry (its `fact_registry`), recomputes the attestation's Poseidon
+commitment from the submitted state transition, and checks the environment
+binding (`katana_tee_config_hash`) before advancing the settled state.
+
+Piltover's on-chain state is also the settlement service's only progress
+cursor: on (re)start the node reads `get_state()` and resumes from the block
+after the last settled one. There is no separate settlement database.
+
+The `tee_generateQuote` / `tee_getEventProof` RPC methods remain available for
+**external verifiers** — the embedded service uses the same attestation code
+path internally, so an externally fetched quote is byte-identical to what the
+node settles with.
 
 ## Prerequisites
 
-Binaries on `PATH`:
-
 - `katana` — this repo (`cargo build --release -p katana`).
-- `saya-tee` and `saya-ops` — from [`cartridge-gg/saya`][saya]. Supported
-  version: `0.4.0`.
-- `jq` — for parsing JSON from `saya-ops`.
 
 A funded settlement-chain account:
 
 - **Deployer** — declares + deploys the Piltover core and TEE registry, and
   pays for state-update transactions while running. Needs enough STRK to cover
   declares, deploys, and one settlement tx per batch.
-- **Prover** — signs the attestor registration in the TEE registry. Can be the
-  same account as the deployer in development. For production, use a separate
-  key controlled by the operator of the SEV-SNP machine.
-
-Export the private keys before running anything:
 
 ```bash
 export SEPOLIA_DEPLOYER_PRIVATE_KEY=0x…
-export SEPOLIA_PROVER_PRIVATE_KEY=0x…
 ```
 
 **Production additionally requires:**
 
+- An SP1 prover-network key (the settlement service submits Groth16 proving
+  jobs to the network).
 - An AMD EPYC host with SEV-SNP enabled in BIOS and a host kernel built with
   SEV-SNP support. See [`docs/amdsev.md`](./amdsev.md) for the architecture
   and [`misc/AMDSEV/README.md`](../misc/AMDSEV/README.md) for hardware
@@ -77,34 +78,24 @@ export SEPOLIA_PROVER_PRIVATE_KEY=0x…
 - The full TEE boot artifact set (OVMF, vmlinuz, initrd, katana binary)
   produced by `misc/AMDSEV/build.sh`.
 
-[saya]: https://github.com/cartridge-gg/saya
-
 ---
 
 ## Development mode (mock TEE)
 
-> **⚠️ Development only.** `--tee mock` skips the enclave entirely and
-> `--mock-prove` submits mock proofs that the Piltover core's mock verifier
-> accepts unconditionally. Anyone can produce a valid-looking state update.
-> Do not point this at mainnet or any chain with real value at stake.
+> **⚠️ Development only.** `--tee mock` skips the enclave entirely and forces
+> mock proofs that the Piltover core's mock verifier accepts unconditionally.
+> Anyone can produce a valid-looking state update. Do not point this at
+> mainnet or any chain with real value at stake.
 
 ### 1. Bootstrap (one-time)
 
 #### Deploy the mock TEE registry
 
-```bash
-saya-ops core-contract \
-    --account-address  "$DEPLOYER_ADDRESS" \
-    --private-key      "$SEPOLIA_DEPLOYER_PRIVATE_KEY" \
-    --settlement-rpc-url "$SEPOLIA_RPC_URL" \
-    --settlement-chain-id sepolia \
-    --output json \
-    declare-and-deploy-tee-registry-mock \
-    --salt 0x…
-```
-
-Pick a stable `--salt` so the address is deterministic across re-runs. Grab
-`contract_address` from the JSON output — call this `TEE_REGISTRY_ADDRESS`.
+The permissive mock registry class (`piltover_mock_amd_tee_registry`) is built
+into `katana-contracts` (`crates/contracts/build/`). Declare and deploy it on
+the settlement chain with your preferred tooling (e.g. `starkli declare` +
+`starkli deploy`; it has no constructor arguments). Note its address — call
+this `TEE_REGISTRY_ADDRESS`.
 
 #### Initialize the rollup
 
@@ -120,16 +111,31 @@ katana init rollup \
 ```
 
 This declares and deploys the Piltover core on the settlement chain, wires its
-`ProgramInfo` to the Katana TEE program hash, and writes the rollup's chain
-config to disk. **Commit `chain-config/` to your repo** — the genesis keypair
-is generated on first run and any Dojo manifests / profile TOMLs derived from
-it won't match if you re-init.
+`ProgramInfo` to the `KatanaTee` variant (with the chain's
+`katana_tee_config_hash`), points its `fact_registry` at the TEE registry, and
+writes the rollup's chain config to disk. **Commit `chain-config/` to your
+repo** — the genesis keypair is generated on first run and any Dojo manifests
+/ profile TOMLs derived from it won't match if you re-init.
 
-Read the Piltover address back out for the saya step:
+#### Configure the settlement runtime
 
-```bash
-PILTOVER_ADDRESS=$(grep '^address' chain-config/config.toml | head -1 | awk -F'"' '{print $2}')
+Add a `[settlement-runtime]` section to `chain-config/config.toml`. This is
+what enables the embedded settlement service:
+
+```toml
+[settlement-runtime]
+account-address = "<DEPLOYER_ADDRESS>"
+account-private-key = "<SEPOLIA_DEPLOYER_PRIVATE_KEY>"
+tee-registry = "<TEE_REGISTRY_ADDRESS>"
+batch-size = 1          # blocks per settlement tx; raise for prod
+idle-flush-secs = 30    # settle a partial batch after this many idle seconds
+# prover-key is omitted: with a mock attester no SP1 proving happens.
 ```
+
+> **Note:** the settlement account's private key lives in the chain config
+> file in plaintext — the file is operator-local, not part of what you publish
+> to chain participants. Other nodes following the chain simply omit the
+> `[settlement-runtime]` section from their copy.
 
 ### 2. Run katana (dev)
 
@@ -151,44 +157,24 @@ katana \
 
 | flag | why |
 | --- | --- |
-| `--tee mock` | Run as a TEE rollup without a real enclave. **Dev only.** |
+| `--tee mock` | Run as a TEE rollup without a real enclave. **Dev only.** Also forces the settlement service into mock-proof mode. |
 | `--dev --dev.no-fee` | Dev mode + free transactions. |
 | `--invoke-max-steps` / `--validate-max-steps` | Raised so large Dojo `declare` transactions fit. |
 | `--explorer` | Serves the bundled explorer UI on the HTTP port. |
 
-### 3. Run saya-tee (dev)
-
-```bash
-mkdir -p ./saya-data
-
-saya-tee tee start \
-    --mock-prove \
-    --rollup-rpc                     "http://localhost:6969" \
-    --settlement-rpc                 "$SEPOLIA_RPC_URL" \
-    --settlement-piltover-address    "$PILTOVER_ADDRESS" \
-    --settlement-account-address     "$DEPLOYER_ADDRESS" \
-    --settlement-account-private-key "$SEPOLIA_DEPLOYER_PRIVATE_KEY" \
-    --tee-registry-address           "$TEE_REGISTRY_ADDRESS" \
-    --prover-private-key             "$SEPOLIA_PROVER_PRIVATE_KEY" \
-    --db-dir ./saya-data \
-    --batch-size 1 \
-    --attestor-poll-interval-ms 1000 \
-    --idle-timeout-secs 30
-```
-
-| flag | why |
-| --- | --- |
-| `--mock-prove` | Submit mock proofs the mock verifier accepts. **Dev only.** |
-| `--batch-size 1` | One block per settlement tx. Dev-friendly; raise for prod. |
-| `--idle-timeout-secs` | Flushes a partial batch after N idle seconds. |
+That's it — with the `[settlement-runtime]` section present, the node starts
+the settlement service alongside the sequencer. Watch for
+`Settlement service started.` and per-batch `Settled block range.` log lines
+(target: `settlement`).
 
 ---
 
 ## Production mode (AMD SEV-SNP)
 
-The production path runs Katana inside an AMD SEV-SNP confidential VM and
-points `saya-tee` at the VM's forwarded RPC port. Saya disables `--mock-prove`
-so it submits real proofs.
+The production path runs Katana — sequencer and settlement service together —
+inside an AMD SEV-SNP confidential VM. With `--tee sev-snp` the settlement
+service generates real SP1 Groth16 proofs of the hardware attestations via
+the SP1 prover network.
 
 The full architecture, threat model, sealed-storage design, and reproducible
 build pipeline are documented in [`docs/amdsev.md`](./amdsev.md). This section
@@ -223,34 +209,13 @@ This is the variant `release.yml` produces.
 The bootstrap differs from dev in two places:
 
 - Use the **real TEE registry**, not the mock. The real registry verifies an
-  attestor's launch measurement against the AMD KDS-rooted VCEK signature
+  attestation's certificate chain (AMD KDS-rooted VCEK) inside the SP1 proof
   before accepting it. The mock registry skips this check.
-- Pin the **expected launch measurement** in the Piltover core's
-  `ProgramInfo`. `katana init rollup` reads the measurement from the build
-  outputs and writes it into the deployment.
+- The registry's trusted certificate set must cover your host's processor
+  model — the settlement service looks up the trusted prefix length there
+  when building each proof.
 
 ```bash
-# Deploy the real TEE registry. See `saya-ops core-contract --help` for the
-# exact subcommand — varies by saya-ops version.
-saya-ops core-contract \
-    --account-address  "$DEPLOYER_ADDRESS" \
-    --private-key      "$SEPOLIA_DEPLOYER_PRIVATE_KEY" \
-    --settlement-rpc-url "$SEPOLIA_RPC_URL" \
-    --settlement-chain-id sepolia \
-    --output json \
-    declare-and-deploy-tee-registry \
-    --salt 0x…
-
-# Compute the launch measurement for the artifacts you just built.
-./target/debug/snp-digest \
-    --ovmf   misc/AMDSEV/output/qemu/OVMF.fd \
-    --kernel misc/AMDSEV/output/qemu/vmlinuz \
-    --initrd misc/AMDSEV/output/qemu/initrd.img \
-    --append "console=ttyS0" \
-    --vcpus 1 --cpu epyc-v4 --vmm qemu --guest-features 0x1
-
-# Initialize with --tee sev-snp (not just --tee). Pass the measurement and
-# the real registry address.
 katana init rollup \
     --id MY_APPCHAIN \
     --settlement-chain               "$SEPOLIA_RPC_URL" \
@@ -261,8 +226,22 @@ katana init rollup \
     --output-path ./chain-config
 ```
 
-Commit `chain-config/` and `build-info.txt` to your repo. Both are required
-inputs for any third party reproducing the measurement.
+Then add the settlement runtime to `chain-config/config.toml` — production
+additionally needs the SP1 prover key and a larger batch:
+
+```toml
+[settlement-runtime]
+account-address = "<DEPLOYER_ADDRESS>"
+account-private-key = "<SEPOLIA_DEPLOYER_PRIVATE_KEY>"
+tee-registry = "<TEE_REGISTRY_ADDRESS>"
+prover-key = "<SP1_PROVER_NETWORK_KEY>"
+batch-size = 32         # amortize settlement gas; tune to throughput
+idle-flush-secs = 60
+```
+
+Commit `chain-config/` (minus the `[settlement-runtime]` secrets, if you
+publish the config to chain participants) and `build-info.txt` to your repo.
+Both are required inputs for any third party reproducing the measurement.
 
 ### 3. Run katana inside the SEV-SNP VM
 
@@ -286,60 +265,37 @@ The script:
 
 Notes:
 
-- `--tee sev-snp` (not `--tee mock`) tells Katana to use the real
-  `tee_generateQuote` path: it asks `/dev/sev-guest` for a `SNP_GET_REPORT`
-  whose `report_data` commits to the current state roots.
+- `--tee sev-snp` (not `--tee mock`) tells Katana to use the real attestation
+  path: it asks `/dev/sev-guest` for a `SNP_GET_REPORT` whose `report_data`
+  commits to the current state roots — and switches the settlement service to
+  real SP1 proving.
+- The settlement service runs inside the VM with the node. Its key material
+  (`account-private-key`, `prover-key`) therefore lives inside the measured,
+  encrypted guest.
 - For sealed storage, pass `KATANA_EXPECTED_LUKS_UUID=<uuid>` in the kernel
   cmdline so the init script unseals `/dev/sda` via `SNP_GET_DERIVED_KEY`.
   This changes the launch measurement — verifiers must pin the sealed
   variant. See [`docs/amdsev.md`](./amdsev.md#sealed-storage).
 - `--dev` and `--dev.no-fee` **must not** be passed in production.
 
-### 4. Run saya-tee (production)
+The Piltover core verifies (a) the SP1 Groth16 proof of the SEV-SNP
+attestation (including the AMD KDS certificate chain), (b) that the
+`report_data` Poseidon commitment matches the submitted state update, and
+(c) the `katana_tee_config_hash` environment binding. If any of these fails,
+the settlement transaction reverts — and the node retries with backoff while
+continuing to produce blocks.
 
-Run `saya-tee` on a separate machine (or at minimum a separate process) from
-the SEV-SNP host. Point it at the host port the VM forwards Katana on.
-
-```bash
-mkdir -p ./saya-data
-
-saya-tee tee start \
-    --rollup-rpc                     "http://<sev-snp-host>:15051" \
-    --settlement-rpc                 "$SEPOLIA_RPC_URL" \
-    --settlement-piltover-address    "$PILTOVER_ADDRESS" \
-    --settlement-account-address     "$DEPLOYER_ADDRESS" \
-    --settlement-account-private-key "$SEPOLIA_DEPLOYER_PRIVATE_KEY" \
-    --tee-registry-address           "$TEE_REGISTRY_ADDRESS" \
-    --prover-private-key             "$SEPOLIA_PROVER_PRIVATE_KEY" \
-    --db-dir ./saya-data \
-    --batch-size 32 \
-    --attestor-poll-interval-ms 1000 \
-    --idle-timeout-secs 60
-```
-
-Key differences from dev:
-
-- **No `--mock-prove`.** Saya runs the real prover and submits real Stone
-  proofs to the Piltover core.
-- **Higher `--batch-size`** to amortize settlement gas. Tune to your
-  throughput and gas budget.
-- The Piltover core verifies (a) the SEV-SNP attestation report against AMD
-  KDS, (b) that the report's measurement matches the value pinned at
-  bootstrap, (c) that the `report_data` Poseidon commitment matches the
-  submitted state update, and (d) the proof itself. If any of these fails,
-  the settlement transaction reverts.
-
-### 5. Verifier checklist
+### 4. Verifier checklist
 
 Anyone consuming state updates from your chain needs to independently:
 
 1. **Reproduce the launch measurement** from OVMF + vmlinuz + initrd + cmdline
-   using `snp-digest`. Compare against the measurement pinned in the
-   Piltover core's `ProgramInfo`.
+   using `snp-digest`. Compare against the measurement attested in the quotes.
 2. **Pin a genesis or fork anchor** out-of-band so a freshly-provisioned VM
    can't fake a clean history from block 0.
 3. **Walk an unbroken chain of quotes** from that anchor — each quote's
-   `prev_block_hash` must match the previous quote's `block_hash`.
+   `prev_block_hash` must match the previous quote's `block_hash`. Quotes are
+   served by the node's `tee_generateQuote` RPC.
 
 The full verifier obligations and known residual gaps (whole-disk rollback,
 upgrade story) are in [`docs/amdsev.md`](./amdsev.md#trust-model).
@@ -351,38 +307,41 @@ upgrade story) are in [`docs/amdsev.md`](./amdsev.md#trust-model).
 Before pointing any of this at mainnet:
 
 - [ ] **TEE mode**: `--tee sev-snp` (not `mock`), inside an SEV-SNP VM.
-- [ ] **Prover mode**: drop `--mock-prove`.
+- [ ] **Settlement runtime**: `prover-key` set (real SP1 proving); registry is
+      the real TEE registry (not the mock).
 - [ ] **Katana flags**: drop `--dev`, `--dev.no-fee`.
-- [ ] **Registry**: real TEE registry (not the mock).
-- [ ] **Measurement**: pinned in `ProgramInfo` at bootstrap; reproducible by
-      third parties from `build-info.txt`.
+- [ ] **Measurement**: reproducible by third parties from `build-info.txt`.
 - [ ] **Sealed storage**: `KATANA_EXPECTED_LUKS_UUID` set in the measured
       cmdline so DB tampering between restarts is rejected.
 - [ ] **Build**: `SOURCE_DATE_EPOCH` set; ideally use
       `scripts/build-reproducible-katana.sh`.
 - [ ] **Batch size**: raised to amortize settlement gas.
-- [ ] **Accounts**: separate deployer and prover keys, monitored balances.
-- [ ] **Durable storage**: `chain-config/`, `katana-data/`, and `saya-data/`
-      backed up. Losing `chain-config/` means a new genesis; losing
-      `saya-data/` means re-indexing from genesis (state remains intact).
-- [ ] **Supervision**: both services under systemd/k8s — neither
-      self-restarts.
+- [ ] **Accounts**: settlement account monitored for STRK balance.
+- [ ] **Durable storage**: `chain-config/` and `katana-data/` backed up.
+      Losing `chain-config/` means a new genesis. Settlement progress lives
+      on-chain in Piltover — there is no separate settlement DB to back up.
+- [ ] **Supervision**: the node under systemd/k8s — it does not self-restart.
 - [ ] **Network surface**: `--http.cors-origins` and `--http.addr` restricted
       to what you actually need to expose.
 
 ## Troubleshooting
 
-**`saya-tee` exits with "attestor not registered"** — the registry transaction
-was rejected. Confirm `--tee-registry-address` matches the contract from the
-bootstrap, and that the prover account has STRK. In production, also confirm
-the launch measurement the VM reports matches what's pinned in `ProgramInfo`.
+**Node exits at startup with a settlement config error** — the
+`[settlement-runtime]` section requires `proof_kind = "tee"` on the Starknet
+settlement layer, a `--tee` attester, and (for `sev-snp`) a `prover-key`. The
+error message names the missing piece.
+
+**`Failed to settle block range; will retry` repeats** — settlement is
+failing but the chain keeps producing blocks. Check the error: a revert
+mentioning the config hash means the chain spec's chain id / fee token doesn't
+match what was pinned at bootstrap; an account error usually means the
+settlement account is out of STRK. The service retries the same batch with
+backoff and re-reads Piltover's cursor before each retry, so it resumes
+cleanly once the cause is fixed.
 
 **`katana init rollup` fails partway through** — the settlement-chain
 transactions are not idempotent. Inspect the partial `chain-config/`; usually
 fastest to delete it and re-run from a clean state.
-
-**State updates stop landing on settlement** — check that the deployer
-account on settlement still has STRK to pay for the settlement transactions.
 
 **Production `luksOpen` fails on a previously-working disk** — typically a
 measurement drift: a kernel, initrd, or OVMF rebuild produced a different

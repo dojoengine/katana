@@ -487,7 +487,7 @@ mod tests {
             proof_kind: Default::default(),
         };
 
-        ChainSpec { id, genesis, settlement, fee_contracts }
+        ChainSpec { id, genesis, settlement, fee_contracts, settlement_runtime: None }
     }
 
     #[test]

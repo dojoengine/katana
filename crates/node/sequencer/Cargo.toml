@@ -15,6 +15,7 @@ katana-gas-price-oracle.workspace = true
 katana-gateway-server.workspace = true
 katana-grpc = { workspace = true, optional = true }
 katana-messaging.workspace = true
+katana-settlement.workspace = true
 katana-metrics.workspace = true
 katana-node-config.workspace = true
 katana-pool.workspace = true

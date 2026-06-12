@@ -9,6 +9,7 @@ pub mod execution;
 pub mod fork;
 pub mod paymaster;
 pub mod sequencing;
+pub mod settlement;
 pub mod tee;
 
 #[cfg(feature = "grpc")]
@@ -71,6 +72,9 @@ pub struct Config {
 
     /// TEE attestation options.
     pub tee: Option<tee::TeeConfig>,
+
+    /// Embedded TEE settlement service options.
+    pub settlement: Option<settlement::SettlementConfig>,
 
     /// gRPC options.
     #[cfg(feature = "grpc")]

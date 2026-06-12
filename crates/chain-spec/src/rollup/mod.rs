@@ -6,6 +6,8 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
+use katana_primitives::{ContractAddress, Felt};
+use serde::{Deserialize, Serialize};
 
 pub mod file;
 pub mod utils;
@@ -29,6 +31,59 @@ pub struct ChainSpec {
 
     /// The chain's settlement layer configurations.
     pub settlement: SettlementLayer,
+
+    /// Runtime configuration for the node's embedded TEE settlement service.
+    ///
+    /// When present (and the settlement layer is Starknet with
+    /// [`SettlementProofKind::Tee`](crate::SettlementProofKind::Tee)), the node settles its own
+    /// blocks to the settlement layer's core contract instead of relying on an external prover
+    /// process.
+    pub settlement_runtime: Option<TeeSettlementRuntime>,
+}
+
+/// Runtime inputs for the embedded TEE settlement service.
+///
+/// These complement the [`SettlementLayer`] (which carries the settlement chain RPC URL and core
+/// contract address): everything here is only needed by the node that actively settles, not by
+/// nodes that merely follow the chain.
+///
+/// Note that the chain spec file holds the settlement account's private key in plaintext — the
+/// settlement key lives with the node operator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct TeeSettlementRuntime {
+    /// Account on the settlement chain that submits `update_state` transactions.
+    pub account_address: ContractAddress,
+
+    /// Private key of the settlement account.
+    pub account_private_key: Felt,
+
+    /// AMD TEE registry contract on the settlement chain. Used to look up the trusted certificate
+    /// prefix length when generating SP1 proofs.
+    pub tee_registry: ContractAddress,
+
+    /// SP1 prover-network private key.
+    ///
+    /// Required for real (SEV-SNP) attestation proving; unused with a mock attester, whose quotes
+    /// can never be proven on the SP1 network.
+    #[serde(default)]
+    pub prover_key: Option<String>,
+
+    /// Number of blocks settled per `update_state` transaction.
+    #[serde(default = "default_settlement_batch_size")]
+    pub batch_size: usize,
+
+    /// Settle a partial batch after this many seconds without a new block.
+    #[serde(default = "default_settlement_idle_flush_secs")]
+    pub idle_flush_secs: u64,
+}
+
+fn default_settlement_batch_size() -> usize {
+    10
+}
+
+fn default_settlement_idle_flush_secs() -> u64 {
+    120
 }
 
 //////////////////////////////////////////////////////////////

@@ -663,24 +663,9 @@ jobs:
               with:
                   name: fixtures
 
-            - name: Clone Saya repository
-              run: |
-                  git clone https://github.com/dojoengine/saya /tmp/saya
-                  git -C /tmp/saya checkout v0.4.1
-
-            - uses: software-mansion/setup-scarb@v1
-              with:
-                  scarb-version: "2.13.1"
-
-            - name: Install saya-ops
-              run: cargo install --locked --path /tmp/saya/bin/ops --bin saya-ops
-
-            - name: Install saya-tee
-              run: cargo install --locked --path /tmp/saya/bin/persistent-tee --bin saya-tee
-
             - name: Run saya-tee e2e test
               env:
-                  RUST_LOG: info,saya_tee_e2e_test=debug,persistent_tee=info
+                  RUST_LOG: info,saya_tee_e2e_test=debug,settlement=debug
               run: cargo run -p saya-tee-e2e-test
 
     db-compatibility-check:

@@ -48,7 +48,7 @@ fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
         proof_kind: Default::default(),
     };
 
-    ChainSpec { id, genesis, settlement, fee_contracts }
+    ChainSpec { id, genesis, settlement, fee_contracts, settlement_runtime: None }
 }
 
 fn executor(chain_spec: ChainSpec) -> BlockifierFactory {

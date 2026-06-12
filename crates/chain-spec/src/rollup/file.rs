@@ -8,7 +8,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
 
-use crate::rollup::ChainSpec;
+use crate::rollup::{ChainSpec, TeeSettlementRuntime};
 use crate::{FeeContracts, SettlementLayer};
 
 #[derive(Debug, thiserror::Error)]
@@ -86,6 +86,7 @@ pub fn read(dir: &ChainConfigDir) -> Result<ChainSpec, Error> {
         genesis,
         id: chain_spec.id,
         settlement: chain_spec.settlement,
+        settlement_runtime: chain_spec.settlement_runtime,
         fee_contracts: chain_spec.fee_contract.into(),
     })
 }
@@ -95,6 +96,7 @@ pub fn write(dir: &ChainConfigDir, chain_spec: &ChainSpec) -> Result<(), Error> 
         let cfg = ChainSpecFile {
             id: chain_spec.id,
             settlement: chain_spec.settlement.clone(),
+            settlement_runtime: chain_spec.settlement_runtime.clone(),
             fee_contract: chain_spec.fee_contracts.clone().into(),
         };
 
@@ -163,6 +165,10 @@ struct ChainSpecFile {
     id: ChainId,
     fee_contract: FileFeeContract,
     settlement: SettlementLayer,
+    /// Runtime config for the embedded TEE settlement service. Optional so pre-existing chain
+    /// spec files (and chains that don't self-settle) keep parsing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    settlement_runtime: Option<TeeSettlementRuntime>,
 }
 
 /// The local directory name where the chain configuration files are stored.
@@ -361,6 +367,7 @@ mod tests {
                 rpc_url: Url::parse("http://localhost:5050").expect("valid url"),
                 proof_kind: Default::default(),
             },
+            settlement_runtime: None,
         }
     }
 
@@ -375,6 +382,68 @@ mod tests {
         assert_eq!(chain_spec.id, read_spec.id);
         assert_eq!(chain_spec.fee_contracts, read_spec.fee_contracts);
         assert_eq!(chain_spec.settlement, read_spec.settlement);
+        assert_eq!(chain_spec.settlement_runtime, read_spec.settlement_runtime);
+    }
+
+    /// The `[settlement-runtime]` section round-trips through the TOML file, including the serde
+    /// defaults for the batching knobs.
+    #[test]
+    fn settlement_runtime_round_trip() {
+        use katana_primitives::felt;
+
+        use crate::rollup::TeeSettlementRuntime;
+
+        let mut chain_spec = chainspec();
+        chain_spec.id = ChainId::parse("runtime_round_trip").unwrap();
+        chain_spec.settlement_runtime = Some(TeeSettlementRuntime {
+            account_address: ContractAddress::from(felt!("0x123")),
+            account_private_key: felt!("0x456"),
+            tee_registry: ContractAddress::from(felt!("0x789")),
+            prover_key: Some("sp1_dummy".to_string()),
+            batch_size: 3,
+            idle_flush_secs: 7,
+        });
+
+        write(&chain_spec).unwrap();
+        let read_spec = read(&chain_spec.id).unwrap();
+
+        assert_eq!(chain_spec.settlement_runtime, read_spec.settlement_runtime);
+    }
+
+    /// A minimal `[settlement-runtime]` section parses with defaults applied; a file without the
+    /// section parses to `None` (backward compatibility).
+    #[test]
+    fn settlement_runtime_defaults_and_optionality() {
+        let base = r#"
+[id]
+Id = "0x4b4154414e41"
+
+[fee-contract]
+strk = "0x0"
+
+[settlement.starknet]
+rpc_url = "http://localhost:5050/"
+core_contract = "0x0"
+block = 0
+proof_kind = "tee"
+
+[settlement.starknet.id]
+Id = "0x4b4154414e41"
+"#;
+
+        let parsed: super::ChainSpecFile = toml::from_str(base).expect("parses without runtime");
+        assert!(parsed.settlement_runtime.is_none());
+
+        let with_runtime = format!(
+            "{base}\n[settlement-runtime]\naccount-address = \"0x1\"\naccount-private-key = \
+             \"0x2\"\ntee-registry = \"0x3\"\n"
+        );
+        let parsed: super::ChainSpecFile =
+            toml::from_str(&with_runtime).expect("parses with minimal runtime");
+        let runtime = parsed.settlement_runtime.expect("runtime section present");
+        assert_eq!(runtime.prover_key, None);
+        assert_eq!(runtime.batch_size, 10);
+        assert_eq!(runtime.idle_flush_secs, 120);
     }
 
     /// Pre-existing chain spec files (written before `proof_kind` existed) must still parse, with

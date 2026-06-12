@@ -9,7 +9,10 @@ name = "kds-client"
 path = "bin/kds.rs"
 
 [dependencies]
+katana-chain-spec.workspace = true
 katana-primitives.workspace = true
+katana-provider-api.workspace = true
+katana-rpc-types.workspace = true
 
 anyhow.workspace = true
 bincode = { workspace = true, optional = true }
@@ -18,7 +21,7 @@ serde.workspace = true
 sev = { workspace = true, optional = true }
 sev-snp = { workspace = true, optional = true }
 thiserror.workspace = true
-tracing = { workspace = true, optional = true }
+tracing.workspace = true
 zeroize = { workspace = true, optional = true }
 katana-tracing.workspace = true
 katana-starknet.workspace = true
@@ -45,7 +48,7 @@ tempfile.workspace = true
 
 [features]
 default = [  ]
-snp = [ "dep:bincode", "dep:sev-snp", "dep:tracing", "dep:zeroize" ]
+snp = [ "dep:bincode", "dep:sev-snp", "dep:zeroize" ]
 # Exposes `MockAttester` and `AttesterKind::Mock` for use by integration test
 # crates that need to serve `tee_generateQuote` without real SEV-SNP hardware.
 # Not intended for production binaries.

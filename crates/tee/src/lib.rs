@@ -21,14 +21,15 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 // Used by the `kds-client` binary; silence the lib-only `unused_crate_dependencies` lint.
-use anyhow as _;
 use std::fmt::Debug;
 
+use anyhow as _;
 // `zeroize` is used only by the `snp-derivekey` binary, not this library.
 // Acknowledge the workspace dep here so `unused_crate_dependencies` stays quiet.
 #[cfg(feature = "snp")]
 use zeroize as _;
 
+pub mod attestation;
 mod error;
 
 #[cfg(any(test, feature = "mock"))]

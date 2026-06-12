@@ -10,8 +10,10 @@ use crate::ExecutionResult;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct L1ToL2Message {
-    /// The address of the L1 contract sending the message
-    pub from_address: EthAddress,
+    /// The sender on the settlement chain — an Ethereum address or a Starknet contract address
+    /// depending on the settlement layer, so it is kept as a full felt (truncating to 20 bytes
+    /// would lose Starknet sender addresses).
+    pub from_address: Felt,
     /// The target L2 address the message is sent to
     pub to_address: ContractAddress,
     /// The selector of the l1_handler in invoke in the target contract

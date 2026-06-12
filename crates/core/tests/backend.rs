@@ -82,7 +82,7 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
         proof_kind: Default::default(),
     };
 
-    rollup::ChainSpec { id, genesis, settlement, fee_contracts }
+    rollup::ChainSpec { id, genesis, settlement, fee_contracts, settlement_runtime: None }
 }
 
 #[rstest]

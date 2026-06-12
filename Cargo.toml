@@ -3,7 +3,6 @@ resolver = "2"
 
 members = [
 	"bin/katana",
-	"bin/saya-tee",
 	"crates/bootstrap",
 	"crates/cartridge",
 	"crates/chain-spec",
@@ -36,8 +35,8 @@ members = [
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
 	"crates/runner/macro",
-	"crates/saya/saya-core",
 	"crates/serde-utils",
+	"crates/settlement",
 	"crates/starknet",
 	"crates/storage/codecs",
 	"crates/storage/codecs/derive",
@@ -61,10 +60,11 @@ members = [
 	# "tests/snos",
 ]
 
-# NOTE: bin/saya (the SNOS/validity prover binary) was removed from the
-# workspace: its generate-pie -> karnotxyz starknet_os chain hard-requires
+# NOTE: the saya binaries are gone. bin/saya (the SNOS/validity prover) was
+# removed because its generate-pie -> karnotxyz starknet_os chain hard-requires
 # c-kzg 1.x, which collides with alloy's optional c-kzg 2.x on the native
-# `links = "ckzg"` slot. Only the TEE prover (bin/saya-tee) is kept.
+# `links = "ckzg"` slot. bin/saya-tee (the TEE prover) was embedded into the
+# katana node itself — see crates/settlement.
 
 [workspace.package]
 edition = "2021"
@@ -123,6 +123,7 @@ katana-rpc-types = { path = "crates/rpc/rpc-types" }
 katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }
 katana-sequencer-node = { path = "crates/node/sequencer" }
+katana-settlement = { path = "crates/settlement" }
 katana-slot-controller = { path = "crates/controller" }
 katana-stage = { path = "crates/sync/stage" }
 katana-starknet = { path = "crates/starknet" }
@@ -131,8 +132,6 @@ katana-tee = { path = "crates/tee" }
 katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
-
-saya-core = { path = "crates/saya/saya-core" }
 
 # cairo-lang
 cairo-lang-casm = "2.12.3"
@@ -278,12 +277,6 @@ piltover = { path = "crates/contracts/contracts/piltover/piltover" }
 paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main
 paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main
 
-# saya — deps needed by saya-core / bin/saya-tee / tests/saya-e2e.
-celestia-rpc = { version = "0.16.2", default-features = false }
-celestia-types = { version = "0.20.0", default-features = false }
-ciborium = { version = "0.2.2", default-features = false }
-sqlx = { version = "0.8.2", features = [ "chrono", "macros", "regexp", "runtime-async-std", "runtime-tokio", "sqlite", "uuid" ] }
-swiftness_stark = { git = "https://github.com/chudkowsky/swiftness", rev = "e07d185", default-features = false, features = [ "recursive_with_poseidon", "keccak_160_lsb", "stone6" ] }
 
 # AMD SEV-SNP SDKs
 amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16", default-features = false }

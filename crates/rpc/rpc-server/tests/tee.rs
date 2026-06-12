@@ -531,9 +531,7 @@ async fn generate_quote_l1_to_l2_message_aggregation() {
     assert_eq!(
         resp.l1_to_l2_messages,
         vec![L1ToL2Message {
-            from_address: katana_primitives::eth::Address::from_slice(
-                &sender_on_l1.to_bytes_be()[12..]
-            ),
+            from_address: sender_on_l1,
             to_address: contract_address,
             entry_point_selector: selector,
             payload: payload_elems,
@@ -606,8 +604,7 @@ async fn generate_quote_prev_block_number_wire_format() {
         "None must serialize to Felt::MAX, not null"
     );
     assert!(!json_none["prevBlockNumber"].is_null(), "None must NOT serialize to JSON null");
-    let round_trip_none: BlockAttestation =
-        serde_json::from_value(json_none).expect("deserialize");
+    let round_trip_none: BlockAttestation = serde_json::from_value(json_none).expect("deserialize");
     assert_eq!(round_trip_none.prev_block_number, Felt::MAX);
 
     // Case 2: Some(0) → serialized as Felt::from(0). Using Some(0) specifically exercises
@@ -619,8 +616,7 @@ async fn generate_quote_prev_block_number_wire_format() {
         serde_json::to_value(Felt::from(0u64)).unwrap(),
         "Some(0) must serialize to the Felt form of 0"
     );
-    let round_trip_some: BlockAttestation =
-        serde_json::from_value(json_some).expect("deserialize");
+    let round_trip_some: BlockAttestation = serde_json::from_value(json_some).expect("deserialize");
     assert_eq!(round_trip_some.prev_block_number, Felt::ZERO);
 }
 

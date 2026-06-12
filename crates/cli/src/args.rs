@@ -27,6 +27,7 @@ use katana_sequencer_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_sequencer_node::config::rpc::{RpcModuleKind, RpcModulesList};
 use katana_sequencer_node::config::sequencing::SequencingConfig;
+use katana_sequencer_node::config::settlement::SettlementConfig;
 use katana_sequencer_node::config::tee::TeeConfig;
 use katana_sequencer_node::config::Config;
 use katana_sequencer_node::Node;
@@ -361,6 +362,7 @@ impl SequencerNodeArgs {
         let paymaster = self.paymaster_config(&chain)?;
 
         let messaging = self.build_messaging_config(&chain)?;
+        let settlement = self.build_settlement_config(&chain)?;
 
         Ok(Config {
             db,
@@ -375,6 +377,7 @@ impl SequencerNodeArgs {
             execution,
             messaging,
             sequencing,
+            settlement,
             build_info,
             paymaster,
             tee: self.tee_config(),
@@ -769,6 +772,39 @@ impl SequencerNodeArgs {
 
     fn tee_config(&self) -> Option<TeeConfig> {
         self.tee.attester.map(|attester| TeeConfig { attester, fork_block_number: None })
+    }
+
+    /// Build the embedded settlement service config from the rollup chain spec's
+    /// `[settlement-runtime]` section. Returns `None` when the section is absent.
+    fn build_settlement_config(&self, chain: &ChainSpec) -> Result<Option<SettlementConfig>> {
+        let ChainSpec::Rollup(spec) = chain else { return Ok(None) };
+
+        if spec.settlement_runtime.is_none() {
+            return Ok(None);
+        }
+
+        let Some(config) = SettlementConfig::from_rollup_spec(spec) else {
+            bail!(
+                "the chain spec has a [settlement-runtime] section, but embedded settlement \
+                 requires settling to a Starknet chain with `proof_kind = \"tee\"`"
+            );
+        };
+
+        let Some(attester) = self.tee.attester else {
+            bail!(
+                "the chain spec has a [settlement-runtime] section, which requires a TEE \
+                 attester; enable one with --tee"
+            );
+        };
+
+        if matches!(attester, katana_tee::AttesterKind::SevSnp) && config.prover_key.is_none() {
+            bail!(
+                "[settlement-runtime] is missing `prover-key`, which is required for SEV-SNP \
+                 attestation proving"
+            );
+        }
+
+        Ok(Some(config))
     }
 
     /// Parse the node config from the command line arguments and the config file,

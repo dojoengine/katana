@@ -5,9 +5,9 @@ use anyhow::Result;
 use futures::Future;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::chain::ChainId;
-use katana_primitives::hash::StarkHash;
 use katana_primitives::transaction::L1HandlerTx;
-use katana_primitives::{hash, ContractAddress, Felt};
+use katana_primitives::utils::transaction::compute_starknet_to_appchain_message_hash;
+use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::event::{EmittedEvent, EventFilter};
 use katana_starknet::rpc::{StarknetRpcClient, StarknetRpcClientError};
 use starknet::macros::selector;
@@ -204,23 +204,6 @@ fn l1_handler_tx_from_event(
         version: Felt::ZERO,
         contract_address: to_address.into(),
     })
-}
-
-fn compute_starknet_to_appchain_message_hash(
-    from_address: Felt,
-    to_address: Felt,
-    nonce: Felt,
-    entry_point_selector: Felt,
-    payload: &[Felt],
-) -> Felt {
-    let mut buf: Vec<Felt> =
-        vec![from_address, to_address, nonce, entry_point_selector, Felt::from(payload.len())];
-
-    for p in payload {
-        buf.push(*p);
-    }
-
-    hash::Poseidon::hash_array(&buf)
 }
 
 #[cfg(test)]
