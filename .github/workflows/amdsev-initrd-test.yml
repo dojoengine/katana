@@ -7,6 +7,11 @@ name: amdsev-initrd-test
 # virtio-serial control channel, the forwarded RPC endpoint answers
 # starknet_chainId, and the graceful `stop` command powers the guest off.
 #
+# The embedded katana is built FROM THIS REF via scripts/build-gnu.sh — the
+# same script, profile, and TEE feature set as the published portable
+# release binary — so the boot test validates the tree under test end to
+# end (a PR that breaks `--tee sev-snp` fails here, before any release).
+#
 # Runner
 # ------
 # Stock ubuntu-latest. No SEV-SNP hardware is needed: the smoke test boots
@@ -35,7 +40,44 @@ defaults:
     working-directory: misc/AMDSEV
 
 jobs:
+  build-katana:
+    runs-on: ubuntu-latest-32-cores
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: amdsev-build-katana
+
+      - name: Install build dependencies
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends protobuf-compiler
+
+      - name: Build katana (portable release configuration)
+        # build-gnu.sh is the script behind the published portable
+        # linux_amd64 binary: performance profile, deterministic RUSTFLAGS,
+        # and the client,init-slot,jemalloc,tee-snp,tee-mock feature set.
+        # ubuntu-latest is noble (glibc 2.39), matching the initrd's pinned
+        # GLIBC_RUNTIME_PACKAGES, so the binary's symbol requirements cannot
+        # exceed what the guest ships.
+        working-directory: .
+        run: ./scripts/build-gnu.sh
+
+      - name: Upload katana binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: amdsev-katana-binary
+          retention-days: 1
+          if-no-files-found: error
+          path: target/x86_64-unknown-linux-gnu/performance/katana
+
   build-and-boot:
+    needs: build-katana
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -71,33 +113,17 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Download katana linux binary
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pinned rather than "latest": the smoke test passes --tee sev-snp
-          # (same default invocation as start-vm.sh), which needs a
-          # TEE-capable katana. The latest *stable* release (v1.7.1) predates
-          # TEE support, and gh has no "latest including prereleases". Bump
-          # when newer TEE-capable releases ship.
-          KATANA_TEST_VERSION: v1.8.0-rc.2
+      - name: Download katana binary built from this ref
+        uses: actions/download-artifact@v5
+        with:
+          name: amdsev-katana-binary
+          path: misc/AMDSEV/.katana-bin
+
+      - name: Stage katana binary
+        # Artifact transport drops the execute bit.
         run: |
-          mkdir -p .katana-dl
-          # katana product + portable build only (same pattern as
-          # amdsev-release.yml): the `katana_` prefix excludes the
-          # paymaster-service_* / vrf-server_* tarballs that newer releases
-          # ship alongside it, and the anchored suffix excludes the `_native`
-          # variant.
-          gh release download "$KATANA_TEST_VERSION" \
-            --repo dojoengine/katana \
-            --pattern 'katana_*_linux_amd64.tar.gz' \
-            --dir .katana-dl/
-          tar -xzf .katana-dl/*.tar.gz -C .katana-dl/
-          KATANA_BIN="$(find "$PWD/.katana-dl" -type f -name katana -perm -u+x | head -n1)"
-          if [ -z "$KATANA_BIN" ]; then
-            echo "katana binary not found in downloaded asset" >&2
-            exit 1
-          fi
-          echo "KATANA_BIN=$KATANA_BIN" >> "$GITHUB_ENV"
+          chmod +x .katana-bin/katana
+          echo "KATANA_BIN=$PWD/.katana-bin/katana" >> "$GITHUB_ENV"
 
       - name: Build kernel + sealed initrd
         # Skips OVMF — the EDK2 build takes far longer than everything else
