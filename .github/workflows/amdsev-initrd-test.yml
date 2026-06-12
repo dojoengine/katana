@@ -43,20 +43,36 @@ jobs:
   build-katana:
     runs-on: ubuntu-latest-32-cores
     timeout-minutes: 45
+    # katana-dev carries the full build toolchain including asdf/scarb for
+    # the contract artifacts that katana-contracts embeds at compile time.
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+        working-directory: .
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: amdsev-build-katana
 
-      - name: Install build dependencies
+      - name: Restore cached contract artifacts
+        id: contracts-cache
+        uses: actions/cache@v4
+        with:
+          path: crates/contracts/build
+          # Generated build/ output is gitignored, so at key-evaluation time
+          # this hashes source inputs only.
+          key: amdsev-contracts-${{ hashFiles('Makefile', 'crates/contracts/**') }}
+
+      - name: Generate contract artifacts
+        if: steps.contracts-cache.outputs.cache-hit != 'true'
         working-directory: .
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends protobuf-compiler
+        run: make contracts
 
       - name: Build katana (portable release configuration)
         # build-gnu.sh is the script behind the published portable
@@ -101,6 +117,9 @@ jobs:
             musl-tools zstd cpio qemu-system-x86 socat
 
       - name: Install Rust musl target
+        # Run inside snp-tools so its rust-toolchain.toml selects the same
+        # toolchain build.sh will use for the snp-derivekey build.
+        working-directory: misc/AMDSEV/snp-tools
         run: rustup target add x86_64-unknown-linux-musl
 
       - name: Enable KVM for the runner user

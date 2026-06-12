@@ -1,0 +1,10 @@
+# Pinned independently of the katana workspace toolchain (this crate is
+# standalone — see the [workspace] table in Cargo.toml). The sev-snp SDK's
+# coco-provider dependency calls x86 cpuid intrinsics without `unsafe`,
+# which only compiles on toolchains where those intrinsics are safe —
+# newer than the workspace pin. Pinning here (rather than floating on the
+# runner's stable) also keeps snp-derivekey byte-reproducible: it ships
+# inside the measured initrd, so its compiler version is part of the
+# launch-measurement story.
+[toolchain]
+channel = "1.96.0"

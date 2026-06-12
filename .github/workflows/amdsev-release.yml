@@ -77,6 +77,9 @@ jobs:
             zstd cpio
 
       - name: Install Rust musl target
+        # Run inside snp-tools so its rust-toolchain.toml selects the same
+        # toolchain build.sh will use for the snp-derivekey build.
+        working-directory: misc/AMDSEV/snp-tools
         run: rustup target add x86_64-unknown-linux-musl
 
       - name: Resolve katana version
