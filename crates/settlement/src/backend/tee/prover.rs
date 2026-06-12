@@ -25,7 +25,8 @@ use tracing::{debug, info};
 use url::Url;
 use x509_verifier_rust_crypto::CertChain;
 
-use crate::{mock, LOG_TARGET};
+use super::mock;
+use crate::LOG_TARGET;
 
 /// Maximum time for the entire proof generation pipeline (KDS + registry + SP1).
 const PROOF_GENERATION_TIMEOUT: Duration = Duration::from_secs(600);

@@ -4,17 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use cainome::cairo_serde::ContractAddress as CainomeContractAddress;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxHash;
-use katana_primitives::utils::transaction::compute_starknet_to_appchain_message_hash;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::tee::BlockAttestation;
-use katana_rpc_types::{L1ToL2Message, L2ToL1Message};
-use piltover::{
-    AppchainContract, AppchainContractReader, MessageToAppchain, MessageToStarknet, PiltoverInput,
-    TEEInput,
-};
+use piltover::{AppchainContract, AppchainContractReader, PiltoverInput};
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, TransactionReceipt};
 use starknet::providers::jsonrpc::HttpTransport;
@@ -126,67 +119,4 @@ impl PiltoverClient {
             }
         }
     }
-}
-
-/// Builds the `PiltoverInput::TeeInput` payload from an attestation and its proof felts.
-pub fn build_tee_input(attestation: &BlockAttestation, sp1_proof: Vec<Felt>) -> PiltoverInput {
-    let l1_to_l2_msg_hashes =
-        attestation.l1_to_l2_messages.iter().map(compute_l1_to_l2_msg_hash).collect();
-
-    PiltoverInput::TeeInput(TEEInput {
-        sp1_proof,
-        prev_state_root: attestation.prev_state_root,
-        state_root: attestation.state_root,
-        prev_block_hash: attestation.prev_block_hash,
-        block_hash: attestation.block_hash,
-        prev_block_number: attestation.prev_block_number,
-        block_number: attestation.block_number,
-        messages_commitment: attestation.messages_commitment,
-        messages_to_starknet: messages_to_starknet(&attestation.l2_to_l1_messages),
-        messages_to_appchain: messages_to_appchain(&attestation.l1_to_l2_messages),
-        l1_to_l2_msg_hashes,
-        katana_tee_config_hash: attestation.katana_tee_config_hash,
-    })
-}
-
-/// Computes the settlement-to-appchain message hash for a Starknet settlement layer.
-///
-/// Must match the hash Katana's messaging collector stamps into `Receipt::L1Handler` — the
-/// attestation's `messages_commitment` is built from those receipt hashes, and Piltover asserts
-/// this list re-hashes to the same commitment.
-fn compute_l1_to_l2_msg_hash(msg: &L1ToL2Message) -> Felt {
-    // calldata = [from_address, ...payload], mirroring the L1HandlerTx calldata layout.
-    let mut calldata = Vec::with_capacity(msg.payload.len() + 1);
-    calldata.push(msg.from_address);
-    calldata.extend_from_slice(&msg.payload);
-
-    compute_starknet_to_appchain_message_hash(
-        msg.from_address,
-        msg.to_address.into(),
-        msg.nonce,
-        msg.entry_point_selector,
-        &calldata,
-    )
-}
-
-fn messages_to_starknet(msgs: &[L2ToL1Message]) -> Vec<MessageToStarknet> {
-    msgs.iter()
-        .map(|m| MessageToStarknet {
-            from_address: CainomeContractAddress(m.from_address.into()),
-            to_address: CainomeContractAddress(m.to_address),
-            payload: m.payload.clone(),
-        })
-        .collect()
-}
-
-fn messages_to_appchain(msgs: &[L1ToL2Message]) -> Vec<MessageToAppchain> {
-    msgs.iter()
-        .map(|m| MessageToAppchain {
-            from_address: CainomeContractAddress(m.from_address),
-            to_address: CainomeContractAddress(m.to_address.into()),
-            nonce: m.nonce,
-            selector: m.entry_point_selector,
-            payload: m.payload.clone(),
-        })
-        .collect()
 }

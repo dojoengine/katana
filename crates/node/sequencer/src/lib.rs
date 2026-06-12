@@ -66,7 +66,9 @@ use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::node::NodeInfo;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
-use katana_settlement::{SettlementService, SettlementServiceHandle};
+use katana_settlement::{
+    ProvingBackend, SettlementService, SettlementServiceHandle, TeeBackend, TeeProver,
+};
 use katana_stage::Sequencing;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::TaskManager;
@@ -569,38 +571,62 @@ where
 
         // --- build settlement service (if configured)
 
-        let settlement_service = match (&config.settlement, &attester) {
-            (Some(cfg), Some(attester)) => {
-                let tee_config = config.tee.as_ref().expect("qed; attester implies tee config");
+        let settlement_service = match &config.settlement {
+            Some(cfg) => {
+                // Each proving system declares its own requirements here; only the TEE backend
+                // exists today.
+                let proving_backend: Arc<dyn ProvingBackend> = match &cfg.prover {
+                    katana_settlement::ProverConfig::Tee { tee_registry, prover_key } => {
+                        let Some(attester) = &attester else {
+                            anyhow::bail!(
+                                "TEE settlement is configured but TEE attestation is not; enable \
+                                 a TEE attester with --tee"
+                            );
+                        };
+                        let tee_config =
+                            config.tee.as_ref().expect("qed; attester implies tee config");
 
-                // Fork mode attests with the sharding report schema, which carries no message
-                // data — Piltover's appchain `TeeInput` path can't validate it.
-                if tee_config.fork_block_number.is_some() {
-                    anyhow::bail!("settlement of forked chains is not supported");
-                }
+                        // Fork mode attests with the sharding report schema, which carries no
+                        // message data — Piltover's appchain `TeeInput` path can't validate it.
+                        if tee_config.fork_block_number.is_some() {
+                            anyhow::bail!("settlement of forked chains is not supported");
+                        }
 
-                // A mock attester's quotes can never yield a real SP1 proof (the SP1 program
-                // verifies the AMD signature), so the prover backend is forced by the attester.
-                let mock_prove = !matches!(tee_config.attester, katana_tee::AttesterKind::SevSnp);
+                        // A mock attester's quotes can never yield a real SP1 proof (the SP1
+                        // program verifies the AMD signature), so the prover is forced by the
+                        // attester kind.
+                        let prover =
+                            if matches!(tee_config.attester, katana_tee::AttesterKind::SevSnp) {
+                                let prover_key = prover_key.clone().context(
+                                    "SP1 prover key is required for SEV-SNP attestation proving",
+                                )?;
+                                TeeProver::Sp1 {
+                                    settlement_rpc: cfg.rpc_url.clone(),
+                                    tee_registry: *tee_registry,
+                                    prover_key,
+                                }
+                            } else {
+                                TeeProver::Mock
+                            };
+
+                        Arc::new(TeeBackend::new(
+                            provider.clone(),
+                            attester.clone(),
+                            &backend.chain_spec,
+                            prover,
+                        ))
+                    }
+                };
 
                 Some(SettlementService::new(
                     provider.clone(),
-                    attester.clone(),
-                    &backend.chain_spec,
+                    proving_backend,
                     block_notify.clone(),
                     cfg.clone(),
-                    mock_prove,
                 ))
             }
 
-            (Some(_), None) => {
-                anyhow::bail!(
-                    "settlement is configured but TEE attestation is not; enable a TEE attester \
-                     with --tee"
-                )
-            }
-
-            _ => None,
+            None => None,
         };
 
         Ok(Node {

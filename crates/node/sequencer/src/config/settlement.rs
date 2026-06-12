@@ -1,1 +1,1 @@
-pub use katana_settlement::SettlementConfig;
+pub use katana_settlement::{ProverConfig, SettlementConfig};

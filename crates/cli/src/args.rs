@@ -797,7 +797,9 @@ impl SequencerNodeArgs {
             );
         };
 
-        if matches!(attester, katana_tee::AttesterKind::SevSnp) && config.prover_key.is_none() {
+        let katana_sequencer_node::config::settlement::ProverConfig::Tee { ref prover_key, .. } =
+            config.prover;
+        if matches!(attester, katana_tee::AttesterKind::SevSnp) && prover_key.is_none() {
             bail!(
                 "[settlement-runtime] is missing `prover-key`, which is required for SEV-SNP \
                  attestation proving"

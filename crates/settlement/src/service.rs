@@ -1,29 +1,25 @@
 //! The settlement service: a single sequential settle loop.
 //!
-//! Settlement is inherently serial — Piltover rejects any `update_state` whose
-//! `prev_block_number` doesn't match its current state — so the service runs
-//! one batch at a time through attest → prove → settle, with no internal
-//! pipelining.
+//! Settlement is inherently serial — Piltover rejects any `update_state`
+//! whose `prev_block_number` doesn't match its current state — so the service
+//! runs one batch at a time through the proving backend, with no internal
+//! pipelining. The loop is proof-system-agnostic: everything specific to how
+//! a state transition is proven lives behind [`ProvingBackend`].
 
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use katana_chain_spec::tee::compute_katana_tee_config_hash;
-use katana_chain_spec::ChainSpec;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::Felt;
-use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, HeaderProvider};
-use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
+use katana_provider::api::block::BlockNumberProvider;
 use katana_provider::ProviderFactory;
-use katana_tee::attestation::build_block_attestation;
-use katana_tee::Attester;
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-use crate::piltover::{build_tee_input, PiltoverClient};
-use crate::prover::TeeProver;
+use crate::backend::ProvingBackend;
+use crate::piltover::PiltoverClient;
 use crate::{SettlementConfig, LOG_TARGET};
 
 /// Initial retry delay after a failed settlement attempt.
@@ -31,7 +27,7 @@ const RETRY_BACKOFF_MIN: Duration = Duration::from_secs(5);
 /// Retry delay cap.
 const RETRY_BACKOFF_MAX: Duration = Duration::from_secs(60);
 
-/// The embedded TEE settlement service.
+/// The embedded settlement service.
 ///
 /// [`Self::start`] is non-consuming and mirrors `MessagingService::start`: it
 /// connects to the settlement chain, reads the on-chain cursor, and spawns the
@@ -40,41 +36,26 @@ const RETRY_BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// block notification type).
 pub struct SettlementService<P, N> {
     provider: P,
-    attester: Arc<dyn Attester>,
+    backend: Arc<dyn ProvingBackend>,
     block_notify: broadcast::Sender<N>,
     config: SettlementConfig,
-    /// Versioned environment config hash, precomputed from the chain spec.
-    katana_tee_config_hash: Felt,
-    /// Synthesize mock proof journals instead of SP1 proving. Forced by a mock
-    /// attester: its quotes can never be proven on the SP1 network.
-    mock_prove: bool,
 }
 
 impl<P, N> SettlementService<P, N> {
     pub fn new(
         provider: P,
-        attester: Arc<dyn Attester>,
-        chain_spec: &ChainSpec,
+        backend: Arc<dyn ProvingBackend>,
         block_notify: broadcast::Sender<N>,
         config: SettlementConfig,
-        mock_prove: bool,
     ) -> Self {
-        let chain_id: Felt = chain_spec.id().into();
-        let fee_token: Felt = chain_spec.fee_contracts().strk.into();
-        let katana_tee_config_hash = compute_katana_tee_config_hash(chain_id, fee_token);
-
-        Self { provider, attester, block_notify, config, katana_tee_config_hash, mock_prove }
+        Self { provider, backend, block_notify, config }
     }
 }
 
 impl<P, N> SettlementService<P, N>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
-    <P as ProviderFactory>::Provider: BlockHashProvider
-        + BlockNumberProvider
-        + HeaderProvider
-        + ReceiptProvider
-        + TransactionProvider,
+    <P as ProviderFactory>::Provider: BlockNumberProvider,
     N: Clone + Send + 'static,
 {
     /// Start the settlement service.
@@ -93,27 +74,10 @@ where
 
         let cursor = piltover.settled_block().await.context("read piltover settlement cursor")?;
 
-        let prover = if self.mock_prove {
-            TeeProver::Mock
-        } else {
-            let prover_key = self
-                .config
-                .prover_key
-                .clone()
-                .context("SP1 prover key is required for real attestation proving")?;
-            TeeProver::Sp1 {
-                settlement_rpc: self.config.rpc_url.clone(),
-                tee_registry: self.config.tee_registry,
-                prover_key,
-            }
-        };
-
         let worker = Worker {
             provider: self.provider.clone(),
-            attester: self.attester.clone(),
-            katana_tee_config_hash: self.katana_tee_config_hash,
+            backend: self.backend.clone(),
             piltover,
-            prover,
             batch_size: self.config.batch_size.max(1) as u64,
             idle_flush_interval: self.config.idle_flush_interval,
             cursor,
@@ -125,6 +89,7 @@ where
 
         info!(
             target: LOG_TARGET,
+            backend = self.backend.name(),
             settled_block = ?cursor,
             core_contract = %self.config.core_contract,
             "Settlement service started."
@@ -137,9 +102,8 @@ where
 impl<P, N> std::fmt::Debug for SettlementService<P, N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SettlementService")
+            .field("backend", &self.backend.name())
             .field("config", &self.config)
-            .field("katana_tee_config_hash", &self.katana_tee_config_hash)
-            .field("mock_prove", &self.mock_prove)
             .finish_non_exhaustive()
     }
 }
@@ -167,10 +131,8 @@ impl SettlementServiceHandle {
 
 struct Worker<P> {
     provider: P,
-    attester: Arc<dyn Attester>,
-    katana_tee_config_hash: Felt,
+    backend: Arc<dyn ProvingBackend>,
     piltover: PiltoverClient,
-    prover: TeeProver,
     batch_size: u64,
     idle_flush_interval: tokio::time::Duration,
     /// Last settled block, from Piltover's `get_state()`. `None` = nothing settled yet.
@@ -216,11 +178,7 @@ fn next_action(
 impl<P> Worker<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::Provider: BlockHashProvider
-        + BlockNumberProvider
-        + HeaderProvider
-        + ReceiptProvider
-        + TransactionProvider,
+    <P as ProviderFactory>::Provider: BlockNumberProvider,
 {
     async fn run<N: Clone>(
         mut self,
@@ -363,26 +321,11 @@ where
         }
     }
 
-    /// Attest, prove, and settle the inclusive block range `[first, last]`.
+    /// Prove and settle the inclusive block range `[first, last]`.
     async fn settle_batch(&self, first: BlockNumber, last: BlockNumber) -> Result<Felt> {
         let prev_block = if first == 0 { None } else { Some(first - 1) };
 
-        let attestation = {
-            let provider = self.provider.provider();
-            build_block_attestation(
-                &provider,
-                &*self.attester,
-                prev_block,
-                last,
-                None,
-                self.katana_tee_config_hash,
-            )
-            .context("build block attestation")?
-        };
-
-        let sp1_proof = self.prover.prove(&attestation).await.context("prove attestation")?;
-
-        let input = build_tee_input(&attestation, sp1_proof);
+        let input = self.backend.prove(prev_block, last).await?;
         let tx_hash = self.piltover.update_state(input).await?;
 
         Ok(tx_hash)
