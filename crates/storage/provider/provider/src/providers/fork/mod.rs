@@ -688,16 +688,16 @@ impl<Tx1: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1> {
 }
 
 impl<Tx1: DbTxMut> MessagingCheckpointProvider for ForkedProvider<Tx1> {
-    fn messaging_checkpoint(&self, id: &str) -> ProviderResult<Option<MessagingCheckpoint>> {
-        self.local_db.messaging_checkpoint(id)
+    fn messaging_checkpoint(&self) -> ProviderResult<Option<MessagingCheckpoint>> {
+        self.local_db.messaging_checkpoint()
     }
 
-    fn set_messaging_checkpoint(
-        &self,
-        id: &str,
-        checkpoint: &MessagingCheckpoint,
-    ) -> ProviderResult<()> {
-        self.local_db.set_messaging_checkpoint(id, checkpoint)
+    fn set_messaging_checkpoint(&self, checkpoint: &MessagingCheckpoint) -> ProviderResult<()> {
+        self.local_db.set_messaging_checkpoint(checkpoint)
+    }
+
+    fn delete_messaging_checkpoint(&self) -> ProviderResult<()> {
+        self.local_db.delete_messaging_checkpoint()
     }
 }
 

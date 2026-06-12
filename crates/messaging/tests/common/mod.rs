@@ -68,7 +68,7 @@ pub fn l2_txs_for_l1(provider: &DbProviderFactory, l1_tx_hash: &[u8; 32]) -> Vec
 /// Read the messaging checkpoint for the default messaging id ("messaging") from the provider.
 pub fn messaging_checkpoint(provider: &DbProviderFactory) -> Option<MessagingCheckpoint> {
     let tx = provider.provider_mut();
-    let res = tx.messaging_checkpoint("messaging").expect("read messaging checkpoint");
+    let res = tx.messaging_checkpoint().expect("read messaging checkpoint");
     tx.commit().expect("commit read tx");
     res
 }

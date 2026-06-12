@@ -20,6 +20,7 @@ use tracing::info;
 pub mod cartridge;
 pub mod dev;
 pub mod health;
+pub mod messaging;
 pub mod middleware;
 pub mod node;
 pub mod paymaster;

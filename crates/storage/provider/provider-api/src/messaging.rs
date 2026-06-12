@@ -11,18 +11,17 @@ pub struct MessagingCheckpoint {
     pub tx_index: u64,
 }
 
-/// Provider for reading and writing messaging service checkpoints.
+/// Provider for reading and writing the messaging service checkpoint.
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait MessagingCheckpointProvider: Send + Sync {
-    /// Returns the last successfully processed checkpoint for the given messenger.
-    fn messaging_checkpoint(&self, id: &str) -> ProviderResult<Option<MessagingCheckpoint>>;
+    /// Returns the last successfully processed checkpoint, if any.
+    fn messaging_checkpoint(&self) -> ProviderResult<Option<MessagingCheckpoint>>;
 
-    /// Sets the messaging checkpoint for the given messenger.
-    fn set_messaging_checkpoint(
-        &self,
-        id: &str,
-        checkpoint: &MessagingCheckpoint,
-    ) -> ProviderResult<()>;
+    /// Sets the messaging checkpoint.
+    fn set_messaging_checkpoint(&self, checkpoint: &MessagingCheckpoint) -> ProviderResult<()>;
+
+    /// Deletes the messaging checkpoint. No-op if no checkpoint row exists.
+    fn delete_messaging_checkpoint(&self) -> ProviderResult<()>;
 }
 
 /// Read-only access to the settlement-chain L1 -> L2 index.

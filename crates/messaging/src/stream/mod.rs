@@ -15,7 +15,7 @@ pub mod trigger;
 use collector::{GatherResult, MessageCollector};
 use trigger::MessageTrigger;
 
-use crate::{MessagingOutcome, LOG_TARGET};
+use crate::{MessagingOutcome, Messenger, LOG_TARGET};
 
 /// Maximum number of blocks to scan per gather call.
 ///
@@ -290,6 +290,22 @@ where
     }
 }
 
+impl<C, T> Messenger for MessageStream<C, T>
+where
+    C: MessageCollector + 'static,
+    T: MessageTrigger,
+{
+    fn rewind(&mut self, from_block: u64, from_tx_index: u64) {
+        self.from_block = from_block;
+        self.from_tx_index = from_tx_index;
+        // Resetting `phase` to `Idle` abandons any in-flight gather/checking
+        // future built from the old cursor. The next trigger tick rebuilds from
+        // the new cursor — any abandoned blocks get re-fetched, and the pool's
+        // hash-level dedup absorbs duplicate inserts.
+        self.phase = MessageStreamPhase::Idle;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -305,6 +321,7 @@ mod tests {
     use katana_primitives::Felt;
     use parking_lot::Mutex;
     use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+    use tokio::sync::oneshot;
 
     use super::collector::OrderedMessage;
     use super::*;
@@ -326,6 +343,13 @@ mod tests {
         pub chain_id: ChainId,
     }
 
+    /// A queued response: either resolves immediately, or pends on a oneshot
+    /// that the test fires when it wants the underlying future to complete.
+    enum Response<T> {
+        Ready(Result<T, MockCollectorError>),
+        Pending(oneshot::Receiver<Result<T, MockCollectorError>>),
+    }
+
     /// A [`MessageCollector`] backed by canned response queues.
     ///
     /// Each test pushes responses in expected order via [`push_latest_block`] and
@@ -333,12 +357,17 @@ mod tests {
     /// the method returns [`MockCollectorError`] so tests fail loudly when they
     /// haven't enqueued enough responses.
     ///
+    /// For tests that need to hold a future across a state change (rewind, drop),
+    /// use [`push_latest_block_pending`] / [`push_gather_pending`]: each returns a
+    /// `oneshot::Sender` the test fires when it wants the underlying future to
+    /// resolve.
+    ///
     /// All calls are recorded for assertions via [`latest_block_calls`] and
     /// [`gather_calls`].
     #[derive(Default)]
     pub struct MockCollector {
-        latest_block_responses: Mutex<VecDeque<Result<u64, MockCollectorError>>>,
-        gather_responses: Mutex<VecDeque<Result<GatherResult, MockCollectorError>>>,
+        latest_block_responses: Mutex<VecDeque<Response<u64>>>,
+        gather_responses: Mutex<VecDeque<Response<GatherResult>>>,
         latest_block_call_count: AtomicU64,
         gather_calls: Mutex<Vec<GatherCall>>,
     }
@@ -350,12 +379,32 @@ mod tests {
 
         /// Push a `latest_block` response onto the queue. Called in FIFO order.
         pub fn push_latest_block(&self, response: Result<u64, MockCollectorError>) {
-            self.latest_block_responses.lock().push_back(response);
+            self.latest_block_responses.lock().push_back(Response::Ready(response));
         }
 
         /// Push a `gather` response onto the queue. Called in FIFO order.
         pub fn push_gather(&self, response: Result<GatherResult, MockCollectorError>) {
-            self.gather_responses.lock().push_back(response);
+            self.gather_responses.lock().push_back(Response::Ready(response));
+        }
+
+        /// Push a pending `latest_block` response. The returned sender resolves the
+        /// in-flight future when fired; dropping it without sending makes the future
+        /// permanently pending (used to test future-abandonment paths).
+        pub fn push_latest_block_pending(
+            &self,
+        ) -> oneshot::Sender<Result<u64, MockCollectorError>> {
+            let (tx, rx) = oneshot::channel();
+            self.latest_block_responses.lock().push_back(Response::Pending(rx));
+            tx
+        }
+
+        /// Push a pending `gather` response. See [`push_latest_block_pending`].
+        pub fn push_gather_pending(
+            &self,
+        ) -> oneshot::Sender<Result<GatherResult, MockCollectorError>> {
+            let (tx, rx) = oneshot::channel();
+            self.gather_responses.lock().push_back(Response::Pending(rx));
+            tx
         }
 
         /// Number of times `latest_block` has been called so far.
@@ -376,9 +425,14 @@ mod tests {
             &self,
         ) -> Pin<Box<dyn Future<Output = Result<u64, Self::Error>> + Send + '_>> {
             self.latest_block_call_count.fetch_add(1, Ordering::SeqCst);
-            let response =
-                self.latest_block_responses.lock().pop_front().unwrap_or(Err(MockCollectorError));
-            Box::pin(async move { response })
+            let response = self.latest_block_responses.lock().pop_front();
+            Box::pin(async move {
+                match response {
+                    Some(Response::Ready(r)) => r,
+                    Some(Response::Pending(rx)) => rx.await.unwrap_or(Err(MockCollectorError)),
+                    None => Err(MockCollectorError),
+                }
+            })
         }
 
         fn gather(
@@ -394,9 +448,14 @@ mod tests {
                 to_block,
                 chain_id,
             });
-            let response =
-                self.gather_responses.lock().pop_front().unwrap_or(Err(MockCollectorError));
-            Box::pin(async move { response })
+            let response = self.gather_responses.lock().pop_front();
+            Box::pin(async move {
+                match response {
+                    Some(Response::Ready(r)) => r,
+                    Some(Response::Pending(rx)) => rx.await.unwrap_or(Err(MockCollectorError)),
+                    None => Err(MockCollectorError),
+                }
+            })
         }
     }
 
@@ -756,5 +815,220 @@ mod tests {
         drop(trigger); // closes the underlying channel
         let res = tokio::time::timeout(SHORT, stream.next()).await.expect("ready promptly");
         assert!(res.is_none(), "stream should terminate when trigger ends");
+    }
+
+    // -------------------------------------------------------------------------
+    // Rewind (Messenger trait)
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn rewind_during_idle_updates_cursor() {
+        use crate::Messenger;
+
+        // Stream is idle (no trigger fired yet). Rewind moves the cursor;
+        // the next gather call must use the new (from_block, from_tx_index).
+        let (mut stream, collector, trigger) = build(100, 5, 0);
+
+        Messenger::rewind(&mut *stream, 10, 2);
+
+        collector.push_latest_block(Ok(50));
+        collector.push_gather(Ok(GatherResult { to_block: 50, messages: vec![] }));
+        trigger.fire();
+        let _ = stream.next().await.expect("yielded after rewind");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from_block, 10, "gather must use rewound from_block");
+        assert_eq!(calls[0].from_tx_index, 2, "gather must use rewound from_tx_index");
+    }
+
+    /// A pending `latest_block` future suspends the stream in `CheckingBlock`.
+    /// Rewinding then must abandon that future — the next trigger tick must
+    /// rebuild from the new cursor without consuming the dangling response.
+    #[tokio::test]
+    async fn rewind_during_checking_block_drops_in_flight_future() {
+        use crate::Messenger;
+
+        let (mut stream, collector, trigger) = build(100, 0, 0);
+
+        // Queue a pending latest_block. After firing the trigger and polling,
+        // the stream parks in CheckingBlock waiting on this oneshot.
+        let lb_tx = collector.push_latest_block_pending();
+        trigger.fire();
+
+        // Drive the stream once. Since the future is pending, the stream must
+        // return Pending — we observe that via a short timeout.
+        assert_no_yield(&mut stream).await;
+        assert_eq!(collector.latest_block_calls(), 1, "future was polled");
+
+        // Rewind: phase resets to Idle, in-flight latest_block future is
+        // abandoned. Firing the pending sender after this point must NOT cause
+        // the stream to resume its old path.
+        Messenger::rewind(&mut *stream, 5, 0);
+
+        // Even if the old future is resolved late, it has been dropped: nothing
+        // happens. (Dropping the sender ensures the abandoned future would
+        // complete with an error if reused — we expect it not to be.)
+        drop(lb_tx);
+
+        // Next tick must use the rewound cursor.
+        collector.push_latest_block(Ok(30));
+        collector.push_gather(Ok(GatherResult { to_block: 30, messages: vec![] }));
+        trigger.fire();
+        let _ = tokio::time::timeout(SHORT, stream.next())
+            .await
+            .expect("woke after rewind")
+            .expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1, "only the post-rewind gather should have happened");
+        assert_eq!(calls[0].from_block, 5);
+        assert_eq!(calls[0].from_tx_index, 0);
+    }
+
+    /// Companion to `rewind_after_gather_resets_phase_to_idle`: verifies that
+    /// rewinding *while* a gather future is in flight (stream phase = Gathering)
+    /// abandons the future — no `MessagingOutcome` is yielded from the in-flight
+    /// gather, and the next gather call uses the rewound cursor.
+    #[tokio::test]
+    async fn rewind_truly_mid_gathering_abandons_future() {
+        use crate::Messenger;
+
+        let (mut stream, collector, trigger) = build(100, 0, 0);
+
+        // First tick: latest_block resolves, gather goes pending.
+        collector.push_latest_block(Ok(150));
+        let g_tx = collector.push_gather_pending();
+        trigger.fire();
+
+        // Drive the stream once — it parks in Gathering, awaiting the oneshot.
+        assert_no_yield(&mut stream).await;
+        assert_eq!(collector.gather_calls().len(), 1, "first gather was scheduled");
+
+        // Rewind while gather is in flight. Phase resets to Idle; the in-flight
+        // gather future is abandoned. The cursor jumps to (5, 0).
+        Messenger::rewind(&mut *stream, 5, 0);
+
+        // Fire the abandoned gather's oneshot. Its result must not be yielded.
+        let _ = g_tx.send(Ok(GatherResult { to_block: 150, messages: vec![msg(120, 0)] }));
+
+        // Confirm no outcome leaks from the abandoned future.
+        assert_no_yield(&mut stream).await;
+
+        // Next tick must drive a fresh gather from the rewound cursor.
+        collector.push_latest_block(Ok(30));
+        collector.push_gather(Ok(GatherResult { to_block: 30, messages: vec![] }));
+        trigger.fire();
+        let _ = tokio::time::timeout(SHORT, stream.next())
+            .await
+            .expect("woke after rewind")
+            .expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 2, "first gather + post-rewind gather");
+        assert_eq!(calls[0].from_block, 100, "first gather keyed on original cursor");
+        assert_eq!(calls[1].from_block, 5, "second gather keyed on rewound cursor");
+    }
+
+    /// "Fast-forward" rewind: jump to a `from_block` *above* the current
+    /// cursor. Valid operator use case (skip blocks known to be empty).
+    #[tokio::test]
+    async fn rewind_to_higher_cursor_fast_forwards() {
+        use crate::Messenger;
+
+        let (mut stream, collector, trigger) = build(5, 0, 0);
+
+        Messenger::rewind(&mut *stream, 50, 0);
+
+        collector.push_latest_block(Ok(60));
+        collector.push_gather(Ok(GatherResult { to_block: 60, messages: vec![] }));
+        trigger.fire();
+        let _ = stream.next().await.expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from_block, 50, "rewind fast-forwards from 5 to 50");
+        assert_eq!(calls[0].from_tx_index, 0);
+    }
+
+    /// Rewinding to the current cursor is a no-op semantically. Must not panic.
+    #[tokio::test]
+    async fn rewind_to_same_cursor_is_safe() {
+        use crate::Messenger;
+
+        let (mut stream, collector, trigger) = build(10, 0, 0);
+
+        Messenger::rewind(&mut *stream, 10, 0);
+
+        collector.push_latest_block(Ok(20));
+        collector.push_gather(Ok(GatherResult { to_block: 20, messages: vec![] }));
+        trigger.fire();
+        let _ = stream.next().await.expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from_block, 10);
+        assert_eq!(calls[0].from_tx_index, 0);
+    }
+
+    /// Three back-to-back rewinds while idle: the last one wins. The cursor is
+    /// just two fields, so each call overwrites — there's no queueing semantics
+    /// to worry about at the stream layer.
+    #[tokio::test]
+    async fn multiple_rewinds_last_one_wins() {
+        use crate::Messenger;
+
+        let (mut stream, collector, trigger) = build(0, 0, 0);
+
+        Messenger::rewind(&mut *stream, 5, 0);
+        Messenger::rewind(&mut *stream, 15, 0);
+        Messenger::rewind(&mut *stream, 25, 0);
+
+        collector.push_latest_block(Ok(40));
+        collector.push_gather(Ok(GatherResult { to_block: 40, messages: vec![] }));
+        trigger.fire();
+        let _ = stream.next().await.expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from_block, 25, "last rewind wins");
+        assert_eq!(calls[0].from_tx_index, 0);
+    }
+
+    /// Rewinding while a gather future is in flight resets `phase` to `Idle`,
+    /// so the next trigger tick rebuilds gather/checking futures from the new
+    /// cursor instead of continuing the old one. Verified by giving the stream
+    /// time to consume one gather, rewinding, and asserting the subsequent
+    /// gather is keyed on the new cursor.
+    #[tokio::test]
+    async fn rewind_after_gather_resets_phase_to_idle() {
+        use crate::Messenger;
+
+        let (mut stream, collector, trigger) = build(100, 0, 0);
+
+        // First tick fully consumes the queued latest_block + gather and the
+        // stream yields, ending in `Idle`. Cursor now advances to 201.
+        collector.push_latest_block(Ok(200));
+        collector.push_gather(Ok(GatherResult { to_block: 200, messages: vec![] }));
+        trigger.fire();
+        let _ = stream.next().await.expect("first gather yielded");
+
+        // Rewind: cursor jumps backward, phase reset to Idle (idempotently).
+        Messenger::rewind(&mut *stream, 5, 0);
+
+        // Next tick must use the rewound cursor (5, 0), not (201, 0).
+        collector.push_latest_block(Ok(30));
+        collector.push_gather(Ok(GatherResult { to_block: 30, messages: vec![] }));
+        trigger.fire();
+        let _ = tokio::time::timeout(SHORT, stream.next())
+            .await
+            .expect("woke after rewind")
+            .expect("yielded");
+
+        let calls = collector.gather_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].from_block, 100, "first gather uses original cursor");
+        assert_eq!(calls[1].from_block, 5, "second gather uses rewound cursor");
+        assert_eq!(calls[1].from_tx_index, 0);
     }
 }

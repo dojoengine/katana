@@ -1,4 +1,6 @@
-use anyhow::Context;
+use std::sync::Mutex;
+
+use anyhow::{anyhow, Context};
 use futures::StreamExt;
 use katana_pool::api::TransactionPool;
 use katana_pool::TxPool;
@@ -8,38 +10,35 @@ use katana_provider::api::messaging::{
     MessagingCheckpoint, MessagingCheckpointProvider, MessagingL1ToL2IndexWriter,
 };
 use katana_provider::{MutableProvider, ProviderFactory, ProviderRW};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
+use crate::controller::{MessagingController, RewindSignal};
 use crate::stream::collector::ethereum::EthereumCollector;
 use crate::stream::collector::starknet::StarknetCollector;
 use crate::stream::trigger::IntervalTrigger;
 use crate::stream::MessageStream;
 use crate::{MessagingOutcome, Messenger, SettlementChainConfig, LOG_TARGET};
 
-/// Identifier used to namespace the persisted messaging checkpoint within the
-/// shared `MessagingCheckpoints` table.
-const CHECKPOINT_ID: &str = "messaging";
-
 /// Default poll interval (in seconds) between gather ticks.
 const DEFAULT_INTERVAL: u64 = 2;
 
-/// The messaging server.
+/// The messaging service.
 ///
 /// [`Self::start`] is non-consuming and mirrors `RpcServer::start`. It reads the
-/// resume checkpoint, builds the messenger, and spawns the drain loop. A
-/// settlement chain must be configured via [`settlement`](Self::settlement)
-/// before calling [`start`](Self::start); otherwise it returns an error.
+/// resume checkpoint, builds the messenger, and spawns the drain loop. Calling
+/// [`start`](Self::start) more than once returns an error: the rewind receiver
+/// is single-consumer and is taken on the first call.
 ///
-/// The server depends directly on the provider factory `P` for both reading the
-/// resume checkpoint at boot and atomically persisting the L1->L2 index entry +
-/// checkpoint after each successful pool insert.
+/// The service depends directly on the provider factory `P` for both reading
+/// the resume checkpoint at boot and atomically persisting the L1->L2 index
+/// entry + checkpoint after each successful pool insert.
 ///
-/// Configure the server using the builder-style setters
-/// ([`settlement`](Self::settlement), [`interval`](Self::interval),
-/// [`from_block`](Self::from_block), [`confirmation_depth`](Self::confirmation_depth))
-/// before calling [`start`](Self::start).
+/// Configure with builder-style setters
+/// ([`interval`](Self::interval), [`from_block`](Self::from_block),
+/// [`confirmation_depth`](Self::confirmation_depth)) before calling
+/// [`start`](Self::start). The settlement chain is required at construction.
 pub struct MessagingService<P, Pl = TxPool> {
     chain_id: ChainId,
     pool: Pl,
@@ -49,19 +48,26 @@ pub struct MessagingService<P, Pl = TxPool> {
     interval: u64,
     from_block: u64,
     confirmation_depth: u64,
+
+    /// Sender shared with all controllers; cloning is cheap.
+    rewind_tx: mpsc::Sender<RewindSignal>,
+    /// Owned by the service until [`start`](Self::start) takes it. Clones of the
+    /// service get an empty mutex so only the original can drive the drain loop.
+    /// Wrapped in a `Mutex` because `start` is `&self`.
+    rewind_rx: Mutex<Option<mpsc::Receiver<RewindSignal>>>,
 }
 
 impl<P, Pl> MessagingService<P, Pl> {
-    /// Create a new messaging server with no settlement configured.
-    ///
-    /// A settlement chain must be set via [`settlement`](Self::settlement)
-    /// before [`start`](Self::start) can be called.
+    /// Create a new messaging service for the given settlement chain.
     pub fn new(
         chain_id: ChainId,
         pool: Pl,
         provider: P,
         settlement: SettlementChainConfig,
     ) -> Self {
+        // Capacity 1 with `send().await` gives natural back-pressure on rapid
+        // rewinds; operator-issued resets don't burst.
+        let (rewind_tx, rewind_rx) = mpsc::channel(1);
         Self {
             chain_id,
             pool,
@@ -70,6 +76,8 @@ impl<P, Pl> MessagingService<P, Pl> {
             interval: DEFAULT_INTERVAL,
             from_block: 0,
             confirmation_depth: 0,
+            rewind_tx,
+            rewind_rx: Mutex::new(Some(rewind_rx)),
         }
     }
 
@@ -102,12 +110,31 @@ where
         ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
     Pl: TransactionPool<Transaction = ExecutableTxWithHash> + Clone + Send + Sync + 'static,
 {
-    /// Start the messaging server.
+    /// Returns a [`MessagingController`] that can read/write the persisted
+    /// checkpoint and signal a live rewind to a running drain task.
+    ///
+    /// Snapshots the configured `from_block` as the controller's default — call
+    /// [`from_block`](Self::from_block) before this.
+    pub fn controller(&self) -> MessagingController<P>
+    where
+        P: Clone,
+    {
+        MessagingController::new(self.provider.clone(), self.from_block, self.rewind_tx.clone())
+    }
+
+    /// Start the messaging service.
     ///
     /// Reads the resume checkpoint, builds the messenger, and spawns the drain
-    /// loop. Returns an error if no settlement chain has been configured via
-    /// [`settlement`](Self::settlement).
+    /// loop. Returns an error if `start()` has already been called on this
+    /// instance (the rewind receiver is single-consumer).
     pub fn start(&self) -> Result<MessagingServiceHandle, anyhow::Error> {
+        let mut rewind_rx = self
+            .rewind_rx
+            .lock()
+            .map_err(|_| anyhow!("rewind receiver mutex poisoned"))?
+            .take()
+            .ok_or_else(|| anyhow!("messaging service already started"))?;
+
         let (from_block, from_tx_index) = resume_cursor(&self.provider, self.from_block)?;
 
         let trigger = IntervalTrigger::new(self.interval);
@@ -146,6 +173,24 @@ where
 
             loop {
                 tokio::select! {
+                    // Shutdown takes priority over both gather and rewind so
+                    // a stop signal can't be starved by busy work.
+                    biased;
+
+                    _ = &mut shutdown => {
+                        break;
+                    }
+
+                    Some(sig) = rewind_rx.recv() => {
+                        info!(
+                            target: LOG_TARGET,
+                            from_block = sig.from_block,
+                            from_tx_index = sig.from_tx_index,
+                            "Rewinding messenger cursor.",
+                        );
+                        messenger.rewind(sig.from_block, sig.from_tx_index);
+                    }
+
                     outcome = messenger.next() => {
                         match outcome {
                             None => break, // Stream ended
@@ -222,10 +267,6 @@ where
                             }
                         }
                     }
-
-                    _ = &mut shutdown => {
-                        break;
-                    }
                 }
             }
         });
@@ -246,7 +287,7 @@ where
     <P as ProviderFactory>::ProviderMut: MessagingCheckpointProvider + MutableProvider,
 {
     let db_tx = provider.provider_mut();
-    let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
+    let cp = db_tx.messaging_checkpoint().context("read messaging checkpoint")?;
     db_tx.commit().context("commit checkpoint read tx")?;
 
     Ok(match cp {
@@ -257,7 +298,7 @@ where
 
 impl<P, Pl> std::fmt::Debug for MessagingService<P, Pl> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MessagingServer").finish_non_exhaustive()
+        f.debug_struct("MessagingService").finish_non_exhaustive()
     }
 }
 
@@ -271,6 +312,11 @@ impl<P: Clone, Pl: Clone> Clone for MessagingService<P, Pl> {
             interval: self.interval,
             from_block: self.from_block,
             confirmation_depth: self.confirmation_depth,
+            rewind_tx: self.rewind_tx.clone(),
+            // Clones share the sender but cannot be started — the receiver is
+            // not cloneable and only the original service can drive the drain
+            // loop.
+            rewind_rx: Mutex::new(None),
         }
     }
 }
@@ -291,7 +337,7 @@ where
 {
     let db_tx = provider.provider_mut();
     db_tx.record_l1_to_l2(l1_tx_hash, l2_tx_hash)?;
-    db_tx.set_messaging_checkpoint(CHECKPOINT_ID, &MessagingCheckpoint { block, tx_index })?;
+    db_tx.set_messaging_checkpoint(&MessagingCheckpoint { block, tx_index })?;
     db_tx.commit()?;
     Ok(())
 }
@@ -304,7 +350,7 @@ pub struct MessagingServiceHandle {
 
 impl std::fmt::Debug for MessagingServiceHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MessagingHandle").finish_non_exhaustive()
+        f.debug_struct("MessagingServiceHandle").finish_non_exhaustive()
     }
 }
 
@@ -324,11 +370,38 @@ impl MessagingServiceHandle {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use katana_pool::ordering::FiFo;
+    use katana_pool::pool::Pool;
+    use katana_pool::validation::NoopValidator;
+    use katana_primitives::transaction::ExecutableTxWithHash;
     use katana_primitives::Felt;
     use katana_provider::api::messaging::MessagingL1ToL2IndexProvider;
     use katana_provider::DbProviderFactory;
+    use url::Url;
 
     use super::*;
+
+    /// No-op pool used by the lifecycle tests. The drain task never actually inserts
+    /// transactions in these tests (the configured settlement endpoint is unroutable),
+    /// so this type only needs to satisfy the trait bounds of `start()`.
+    type NoopPool =
+        Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
+
+    fn noop_pool() -> NoopPool {
+        Pool::new(NoopValidator::new(), FiFo::new())
+    }
+
+    /// Settlement config pointing at a non-routable URL. The drain task may try
+    /// `latest_block()` against this; it'll fail or pend, which is fine — the
+    /// lifecycle tests don't depend on any successful gather.
+    fn unroutable_settlement() -> SettlementChainConfig {
+        SettlementChainConfig::Ethereum {
+            rpc_url: Url::parse("http://127.0.0.1:1/").unwrap(),
+            contract_address: Default::default(),
+        }
+    }
 
     #[test]
     fn resume_cursor_falls_back_to_default_from_block_when_no_checkpoint_persisted() {
@@ -346,12 +419,7 @@ mod tests {
 
         // Persist a checkpoint marking message at (block=100, tx_index=5) as fully processed.
         let db_tx = provider.provider_mut();
-        db_tx
-            .set_messaging_checkpoint(
-                CHECKPOINT_ID,
-                &MessagingCheckpoint { block: 100, tx_index: 5 },
-            )
-            .unwrap();
+        db_tx.set_messaging_checkpoint(&MessagingCheckpoint { block: 100, tx_index: 5 }).unwrap();
         db_tx.commit().unwrap();
 
         // The default from_block is intentionally far below the persisted checkpoint —
@@ -378,8 +446,7 @@ mod tests {
 
         let db_tx = provider.provider_mut();
         let mapped = db_tx.l2_txs_for_l1(&l1).unwrap();
-        let cp =
-            db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap().expect("checkpoint should exist");
+        let cp = db_tx.messaging_checkpoint().unwrap().expect("checkpoint should exist");
         db_tx.commit().unwrap();
 
         assert_eq!(mapped, vec![l2], "L1->L2 index entry should be written");
@@ -440,10 +507,102 @@ mod tests {
         commit_message(&provider, &l1, l2, 10, 2).unwrap();
 
         let db_tx = provider.provider_mut();
-        let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).unwrap().expect("checkpoint");
+        let cp = db_tx.messaging_checkpoint().unwrap().expect("checkpoint");
         db_tx.commit().unwrap();
 
         assert_eq!(cp.block, 10, "checkpoint should reflect the latest committed message");
         assert_eq!(cp.tx_index, 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // Lifecycle tests
+    //
+    // These exercise `MessagingService::start` itself — that the rewind_rx is
+    // single-take, that clones can't be started, and that a closed rewind
+    // channel doesn't kill the drain task. They use a non-routable settlement
+    // endpoint; the drain task never produces work but stays alive, which is
+    // all the lifecycle invariants require.
+    // -------------------------------------------------------------------------
+
+    /// The `rewind_rx` is taken on first `start()`; a second call on the same
+    /// instance must fail with a clear "already started" error rather than
+    /// silently spawning a second drain task that competes for rewind signals.
+    #[tokio::test]
+    async fn start_twice_returns_error() {
+        let provider = DbProviderFactory::new_in_memory();
+        let pool = noop_pool();
+        let server =
+            MessagingService::new(ChainId::default(), pool, provider, unroutable_settlement())
+                .interval(60);
+
+        let mut handle = server.start().expect("first start succeeds");
+
+        let err = server.start().expect_err("second start must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("already started"), "expected 'already started' in error, got: {msg}");
+
+        // Clean up the first task so the test process exits cleanly.
+        handle.stop();
+        handle.stopped().await;
+    }
+
+    /// `Clone for MessagingService` deliberately sets `rewind_rx: None` on the
+    /// clone so only the original instance can drive the drain loop. Starting
+    /// a clone must fail with the same error as a double-start.
+    #[tokio::test]
+    async fn clone_cannot_be_started() {
+        let provider = DbProviderFactory::new_in_memory();
+        let pool = noop_pool();
+        let server =
+            MessagingService::new(ChainId::default(), pool, provider, unroutable_settlement())
+                .interval(60);
+
+        let clone = server.clone();
+
+        let err = clone.start().expect_err("starting a clone must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("already started"), "expected 'already started' in error, got: {msg}");
+
+        // The original is still startable (rewind_rx wasn't taken from it).
+        let mut handle = server.start().expect("original is still startable after cloning");
+        handle.stop();
+        handle.stopped().await;
+    }
+
+    /// Dropping the controller (and hence one rewind_tx sender) must not kill
+    /// the running drain task. The other arms of the `select!` (shutdown,
+    /// messenger.next) keep firing; the rewind arm just goes permanently
+    /// inactive once all senders are gone. This guards against a regression
+    /// where the loop would exit on `rewind_rx.recv() == None`.
+    #[tokio::test]
+    async fn rewind_sender_dropped_does_not_kill_task() {
+        let provider = DbProviderFactory::new_in_memory();
+        let pool = noop_pool();
+        let server =
+            MessagingService::new(ChainId::default(), pool, provider, unroutable_settlement())
+                .interval(60);
+
+        let controller = server.controller();
+        let mut handle = server.start().expect("start succeeds");
+
+        // Drop everything that holds a rewind_tx clone: the controller, the
+        // server itself (its own sender), so the receiver inside the task
+        // observes a fully-closed channel.
+        drop(controller);
+        drop(server);
+
+        // Give the runtime a moment to deliver the channel-closed notification
+        // to the task. Tokio's `mpsc::Receiver::recv` returns `None` once all
+        // senders are dropped, and the `select!` arm with that pattern simply
+        // never matches again — the other arms must keep working.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert!(
+            !handle.task_handle.is_finished(),
+            "drain task must survive a closed rewind channel"
+        );
+
+        handle.stop();
+        handle.stopped().await;
     }
 }
