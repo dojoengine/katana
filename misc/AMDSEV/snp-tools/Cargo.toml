@@ -3,7 +3,7 @@ description = "SEV-SNP utility tools for development"
 edition = "2021"
 license = "Apache-2.0"
 name = "snp-tools"
-version = "1.8.0-rc.2"
+version = "0.1.0"
 
 [[bin]]
 name = "snp-digest"
@@ -17,11 +17,25 @@ path = "src/bin/snp-report.rs"
 name = "ovmf-metadata"
 path = "src/bin/ovmf-metadata.rs"
 
+# Run once inside the measured SEV-SNP initrd to derive the disk-unsealing
+# key from SNP_GET_DERIVED_KEY. Linux-only at runtime (ioctl on /dev/sev-guest).
+[[bin]]
+name = "snp-derivekey"
+path = "src/bin/snp-derivekey.rs"
+required-features = [ "snp-derivekey" ]
+
+[features]
+default = [ ]
+# Gates the snp-derivekey binary so non-Linux hosts (developer macOS / CI lint
+# jobs) can `cargo check` snp-tools without pulling the Linux-only sev-snp dep.
+snp-derivekey = [ "dep:sev-snp", "dep:zeroize" ]
+
 [dependencies]
 clap = { version = "4", features = [ "derive" ] }
 hex = "0.4"
 openssl = { version = "0.10", features = [ "vendored" ] }
 tabled = "0.17"
+zeroize = { version = "1.8", optional = true }
 
 # Use git dependency because crates.io v7.1.0 has rdrand as non-optional.
 # The git version has rdrand behind the "sev" feature flag, allowing builds on non-x86_64.
@@ -30,3 +44,14 @@ branch = "main"
 default-features = false
 features = [ "openssl", "snp" ]
 git = "https://github.com/virtee/sev"
+
+# Vendored from katana/crates/tee — required only by snp-derivekey. Pinned to
+# the exact rev katana's Cargo.lock validates against, so our snp-derivekey
+# behaves identically to katana's (this crate implements the SNP_GET_DERIVED_KEY
+# ioctl that derives the disk-unsealing key — drift would silently rotate keys).
+[dependencies.sev-snp]
+default-features = false
+features = [ "configfs", "legacy" ]
+git = "https://github.com/automata-network/amd-sev-snp-attestation-sdk"
+rev = "07162a4dd8d692af68484084b972f8b9b286359b"
+optional = true

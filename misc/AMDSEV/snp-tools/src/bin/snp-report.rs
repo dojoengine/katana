@@ -42,7 +42,7 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>, String> {
     // Remove any whitespace or newlines
     let hex: String = hex.chars().filter(|c| !c.is_whitespace()).collect();
 
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err("Hex string must have even length".to_string());
     }
 

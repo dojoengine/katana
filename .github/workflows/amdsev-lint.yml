@@ -1,0 +1,59 @@
+name: amdsev-lint
+
+# Static analysis for the misc/AMDSEV TEE-VM tooling (mostly shell):
+#   - shellcheck (warning severity) over every shell script
+#   - shellcheck of the guest init script, extracted from the heredoc in
+#     build-initrd.sh and checked as POSIX sh (it runs under busybox sh,
+#     which is stricter than the bash the outer script is written in)
+#   - actionlint over the amdsev-* GitHub Actions workflows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "misc/AMDSEV/**"
+      - ".github/workflows/amdsev-*.yml"
+  pull_request:
+    paths:
+      - "misc/AMDSEV/**"
+      - ".github/workflows/amdsev-*.yml"
+
+concurrency:
+  group: amdsev-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: misc/AMDSEV
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck scripts
+        # shellcheck is preinstalled on ubuntu-latest runners.
+        run: shellcheck -S warning build.sh start-vm.sh verify-build.sh reproduce-release.sh scripts/*.sh
+
+      - name: shellcheck guest init (POSIX sh)
+        # The init script ships inside the initrd and runs under busybox sh.
+        # Extract it from the build-initrd.sh heredoc and lint it as sh —
+        # bashisms that the outer bash script tolerates are real boot
+        # failures inside the guest.
+        run: |
+          sed -n '/^cat > init <<.INIT_EOF.$/,/^INIT_EOF$/p' scripts/build-initrd.sh \
+            | sed '1d;$d' > /tmp/guest-init.sh
+          if [ ! -s /tmp/guest-init.sh ]; then
+            echo "Failed to extract init heredoc from scripts/build-initrd.sh" >&2
+            echo "(did the INIT_EOF marker change?)" >&2
+            exit 1
+          fi
+          shellcheck -s sh -S warning /tmp/guest-init.sh
+
+      - name: actionlint (amdsev workflows only)
+        working-directory: .
+        run: |
+          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color .github/workflows/amdsev-*.yml
