@@ -55,3 +55,9 @@ features = [ "configfs", "legacy" ]
 git = "https://github.com/automata-network/amd-sev-snp-attestation-sdk"
 rev = "07162a4dd8d692af68484084b972f8b9b286359b"
 optional = true
+
+# Deliberately NOT part of the katana workspace: this crate is self-contained
+# TEE tooling with its own Cargo.lock and a pinned build target, built
+# independently by the amdsev-* workflows and by build.sh (snp-derivekey).
+# The empty workspace table stops cargo from walking up to the repo root.
+[workspace]
