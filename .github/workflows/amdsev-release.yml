@@ -355,9 +355,9 @@ jobs:
           KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
         run: |
           # VM_TAG/KATANA_VER come from the env: block above; shellcheck
-          # cannot see it and reads the lowercase aliases as misspellings.
-          # shellcheck disable=SC2153
+          # cannot see it and reads the lowercase alias as a misspelling.
           tag="${VM_TAG}"
+          # shellcheck disable=SC2153
           katana_ver="${KATANA_VER}"
           # Pull values from build-info.txt for the human-readable summary.
           info_get() {
