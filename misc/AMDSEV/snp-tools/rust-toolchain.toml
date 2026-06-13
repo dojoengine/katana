@@ -8,3 +8,6 @@
 # launch-measurement story.
 [toolchain]
 channel = "1.96.0"
+# Runners install toolchain-file toolchains with the minimal rustup profile;
+# clippy must be requested explicitly for the amdsev-snp-tools lint step.
+components = ["clippy"]

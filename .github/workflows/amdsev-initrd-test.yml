@@ -65,9 +65,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/contracts/build
-          # Generated build/ output is gitignored, so at key-evaluation time
-          # this hashes source inputs only.
-          key: amdsev-contracts-${{ hashFiles('Makefile', 'crates/contracts/**') }}
+          # Same hash inputs as test.yml's fixtures cache (a broad
+          # crates/contracts/** glob makes hashFiles fail on this tree).
+          key: amdsev-contracts-${{ hashFiles('Makefile', 'crates/contracts/build.rs', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/openzeppelin/**', 'crates/contracts/contracts/piltover/**', 'crates/contracts/contracts/Scarb.toml') }}
 
       - name: Generate contract artifacts
         if: steps.contracts-cache.outputs.cache-hit != 'true'
