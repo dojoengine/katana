@@ -1,0 +1,49 @@
+name: amdsev-snp-tools
+
+# Tests and lints the misc/AMDSEV/snp-tools crate. snp-digest computes the
+# launch measurement that attestation verifiers compare against, and
+# snp-derivekey derives the sealed-storage key inside the guest —
+# regressions in either are silent security failures, so they get their
+# own gate.
+#
+# The snp-derivekey feature is enabled so its unit tests run (they pin the
+# key-derivation contract: FIELD_SELECT binds MEASUREMENT | GUEST_POLICY
+# only, VMPL=1). The feature's Linux-only sev-snp dependency compiles fine
+# on the x86_64 Linux runner; no SNP hardware is needed — the tests check
+# constants, not ioctls.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "misc/AMDSEV/snp-tools/**"
+      - ".github/workflows/amdsev-snp-tools.yml"
+  pull_request:
+    paths:
+      - "misc/AMDSEV/snp-tools/**"
+      - ".github/workflows/amdsev-snp-tools.yml"
+
+concurrency:
+  group: amdsev-snp-tools-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: misc/AMDSEV/snp-tools
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: misc/AMDSEV/snp-tools
+
+      - name: cargo test
+        run: cargo test --locked --features snp-derivekey
+
+      - name: cargo clippy
+        run: cargo clippy --locked --all-targets --features snp-derivekey -- -D warnings

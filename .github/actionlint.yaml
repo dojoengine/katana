@@ -1,0 +1,8 @@
+# Configuration for actionlint (run by the amdsev-lint workflow over the
+# amdsev-*.yml workflows). Declares the org's larger-runner labels so they
+# are not flagged as unknown.
+self-hosted-runner:
+  labels:
+    - ubuntu-latest-4-cores
+    - ubuntu-latest-8-cores
+    - ubuntu-latest-32-cores

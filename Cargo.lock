@@ -2021,12 +2021,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bytecount"
-version = "0.6.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
-
-[[package]]
 name = "bytemuck"
 version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7227,7 +7221,7 @@ dependencies = [
  "clap",
  "rstest 0.18.2",
  "serde",
- "sev 7.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sev",
  "sev-snp",
  "tempfile",
  "thiserror 1.0.69",
@@ -8432,17 +8426,6 @@ checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
 dependencies = [
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "papergrid"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2b0f8def1f117e13c895f3eda65a7b5650688da29d6ad04635f61bc7b92eebd"
-dependencies = [
- "bytecount",
- "fnv",
- "unicode-width 0.2.0",
 ]
 
 [[package]]
@@ -10751,25 +10734,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sev"
-version = "7.1.0"
-source = "git+https://github.com/virtee/sev?branch=main#900d42d6a1f9102ed52faa3a3889b54e8a7e12c8"
-dependencies = [
- "base64 0.22.1",
- "bitfield",
- "bitflags 2.11.0",
- "byteorder",
- "dirs 6.0.0",
- "hex",
- "iocuddle",
- "lazy_static",
- "libc",
- "openssl",
- "static_assertions",
- "uuid 1.21.0",
-]
-
-[[package]]
 name = "sev-snp"
 version = "0.3.0"
 source = "git+https://github.com/automata-network/amd-sev-snp-attestation-sdk?branch=main#07162a4dd8d692af68484084b972f8b9b286359b"
@@ -11014,17 +10978,6 @@ checksum = "3498b0a27f93ef1402f20eefacfaa1691272ac4eca1cdc8c596cb0a245d6cbf5"
 dependencies = [
  "borsh",
  "serde_core",
-]
-
-[[package]]
-name = "snp-tools"
-version = "1.8.0-rc.2"
-dependencies = [
- "clap",
- "hex",
- "openssl",
- "sev 7.1.0 (git+https://github.com/virtee/sev?branch=main)",
- "tabled",
 ]
 
 [[package]]
@@ -11815,29 +11768,6 @@ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
  "libc",
-]
-
-[[package]]
-name = "tabled"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6709222f3973137427ce50559cd564dc187a95b9cfe01613d2f4e93610e510a"
-dependencies = [
- "papergrid",
- "tabled_derive",
-]
-
-[[package]]
-name = "tabled_derive"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "931be476627d4c54070a1f3a9739ccbfec9b36b39815106a20cce2243bbcefe1"
-dependencies = [
- "heck 0.4.1",
- "proc-macro-error2",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]

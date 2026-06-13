@@ -1,110 +1,191 @@
 name: amdsev-initrd-test
 
-on:
-    push:
-        branches:
-            - main
-        paths:
-            - "misc/AMDSEV/**"
-            - "scripts/build-musl.sh"
-            - ".github/workflows/amdsev-initrd-test.yml"
-            - "!**/README.md"
+# Builds the canonical sealed TEE-VM initrd (same invocation as the
+# amdsev-release workflow, minus OVMF) whenever misc/AMDSEV changes, then
+# boot-tests it with misc/AMDSEV/scripts/test-initrd.sh: plain-QEMU direct
+# kernel boot, guest init comes up, Katana is started through the
+# virtio-serial control channel, the forwarded RPC endpoint answers
+# starknet_chainId, and the graceful `stop` command powers the guest off.
+#
+# The embedded katana is built FROM THIS REF via scripts/build-gnu.sh — the
+# same script, profile, and TEE feature set as the published portable
+# release binary — so the boot test validates the tree under test end to
+# end (a PR that breaks `--tee sev-snp` fails here, before any release).
+#
+# Runner
+# ------
+# Stock ubuntu-latest. No SEV-SNP hardware is needed: the smoke test boots
+# without OVMF/SEV, and the sealed-mode initrd takes its unsealed mount path
+# (plain ext4 on /dev/sda) when the cmdline carries no
+# KATANA_EXPECTED_LUKS_UUID. Docker (for the static cryptsetup build) and
+# /dev/kvm are both available on ubuntu-latest.
 
-    pull_request:
-        types: [opened, synchronize, ready_for_review]
-        paths:
-            - "misc/AMDSEV/**"
-            - "scripts/build-musl.sh"
-            - ".github/workflows/amdsev-initrd-test.yml"
-            - "!**/README.md"
+on:
+  push:
+    branches: [main]
+    paths:
+      - "misc/AMDSEV/**"
+      - ".github/workflows/amdsev-initrd-test.yml"
+  pull_request:
+    paths:
+      - "misc/AMDSEV/**"
+      - ".github/workflows/amdsev-initrd-test.yml"
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-    cancel-in-progress: true
+  group: amdsev-initrd-test-${{ github.ref }}
+  cancel-in-progress: true
 
-env:
-    CARGO_TERM_COLOR: always
+defaults:
+  run:
+    working-directory: misc/AMDSEV
 
 jobs:
-    amdsev-initrd-test:
-        runs-on: ubuntu-latest
-        timeout-minutes: 90
-        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-        container:
-            image: ghcr.io/dojoengine/katana-dev:latest
+  build-katana:
+    runs-on: ubuntu-latest-32-cores
+    timeout-minutes: 45
+    # katana-dev carries the full build toolchain including asdf/scarb for
+    # the contract artifacts that katana-contracts embeds at compile time.
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                  submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+        working-directory: .
 
-            # Workaround for https://github.com/actions/runner-images/issues/6775
-            - run: git config --global --add safe.directory "*"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: amdsev-build-katana
 
-            - name: Install dependencies
-              run: |
-                  export DEBIAN_FRONTEND=noninteractive
-                  apt-get update
-                  apt-get install -y \
-                      qemu-system-x86 \
-                      cpio \
-                      zstd \
-                      e2fsprogs \
-                      curl \
-                      socat \
-                      musl-tools \
-                      clang \
-                      file
+      - name: Restore cached contract artifacts
+        id: contracts-cache
+        uses: actions/cache@v4
+        with:
+          path: crates/contracts/build
+          # Same hash inputs as test.yml's fixtures cache (a broad
+          # crates/contracts/** glob makes hashFiles fail on this tree).
+          key: amdsev-contracts-${{ hashFiles('Makefile', 'crates/contracts/build.rs', 'crates/contracts/contracts/account/**', 'crates/contracts/contracts/legacy/**', 'crates/contracts/contracts/messaging/**', 'crates/contracts/contracts/test-contracts/**', 'crates/contracts/contracts/vrf/**', 'crates/contracts/contracts/avnu/**', 'crates/contracts/contracts/openzeppelin/**', 'crates/contracts/contracts/piltover/**', 'crates/contracts/contracts/Scarb.toml') }}
 
-            - name: Add Ubuntu package repo for AMDSEV artifacts
-              run: |
-                  cat >/etc/apt/sources.list.d/ubuntu-noble.list <<'EOF'
-                  deb [trusted=yes] http://archive.ubuntu.com/ubuntu noble main universe
-                  deb [trusted=yes] http://archive.ubuntu.com/ubuntu noble-updates main universe
-                  deb [trusted=yes] http://security.ubuntu.com/ubuntu noble-security main universe
-                  EOF
-                  apt-get update
+      - name: Generate contract artifacts
+        if: steps.contracts-cache.outputs.cache-hit != 'true'
+        working-directory: .
+        run: make contracts
 
-            - uses: Swatinem/rust-cache@v2
-              with:
-                  key: ci-${{ github.job }}
-                  shared-key: katana-ci-cache-musl
+      - name: Build katana (portable release configuration)
+        # build-gnu.sh is the script behind the published portable
+        # linux_amd64 binary: performance profile, deterministic RUSTFLAGS,
+        # and the client,init-slot,jemalloc,tee-snp,tee-mock feature set.
+        # ubuntu-latest is noble (glibc 2.39), matching the initrd's pinned
+        # GLIBC_RUNTIME_PACKAGES, so the binary's symbol requirements cannot
+        # exceed what the guest ships.
+        working-directory: .
+        run: ./scripts/build-gnu.sh
 
-            - name: Build contract artifacts
-              run: make contracts
+      - name: Upload katana binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: amdsev-katana-binary
+          retention-days: 1
+          if-no-files-found: error
+          path: target/x86_64-unknown-linux-gnu/performance/katana
 
-            - name: Build required VM components
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  set -a
-                  source misc/AMDSEV/build-config
-                  set +a
-                  export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+  build-and-boot:
+    needs: build-katana
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
 
-                  ./scripts/build-musl.sh
-                  KATANA_BINARY="./target/x86_64-unknown-linux-musl/performance/katana"
+      - name: Pin SOURCE_DATE_EPOCH to HEAD commit time
+        # Same rationale as amdsev-release.yml: without this, build.sh falls
+        # back to wall clock and the initrd bytes differ on every run of the
+        # same source. Not strictly required for a smoke test, but it keeps
+        # CI builds byte-comparable to local builds of the same ref.
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
-                  ./misc/AMDSEV/build-kernel.sh ./misc/AMDSEV/output/qemu
-                  # The katana-dev container does not have Docker, so CI opts out
-                  # of the canonical sealed build (no static cryptsetup, no dm-*
-                  # modules). Sealed-mode validation needs a host runner with
-                  # Docker; tracked as a follow-up. test-initrd.sh below boots
-                  # the unsealed variant, which is the same shape as pre-H5.
-                  KATANA_UNSEALED_BUILD=1 \
-                      ./misc/AMDSEV/build-initrd.sh "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/initrd.img "$KERNEL_VERSION"
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          # musl-tools:      linker for the snp-derivekey musl build
+          # zstd, cpio:      initrd packaging
+          # qemu-system-x86: plain-QEMU boot smoke test (no SEV needed)
+          # socat:           control-channel client used by test-initrd.sh
+          sudo apt-get install -y --no-install-recommends \
+            musl-tools zstd cpio qemu-system-x86 socat
 
-                  cp "$KATANA_BINARY" ./misc/AMDSEV/output/qemu/katana
+      - name: Install Rust musl target
+        # Run inside snp-tools so its rust-toolchain.toml selects the same
+        # toolchain build.sh will use for the snp-derivekey build.
+        working-directory: misc/AMDSEV/snp-tools
+        run: rustup target add x86_64-unknown-linux-musl
 
-            - name: Run isolated initrd tests
-              run: |
-                  ./misc/AMDSEV/test-initrd.sh --output-dir ./misc/AMDSEV/output/qemu --timeout 300
+      - name: Enable KVM for the runner user
+        # ubuntu-latest exposes /dev/kvm but root-only by default.
+        # test-initrd.sh falls back to TCG emulation without it, which makes
+        # the Katana boot far slower and flakier under the test timeout.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
-            - name: Upload AMDSEV build output on failure
-              if: failure()
-              uses: actions/upload-artifact@v4
-              with:
-                  name: amdsev-initrd-output-${{ github.run_id }}
-                  if-no-files-found: ignore
-                  path: |
-                      misc/AMDSEV/output/qemu
+      - name: Download katana binary built from this ref
+        uses: actions/download-artifact@v5
+        with:
+          name: amdsev-katana-binary
+          path: misc/AMDSEV/.katana-bin
+
+      - name: Stage katana binary
+        # Artifact transport drops the execute bit.
+        run: |
+          chmod +x .katana-bin/katana
+          echo "KATANA_BIN=$PWD/.katana-bin/katana" >> "$GITHUB_ENV"
+
+      - name: Build kernel + sealed initrd
+        # Skips OVMF — the EDK2 build takes far longer than everything else
+        # combined and the plain-QEMU boot test doesn't load firmware. The
+        # kernel component just downloads the pinned Ubuntu .deb (vmlinuz is
+        # needed for direct kernel boot below).
+        run: ./build.sh --katana "$KATANA_BIN" kernel initrd
+
+      - name: Reproducibility check — rebuild initrd, compare digests
+        # Byte-identical initrds are the core promise: the SEV-SNP launch
+        # measurement hashes the initrd, so verifiers can only reproduce a
+        # published measurement if the build is deterministic. Same
+        # SOURCE_DATE_EPOCH, same pins, fresh output dir — any digest drift
+        # here means nondeterminism crept into the packaging (unsorted
+        # globs, leaked timestamps, host paths). The second build reuses the
+        # already-built static cryptsetup/snp-derivekey, so it only repeats
+        # the deb downloads and cpio packaging.
+        run: |
+          first="$(sha256sum output/qemu/initrd.img | awk '{print $1}')"
+          ./build.sh --katana "$KATANA_BIN" --install output/repro initrd
+          second="$(sha256sum output/repro/initrd.img | awk '{print $1}')"
+          echo "first build:  $first"
+          echo "second build: $second"
+          if [ "$first" != "$second" ]; then
+            echo "::error::initrd build is NOT reproducible — digests differ across identical builds"
+            exit 1
+          fi
+          echo "Reproducible: digests match"
+
+      - name: Boot smoke test
+        # --output-dir is required: the script's default resolves relative to
+        # scripts/, not the directory where build.sh writes its artifacts.
+        run: ./scripts/test-initrd.sh --output-dir output/qemu --timeout 300
+
+      - name: Upload initrd for debugging
+        # Only on failure — the artifact exists to reproduce a failed boot
+        # locally (qemu -kernel/-initrd against the exact CI-built image).
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: initrd-debug
+          path: |
+            misc/AMDSEV/output/qemu/initrd.img
+            misc/AMDSEV/output/qemu/build-info.txt
+            misc/AMDSEV/output/repro/initrd.img
+          if-no-files-found: ignore

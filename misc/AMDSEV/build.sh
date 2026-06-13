@@ -1,12 +1,13 @@
 #!/bin/bash
 #
 # Build TEE components (OVMF, kernel, initrd) for AMD SEV-SNP.
-# This script should be run from the repository root directory.
 #
 # Usage:
-#   ./misc/AMDSEV/build.sh
-#   ./misc/AMDSEV/build.sh --katana /path/to/katana
-#   ./misc/AMDSEV/build.sh ovmf kernel
+#   ./build.sh --katana /path/to/katana
+#   ./build.sh --katana /path/to/katana ovmf kernel
+#
+# A prebuilt katana binary is required (--katana). Download from:
+#   https://github.com/dojoengine/katana/releases
 #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,19 +27,36 @@ export LVM2_VERSION LVM2_SHA256
 export E2FSPROGS_VERSION E2FSPROGS_SHA256
 export GLIBC_RUNTIME_PACKAGES GLIBC_RUNTIME_PACKAGE_SHA256S
 
-# Set SOURCE_DATE_EPOCH if not already set (for reproducible builds)
-export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(date +%s)}"
+# SOURCE_DATE_EPOCH controls timestamps embedded in OVMF and the initrd cpio
+# archive — directly affects launch-measurement reproducibility. If unset, fall
+# back to the current wall clock and surface a loud warning so the caller knows
+# the resulting measurement is tied to "when this happened to run".
+if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
+    SOURCE_DATE_EPOCH="$(date +%s)"
+    export SOURCE_DATE_EPOCH
+    # GNU date uses `-d @SECS`, BSD/macOS uses `-r SECS`. Try both.
+    SOURCE_DATE_EPOCH_HUMAN=$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                           || date -u -r "${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                           || echo "unknown")
+    cat >&2 <<EOF
 
-# Reproducibility validation
-echo ""
+WARNING: SOURCE_DATE_EPOCH was not set.
+         Falling back to the current wall clock:
+             SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}  (${SOURCE_DATE_EPOCH_HUMAN})
+         The build will embed this timestamp in OVMF and the initrd, so the
+         resulting launch measurement will differ from any other build of the
+         same source. For a reproducible build, set it explicitly — typically
+         from the commit time of the tree you're building:
+             export SOURCE_DATE_EPOCH=\$(git log -1 --format=%ct)
+
+EOF
+else
+    export SOURCE_DATE_EPOCH
+fi
+
 if [[ -z "${OVMF_COMMIT:-}" ]]; then
-    echo "WARNING: OVMF_COMMIT not set - OVMF build may not be reproducible"
+    echo "WARNING: OVMF_COMMIT not set - OVMF build may not be reproducible" >&2
 fi
-if [[ -z "${SOURCE_DATE_EPOCH:-}" ]] || [[ "$SOURCE_DATE_EPOCH" == "$(date +%s)" ]]; then
-    echo "NOTE: SOURCE_DATE_EPOCH defaulting to current time"
-    echo "      For reproducible builds: export SOURCE_DATE_EPOCH=\$(git log -1 --format=%ct)"
-fi
-echo ""
 
 function usage()
 {
@@ -46,7 +64,7 @@ function usage()
 	echo ""
 	echo "OPTIONS:"
 	echo "  --install PATH          Installation path (default: ${SCRIPT_DIR}/output/qemu)"
-	echo "  --katana PATH           Path to katana binary (optional; auto-built if not provided)"
+	echo "  --katana PATH           Path to katana binary (required when building initrd)"
 	echo "  --snp-derivekey PATH    Path to snp-derivekey binary (optional; auto-built if not"
 	echo "                          provided). Required for sealed-mode initrd unless"
 	echo "                          KATANA_UNSEALED_BUILD=1 is set."
@@ -121,7 +139,7 @@ while [ -n "$1" ]; do
 		BUILD_INITRD=1
 		shift
 		;;
-	-*|--*)
+	-*)
 		echo "Unsupported option: [$1]"
 		usage
 		;;
@@ -139,66 +157,30 @@ if [ $BUILD_OVMF -eq 0 ] && [ $BUILD_KERNEL -eq 0 ] && [ $BUILD_INITRD -eq 0 ]; 
 	BUILD_INITRD=1
 fi
 
-# Build katana if needed for initrd and not provided
+# A katana binary is required when building the initrd. This standalone repo
+# does not vendor katana source, so the build-from-source fallback that lived
+# here previously has been removed — operators must supply a prebuilt binary
+# with --katana. See dojoengine/katana releases for prebuilt linux-gnu binaries.
 if [ $BUILD_INITRD -eq 1 ] && [ -z "$KATANA_BINARY" ]; then
-	echo "No --katana provided."
-	if [ ! -t 0 ]; then
-		echo "ERROR: Cannot prompt without an interactive terminal."
-		echo "Pass --katana /path/to/katana to use a pre-built binary."
-		exit 1
-	fi
-
-	read -r -p "Build katana from source with glibc now? [y/N] " CONFIRM_BUILD_KATANA
-	case "$CONFIRM_BUILD_KATANA" in
-		[yY]|[yY][eE][sS])
-			echo "Building katana with glibc..."
-			;;
-		*)
-			echo "Aborting. Provide --katana /path/to/katana to use a pre-built binary."
-			exit 1
-			;;
-	esac
-
-	PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-	if ! command -v cargo >/dev/null 2>&1; then
-		echo ""
-		echo "ERROR: cargo is not on PATH."
-		echo ""
-		echo "If you are running build.sh under sudo, cargo is likely installed under your"
-		echo "regular user (\$HOME/.cargo/bin) but not in root's PATH. Two options:"
-		echo ""
-		echo "  1. Pre-build katana as your normal user, then pass the path:"
-		echo "       ${PROJECT_ROOT}/scripts/build-gnu.sh"
-		echo "       sudo $0 --katana \\"
-		echo "         ${PROJECT_ROOT}/target/x86_64-unknown-linux-gnu/performance/katana ..."
-		echo ""
-		echo "  2. Run build.sh with sudo -E to inherit your PATH (assumes cargo on it)."
-		echo ""
-		echo "If cargo is genuinely not installed, set it up via rustup: https://rustup.rs"
-		exit 1
-	fi
-	"${PROJECT_ROOT}/scripts/build-gnu.sh"
-	if [ $? -ne 0 ]; then
-		echo "Katana build failed"
-		exit 1
-	fi
-	KATANA_BINARY="${PROJECT_ROOT}/target/x86_64-unknown-linux-gnu/performance/katana"
-	if [ ! -f "$KATANA_BINARY" ]; then
-		echo "ERROR: Katana binary not found at $KATANA_BINARY"
-		exit 1
-	fi
-	echo "Using built katana: $KATANA_BINARY"
+	echo "ERROR: --katana <path-to-katana-binary> is required when building the initrd."
+	echo ""
+	echo "Download a prebuilt katana binary from:"
+	echo "  https://github.com/dojoengine/katana/releases"
+	echo "and pass it via --katana, e.g.:"
+	echo "  $0 --katana /path/to/katana"
+	exit 1
 fi
 
 # Build snp-derivekey for the canonical sealed initrd unless the operator
-# opted out (KATANA_UNSEALED_BUILD=1) or pre-supplied a binary path. Mirrors
-# the auto-katana flow above; reuses the workspace's musl target so it ships
-# with no runtime libc dependency.
+# opted out (KATANA_UNSEALED_BUILD=1) or pre-supplied a binary path. The
+# source is vendored in this repo's snp-tools workspace (gated behind the
+# `snp-derivekey` feature); built for musl so it ships with no runtime
+# libc dependency.
 if [ $BUILD_INITRD -eq 1 ] \
    && [ "${KATANA_UNSEALED_BUILD:-0}" -ne 1 ] \
    && [ -z "${SNP_DERIVEKEY_BINARY:-}" ]; then
-	PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
-	SNP_DERIVEKEY_BINARY="${PROJECT_ROOT}/target/x86_64-unknown-linux-musl/performance/snp-derivekey"
+	SNP_TOOLS_DIR="${SCRIPT_DIR}/snp-tools"
+	SNP_DERIVEKEY_BINARY="${SNP_TOOLS_DIR}/target/x86_64-unknown-linux-musl/release/snp-derivekey"
 	if [ ! -x "$SNP_DERIVEKEY_BINARY" ]; then
 		if ! command -v cargo >/dev/null 2>&1; then
 			echo ""
@@ -208,8 +190,9 @@ if [ $BUILD_INITRD -eq 1 ] \
 			echo "regular user (\$HOME/.cargo/bin) but not in root's PATH. Two options:"
 			echo ""
 			echo "  1. Pre-build snp-derivekey as your normal user, then pass the path:"
-			echo "       cargo build --target x86_64-unknown-linux-musl --profile performance \\"
-			echo "         -p katana-tee --features snp --bin snp-derivekey"
+			echo "       (cd ${SNP_TOOLS_DIR} && cargo build \\"
+			echo "          --locked --target x86_64-unknown-linux-musl --release \\"
+			echo "          --features snp-derivekey --bin snp-derivekey)"
 			echo "       sudo $0 --katana <path> --snp-derivekey \\"
 			echo "         $SNP_DERIVEKEY_BINARY ..."
 			echo ""
@@ -218,12 +201,12 @@ if [ $BUILD_INITRD -eq 1 ] \
 		fi
 		echo ""
 		echo "Building snp-derivekey with musl (sealed-storage helper)..."
-		( cd "$PROJECT_ROOT" && \
+		( cd "$SNP_TOOLS_DIR" && \
 		  cargo build \
 		    --locked \
 		    --target x86_64-unknown-linux-musl \
-		    --profile performance \
-		    -p katana-tee --features snp \
+		    --release \
+		    --features snp-derivekey \
 		    --bin snp-derivekey ) || {
 			echo "snp-derivekey build failed"
 			exit 1
@@ -241,20 +224,19 @@ fi
 # the operator opted out (KATANA_UNSEALED_BUILD=1) or pre-supplied both
 # binary paths. The container build is non-trivial (~2-3 minutes the first
 # time apk-add fetches its mirror), so we cache outputs under
-# $PROJECT_ROOT/target/cryptsetup-static and skip when both binaries are
+# $SCRIPT_DIR/output/cryptsetup-static and skip when both binaries are
 # already present.
 if [ $BUILD_INITRD -eq 1 ] \
    && [ "${KATANA_UNSEALED_BUILD:-0}" -ne 1 ] \
    && { [ -z "${CRYPTSETUP_BINARY:-}" ] || [ -z "${MKFS_EXT2_BINARY:-}" ]; }; then
-	PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
-	CRYPTSETUP_OUT_DIR="${PROJECT_ROOT}/target/cryptsetup-static"
+	CRYPTSETUP_OUT_DIR="${SCRIPT_DIR}/output/cryptsetup-static"
 	CRYPTSETUP_BINARY="${CRYPTSETUP_BINARY:-${CRYPTSETUP_OUT_DIR}/cryptsetup}"
 	MKFS_EXT2_BINARY="${MKFS_EXT2_BINARY:-${CRYPTSETUP_OUT_DIR}/mkfs.ext2}"
 
 	if [ ! -x "$CRYPTSETUP_BINARY" ] || [ ! -x "$MKFS_EXT2_BINARY" ]; then
 		echo ""
 		echo "Building static cryptsetup + mkfs.ext2 (sealed-storage helpers)..."
-		"${SCRIPT_DIR}/build-cryptsetup.sh" "$CRYPTSETUP_OUT_DIR" || {
+		"${SCRIPT_DIR}/scripts/build-cryptsetup.sh" "$CRYPTSETUP_OUT_DIR" || {
 			echo "build-cryptsetup.sh failed"
 			exit 1
 		}
@@ -275,31 +257,34 @@ fi
 mkdir -p $INSTALL_DIR
 IDIR=$INSTALL_DIR
 INSTALL_DIR=$(readlink -e $INSTALL_DIR)
-[ -n "$INSTALL_DIR" -a -d "$INSTALL_DIR" ] || {
+[ -n "$INSTALL_DIR" ] && [ -d "$INSTALL_DIR" ] || {
 	echo "Installation directory [$IDIR] does not exist, exiting"
 	exit 1
 }
 
 if [ $BUILD_OVMF -eq 1 ]; then
-	"${SCRIPT_DIR}/build-ovmf.sh" "$INSTALL_DIR"
-	if [ $? -ne 0 ]; then
-		echo "OVMF build failed: $?"
+	"${SCRIPT_DIR}/scripts/build-ovmf.sh" "$INSTALL_DIR"
+	rc=$?
+	if [ $rc -ne 0 ]; then
+		echo "OVMF build failed: $rc"
 		exit 1
 	fi
 fi
 
 if [ $BUILD_KERNEL -eq 1 ]; then
-	"${SCRIPT_DIR}/build-kernel.sh" "$INSTALL_DIR"
-	if [ $? -ne 0 ]; then
-		echo "Kernel build failed: $?"
+	"${SCRIPT_DIR}/scripts/build-kernel.sh" "$INSTALL_DIR"
+	rc=$?
+	if [ $rc -ne 0 ]; then
+		echo "Kernel build failed: $rc"
 		exit 1
 	fi
 fi
 
 if [ $BUILD_INITRD -eq 1 ]; then
-	"${SCRIPT_DIR}/build-initrd.sh" "$KATANA_BINARY" "$INSTALL_DIR/initrd.img"
-	if [ $? -ne 0 ]; then
-		echo "Initrd build failed: $?"
+	"${SCRIPT_DIR}/scripts/build-initrd.sh" "$KATANA_BINARY" "$INSTALL_DIR/initrd.img"
+	rc=$?
+	if [ $rc -ne 0 ]; then
+		echo "Initrd build failed: $rc"
 		exit 1
 	fi
 	# Copy katana binary to output directory
@@ -316,6 +301,7 @@ BUILD_INFO="$INSTALL_DIR/build-info.txt"
 INFO_OVMF_GIT_URL=""
 INFO_OVMF_BRANCH=""
 INFO_OVMF_COMMIT=""
+INFO_OVMF_SOURCE_DATE_EPOCH=""
 INFO_KERNEL_VERSION=""
 INFO_KERNEL_PKG_SHA256=""
 INFO_BUSYBOX_PKG_SHA256=""
@@ -337,6 +323,7 @@ if [ -f "$BUILD_INFO" ]; then
 			OVMF_GIT_URL) INFO_OVMF_GIT_URL="$value" ;;
 			OVMF_BRANCH) INFO_OVMF_BRANCH="$value" ;;
 			OVMF_COMMIT) INFO_OVMF_COMMIT="$value" ;;
+			OVMF_SOURCE_DATE_EPOCH) INFO_OVMF_SOURCE_DATE_EPOCH="$value" ;;
 			KERNEL_VERSION) INFO_KERNEL_VERSION="$value" ;;
 			KERNEL_PKG_SHA256) INFO_KERNEL_PKG_SHA256="$value" ;;
 			BUSYBOX_PKG_SHA256) INFO_BUSYBOX_PKG_SHA256="$value" ;;
@@ -356,7 +343,14 @@ fi
 if [ $BUILD_OVMF -eq 1 ]; then
 	INFO_OVMF_GIT_URL="$OVMF_GIT_URL"
 	INFO_OVMF_BRANCH="$OVMF_BRANCH"
-	[ -f "${SCRIPT_DIR}/source-commit.ovmf" ] && INFO_OVMF_COMMIT="$(cat "${SCRIPT_DIR}/source-commit.ovmf")"
+	# OVMF_COMMIT is pinned in build-config; that's the authoritative value
+	# build-ovmf.sh checked out. Source it directly rather than re-reading a
+	# truncated short hash from a side-channel file.
+	INFO_OVMF_COMMIT="$OVMF_COMMIT"
+	# The epoch the firmware was built with — derived by build-ovmf.sh from
+	# the OVMF commit's own timestamp (NOT the release epoch) and dropped
+	# alongside the artifact.
+	[ -f "$INSTALL_DIR/ovmf-source-date-epoch.txt" ] && INFO_OVMF_SOURCE_DATE_EPOCH="$(cat "$INSTALL_DIR/ovmf-source-date-epoch.txt")"
 	[ -f "$INSTALL_DIR/OVMF.fd" ] && INFO_OVMF_SHA256="$(sha256sum "$INSTALL_DIR/OVMF.fd" | awk '{print $1}')"
 fi
 
@@ -388,6 +382,7 @@ fi
 	[ -n "$INFO_OVMF_GIT_URL" ] && echo "OVMF_GIT_URL=$INFO_OVMF_GIT_URL"
 	[ -n "$INFO_OVMF_BRANCH" ] && echo "OVMF_BRANCH=$INFO_OVMF_BRANCH"
 	[ -n "$INFO_OVMF_COMMIT" ] && echo "OVMF_COMMIT=$INFO_OVMF_COMMIT"
+	[ -n "$INFO_OVMF_SOURCE_DATE_EPOCH" ] && echo "OVMF_SOURCE_DATE_EPOCH=$INFO_OVMF_SOURCE_DATE_EPOCH"
 	[ -n "$INFO_KERNEL_VERSION" ] && echo "KERNEL_VERSION=$INFO_KERNEL_VERSION"
 	[ -n "$INFO_KERNEL_PKG_SHA256" ] && echo "KERNEL_PKG_SHA256=$INFO_KERNEL_PKG_SHA256"
 	[ -n "$INFO_BUSYBOX_PKG_SHA256" ] && echo "BUSYBOX_PKG_SHA256=$INFO_BUSYBOX_PKG_SHA256"
