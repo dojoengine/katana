@@ -1,25 +1,27 @@
 //! The settlement service: a single sequential settle loop.
 //!
-//! Settlement is inherently serial — Piltover rejects any `update_state`
-//! whose `prev_block_number` doesn't match its current state — so the service
-//! runs one batch at a time through the proving backend, with no internal
-//! pipelining. The loop is proof-system-agnostic: everything specific to how
-//! a state transition is proven lives behind [`ProvingBackend`].
+//! Settlement is inherently serial — the core contract rejects any state
+//! update that doesn't extend its current state — so the service runs one
+//! batch at a time through the proving pipeline, with no internal pipelining.
+//! The loop is agnostic to both axes of a settlement setup: how a state
+//! transition is proven ([`ProvingBackend`]) and which chain it is submitted
+//! to ([`SettlementChain`]). The two are paired — with their payload types
+//! statically checked to match — in a [`SettlementPipeline`].
 
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use katana_primitives::block::BlockNumber;
-use katana_primitives::Felt;
 use katana_provider::api::block::BlockNumberProvider;
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderError, ProviderFactory};
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 use crate::backend::ProvingBackend;
-use crate::piltover::PiltoverClient;
+use crate::chain::SettlementChain;
 use crate::{SettlementConfig, LOG_TARGET};
 
 /// Initial retry delay after a failed settlement attempt.
@@ -27,28 +29,91 @@ const RETRY_BACKOFF_MIN: Duration = Duration::from_secs(5);
 /// Retry delay cap.
 const RETRY_BACKOFF_MAX: Duration = Duration::from_secs(60);
 
+/// A proving backend paired with the settlement chain it settles to.
+///
+/// The pairing is where the two axes meet: the backend's
+/// [`Output`](ProvingBackend::Output) must be the payload type the chain's
+/// core contract accepts ([`SettlementChain::StateUpdate`]) — checked
+/// statically by this struct's bounds. The service consumes the pair through
+/// the type-erased [`Settle`] trait so it stays agnostic to both.
+pub struct SettlementPipeline<B, C> {
+    backend: B,
+    chain: C,
+}
+
+impl<B, C> SettlementPipeline<B, C>
+where
+    B: ProvingBackend,
+    C: SettlementChain<StateUpdate = B::Output>,
+{
+    pub fn new(backend: B, chain: C) -> Self {
+        Self { backend, chain }
+    }
+}
+
+/// Type-erased view of a [`SettlementPipeline`], as consumed by the settle loop.
+#[async_trait]
+trait Settle: Send + Sync {
+    fn backend_name(&self) -> &'static str;
+    fn chain_name(&self) -> &'static str;
+
+    /// Reads the settled-block cursor from the chain's core contract.
+    async fn settled_block(&self) -> Result<Option<BlockNumber>>;
+
+    /// Proves the state transition `(prev_block, block]` and submits it to
+    /// the chain. Returns a displayable transaction id.
+    async fn settle(&self, prev_block: Option<BlockNumber>, block: BlockNumber) -> Result<String>;
+}
+
+#[async_trait]
+impl<B, C> Settle for SettlementPipeline<B, C>
+where
+    B: ProvingBackend,
+    C: SettlementChain<StateUpdate = B::Output>,
+{
+    fn backend_name(&self) -> &'static str {
+        self.backend.name()
+    }
+
+    fn chain_name(&self) -> &'static str {
+        self.chain.name()
+    }
+
+    async fn settled_block(&self) -> Result<Option<BlockNumber>> {
+        self.chain.settled_block().await
+    }
+
+    async fn settle(&self, prev_block: Option<BlockNumber>, block: BlockNumber) -> Result<String> {
+        let update = self.backend.prove(prev_block, block).await?;
+        self.chain.update_state(update).await
+    }
+}
+
 /// The embedded settlement service.
 ///
 /// [`Self::start`] is non-consuming and mirrors `MessagingService::start`: it
-/// connects to the settlement chain, reads the on-chain cursor, and spawns the
-/// settle loop. The broadcast channel is used purely as a new-block wake-up —
-/// its payload is ignored, so any clonable type works (`N` is the node's mined
-/// block notification type).
+/// reads the on-chain cursor and spawns the settle loop. The broadcast channel
+/// is used purely as a new-block wake-up — its payload is ignored, so any
+/// clonable type works (`N` is the node's mined block notification type).
 pub struct SettlementService<P, N> {
     provider: P,
-    backend: Arc<dyn ProvingBackend>,
+    pipeline: Arc<dyn Settle>,
     block_notify: broadcast::Sender<N>,
     config: SettlementConfig,
 }
 
 impl<P, N> SettlementService<P, N> {
-    pub fn new(
+    pub fn new<B, C>(
         provider: P,
-        backend: Arc<dyn ProvingBackend>,
+        pipeline: SettlementPipeline<B, C>,
         block_notify: broadcast::Sender<N>,
         config: SettlementConfig,
-    ) -> Self {
-        Self { provider, backend, block_notify, config }
+    ) -> Self
+    where
+        B: ProvingBackend + 'static,
+        C: SettlementChain<StateUpdate = B::Output> + 'static,
+    {
+        Self { provider, pipeline: Arc::new(pipeline), block_notify, config }
     }
 }
 
@@ -60,24 +125,15 @@ where
 {
     /// Start the settlement service.
     ///
-    /// Connects to the settlement chain, reads the settled-block cursor from the Piltover core
-    /// contract, and spawns the settle loop.
+    /// Reads the settled-block cursor from the settlement chain's core contract and spawns the
+    /// settle loop.
     pub async fn start(&self) -> Result<SettlementServiceHandle> {
-        let piltover = PiltoverClient::new(
-            self.config.rpc_url.clone(),
-            self.config.core_contract,
-            self.config.account_address,
-            self.config.account_private_key,
-        )
-        .await
-        .context("connect to settlement chain")?;
-
-        let cursor = piltover.settled_block().await.context("read piltover settlement cursor")?;
+        let cursor =
+            self.pipeline.settled_block().await.context("read on-chain settlement cursor")?;
 
         let worker = Worker {
             provider: self.provider.clone(),
-            backend: self.backend.clone(),
-            piltover,
+            pipeline: self.pipeline.clone(),
             batch_size: self.config.batch_size.max(1) as u64,
             idle_flush_interval: self.config.idle_flush_interval,
             cursor,
@@ -89,9 +145,9 @@ where
 
         info!(
             target: LOG_TARGET,
-            backend = self.backend.name(),
+            backend = self.pipeline.backend_name(),
+            chain = self.pipeline.chain_name(),
             settled_block = ?cursor,
-            core_contract = %self.config.core_contract,
             "Settlement service started."
         );
 
@@ -102,7 +158,8 @@ where
 impl<P, N> std::fmt::Debug for SettlementService<P, N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SettlementService")
-            .field("backend", &self.backend.name())
+            .field("backend", &self.pipeline.backend_name())
+            .field("chain", &self.pipeline.chain_name())
             .field("config", &self.config)
             .finish_non_exhaustive()
     }
@@ -131,11 +188,10 @@ impl SettlementServiceHandle {
 
 struct Worker<P> {
     provider: P,
-    backend: Arc<dyn ProvingBackend>,
-    piltover: PiltoverClient,
+    pipeline: Arc<dyn Settle>,
     batch_size: u64,
     idle_flush_interval: tokio::time::Duration,
-    /// Last settled block, from Piltover's `get_state()`. `None` = nothing settled yet.
+    /// Last settled block, from the chain's core contract. `None` = nothing settled yet.
     cursor: Option<BlockNumber>,
 }
 
@@ -152,16 +208,14 @@ enum Action {
 
 /// Pure batching decision: drives both the run loop and the unit tests.
 ///
-/// `cursor` is the last settled block (`None` = genesis not settled), `head` the local chain tip
-/// (`None` = no blocks yet).
+/// `cursor` is the last settled block (`None` = genesis not settled), `head` the local chain tip.
 fn next_action(
     cursor: Option<BlockNumber>,
-    head: Option<BlockNumber>,
+    head: BlockNumber,
     batch_size: u64,
     idle_elapsed: bool,
 ) -> Action {
     let next = cursor.map(|c| c + 1).unwrap_or(0);
-    let Some(head) = head else { return Action::Idle };
 
     if head < next {
         return Action::Idle;
@@ -211,7 +265,7 @@ where
                                 target: LOG_TARGET,
                                 first,
                                 last,
-                                tx_hash = %format!("{tx_hash:#x}"),
+                                %tx_hash,
                                 "Settled block range."
                             );
                             self.cursor = Some(last);
@@ -243,7 +297,7 @@ where
                             // a transient RPC failure while watching the receipt). Re-reading
                             // the on-chain cursor makes the retry idempotent: if it advanced,
                             // the loop moves on instead of double-submitting.
-                            match self.piltover.settled_block().await {
+                            match self.pipeline.settled_block().await {
                                 Ok(cursor) => {
                                     if cursor != self.cursor {
                                         warn!(
@@ -260,7 +314,7 @@ where
                                     error!(
                                         target: LOG_TARGET,
                                         %error,
-                                        "Failed to re-read piltover settlement cursor."
+                                        "Failed to re-read on-chain settlement cursor."
                                     );
                                 }
                             }
@@ -310,25 +364,19 @@ where
         info!(target: LOG_TARGET, "Settlement service stopped.");
     }
 
-    /// Latest block on the local chain, or `None` when the chain has no blocks.
-    fn local_head(&self) -> Result<Option<BlockNumber>> {
-        let provider = self.provider.provider();
-        match provider.latest_number() {
-            Ok(n) => Ok(Some(n)),
-            // A chain with no blocks at all (genesis not yet committed).
-            Err(katana_provider::ProviderError::MissingLatestBlockNumber) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+    /// Retrieve the latest block on the local chain.
+    ///
+    /// Errors if the chain has no blocks at all — which should not happen in normal operation,
+    /// since the node commits the genesis block at startup. The run loop treats that error like
+    /// any other transient read failure (log, back off, retry).
+    fn local_head(&self) -> Result<BlockNumber> {
+        self.provider.provider().latest_number().map_err(|e| e.into())
     }
 
     /// Prove and settle the inclusive block range `[first, last]`.
-    async fn settle_batch(&self, first: BlockNumber, last: BlockNumber) -> Result<Felt> {
+    async fn settle_batch(&self, first: BlockNumber, last: BlockNumber) -> Result<String> {
         let prev_block = if first == 0 { None } else { Some(first - 1) };
-
-        let input = self.backend.prove(prev_block, last).await?;
-        let tx_hash = self.piltover.update_state(input).await?;
-
-        Ok(tx_hash)
+        self.pipeline.settle(prev_block, last).await
     }
 }
 
@@ -337,50 +385,37 @@ mod tests {
     use super::{next_action, Action};
 
     #[test]
-    fn genesis_not_settled_no_blocks() {
-        assert_eq!(next_action(None, None, 10, false), Action::Idle);
-        assert_eq!(next_action(None, None, 10, true), Action::Idle);
-    }
-
-    #[test]
-    fn genesis_not_settled_with_backlog() {
-        // 1 pending block, batch of 1 → settle immediately.
-        assert_eq!(next_action(None, Some(0), 1, false), Action::Settle { first: 0, last: 0 });
-        // 3 pending blocks, batch of 10 → wait unless idle.
-        assert_eq!(next_action(None, Some(2), 10, false), Action::WaitForBatch);
-        assert_eq!(next_action(None, Some(2), 10, true), Action::Settle { first: 0, last: 2 });
+    fn nothing_settled() {
+        // Only the genesis block present, batch of 1 → settle block 0 immediately.
+        assert_eq!(next_action(None, 0, 1, false), Action::Settle { first: 0, last: 0 });
+        // Only the genesis block, larger batch → wait for more blocks (or the idle flush).
+        assert_eq!(next_action(None, 0, 10, false), Action::WaitForBatch);
+        // A few blocks present, batch not yet full → wait unless idle.
+        assert_eq!(next_action(None, 2, 10, false), Action::WaitForBatch);
+        assert_eq!(next_action(None, 2, 10, true), Action::Settle { first: 0, last: 2 });
     }
 
     #[test]
     fn backlog_drains_in_batches() {
         // 25 unsettled blocks, batch of 10 → settle the first 10.
-        assert_eq!(
-            next_action(Some(4), Some(29), 10, false),
-            Action::Settle { first: 5, last: 14 }
-        );
+        assert_eq!(next_action(Some(4), 29, 10, false), Action::Settle { first: 5, last: 14 });
         // After settling, the next call picks up the following range.
-        assert_eq!(
-            next_action(Some(14), Some(29), 10, false),
-            Action::Settle { first: 15, last: 24 }
-        );
+        assert_eq!(next_action(Some(14), 29, 10, false), Action::Settle { first: 15, last: 24 });
         // The remainder is a partial batch.
-        assert_eq!(next_action(Some(24), Some(29), 10, false), Action::WaitForBatch);
-        assert_eq!(
-            next_action(Some(24), Some(29), 10, true),
-            Action::Settle { first: 25, last: 29 }
-        );
+        assert_eq!(next_action(Some(24), 29, 10, false), Action::WaitForBatch);
+        assert_eq!(next_action(Some(24), 29, 10, true), Action::Settle { first: 25, last: 29 });
     }
 
     #[test]
     fn caught_up_is_idle() {
-        assert_eq!(next_action(Some(7), Some(7), 10, false), Action::Idle);
-        assert_eq!(next_action(Some(7), Some(7), 10, true), Action::Idle);
+        assert_eq!(next_action(Some(7), 7, 10, false), Action::Idle);
+        assert_eq!(next_action(Some(7), 7, 10, true), Action::Idle);
         // Cursor ahead of head (e.g. fresh db against an old piltover) — nothing to do.
-        assert_eq!(next_action(Some(9), Some(7), 10, true), Action::Idle);
+        assert_eq!(next_action(Some(9), 7, 10, true), Action::Idle);
     }
 
     #[test]
     fn idle_elapsed_flushes_partial_batch() {
-        assert_eq!(next_action(Some(2), Some(4), 10, true), Action::Settle { first: 3, last: 4 });
+        assert_eq!(next_action(Some(2), 4, 10, true), Action::Settle { first: 3, last: 4 });
     }
 }

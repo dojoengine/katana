@@ -1,1 +1,1 @@
-pub use katana_settlement::{ProverConfig, SettlementConfig};
+pub use katana_settlement::{ChainConfig, ProverConfig, SettlementConfig};

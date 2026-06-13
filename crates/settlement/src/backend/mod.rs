@@ -1,11 +1,11 @@
 //! Proving backends.
 //!
 //! A [`ProvingBackend`] turns an unsettled block range into the
-//! `update_state` payload for the Piltover core contract. The settlement
-//! service is generic over this trait: the serial settle loop, the on-chain
-//! cursor handling, and the transaction submission are proof-system-agnostic,
-//! while everything specific to *how* a state transition is proven lives
-//! behind the backend.
+//! `update_state` payload for the settlement chain's core contract. The
+//! settlement service is generic over this trait: the serial settle loop, the
+//! on-chain cursor handling, and the transaction submission are
+//! proof-system-agnostic, while everything specific to *how* a state
+//! transition is proven lives behind the backend.
 //!
 //! [`tee::TeeBackend`] (AMD SEV-SNP attestations proven with SP1 Groth16) is
 //! the only backend today; a standard validity-proof backend (e.g. SNOS +
@@ -16,15 +16,22 @@ pub mod tee;
 
 use async_trait::async_trait;
 use katana_primitives::block::BlockNumber;
-use piltover::PiltoverInput;
 
-/// A proving system that can produce Piltover `update_state` payloads.
+/// A proving system that can produce state-update payloads.
 ///
 /// Backends own whatever they need to do their job (a provider handle for
 /// chain reads, prover keys, hardware handles); the settlement service only
 /// hands them the block range to settle.
+///
+/// [`Output`](Self::Output) is the payload type of the settlement chain's
+/// core contract — a backend can only be paired (via
+/// [`SettlementPipeline`](crate::SettlementPipeline)) with a
+/// [`SettlementChain`](crate::chain::SettlementChain) that accepts it.
 #[async_trait]
 pub trait ProvingBackend: Send + Sync {
+    /// The state-update payload this backend produces.
+    type Output: Send + 'static;
+
     /// Human-readable backend name, for logs.
     fn name(&self) -> &'static str;
 
@@ -37,5 +44,5 @@ pub trait ProvingBackend: Send + Sync {
         &self,
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
-    ) -> Result<PiltoverInput, anyhow::Error>;
+    ) -> Result<Self::Output, anyhow::Error>;
 }

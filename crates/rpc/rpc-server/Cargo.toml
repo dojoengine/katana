@@ -48,7 +48,6 @@ paymaster-rpc.workspace = true
 serde.workspace = true
 url.workspace = true
 
-hex.workspace = true
 katana-tee.workspace = true
 katana-trie.workspace = true
 regex.workspace = true

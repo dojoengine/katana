@@ -67,7 +67,8 @@ use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::node::NodeInfo;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_settlement::{
-    ProvingBackend, SettlementService, SettlementServiceHandle, TeeBackend, TeeProver,
+    ChainConfig, ProverConfig, SettlementPipeline, SettlementService, SettlementServiceHandle,
+    StarknetSettlementChain, TeeBackend, TeeProver,
 };
 use katana_stage::Sequencing;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
@@ -573,10 +574,29 @@ where
 
         let settlement_service = match &config.settlement {
             Some(cfg) => {
-                // Each proving system declares its own requirements here; only the TEE backend
-                // exists today.
-                let proving_backend: Arc<dyn ProvingBackend> = match &cfg.prover {
-                    katana_settlement::ProverConfig::Tee { tee_registry, prover_key } => {
+                // The two axes of the settlement setup — which chain to settle to and how to
+                // prove state transitions — are selected here; the pipeline pairing statically
+                // checks the proving backend's payload matches the chain's core contract. Only
+                // the Starknet (Piltover) + TEE combination exists today.
+                let ChainConfig::Starknet {
+                    id,
+                    rpc_url,
+                    core_contract,
+                    account_address,
+                    account_private_key,
+                } = &cfg.chain;
+
+                let chain = StarknetSettlementChain::new(
+                    rpc_url.clone(),
+                    *id,
+                    *core_contract,
+                    *account_address,
+                    *account_private_key,
+                );
+
+                // Each proving system declares its own requirements here.
+                let service = match &cfg.prover {
+                    ProverConfig::Tee { tee_registry, prover_key } => {
                         let Some(attester) = &attester else {
                             anyhow::bail!(
                                 "TEE settlement is configured but TEE attestation is not; enable \
@@ -601,7 +621,7 @@ where
                                     "SP1 prover key is required for SEV-SNP attestation proving",
                                 )?;
                                 TeeProver::Sp1 {
-                                    settlement_rpc: cfg.rpc_url.clone(),
+                                    settlement_rpc: rpc_url.clone(),
                                     tee_registry: *tee_registry,
                                     prover_key,
                                 }
@@ -609,21 +629,23 @@ where
                                 TeeProver::Mock
                             };
 
-                        Arc::new(TeeBackend::new(
+                        let tee_backend = TeeBackend::new(
                             provider.clone(),
                             attester.clone(),
                             &backend.chain_spec,
                             prover,
-                        ))
+                        );
+
+                        SettlementService::new(
+                            provider.clone(),
+                            SettlementPipeline::new(tee_backend, chain),
+                            block_notify.clone(),
+                            cfg.clone(),
+                        )
                     }
                 };
 
-                Some(SettlementService::new(
-                    provider.clone(),
-                    proving_backend,
-                    block_notify.clone(),
-                    cfg.clone(),
-                ))
+                Some(service)
             }
 
             None => None,
