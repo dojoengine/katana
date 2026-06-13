@@ -13,25 +13,39 @@ make it reproducible.
 
 ## Trigger contract
 
-The workflow runs on two triggers:
+The workflow runs on three triggers:
 
 | Trigger | Behavior |
 |---|---|
-| Push of a tag matching `katana-v*` | Full release: build, measure, publish a GitHub Release |
-| `workflow_dispatch` | Dry run: identical build and measurement, artifacts uploaded to the workflow run, **no GitHub Release created** (release creation is gated on `startsWith(github.ref, 'refs/tags/')`) |
+| **`release: published`** (primary) | Fires for every katana release. Builds a VM image bundling that release's katana binary, from the release tag's commit, and publishes a `katana-<release tag>` GitHub Release (e.g. `katana-v1.9.0`). Then dispatches the hardware E2E test against it. |
+| Push of a tag matching `katana-v*` | Manual **pipeline re-release** against the same katana version. Same full build + publish, keyed on the pushed tag. |
+| `workflow_dispatch` | Dry run: identical build and measurement, artifacts uploaded to the workflow run, **no GitHub Release created**. |
 
-The katana version to embed is parsed from the tag:
+Because the primary trigger fires on every katana release, a VM image
+follows each katana version automatically — the embedded binary comes from
+the release that fired the workflow, and the VM is built from that release's
+commit so the `misc/AMDSEV` tooling and the binary are a consistent,
+reproducible pair.
 
-| Tag | Embedded katana version |
-|---|---|
-| `katana-v1.8.0` | `v1.8.0` |
-| `katana-v1.8.0-rc.2` | `v1.8.0-rc.2` (passes through; a matching katana release must exist) |
-| `katana-v1.8.0-pipeline.2` | `v1.8.0` — the `-pipeline.N` suffix is stripped |
+**No release→release loop.** The job publishes a `katana-v*` release, which
+is itself a `release: published` event. A job-level guard skips any release
+whose tag already starts with `katana-v`, and — belt and braces — releases
+created with the workflow's `GITHUB_TOKEN` do not re-trigger workflows at
+all. The follow-on hardware test (`amdsev-snp-e2e`) is therefore dispatched
+explicitly (`workflow_dispatch` *is* permitted from `GITHUB_TOKEN`).
 
-The `-pipeline.N` form exists for **pipeline-only re-releases**: cutting a new
-VM image against the *same* katana version, e.g. after a fix to the build
-scripts, a pin bump, or a broken earlier release. Use it whenever the katana
-version is unchanged but the image must be rebuilt.
+The VM tag and embedded katana version:
+
+| Event | VM release tag | Embedded katana version |
+|---|---|---|
+| katana release `v1.9.0` published | `katana-v1.9.0` | `v1.9.0` |
+| katana release `v1.9.0-rc.1` published | `katana-v1.9.0-rc.1` | `v1.9.0-rc.1` |
+| push tag `katana-v1.9.0-pipeline.2` | `katana-v1.9.0-pipeline.2` | `v1.9.0` — the `-pipeline.N` suffix is stripped |
+
+The `-pipeline.N` push form exists for **pipeline-only re-releases**: cutting
+a new VM image against the *same* katana version, e.g. after a fix to the
+build scripts or a pin bump. Pre-releases propagate — a VM release built from
+a katana pre-release is itself marked pre-release.
 
 `workflow_dispatch` takes two inputs:
 
@@ -265,17 +279,17 @@ iasl versions, so reproduce on the same OS image the release used
 
 ## Runbook
 
-**Cut a release for a new katana version**
-
-1. Confirm the katana release exists with a `katana_<ver>_linux_amd64.tar.gz`
-   asset.
-2. Tag the desired commit on `main`: `git tag katana-<ver> && git push origin
-   katana-<ver>`.
-3. Watch the `Release VM Image` workflow; on success, sanity-check the release
-   notes and `launch-measurement-<tag>.txt`.
+**Cut a release for a new katana version** — nothing to do. Publishing the
+katana release fires `amdsev-release` automatically: it builds the VM image
+against the release commit, publishes `katana-<ver>`, and dispatches the
+hardware E2E. Watch the `amdsev-release` run; on success, sanity-check the
+release notes and `launch-measurement-<tag>.txt`, then the `amdsev-snp-e2e`
+run it dispatched.
 
 **Re-release the same katana version** (build-script fix, pin bump, broken
-earlier release): tag `katana-<ver>-pipeline.N` with N incrementing.
+earlier release): push a `katana-<ver>-pipeline.N` tag (N incrementing) at the
+commit you want built — `git tag katana-<ver>-pipeline.N && git push origin
+katana-<ver>-pipeline.N`.
 
 **Bump a pin** (kernel, busybox, glibc runtime, OVMF commit, cryptsetup…):
 update both the version and its SHA-256 in `build-config`. PR CI (the
