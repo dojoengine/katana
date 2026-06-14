@@ -2,23 +2,28 @@ name: amdsev-release
 
 # Builds the Katana TEE VM image (OVMF + kernel + initrd, with a katana
 # binary embedded in the initrd) from misc/AMDSEV, computes the
-# sealed-storage SEV-SNP launch measurement, and attaches the artifacts to
-# a GitHub Release when a katana-v* tag is pushed.
+# sealed-storage SEV-SNP launch measurement, and publishes a `katana-v*`
+# GitHub Release with the artifacts.
 #
 # Trigger contract
 # ----------------
-# Push a tag named `katana-vX.Y.Z` (or `katana-vX.Y.Z-pipeline.N` for a
-# pipeline-only re-release against the same katana). The katana version is
-# parsed from the tag and used to download the matching katana binary from
-# this repo's releases:
-#   katana-v1.0.0              -> katana version v1.0.0
-#   katana-v1.0.0-pipeline.2   -> katana version v1.0.0
-#   katana-v1.0.0-rc.1         -> katana version v1.0.0-rc.1  (passes through;
-#                                  requires a matching v1.0.0-rc.1 katana release)
+# 1. `release: published` (primary) — fires for every katana release. The
+#    job builds a VM image bundling that release's katana binary and
+#    publishes `katana-<release tag>` (e.g. katana-v1.9.0). The VM is built
+#    from the *release tag's* commit, so the misc/AMDSEV tooling and the
+#    embedded binary are a consistent, reproducible pair. Releases whose tag
+#    already starts with `katana-v` (our own VM releases) are skipped by the
+#    job guard below — and GITHUB_TOKEN-created releases do not re-trigger
+#    workflows anyway, so there is no release→release loop.
+# 2. `push` of a `katana-v*` tag — manual pipeline re-release against the
+#    same katana version (katana-v1.9.0-pipeline.2). The katana version is
+#    parsed from the tag (strip `katana-` and any `-pipeline.N`).
+# 3. `workflow_dispatch` — dry run: builds and uploads workflow artifacts
+#    but creates no GitHub Release.
 #
-# The `katana-v*` tag namespace is distinct from katana's own `vX.Y.Z`
-# release tags, and katana's release workflow is not tag-triggered, so the
-# two pipelines do not interfere.
+# After publishing, the hardware end-to-end test (amdsev-snp-e2e) is
+# dispatched against the new VM release (GITHUB_TOKEN cannot re-trigger it
+# via the release event, but workflow_dispatch from GITHUB_TOKEN is allowed).
 #
 # Runner
 # ------
@@ -28,6 +33,8 @@ name: amdsev-release
 # VM-boot time, which is outside this workflow.
 
 on:
+  release:
+    types: [published]
   push:
     tags: ['katana-v*']
   workflow_dispatch:
@@ -48,11 +55,58 @@ defaults:
 
 jobs:
   build:
+    # Skip our own VM releases (the release event would otherwise loop on
+    # the katana-v* release this job creates). Defense in depth: a release
+    # created with GITHUB_TOKEN does not re-trigger workflows regardless.
+    if: github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'katana-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On a katana release, build from that release's commit so the
+          # misc/AMDSEV tooling matches the embedded binary. Empty ref (push
+          # / workflow_dispatch) checks out the triggering ref as usual.
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
+      - name: Resolve release context
+        id: ctx
+        run: |
+          case "${{ github.event_name }}" in
+            release)
+              # The katana release tag IS the katana version.
+              katana_ver="${{ github.event.release.tag_name }}"
+              vm_tag="katana-${katana_ver}"
+              publish=1
+              prerelease="${{ github.event.release.prerelease }}"
+              ;;
+            push)
+              # Manual katana-v* tag push (pipeline re-release).
+              vm_tag="${GITHUB_REF_NAME}"
+              katana_ver="${vm_tag#katana-}"
+              katana_ver="${katana_ver%-pipeline.*}"
+              publish=1
+              prerelease=false
+              ;;
+            *)
+              # workflow_dispatch — dry run, no release published.
+              katana_ver="${{ github.event.inputs.katana_version }}"
+              [ -z "$katana_ver" ] && katana_ver="latest"
+              vm_tag=""
+              publish=0
+              prerelease=false
+              ;;
+          esac
+          {
+            echo "katana_ver=$katana_ver"
+            echo "vm_tag=$vm_tag"
+            echo "publish=$publish"
+            echo "prerelease=$prerelease"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          echo "event=${{ github.event_name }} katana_ver=$katana_ver vm_tag=${vm_tag:-<none>} publish=$publish"
 
       - name: Pin SOURCE_DATE_EPOCH to HEAD commit time
         # Without this, build.sh falls back to `date +%s` and embeds the
@@ -82,37 +136,32 @@ jobs:
         working-directory: misc/AMDSEV/snp-tools
         run: rustup target add x86_64-unknown-linux-musl
 
-      - name: Resolve katana version
-        id: katana
-        run: |
-          # On tag push: strip leading "katana-" and any "-pipeline.*" suffix.
-          # On workflow_dispatch: use the user-provided input.
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            v="${GITHUB_REF_NAME#katana-}"
-            v="${v%-pipeline.*}"
-          else
-            v="${{ github.event.inputs.katana_version }}"
-            [ -z "$v" ] && v="latest"
-          fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-          echo "Resolved katana version: $v"
-
       - name: Download katana linux binary
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
         run: |
           mkdir -p .katana-dl
-          # katana releases ship several products per tag: katana_*,
-          # paymaster-service_*, vrf-server_* — each with portable
-          # (_linux_amd64.tar.gz) and CPU-tuned (_linux_amd64_native.tar.gz)
-          # variants. The `katana_` prefix selects the product; the anchored
-          # suffix selects the portable build over `_native`. A looser
-          # `*_linux_amd64.tar.gz` matches three tarballs and breaks the
-          # single-file `tar -xzf` below (seen with v1.8.0-rc.1).
-          gh release download "${{ steps.katana.outputs.version }}" \
-            --repo dojoengine/katana \
-            --pattern 'katana_*_linux_amd64.tar.gz' \
-            --dir .katana-dl/
+          # On a release trigger this downloads from the release that fired
+          # the workflow ($KATANA_VER == the release tag). katana releases
+          # ship several products per tag: katana_*, paymaster-service_*,
+          # vrf-server_* — each with portable (_linux_amd64.tar.gz) and
+          # CPU-tuned (_linux_amd64_native.tar.gz) variants. The `katana_`
+          # prefix selects the product; the anchored suffix selects the
+          # portable build over `_native`. A looser `*_linux_amd64.tar.gz`
+          # matches three tarballs and breaks the single-file `tar -xzf`.
+          if [ "$KATANA_VER" = "latest" ]; then
+            # workflow_dispatch convenience: no positional tag → latest.
+            gh release download \
+              --repo dojoengine/katana \
+              --pattern 'katana_*_linux_amd64.tar.gz' \
+              --dir .katana-dl/
+          else
+            gh release download "$KATANA_VER" \
+              --repo dojoengine/katana \
+              --pattern 'katana_*_linux_amd64.tar.gz' \
+              --dir .katana-dl/
+          fi
           tar -xzf .katana-dl/*.tar.gz -C .katana-dl/
           KATANA_BIN="$(find "$PWD/.katana-dl" -type f -name katana -perm -u+x | head -n1)"
           if [ -z "$KATANA_BIN" ]; then
@@ -134,6 +183,7 @@ jobs:
         if: github.event.inputs.force_rebuild != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VM_TAG: ${{ steps.ctx.outputs.vm_tag }}
         run: |
           . ./build-config
 
@@ -144,9 +194,10 @@ jobs:
 
           # Latest published VM release (katana-v* namespace only), excluding
           # the tag being built (relevant on re-runs after the release object
-          # already exists).
+          # already exists). VM_TAG is empty on dry runs, which excludes
+          # nothing.
           PREV_TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 50 --json tagName --jq '.[].tagName' \
-            | grep '^katana-v' | grep -vFx "$GITHUB_REF_NAME" | head -n1 || true)"
+            | grep '^katana-v' | grep -vFx "${VM_TAG}" | head -n1 || true)"
 
           if [ -z "$PREV_TAG" ]; then
             echo "No previous VM release found — building all components."
@@ -288,18 +339,26 @@ jobs:
           } >> output/qemu/build-info.txt
 
       - name: Stage release artifacts
+        env:
+          VM_TAG: ${{ steps.ctx.outputs.vm_tag }}
         run: |
           mkdir -p release
-          tag="${GITHUB_REF_NAME:-dev}"
+          tag="${VM_TAG:-dev}"
           tar -czf "release/katana-tee-vm-${tag}.tar.gz" -C output/qemu .
           cp output/qemu/build-info.txt "release/build-info-${tag}.txt"
           cp output/qemu/launch-measurement.txt "release/launch-measurement-${tag}.txt"
 
       - name: Generate release notes
-        if: startsWith(github.ref, 'refs/tags/katana-v')
+        if: steps.ctx.outputs.publish == '1'
+        env:
+          VM_TAG: ${{ steps.ctx.outputs.vm_tag }}
+          KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          katana_ver="${{ steps.katana.outputs.version }}"
+          # VM_TAG/KATANA_VER come from the env: block above; shellcheck
+          # cannot see it and reads the lowercase alias as a misspelling.
+          tag="${VM_TAG}"
+          # shellcheck disable=SC2153
+          katana_ver="${KATANA_VER}"
           # Pull values from build-info.txt for the human-readable summary.
           info_get() {
             awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' output/qemu/build-info.txt
@@ -380,11 +439,30 @@ jobs:
           path: misc/AMDSEV/release/
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/katana-v')
+        if: steps.ctx.outputs.publish == '1'
         uses: softprops/action-gh-release@v2
         with:
+          # On a release trigger the katana-v* tag does not exist yet;
+          # action-gh-release creates it at the release commit. On a
+          # katana-v* tag push it already exists and target_commitish is
+          # ignored. prerelease mirrors the upstream katana release.
+          tag_name: ${{ steps.ctx.outputs.vm_tag }}
+          target_commitish: ${{ steps.ctx.outputs.sha }}
+          prerelease: ${{ steps.ctx.outputs.prerelease }}
           body_path: misc/AMDSEV/release/release-notes.md
           files: |
             misc/AMDSEV/release/katana-tee-vm-*.tar.gz
             misc/AMDSEV/release/build-info-*.txt
             misc/AMDSEV/release/launch-measurement-*.txt
+
+      - name: Trigger hardware E2E test
+        # The VM release was created with GITHUB_TOKEN, which does not
+        # re-trigger workflows via the release event — so dispatch the
+        # hardware test explicitly (workflow_dispatch IS permitted from
+        # GITHUB_TOKEN). amdsev-snp-e2e checks out the VM tag, which now
+        # exists.
+        if: steps.ctx.outputs.publish == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VM_TAG: ${{ steps.ctx.outputs.vm_tag }}
+        run: gh workflow run amdsev-snp-e2e.yml -f tag="$VM_TAG"
