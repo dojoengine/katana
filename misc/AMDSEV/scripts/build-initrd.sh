@@ -1079,7 +1079,13 @@ strip_reserved_args() {
     SKIP_NEXT=0
     OUT=""
     # Word-splitting the unquoted $* is the point: callers pass a flat
-    # whitespace-separated arg string, not pre-split words.
+    # whitespace-separated arg string, not pre-split words. Disable pathname
+    # expansion around the loop so glob characters in operator-supplied values
+    # (most commonly the `*` in `--http.cors-origins *`) stay literal — without
+    # `set -f` the shell would expand `*` to the contents of CWD, which inside
+    # the initrd's busybox / rootfs is `bin dev etc init lib …` and ends up
+    # being passed to Katana as a noisy list of fake origins.
+    set -f
     # shellcheck disable=SC2048
     for tok in $*; do
         if [ "$SKIP_NEXT" -eq 1 ]; then
@@ -1100,6 +1106,7 @@ strip_reserved_args() {
         esac
         OUT="${OUT}${OUT:+ }${tok}"
     done
+    set +f
     echo "$OUT"
 }
 

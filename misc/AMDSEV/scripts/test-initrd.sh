@@ -391,9 +391,18 @@ run_boot_smoke_test() {
     # same default invocation as start-vm.sh, including --tee sev-snp).
     # Requires a TEE-capable katana (v1.8.0-rc.1+); the CI workflow pins
     # KATANA_TEST_VERSION accordingly.
+    #
+    # `--http.cors-origins *` is included as a regression test for the
+    # strip_reserved_args glob-expansion bug in build-initrd.sh: without
+    # `set -f` around the unquoted `for tok in $*` loop, the guest sh would
+    # pathname-expand the `*` to the rootfs's top-level dirs (bin dev etc
+    # init lib lib64 …) before reaching katana — katana would then see
+    # `--http.cors-origins bin dev etc init …`, reject `dev` as an unknown
+    # flag, exit, and the RPC liveness check below would time out.
     printf '%s\n' \
         "--http.addr" "0.0.0.0" \
         "--http.port" "${VM_RPC_PORT}" \
+        "--http.cors-origins" "*" \
         "--tee" "sev-snp" \
         > "$KATANA_ARGS_FILE"
 
