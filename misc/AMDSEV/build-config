@@ -10,8 +10,8 @@ OVMF_BRANCH="snp-latest"
 OVMF_COMMIT="fbe0805b2091393406952e84724188f8c1941837"
 
 # Linux kernel (Ubuntu package)
-KERNEL_VERSION="6.8.0-90"
-KERNEL_PKG_SHA256="19efb319503d92ecfc92a5e8c9ec5546461d88273b375203c3d4ebbd7ae1d61f"
+KERNEL_VERSION="6.8.0-124"
+KERNEL_PKG_SHA256="36946f21841d1194d3614929104572a4496eb9b62e2931aac854b7ee4145c3f2"
 
 # Busybox (Ubuntu package, for initrd)
 BUSYBOX_PKG_VERSION="1:1.36.1-6ubuntu3.1"
@@ -22,13 +22,13 @@ GLIBC_RUNTIME_PACKAGES="libc6=2.39-0ubuntu8.7 libgcc-s1=14.2.0-4ubuntu2~24.04.1 
 GLIBC_RUNTIME_PACKAGE_SHA256S="libc6=955644e8bc2930a9bf8eea5e4c2237c8a118c1e2ac2845b993b6f7f35eefd293 libgcc-s1=aa7fadbe33b78bcf99885318040601c550c208929565b179891d9a3cc2aa68cd libstdc++6=a51f8de7829211db961a31f02158058ad1a95f92ac6d0a5dff6350e2821c54c0 zlib1g=0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1 liblzma5=d2eabd41ca77d2c2dd9d5d4ef478cccb64ffde6279c47cf4699a857d46785a52"
 
 # Kernel modules extra (Ubuntu package, for initrd SEV-SNP support)
-KERNEL_MODULES_EXTRA_PKG_VERSION="6.8.0-90.91"
-KERNEL_MODULES_EXTRA_PKG_SHA256="c17bd76779ce68a076dc1ef9b1669947f35f1868f6736dbd0a8a7ccacf7571f3"
+KERNEL_MODULES_EXTRA_PKG_VERSION="6.8.0-124.124"
+KERNEL_MODULES_EXTRA_PKG_SHA256="cec7de8c627588b9755de7bca54e8f5f84087a2195e80e0a9ee33168beedc6f6"
 
 # Kernel modules main (Ubuntu package, for initrd dm-crypt / dm-integrity).
 # Used only by the canonical sealed-storage build.
-KERNEL_MODULES_PKG_VERSION="6.8.0-90.91"
-KERNEL_MODULES_PKG_SHA256="466b8912637defb01f8c37191a36afebbf0589eac9395cebff8d33cc269155a7"
+KERNEL_MODULES_PKG_VERSION="6.8.0-124.124"
+KERNEL_MODULES_PKG_SHA256="c906f4065aa3f5e3bd65d0185215f36d7c1d007b75aac6522eb2759054bedcba"
 
 # cryptsetup source (kernel.org tarball, built statically inside a pinned
 # Alpine container during the canonical sealed-storage build).
