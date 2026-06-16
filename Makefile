@@ -105,7 +105,7 @@ snos-artifacts: $(SNOS_OUTPUT)
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
 
-fixtures: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB) $(SIMPLE_DB) contracts
+fixtures: $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB) $(SIMPLE_DB) contracts
 	@echo "All test fixtures prepared successfully."
 
 build-explorer:
