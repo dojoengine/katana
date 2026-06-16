@@ -482,6 +482,12 @@ mod tests {
         assert_eq!(json["rpc"]["corsOrigins"], json!(["*"]));
         assert_eq!(json["execution"]["maxRecursionDepth"], json!(1000));
         assert_eq!(json["dev"]["accountValidation"], json!(true));
+        // RPC module names serialize in lowercase (and must deserialize back symmetrically).
+        let apis = json["rpc"]["apis"].as_array().expect("apis is an array");
+        assert!(
+            apis.iter().any(|v| v == "node") && apis.iter().any(|v| v == "starknet"),
+            "rpc.apis must serialize as lowercase module names, got {apis:?}",
+        );
 
         let roundtrip: NodeConfig = serde_json::from_value(json).unwrap();
         assert_eq!(roundtrip, config);
