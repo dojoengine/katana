@@ -5,6 +5,7 @@ pub use katana_node_config::{build_info, db, gateway, metrics, rpc};
 
 // Sequencer-specific config modules
 pub mod dev;
+pub mod dump;
 pub mod execution;
 pub mod fork;
 pub mod paymaster;

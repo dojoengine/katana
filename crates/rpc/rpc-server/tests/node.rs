@@ -49,6 +49,27 @@ async fn node_get_info_surfaces_custom_build_info() {
 }
 
 #[tokio::test]
+async fn node_get_config_reflects_launch_config() {
+    let mut config = test_config();
+    config.sequencing.block_time = Some(5000);
+    config.dev.fee = false;
+    config.execution.invocation_max_steps = 123_456;
+
+    let sequencer = TestNode::new_with_config(config).await;
+    let backend = sequencer.backend();
+    let client = sequencer.rpc_http_client();
+
+    let cfg = client.get_config().await.unwrap();
+
+    assert_eq!(cfg.chain_id, backend.chain_spec.id().id());
+    assert_eq!(cfg.sequencing.block_time, Some(5000));
+    assert!(!cfg.dev.fee, "fee was disabled in the launch config");
+    assert_eq!(cfg.execution.invocation_max_steps, 123_456);
+    // The Node module is enabled by default, so it must show up in the reported API set.
+    assert!(cfg.rpc.apis.contains(&RpcModuleKind::Node));
+}
+
+#[tokio::test]
 async fn node_api_not_registered_when_module_disabled() {
     let mut config = test_config();
     // Explicitly exclude the Node module from the API set.
