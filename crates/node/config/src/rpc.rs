@@ -28,7 +28,8 @@ pub const DEFAULT_RPC_MAX_CALL_GAS: u64 = 1_000_000_000;
     Serialize,
     Deserialize,
 )]
-#[strum(ascii_case_insensitive)]
+#[serde(rename_all(serialize = "lowercase"))]
+#[strum(ascii_case_insensitive, serialize_all = "lowercase")]
 pub enum RpcModuleKind {
     Starknet,
     Dev,

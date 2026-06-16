@@ -21,10 +21,7 @@ use super::Config;
 pub fn node_config_dump(config: &Config, chain_spec: &ChainSpec) -> NodeConfig {
     NodeConfig {
         chain_id: chain_spec.id().id(),
-        db: DbConfigDump {
-            dir: config.db.dir.as_ref().map(|p| p.display().to_string()),
-            migrate: config.db.migrate,
-        },
+        db: DbConfigDump { dir: config.db.dir.as_ref().map(|p| p.display().to_string()) },
         forking: config
             .forking
             .as_ref()

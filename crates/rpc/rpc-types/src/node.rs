@@ -125,8 +125,6 @@ pub struct NodeConfig {
 pub struct DbConfigDump {
     /// Path to the database directory, if persisted to disk.
     pub dir: Option<String>,
-    /// Whether to run database migrations on startup.
-    pub migrate: bool,
 }
 
 /// Forking options. Mirror of the internal `ForkingConfig`.
@@ -436,7 +434,7 @@ mod tests {
 
         let config = NodeConfig {
             chain_id: ChainSpec::dev().id().id(),
-            db: DbConfigDump { dir: None, migrate: false },
+            db: DbConfigDump { dir: None },
             forking: None,
             rpc: RpcConfigDump {
                 addr: "127.0.0.1".parse().unwrap(),
