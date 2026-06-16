@@ -52,6 +52,14 @@ jobs:
           fi
           shellcheck -s sh -S warning /tmp/guest-init.sh
 
+      - name: Unit test strip_reserved_args
+        # Fast, no-QEMU regression test for the guest init's arg sanitizer:
+        # extracts strip_reserved_args from build-initrd.sh and asserts it
+        # filters reserved flags while leaving glob values (e.g. the `*` in
+        # `--http.cors-origins *`) literal. The boot smoke test covers the
+        # same path end to end but only in the slow amdsev-initrd-test job.
+        run: ./scripts/test-strip-reserved-args.sh
+
       - name: actionlint (amdsev workflows only)
         working-directory: .
         run: |

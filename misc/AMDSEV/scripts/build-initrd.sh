@@ -1079,7 +1079,13 @@ strip_reserved_args() {
     SKIP_NEXT=0
     OUT=""
     # Word-splitting the unquoted $* is the point: callers pass a flat
-    # whitespace-separated arg string, not pre-split words.
+    # whitespace-separated arg string, not pre-split words. Disable pathname
+    # expansion around the loop so glob characters in operator-supplied values
+    # (most commonly the `*` in `--http.cors-origins *`) stay literal — without
+    # `set -f` the shell would expand `*` to the contents of CWD, which inside
+    # the initrd's busybox / rootfs is `bin dev etc init lib …` and ends up
+    # being passed to Katana as a noisy list of fake origins.
+    set -f
     # shellcheck disable=SC2048
     for tok in $*; do
         if [ "$SKIP_NEXT" -eq 1 ]; then
@@ -1100,6 +1106,7 @@ strip_reserved_args() {
         esac
         OUT="${OUT}${OUT:+ }${tok}"
     done
+    set +f
     echo "$OUT"
 }
 
@@ -1129,7 +1136,9 @@ load_fw_cfg_args() {
 
     if [ -f "$FW_CFG_ARGS_RAW" ]; then
         RAW_FWCFG_ARGS="$(tr '\n\r\t' '   ' < "$FW_CFG_ARGS_RAW")"
-        KATANA_FWCFG_ARGS="$(strip_reserved_args $RAW_FWCFG_ARGS)"
+        # Quote the raw string so the glob is NOT expanded here at the call
+        # site; strip_reserved_args word-splits it internally under `set -f`.
+        KATANA_FWCFG_ARGS="$(strip_reserved_args "$RAW_FWCFG_ARGS")"
         log "fw_cfg katana args: ${KATANA_FWCFG_ARGS:-<empty>}"
     else
         log "No fw_cfg args entry (opt/org.katana/args)"
@@ -1390,8 +1399,14 @@ handle_control_command() {
             # tries to re-open FD 3 after the host disconnects it fails with
             # EBUSY — and a failed `exec` redirect under POSIX `set -e`
             # terminates init, panicking the kernel.
+            # Disable pathname expansion around the unquoted arg split: the
+            # fw_cfg args must word-split into argv, but a glob in an operator
+            # value (e.g. `--http.cors-origins *`) must reach Katana literally,
+            # not expand against the rootfs.
+            set -f
             # shellcheck disable=SC2086
             /bin/katana --db-dir="$KATANA_DB_DIR" $CHAIN_ARGS $KATANA_FWCFG_ARGS 3<&- 3>&- &
+            set +f
             KATANA_PID=$!
             KATANA_EXIT_CODE="running"
             respond_control "ok started pid=$KATANA_PID"
