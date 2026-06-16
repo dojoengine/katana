@@ -121,8 +121,8 @@ The script:
 - Starts QEMU with SEV-SNP confidential computing enabled
 - Uses direct kernel boot with `kernel-hashes=on` for attestation
 - Creates (on first run) and attaches a persistent data disk as `/dev/sda` — default `~/.katana/data.img`, override with `--data-disk` or `$KATANA_DATA_DISK`
-- Boots with **sealed storage** by default: the data disk is wrapped in LUKS2 + dm-integrity and unlocked inside the guest via `SNP_GET_DERIVED_KEY`. The measured kernel cmdline is `console=ttyS0 KATANA_EXPECTED_LUKS_UUID=<uuid>`; the UUID is generated once per host, persisted at `~/.katana/luks-uuid`, and can be overridden with `--luks-uuid` or `$KATANA_LUKS_UUID`
-- With `--unsealed`, skips sealed storage (plain ext4 on `/dev/sda`) and keeps the cmdline at `console=ttyS0` — this produces a different (and separately pinnable) launch measurement from the sealed boot
+- Boots with **unsealed storage by default**: plain ext4 on `/dev/sda`, cmdline `console=ttyS0`. See [Storage sealing: why unsealed is the default](#storage-sealing-why-unsealed-is-the-default) for the rationale
+- With `--sealed`, opts into sealed storage: the data disk is wrapped in LUKS2 + dm-integrity and unlocked inside the guest via `SNP_GET_DERIVED_KEY`. The measured kernel cmdline becomes `console=ttyS0 KATANA_EXPECTED_LUKS_UUID=<uuid>` (a different, separately pinnable launch measurement); the UUID is generated once per host, persisted at `~/.katana/luks-uuid`, and can be overridden with `--luks-uuid` or `$KATANA_LUKS_UUID`
 - Delivers Katana's launch configuration via two host-supplied boot-time channels — neither is part of the launch measurement, so changing args or chain config does not change the measured boot:
   - **CLI args via QEMU fw_cfg** at `opt/org.katana/args`. Small payload; fw_cfg's port-I/O sysfs path is fine here.
   - **Chain config via a read-only virtio-blk ext2 disk** built from `--chain-dir` and attached at boot; the guest mounts it at `/run/katana-chain` and passes it to Katana as `--chain`. This used to ride fw_cfg too, but the upstream `qemu_fw_cfg` driver re-reads the whole blob on every sysfs read, making it O(blob²) port I/O and unusable for multi-MB chain configs under SEV-SNP. virtio-blk goes through DMA (SWIOTLB bounce buffers under SNP) and finishes in milliseconds.
@@ -287,6 +287,22 @@ this project, in two ways:
 
 Each release publishes its measurement as `launch-measurement-<tag>.txt`,
 computed against the canonical `KATANA_CANONICAL_LUKS_UUID` from `build-config`.
+
+### Storage sealing: why unsealed is the default
+
+`start-vm.sh` boots **unsealed** by default; sealed storage is opt-in via `--sealed`.
+The short version: the sealed-storage key is bound to the launch measurement, which
+includes the Katana binary, so a version bump re-keys the disk and the old data no
+longer unseals — and the measurement-independent ways to avoid that either don't
+hold against an untrusted host or add a KMS to the TCB. The default unsealed boot
+has no such limitation (a newer Katana opens an older database normally).
+
+Full reasoning, the two-layer (sealing vs `katana-db` format) view, and the
+decoupling options A–D (stable identity fields / attestation-gated KMS / wrapped-DEK
+re-key ceremony / unsealed) are in the architecture doc:
+[`docs/amdsev.md` → Sealed storage](../../docs/amdsev.md#forward-compatibility-and-the-key-binding-limitation).
+The sealed path is fully supported and exercised by `scripts/test-snp-e2e.sh`; until
+one of options A–C lands, treat a Katana upgrade under `--sealed` as a fresh disk.
 
 ### What is measured
 

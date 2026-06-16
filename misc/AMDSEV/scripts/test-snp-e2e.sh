@@ -273,6 +273,7 @@ launch_vm() {
         --kernel "$WORKDIR/boot/vmlinuz" \
         --initrd "$WORKDIR/boot/initrd.img" \
         --data-disk "$DISK" \
+        --sealed \
         --luks-uuid "$CANONICAL_LUKS_UUID" \
         > "$startlog" 2>&1 & echo $! > "$WORKDIR/wrapper.pid" )
     WRAPPER_PID="$(cat "$WORKDIR/wrapper.pid")"
