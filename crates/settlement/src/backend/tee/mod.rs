@@ -63,8 +63,6 @@ where
     <P as ProviderFactory>::Provider:
         BlockHashProvider + HeaderProvider + ReceiptProvider + TransactionProvider,
 {
-    type Output = PiltoverInput;
-
     fn name(&self) -> &'static str {
         match self.prover {
             TeeProver::Mock => "tee (mock proofs)",
