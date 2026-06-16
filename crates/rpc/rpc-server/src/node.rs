@@ -64,7 +64,7 @@ mod tests {
 
         NodeConfig {
             chain_id: ChainSpec::dev().id().id(),
-            db: DbConfigDump { dir: None, migrate: false },
+            db: DbConfigDump { dir: None },
             forking: None,
             rpc: RpcConfigDump {
                 addr: "127.0.0.1".parse().unwrap(),
