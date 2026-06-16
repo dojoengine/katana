@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use katana_chain_spec::{rollup, SettlementLayer, SettlementProofKind};
+use katana_chain_spec::{self as chain_spec, SettlementLayer, SettlementProofKind};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt};
 use url::Url;
@@ -9,8 +9,8 @@ use url::Url;
 ///
 /// The service settles to a Starknet chain via the Piltover core contract, so
 /// the settlement-chain inputs are flat on this struct; only the proving
-/// system is abstracted, via [`ProverConfig`]. See
-/// [`SettlementConfig::from_rollup_spec`].
+/// system is abstracted, via [`ProverConfig`]. Built from the node's
+/// [`chain_spec::SettlementConfig`] via [`SettlementConfig::from_node_config`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettlementConfig {
     /// Account on the settlement chain that submits `update_state` transactions.
@@ -54,13 +54,14 @@ pub enum ProverConfig {
 }
 
 impl SettlementConfig {
-    /// Derives the settlement service config from a rollup chain spec.
+    /// Derives the embedded settlement service config from the node's settlement config.
     ///
-    /// Returns `None` when the spec has no `[settlement-runtime]` section or when the settlement
-    /// layer is not a Starknet chain settling with TEE proofs — the only setup the embedded
-    /// service supports today.
-    pub fn from_rollup_spec(spec: &rollup::ChainSpec) -> Option<Self> {
-        let runtime = spec.settlement_runtime.as_ref()?;
+    /// Returns `None` unless the node actively settles to a Starknet chain with TEE proofs (the
+    /// only setup the embedded service supports today): the settlement layer must be
+    /// [`SettlementLayer::Starknet`] with [`SettlementProofKind::Tee`] and a `runtime` must be
+    /// present.
+    pub fn from_node_config(config: &chain_spec::SettlementConfig) -> Option<Self> {
+        let runtime = config.runtime.as_ref()?;
 
         let SettlementLayer::Starknet {
             id,
@@ -68,7 +69,7 @@ impl SettlementConfig {
             core_contract,
             proof_kind: SettlementProofKind::Tee,
             ..
-        } = &spec.settlement
+        } = &config.layer
         else {
             return None;
         };

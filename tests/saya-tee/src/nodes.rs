@@ -22,8 +22,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use cainome::rs::abigen_legacy;
-use katana_chain_spec::rollup::TeeSettlementRuntime;
-use katana_chain_spec::{rollup, ChainSpec, FeeContracts, SettlementLayer, SettlementProofKind};
+use katana_chain_spec::{
+    rollup, ChainSpec, FeeContracts, SettlementLayer, SettlementProofKind, SettlementRuntime,
+};
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 use katana_genesis::Genesis;
@@ -107,10 +108,10 @@ pub async fn spawn_l2() -> L2InProcess {
 
 /// Spawns the L3 rollup Katana with TEE config and settlement pointed at L2.
 ///
-/// Constructs a [`rollup::ChainSpec`] with `SettlementLayer::Starknet`
-/// referencing the L2 Piltover address and a `settlement_runtime` section
-/// driving the embedded settlement service, plus a [`Config`] with the mock
-/// TEE attester enabled so attestations work without real SEV-SNP hardware.
+/// Constructs a [`rollup::ChainSpec`] and a separate `SettlementConfig` whose
+/// `SettlementLayer::Starknet` references the L2 Piltover address, with a
+/// `SettlementRuntime` driving the embedded settlement service, plus a mock TEE
+/// attester so attestations work without real SEV-SNP hardware.
 pub async fn spawn_l3(l2: &L2InProcess, bootstrap: &BootstrapResult) -> L3InProcess {
     let piltover_address = bootstrap.piltover_address;
     let l2_url = l2.url();
@@ -136,7 +137,7 @@ pub async fn spawn_l3(l2: &L2InProcess, bootstrap: &BootstrapResult) -> L3InProc
     let mut genesis = Genesis { classes: Default::default(), ..Genesis::default() };
     genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
-    let settlement = SettlementLayer::Starknet {
+    let settlement_layer = SettlementLayer::Starknet {
         block: 0,
         id: l2_chain_id,
         rpc_url: l2_url.clone(),
@@ -147,7 +148,7 @@ pub async fn spawn_l3(l2: &L2InProcess, bootstrap: &BootstrapResult) -> L3InProc
     // Drives the embedded settlement service. `batch_size: 1` settles every block
     // immediately, so the per-iteration `wait_for_settlement` assertions don't sit
     // out the idle-flush window.
-    let settlement_runtime = TeeSettlementRuntime {
+    let settlement_runtime = SettlementRuntime {
         account_address: bootstrap.account_address.into(),
         account_private_key: bootstrap.account_private_key,
         tee_registry: bootstrap.tee_registry_address.into(),
@@ -160,13 +161,12 @@ pub async fn spawn_l3(l2: &L2InProcess, bootstrap: &BootstrapResult) -> L3InProc
         id: ChainId::parse("KATANA").expect("KATANA is a valid chain id"),
         genesis,
         fee_contracts,
-        settlement,
-        settlement_runtime: Some(settlement_runtime),
     };
 
     let mut config = katana_utils::node::test_config();
-    // Derived from the chain spec exactly like the CLI does.
-    config.settlement = SettlementConfig::from_rollup_spec(&l3_chain);
+    // Settlement is orthogonal to the chain spec — it goes straight to the node config.
+    config.settlement =
+        Some(SettlementConfig { layer: settlement_layer, runtime: Some(settlement_runtime) });
     config.chain = Arc::new(ChainSpec::Rollup(l3_chain));
     config.tee = Some(TeeConfig { attester: AttesterKind::Mock, fork_block_number: None });
     // Enable the inbound messaging collector so L1->L2 messages sent on L2's

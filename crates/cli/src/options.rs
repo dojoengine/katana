@@ -1252,7 +1252,7 @@ pub struct ChainSpec {
     #[arg(long = "chain", id = "chain", hide = true)]
     #[arg(value_parser = crate::utils::parse_chain_config_dir)]
     #[serde(skip)]
-    pub path: Option<katana_chain_spec::rollup::ChainConfigDir>,
+    pub path: Option<crate::chain_config::ChainConfigDir>,
 
     /// The chain ID.
     ///
@@ -1305,6 +1305,16 @@ pub enum SettlementChainKind {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(default)]
 pub struct SettlementOptions {
+    /// Override the settlement account (the account that submits `update_state` transactions).
+    /// Overrides the `[settlement.runtime]` account from the chain spec file.
+    #[arg(long = "settlement.account", value_name = "ADDRESS")]
+    #[serde(default)]
+    pub account_address: Option<String>,
+    /// Override the settlement account's private key.
+    #[arg(long = "settlement.account-private-key", value_name = "PRIVATE_KEY")]
+    #[serde(default)]
+    pub account_private_key: Option<String>,
+
     /// Override the settlement chain type.
     #[arg(long = "settlement.chain", id = "settlement_chain", value_name = "CHAIN")]
     #[serde(default)]
@@ -1329,6 +1339,12 @@ impl SettlementOptions {
 
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
+            if self.account_address.is_none() {
+                self.account_address = other.account_address.clone();
+            }
+            if self.account_private_key.is_none() {
+                self.account_private_key = other.account_private_key.clone();
+            }
             if self.chain.is_none() {
                 self.chain = other.chain;
             }

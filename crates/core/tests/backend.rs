@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use alloy_primitives::U256;
 use katana_chain_spec::rollup::{self};
-use katana_chain_spec::{dev, ChainSpec, FeeContracts, SettlementLayer};
+use katana_chain_spec::{dev, ChainSpec, FeeContracts};
 use katana_core::backend::Backend;
 use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::BlockifierFactory;
@@ -17,7 +17,6 @@ use katana_primitives::{felt, Felt};
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::{DbProviderFactory, ProviderFactory};
 use rstest::rstest;
-use url::Url;
 
 fn executor(chain_spec: Arc<ChainSpec>) -> Arc<dyn katana_executor::ExecutorFactory> {
     Arc::new(BlockifierFactory::new(
@@ -74,15 +73,7 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
     let id = ChainId::parse("KATANA").unwrap();
     let fee_contracts = FeeContracts::default();
 
-    let settlement = SettlementLayer::Starknet {
-        block: 0,
-        id: ChainId::default(),
-        core_contract: Default::default(),
-        rpc_url: Url::parse("http://localhost:5050").unwrap(),
-        proof_kind: Default::default(),
-    };
-
-    rollup::ChainSpec { id, genesis, settlement, fee_contracts, settlement_runtime: None }
+    rollup::ChainSpec { id, genesis, fee_contracts }
 }
 
 #[rstest]

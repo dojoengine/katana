@@ -458,11 +458,9 @@ mod tests {
     use katana_primitives::class::ClassHash;
     use katana_primitives::transaction::TxType;
     use katana_primitives::Felt;
-    use url::Url;
 
     use super::GenesisTransactionsBuilder;
     use crate::rollup::{ChainSpec, FeeContracts};
-    use crate::SettlementLayer;
 
     fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
         let accounts = if with_balance {
@@ -479,15 +477,7 @@ mod tests {
         let id = ChainId::parse("KATANA").unwrap();
         let fee_contracts = FeeContracts::default();
 
-        let settlement = SettlementLayer::Starknet {
-            block: 0,
-            id: ChainId::default(),
-            core_contract: Default::default(),
-            rpc_url: Url::parse("http://localhost:5050").unwrap(),
-            proof_kind: Default::default(),
-        };
-
-        ChainSpec { id, genesis, settlement, fee_contracts, settlement_runtime: None }
+        ChainSpec { id, genesis, fee_contracts }
     }
 
     #[test]

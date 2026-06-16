@@ -69,6 +69,7 @@ assert_matches.workspace = true
 axum.workspace = true
 cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
+hex.workspace = true
 indexmap.workspace = true
 jsonrpsee = { workspace = true, features = [ "client" ] }
 num-traits.workspace = true

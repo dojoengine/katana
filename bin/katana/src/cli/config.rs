@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Args;
-use katana_chain_spec::rollup::LocalChainConfigDir;
+use katana_cli::chain_config::LocalChainConfigDir;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 
@@ -22,7 +22,7 @@ impl ConfigArgs {
             }
 
             None => {
-                let chains = katana_chain_spec::rollup::list()?;
+                let chains = katana_cli::chain_config::list()?;
                 for chain in chains {
                     // TODO:
                     // We can't just assume that the id is a valid (and readable) ascii string

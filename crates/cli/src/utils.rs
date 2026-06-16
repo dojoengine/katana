@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use console::Style;
-use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::{ChainSpec, SettlementLayer, SettlementProofKind};
 use katana_db::Db;
 use katana_genesis::allocation::GenesisAccountAlloc;
@@ -22,6 +21,7 @@ use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;
 
 use crate::args::LOG_TARGET;
+use crate::chain_config::ChainConfigDir;
 use crate::SequencerNodeArgs;
 
 pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
@@ -107,7 +107,11 @@ pub fn parse_block_hash_or_number(value: &str) -> Result<BlockHashOrNumber> {
     }
 }
 
-pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
+pub fn print_intro(
+    args: &SequencerNodeArgs,
+    chain: &ChainSpec,
+    settlement: Option<&SettlementLayer>,
+) {
     let mut accounts = chain.genesis().accounts().peekable();
     let account_class_hash = accounts.peek().map(|e| e.1.class_hash());
     let seed = &args.development.seed;
@@ -119,7 +123,7 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
             serde_json::json!({
                 "accounts": accounts.map(|a| serde_json::json!(a)).collect::<Vec<_>>(),
                 "seed": format!("{}", seed),
-                "settlement": chain.settlement(),
+                "settlement": settlement,
             })
         )
     } else {
@@ -142,7 +146,7 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
         print_genesis_contracts(chain, account_class_hash);
         print_genesis_accounts(accounts);
 
-        if let Some(settlement) = chain.settlement() {
+        if let Some(settlement) = settlement {
             print_settlement(settlement);
         }
 
@@ -213,7 +217,7 @@ PREDEPLOYED CONTRACTS
 
 fn print_settlement(settlement: &SettlementLayer) {
     match settlement {
-        SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
+        SettlementLayer::Ethereum { id, rpc_url, core_contract, block } => {
             println!(
                 r"
 
@@ -223,7 +227,6 @@ SETTLEMENT
 | Settlement      | Ethereum
 | Chain ID        | {id}
 | RPC URL         | {rpc_url}
-| Account         | {account}
 | Core Contract   | {core_contract}
 | Deployed Block  | {block}"
             );

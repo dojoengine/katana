@@ -1,15 +1,24 @@
+//! On-disk chain configuration.
+//!
+//! A chain config directory holds two files:
+//! - `config.toml` — the [`ChainSpec`] (any kind) plus an optional [`SettlementConfig`].
+//! - `genesis.json` — the genesis state.
+//!
+//! The format is kind-agnostic: every `ChainSpec` variant serializes the same
+//! common fields (`id`, `fee-contract`), distinguished only by a `kind` tag.
+//! Settlement is a separate, optional section — it is not part of the chain
+//! spec.
+
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
+use katana_chain_spec::{dev, full_node, rollup, ChainSpec, FeeContracts, SettlementConfig};
 use katana_genesis::json::GenesisJson;
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
-
-use crate::rollup::{ChainSpec, TeeSettlementRuntime};
-use crate::{FeeContracts, SettlementLayer};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -41,14 +50,19 @@ pub enum Error {
     GenesisJson(#[from] katana_genesis::json::GenesisJsonError),
 }
 
-/// Read the [`ChainSpec`] of the given `id` from the local config directory.
-pub fn read_local(id: &ChainId) -> Result<ChainSpec, Error> {
+/// Read the [`ChainSpec`] + optional [`SettlementConfig`] of the given `id` from the local config
+/// directory.
+pub fn read_local(id: &ChainId) -> Result<(ChainSpec, Option<SettlementConfig>), Error> {
     read(&ChainConfigDir::open_local(id)?)
 }
 
-/// Write the given [`ChainSpec`] at the local config directory based on it's id.
-pub fn write_local(chain_spec: &ChainSpec) -> Result<(), Error> {
-    write(&ChainConfigDir::create_local(&chain_spec.id)?, chain_spec)
+/// Write the given [`ChainSpec`] + optional [`SettlementConfig`] at the local config directory
+/// based on the chain id.
+pub fn write_local(
+    chain_spec: &ChainSpec,
+    settlement: Option<&SettlementConfig>,
+) -> Result<(), Error> {
+    write(&ChainConfigDir::create_local(&chain_spec.id())?, chain_spec, settlement)
 }
 
 /// List all of the available chain configurations.
@@ -59,7 +73,7 @@ pub fn list() -> Result<Vec<ChainId>, Error> {
     list_at(local_dir()?)
 }
 
-pub fn read(dir: &ChainConfigDir) -> Result<ChainSpec, Error> {
+pub fn read(dir: &ChainConfigDir) -> Result<(ChainSpec, Option<SettlementConfig>), Error> {
     let config_path = dir.config_path();
     let genesis_path = dir.genesis_path();
 
@@ -71,7 +85,7 @@ pub fn read(dir: &ChainConfigDir) -> Result<ChainSpec, Error> {
         return Err(Error::MissingGenesisFile);
     }
 
-    let chain_spec: ChainSpecFile = {
+    let config: ChainConfigFile = {
         let content = fs::read_to_string(config_path)?;
         toml::from_str(&content)?
     };
@@ -82,22 +96,30 @@ pub fn read(dir: &ChainConfigDir) -> Result<ChainSpec, Error> {
         Genesis::try_from(json)?
     };
 
-    Ok(ChainSpec {
-        genesis,
-        id: chain_spec.id,
-        settlement: chain_spec.settlement,
-        settlement_runtime: chain_spec.settlement_runtime,
-        fee_contracts: chain_spec.fee_contract.into(),
-    })
+    let id = config.id;
+    let fee_contracts = config.fee_contract.into();
+    let chain_spec = match config.kind {
+        ChainKind::Dev => ChainSpec::Dev(dev::ChainSpec { id, genesis, fee_contracts }),
+        ChainKind::Rollup => ChainSpec::Rollup(rollup::ChainSpec { id, genesis, fee_contracts }),
+        ChainKind::FullNode => {
+            ChainSpec::FullNode(full_node::ChainSpec { id, genesis, fee_contracts })
+        }
+    };
+
+    Ok((chain_spec, config.settlement))
 }
 
-pub fn write(dir: &ChainConfigDir, chain_spec: &ChainSpec) -> Result<(), Error> {
+pub fn write(
+    dir: &ChainConfigDir,
+    chain_spec: &ChainSpec,
+    settlement: Option<&SettlementConfig>,
+) -> Result<(), Error> {
     {
-        let cfg = ChainSpecFile {
-            id: chain_spec.id,
-            settlement: chain_spec.settlement.clone(),
-            settlement_runtime: chain_spec.settlement_runtime.clone(),
-            fee_contract: chain_spec.fee_contracts.clone().into(),
+        let cfg = ChainConfigFile {
+            kind: ChainKind::of(chain_spec),
+            id: chain_spec.id(),
+            fee_contract: chain_spec.fee_contracts().clone().into(),
+            settlement: settlement.cloned(),
         };
 
         let content = toml::to_string_pretty(&cfg)?;
@@ -105,7 +127,7 @@ pub fn write(dir: &ChainConfigDir, chain_spec: &ChainSpec) -> Result<(), Error> 
     }
 
     {
-        let genesis_json = GenesisJson::try_from(chain_spec.genesis.clone())?;
+        let genesis_json = GenesisJson::try_from(chain_spec.genesis().clone())?;
         let file = BufWriter::new(File::create(dir.genesis_path())?);
         serde_json::to_writer_pretty(file, &genesis_json).map_err(io::Error::from)?;
     }
@@ -159,16 +181,35 @@ impl From<FeeContracts> for FileFeeContract {
     }
 }
 
+/// Which [`ChainSpec`] variant a config file describes. Distinguishes the
+/// otherwise field-identical specs (they differ only in genesis construction).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum ChainKind {
+    Dev,
+    Rollup,
+    FullNode,
+}
+
+impl ChainKind {
+    fn of(chain_spec: &ChainSpec) -> Self {
+        match chain_spec {
+            ChainSpec::Dev(_) => Self::Dev,
+            ChainSpec::Rollup(_) => Self::Rollup,
+            ChainSpec::FullNode(_) => Self::FullNode,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-struct ChainSpecFile {
+struct ChainConfigFile {
+    kind: ChainKind,
     id: ChainId,
     fee_contract: FileFeeContract,
-    settlement: SettlementLayer,
-    /// Runtime config for the embedded TEE settlement service. Optional so pre-existing chain
-    /// spec files (and chains that don't self-settle) keep parsing.
+    /// Settlement is optional and orthogonal to the chain spec.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    settlement_runtime: Option<TeeSettlementRuntime>,
+    settlement: Option<SettlementConfig>,
 }
 
 /// The local directory name where the chain configuration files are stored.
@@ -309,16 +350,16 @@ mod tests {
     use std::path::Path;
     use std::sync::OnceLock;
 
+    use katana_chain_spec::{
+        rollup, ChainSpec, FeeContracts, SettlementConfig, SettlementLayer, SettlementProofKind,
+    };
     use katana_genesis::Genesis;
     use katana_primitives::chain::ChainId;
     use katana_primitives::ContractAddress;
     use tempfile::TempDir;
     use url::Url;
 
-    use super::Error;
-    use crate::rollup::file::{local_dir, ChainConfigDir, LocalChainConfigDir, KATANA_LOCAL_DIR};
-    use crate::rollup::ChainSpec;
-    use crate::{FeeContracts, SettlementLayer};
+    use super::{local_dir, ChainConfigDir, Error, LocalChainConfigDir, KATANA_LOCAL_DIR};
 
     static TEMPDIR: OnceLock<TempDir> = OnceLock::new();
 
@@ -327,7 +368,7 @@ mod tests {
     }
 
     /// Test version of [`super::read`].
-    fn read(id: &ChainId) -> Result<ChainSpec, Error> {
+    fn read(id: &ChainId) -> Result<(ChainSpec, Option<SettlementConfig>), Error> {
         with_temp_dir(|dir| {
             let dir = LocalChainConfigDir::open_at(dir, id)?;
             super::read(&ChainConfigDir::Local(dir))
@@ -335,10 +376,10 @@ mod tests {
     }
 
     /// Test version of [`super::write`].
-    fn write(chain_spec: &ChainSpec) -> Result<(), Error> {
+    fn write(chain_spec: &ChainSpec, settlement: Option<&SettlementConfig>) -> Result<(), Error> {
         with_temp_dir(|dir| {
-            let dir = LocalChainConfigDir::create_at(dir, &chain_spec.id)?;
-            super::write(&ChainConfigDir::Local(dir), chain_spec)
+            let dir = LocalChainConfigDir::create_at(dir, &chain_spec.id())?;
+            super::write(&ChainConfigDir::Local(dir), chain_spec, settlement)
         })
     }
 
@@ -353,128 +394,98 @@ mod tests {
     }
 
     fn chainspec() -> ChainSpec {
-        ChainSpec {
+        ChainSpec::Rollup(rollup::ChainSpec {
             id: ChainId::default(),
             genesis: Genesis::default(),
             fee_contracts: FeeContracts {
                 eth: ContractAddress::default(),
                 strk: ContractAddress::default(),
             },
-            settlement: SettlementLayer::Starknet {
-                block: 0,
-                id: ChainId::default(),
-                core_contract: ContractAddress::default(),
-                rpc_url: Url::parse("http://localhost:5050").expect("valid url"),
-                proof_kind: Default::default(),
-            },
-            settlement_runtime: None,
+        })
+    }
+
+    fn starknet_layer() -> SettlementLayer {
+        SettlementLayer::Starknet {
+            block: 0,
+            id: ChainId::default(),
+            core_contract: ContractAddress::default(),
+            rpc_url: Url::parse("http://localhost:5050").expect("valid url"),
+            proof_kind: SettlementProofKind::Tee,
         }
     }
 
     #[test]
-    fn test_read_write_chainspec() {
+    fn read_write_chainspec_without_settlement() {
         let chain_spec = chainspec();
-        let id = chain_spec.id;
+        let id = chain_spec.id();
 
-        write(&chain_spec).unwrap();
-        let read_spec = read(&id).unwrap();
+        write(&chain_spec, None).unwrap();
+        let (read_spec, settlement) = read(&id).unwrap();
 
-        assert_eq!(chain_spec.id, read_spec.id);
-        assert_eq!(chain_spec.fee_contracts, read_spec.fee_contracts);
-        assert_eq!(chain_spec.settlement, read_spec.settlement);
-        assert_eq!(chain_spec.settlement_runtime, read_spec.settlement_runtime);
+        assert_eq!(chain_spec.id(), read_spec.id());
+        assert_eq!(chain_spec.fee_contracts(), read_spec.fee_contracts());
+        assert!(matches!(read_spec, ChainSpec::Rollup(_)));
+        assert_eq!(settlement, None);
     }
 
-    /// The `[settlement-runtime]` section round-trips through the TOML file, including the serde
-    /// defaults for the batching knobs.
+    /// The settlement section round-trips through the TOML file, including the serde defaults for
+    /// the runtime batching knobs.
     #[test]
-    fn settlement_runtime_round_trip() {
+    fn settlement_round_trip() {
+        use katana_chain_spec::SettlementRuntime;
         use katana_primitives::felt;
 
-        use crate::rollup::TeeSettlementRuntime;
-
         let mut chain_spec = chainspec();
-        chain_spec.id = ChainId::parse("runtime_round_trip").unwrap();
-        chain_spec.settlement_runtime = Some(TeeSettlementRuntime {
-            account_address: ContractAddress::from(felt!("0x123")),
-            account_private_key: felt!("0x456"),
-            tee_registry: ContractAddress::from(felt!("0x789")),
-            prover_key: Some("sp1_dummy".to_string()),
-            batch_size: 3,
-            idle_flush_secs: 7,
-        });
-
-        write(&chain_spec).unwrap();
-        let read_spec = read(&chain_spec.id).unwrap();
-
-        assert_eq!(chain_spec.settlement_runtime, read_spec.settlement_runtime);
-    }
-
-    /// A minimal `[settlement-runtime]` section parses with defaults applied; a file without the
-    /// section parses to `None` (backward compatibility).
-    #[test]
-    fn settlement_runtime_defaults_and_optionality() {
-        let base = r#"
-[id]
-Id = "0x4b4154414e41"
-
-[fee-contract]
-strk = "0x0"
-
-[settlement.starknet]
-rpc_url = "http://localhost:5050/"
-core_contract = "0x0"
-block = 0
-proof_kind = "tee"
-
-[settlement.starknet.id]
-Id = "0x4b4154414e41"
-"#;
-
-        let parsed: super::ChainSpecFile = toml::from_str(base).expect("parses without runtime");
-        assert!(parsed.settlement_runtime.is_none());
-
-        let with_runtime = format!(
-            "{base}\n[settlement-runtime]\naccount-address = \"0x1\"\naccount-private-key = \
-             \"0x2\"\ntee-registry = \"0x3\"\n"
-        );
-        let parsed: super::ChainSpecFile =
-            toml::from_str(&with_runtime).expect("parses with minimal runtime");
-        let runtime = parsed.settlement_runtime.expect("runtime section present");
-        assert_eq!(runtime.prover_key, None);
-        assert_eq!(runtime.batch_size, 10);
-        assert_eq!(runtime.idle_flush_secs, 120);
-    }
-
-    /// Pre-existing chain spec files (written before `proof_kind` existed) must still parse, with
-    /// the missing field defaulting to `ValidityProof`.
-    #[test]
-    fn settlement_starknet_proof_kind_defaults_when_missing() {
-        use crate::SettlementProofKind;
-
-        let toml = r#"
-[id]
-Id = "0x4b4154414e41"
-
-[fee-contract]
-strk = "0x0"
-
-[settlement.starknet]
-rpc_url = "http://localhost:5050/"
-core_contract = "0x0"
-block = 0
-
-[settlement.starknet.id]
-Id = "0x4b4154414e41"
-"#;
-
-        let parsed: super::ChainSpecFile = toml::from_str(toml).expect("parses without proof_kind");
-        match parsed.settlement {
-            crate::SettlementLayer::Starknet { proof_kind, .. } => {
-                assert_eq!(proof_kind, SettlementProofKind::ValidityProof);
-            }
-            _ => panic!("expected Starknet settlement"),
+        if let ChainSpec::Rollup(spec) = &mut chain_spec {
+            spec.id = ChainId::parse("settlement_round_trip").unwrap();
         }
+
+        let settlement = SettlementConfig {
+            layer: starknet_layer(),
+            runtime: Some(SettlementRuntime {
+                account_address: ContractAddress::from(felt!("0x123")),
+                account_private_key: felt!("0x456"),
+                tee_registry: ContractAddress::from(felt!("0x789")),
+                prover_key: Some("sp1_dummy".to_string()),
+                batch_size: 3,
+                idle_flush_secs: 7,
+            }),
+        };
+
+        write(&chain_spec, Some(&settlement)).unwrap();
+        let (_, read_settlement) = read(&chain_spec.id()).unwrap();
+
+        assert_eq!(Some(settlement), read_settlement);
+    }
+
+    /// A settlement section with no `[settlement.runtime]` parses with `runtime: None`; a config
+    /// with no `[settlement]` parses to `None`.
+    #[test]
+    fn settlement_runtime_optionality() {
+        let base = r#"
+kind = "rollup"
+
+[id]
+Id = "0x4b4154414e41"
+
+[fee-contract]
+strk = "0x0"
+"#;
+
+        let parsed: super::ChainConfigFile =
+            toml::from_str(base).expect("parses without settlement");
+        assert!(parsed.settlement.is_none());
+
+        let with_layer = format!(
+            "{base}\n[settlement.layer.starknet]\nrpc_url = \"http://localhost:5050/\"\n\
+             core_contract = \"0x0\"\nblock = 0\nproof_kind = \"tee\"\n\
+             [settlement.layer.starknet.id]\nId = \"0x4b4154414e41\"\n"
+        );
+        let parsed: super::ChainConfigFile =
+            toml::from_str(&with_layer).expect("parses with layer, no runtime");
+        let settlement = parsed.settlement.expect("settlement present");
+        assert!(settlement.runtime.is_none());
+        assert!(matches!(settlement.layer, SettlementLayer::Starknet { .. }));
     }
 
     #[test]
@@ -524,15 +535,17 @@ Id = "0x4b4154414e41"
         for i in 1..=3 {
             let mut spec = chainspec();
             // update the chain id to make they're unqiue
-            spec.id = ChainId::parse(&format!("chain_{i}")).unwrap();
+            if let ChainSpec::Rollup(s) = &mut spec {
+                s.id = ChainId::parse(&format!("chain_{i}")).unwrap();
+            }
             chain_specs.push(spec);
         }
 
         // Write them to disk
         for spec in &chain_specs {
-            let id = &spec.id;
-            let dir = LocalChainConfigDir::create_at(&dir, id).unwrap();
-            super::write(&ChainConfigDir::Local(dir), spec).unwrap();
+            let id = spec.id();
+            let dir = LocalChainConfigDir::create_at(&dir, &id).unwrap();
+            super::write(&ChainConfigDir::Local(dir), spec, None).unwrap();
         }
 
         let listed_chains = super::list_at(&dir).unwrap();

@@ -200,7 +200,11 @@ impl SequencerNodeArgs {
             let node = Node::build_forked(config).await.context("failed to build forked node")?;
 
             if !self.silent {
-                utils::print_intro(self, &node.backend().chain_spec);
+                utils::print_intro(
+                    self,
+                    &node.backend().chain_spec,
+                    node.config().settlement.as_ref().map(|s| &s.layer),
+                );
             }
 
             let handle = node.launch().await.context("failed to launch forked node")?;
@@ -266,7 +270,11 @@ impl SequencerNodeArgs {
             let node = Node::build(config.clone()).context("failed to build node")?;
 
             if !self.silent {
-                utils::print_intro(self, &node.backend().chain_spec);
+                utils::print_intro(
+                    self,
+                    &node.backend().chain_spec,
+                    node.config().settlement.as_ref().map(|s| &s.layer),
+                );
             }
 
             let handle = node.launch().await.context("failed to launch node")?;
@@ -350,7 +358,7 @@ impl SequencerNodeArgs {
         let db = self.db_config()?;
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
-        let chain = self.chain_spec()?;
+        let (chain, loaded_settlement) = self.chain_spec()?;
         let metrics = self.metrics_config();
         let gateway = self.gateway_config();
         #[cfg(all(feature = "server", feature = "grpc"))]
@@ -361,8 +369,11 @@ impl SequencerNodeArgs {
 
         let paymaster = self.paymaster_config(&chain)?;
 
-        let messaging = self.build_messaging_config(&chain)?;
-        let settlement = self.build_settlement_config(&chain)?;
+        // Settlement is orthogonal to the chain spec: derive it from the loaded chain config's
+        // settlement section + CLI overrides, then feed both the embedded settlement service and
+        // the messaging collector.
+        let settlement = self.build_settlement_config(loaded_settlement)?;
+        let messaging = self.build_messaging_config(settlement.as_ref())?;
 
         Ok(Config {
             db,
@@ -455,55 +466,56 @@ impl SequencerNodeArgs {
         }
     }
 
-    fn chain_spec(&self) -> Result<Arc<ChainSpec>> {
-        let mut chain_spec = if let Some(path) = &self.chain.path {
-            let mut cs = katana_chain_spec::rollup::read(path)?;
-            cs.genesis.sequencer_address = *DEFAULT_SEQUENCER_ADDRESS;
-            ChainSpec::Rollup(cs)
+    /// Load the chain spec and, if present, the settlement config recorded alongside it.
+    ///
+    /// Settlement is not part of the chain spec; CLI `--settlement.*` overrides are applied later
+    /// in [`Self::build_settlement_config`], not here.
+    fn chain_spec(&self) -> Result<(Arc<ChainSpec>, Option<katana_chain_spec::SettlementConfig>)> {
+        if let Some(dir) = &self.chain.path {
+            let (mut chain_spec, settlement) = crate::chain_config::read(dir)?;
+            if let ChainSpec::Rollup(cs) = &mut chain_spec {
+                cs.genesis.sequencer_address = *DEFAULT_SEQUENCER_ADDRESS;
+            }
+            return Ok((Arc::new(chain_spec), settlement));
         }
+
         // exclusively for development mode
-        else {
-            let mut chain_spec = katana_chain_spec::dev::DEV_UNALLOCATED.clone();
+        let mut chain_spec = katana_chain_spec::dev::DEV_UNALLOCATED.clone();
 
-            if let Some(id) = self.chain.chain_id {
-                chain_spec.id = id;
-            }
+        if let Some(id) = self.chain.chain_id {
+            chain_spec.id = id;
+        }
 
-            if let Some(genesis) = &self.starknet.genesis {
-                chain_spec.genesis = genesis.clone();
-            } else {
-                chain_spec.genesis.sequencer_address = *DEFAULT_SEQUENCER_ADDRESS;
-            }
+        if let Some(genesis) = &self.starknet.genesis {
+            chain_spec.genesis = genesis.clone();
+        } else {
+            chain_spec.genesis.sequencer_address = *DEFAULT_SEQUENCER_ADDRESS;
+        }
 
-            // Generate dev accounts.
-            // If paymaster is enabled, the first account is used by default.
-            let accounts = DevAllocationsGenerator::new(self.development.total_accounts)
-                .with_frozen_address_class_hash(DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH)
-                .with_seed(parse_seed(&self.development.seed))
-                .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
-                .generate();
+        // Generate dev accounts.
+        // If paymaster is enabled, the first account is used by default.
+        let accounts = DevAllocationsGenerator::new(self.development.total_accounts)
+            .with_frozen_address_class_hash(DEFAULT_FROZEN_DEV_ACCOUNT_ADDRESS_CLASS_HASH)
+            .with_seed(parse_seed(&self.development.seed))
+            .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
+            .generate();
 
-            chain_spec.genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
+        chain_spec.genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
-            if self.cartridge.controllers {
-                katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
-                katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
-            }
+        if self.cartridge.controllers {
+            katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
+            katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
+        }
 
-            ChainSpec::Dev(chain_spec)
-        };
-
-        apply_chain_overrides(&mut chain_spec, &self.chain)?;
-
-        Ok(Arc::new(chain_spec))
+        Ok((Arc::new(ChainSpec::Dev(chain_spec)), None))
     }
 
-    /// Build the messaging config from chain spec settlement + CLI options.
-    /// Returns None when `--messaging.enabled` is false. Errors when enabled but the
-    /// chain spec has no settlement layer.
+    /// Build the messaging config from the node's settlement layer + CLI options.
+    /// Returns None when `--messaging.enabled` is false. Errors when enabled but no settlement
+    /// layer is configured.
     fn build_messaging_config(
         &self,
-        chain: &ChainSpec,
+        settlement: Option<&katana_chain_spec::SettlementConfig>,
     ) -> Result<Option<katana_messaging::MessagingConfig>> {
         if !self.messaging.enabled {
             return Ok(None);
@@ -517,13 +529,13 @@ impl SequencerNodeArgs {
                  --messaging.interval or the [messaging].interval TOML key"
             );
         }
-        let settlement = chain.settlement().ok_or_else(|| {
+        let settlement = settlement.ok_or_else(|| {
             anyhow::anyhow!(
                 "--messaging.enabled requires a settlement layer. Provide one via --chain with a \
-                 chain spec that defines settlement, or --settlement.* override flags."
+                 chain spec directory that defines settlement, or --settlement.* override flags."
             )
         })?;
-        let (settlement_cfg, deployment_block) = match settlement {
+        let (settlement_cfg, deployment_block) = match &settlement.layer {
             katana_chain_spec::SettlementLayer::Ethereum {
                 rpc_url, core_contract, block, ..
             } => (
@@ -774,39 +786,85 @@ impl SequencerNodeArgs {
         self.tee.attester.map(|attester| TeeConfig { attester, fork_block_number: None })
     }
 
-    /// Build the embedded settlement service config from the rollup chain spec's
-    /// `[settlement-runtime]` section. Returns `None` when the section is absent.
-    fn build_settlement_config(&self, chain: &ChainSpec) -> Result<Option<SettlementConfig>> {
-        let ChainSpec::Rollup(spec) = chain else { return Ok(None) };
+    /// Build the node's settlement config from the loaded chain config's settlement section plus
+    /// CLI `--settlement.*` overrides. Returns `None` when neither defines a settlement layer.
+    fn build_settlement_config(
+        &self,
+        loaded: Option<SettlementConfig>,
+    ) -> Result<Option<SettlementConfig>> {
+        use katana_chain_spec::{SettlementLayer, SettlementProofKind};
 
-        if spec.settlement_runtime.is_none() {
+        let loaded_layer = loaded.as_ref().map(|c| c.layer.clone());
+        let Some(layer) = self.resolve_settlement_layer(loaded_layer)? else {
             return Ok(None);
-        }
-
-        let Some(config) = SettlementConfig::from_rollup_spec(spec) else {
-            bail!(
-                "the chain spec has a [settlement-runtime] section, but embedded settlement \
-                 requires settling to a Starknet chain with `proof_kind = \"tee\"`"
-            );
         };
 
-        let Some(attester) = self.tee.attester else {
-            bail!(
-                "the chain spec has a [settlement-runtime] section, which requires a TEE \
-                 attester; enable one with --tee"
-            );
-        };
+        // The runtime (the `[settlement.runtime]` section) only comes from the chain config file;
+        // the `--settlement.account*` flags override its account fields.
+        let runtime = self.apply_runtime_overrides(loaded.and_then(|c| c.runtime))?;
 
-        let katana_sequencer_node::config::settlement::ProverConfig::Tee { ref prover_key, .. } =
-            config.prover;
-        if matches!(attester, katana_tee::AttesterKind::SevSnp) && prover_key.is_none() {
-            bail!(
-                "[settlement-runtime] is missing `prover-key`, which is required for SEV-SNP \
-                 attestation proving"
-            );
+        // If this node actively settles (runtime present) to a Starknet+TEE chain, it needs a TEE
+        // attester and, for real attestation, a prover key.
+        if let Some(rt) = &runtime {
+            if matches!(
+                &layer,
+                SettlementLayer::Starknet { proof_kind: SettlementProofKind::Tee, .. }
+            ) {
+                let Some(attester) = self.tee.attester else {
+                    bail!(
+                        "a settlement runtime is configured, which requires a TEE attester; \
+                         enable one with --tee"
+                    );
+                };
+                if matches!(attester, katana_tee::AttesterKind::SevSnp) && rt.prover_key.is_none() {
+                    bail!(
+                        "the settlement runtime is missing `prover-key`, which is required for \
+                         SEV-SNP attestation proving"
+                    );
+                }
+            }
         }
 
-        Ok(Some(config))
+        Ok(Some(SettlementConfig { layer, runtime }))
+    }
+
+    /// Resolve the settlement layer from the loaded layer + CLI `--settlement.*` overrides.
+    fn resolve_settlement_layer(
+        &self,
+        loaded: Option<katana_chain_spec::SettlementLayer>,
+    ) -> Result<Option<katana_chain_spec::SettlementLayer>> {
+        if !self.chain.settlement.any_set() {
+            return Ok(loaded);
+        }
+
+        let layer = match loaded {
+            Some(existing) => apply_partial_overrides(existing, &self.chain)?,
+            None => build_settlement_from_overrides(&self.chain)?,
+        };
+        Ok(Some(layer))
+    }
+
+    /// Apply `--settlement.account*` overrides to an existing settlement runtime.
+    ///
+    /// The account flags can only override an existing runtime — a full runtime needs more than
+    /// the account (e.g. the TEE registry), so they can't construct one from scratch.
+    fn apply_runtime_overrides(
+        &self,
+        runtime: Option<katana_chain_spec::SettlementRuntime>,
+    ) -> Result<Option<katana_chain_spec::SettlementRuntime>> {
+        let Some(mut runtime) = runtime else { return Ok(None) };
+
+        if let Some(addr) = &self.chain.settlement.account_address {
+            let felt = katana_primitives::Felt::from_hex(addr)
+                .context("parse --settlement.account as a contract address (0x-prefixed hex)")?;
+            runtime.account_address = katana_primitives::ContractAddress::new(felt);
+        }
+        if let Some(key) = &self.chain.settlement.account_private_key {
+            runtime.account_private_key = katana_primitives::Felt::from_hex(key)
+                .context("parse --settlement.account-private-key (0x-prefixed hex)")?;
+        }
+
+        Ok(Some(runtime))
     }
 
     /// Parse the node config from the command line arguments and the config file,
@@ -901,46 +959,6 @@ impl SequencerNodeArgs {
     }
 }
 
-/// Apply CLI / config-file settlement overrides on top of the loaded chain spec.
-///
-/// Behaviour:
-/// - If no overrides are set, this is a no-op.
-/// - When the chain spec already has a settlement layer (Rollup, or Dev/FullNode with `Some(...)`),
-///   supplied fields overwrite the corresponding fields. Unspecified fields are preserved from the
-///   existing layer.
-/// - When the chain spec has no settlement layer (Dev/FullNode with `None`), all three override
-///   fields (`settlement-chain`, `settlement-rpc-url`, `settlement-contract`) must be supplied to
-///   construct a fresh layer.
-/// - If overrides change the chain *type* (e.g. existing `Ethereum` plus `--settlement.chain
-///   starknet`), all three fields must be supplied — we cannot meaningfully reuse the previous
-///   fields across chain types.
-fn apply_chain_overrides(chain: &mut ChainSpec, overrides: &ChainSpecArgs) -> Result<()> {
-    if !overrides.settlement.any_set() {
-        return Ok(());
-    }
-
-    match chain {
-        ChainSpec::Dev(spec) => {
-            let settlement = match spec.settlement.take() {
-                Some(existing) => apply_partial_overrides(existing, overrides)?,
-                None => build_settlement_from_overrides(overrides)?,
-            };
-            spec.settlement = Some(settlement);
-        }
-        ChainSpec::FullNode(spec) => {
-            let settlement = match spec.settlement.take() {
-                Some(existing) => apply_partial_overrides(existing, overrides)?,
-                None => build_settlement_from_overrides(overrides)?,
-            };
-            spec.settlement = Some(settlement);
-        }
-        ChainSpec::Rollup(spec) => {
-            spec.settlement = apply_partial_overrides(spec.settlement.clone(), overrides)?;
-        }
-    }
-    Ok(())
-}
-
 /// Build a fresh [`katana_chain_spec::SettlementLayer`] from a fully-populated set of
 /// overrides. Errors if any of `settlement_chain`, `settlement_rpc_url`,
 /// `settlement_core_contract` is missing.
@@ -984,7 +1002,6 @@ fn build_settlement_from_overrides(
             Ok(SettlementLayer::Ethereum {
                 id: 1, // Default to mainnet; non-default ids must come from a chain spec file.
                 rpc_url,
-                account: alloy_primitives::Address::default(),
                 core_contract,
                 block: 0,
             })
@@ -1020,8 +1037,7 @@ fn apply_partial_overrides(
     match (&existing, target_chain) {
         // No chain-type change requested, or matches existing → patch fields in place.
         (SettlementLayer::Ethereum { .. }, None | Some(SettlementChainKind::Ethereum)) => {
-            let SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } = existing
-            else {
+            let SettlementLayer::Ethereum { id, rpc_url, core_contract, block } = existing else {
                 unreachable!("matched on Ethereum variant above");
             };
 
@@ -1034,7 +1050,7 @@ fn apply_partial_overrides(
                 core_contract
             };
 
-            Ok(SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block })
+            Ok(SettlementLayer::Ethereum { id, rpc_url, core_contract, block })
         }
 
         (SettlementLayer::Starknet { .. }, None | Some(SettlementChainKind::Starknet)) => {
@@ -1511,23 +1527,32 @@ explorer = true
         assert!(!config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
     }
 
-    mod chain_overrides {
-        use katana_chain_spec::{dev, SettlementLayer, SettlementProofKind};
+    mod settlement_overrides {
+        use anyhow::Result;
+        use katana_chain_spec::{SettlementLayer, SettlementProofKind};
         use katana_primitives::{eth_address, ContractAddress};
 
         use super::*;
 
-        fn dev_with(settlement: Option<SettlementLayer>) -> ChainSpec {
-            let mut spec = dev::DEV_UNALLOCATED.clone();
-            spec.settlement = settlement;
-            ChainSpec::Dev(spec)
+        /// Mirrors `SequencerNodeArgs::resolve_settlement_layer`: resolve the settlement layer
+        /// from a loaded layer + CLI overrides.
+        fn resolve(
+            loaded: Option<SettlementLayer>,
+            ovs: &ChainSpecArgs,
+        ) -> Result<Option<SettlementLayer>> {
+            if !ovs.settlement.any_set() {
+                return Ok(loaded);
+            }
+            Ok(Some(match loaded {
+                Some(existing) => apply_partial_overrides(existing, ovs)?,
+                None => build_settlement_from_overrides(ovs)?,
+            }))
         }
 
         fn ethereum_layer() -> SettlementLayer {
             SettlementLayer::Ethereum {
                 id: 1,
                 rpc_url: "http://eth.example:8545".parse().unwrap(),
-                account: alloy_primitives::Address::ZERO,
                 core_contract: eth_address!("0x0000000000000000000000000000000000000001"),
                 block: 100,
             }
@@ -1552,6 +1577,8 @@ explorer = true
                 path: None,
                 chain_id: None,
                 settlement: SettlementOptions {
+                    account_address: None,
+                    account_private_key: None,
                     chain,
                     rpc_url: rpc_url.map(|s| s.parse().unwrap()),
                     core_contract: core_contract.map(String::from),
@@ -1559,40 +1586,28 @@ explorer = true
             }
         }
 
-        fn dev_settlement(spec: ChainSpec) -> Option<SettlementLayer> {
-            match spec {
-                ChainSpec::Dev(s) => s.settlement,
-                other => panic!("expected Dev, got {other:?}"),
-            }
-        }
-
         #[test]
         fn noop_when_no_overrides_set() {
-            // No settlement on the spec stays no-settlement.
-            let mut spec = dev_with(None);
-            apply_chain_overrides(&mut spec, &overrides(None, None, None)).unwrap();
-            assert!(dev_settlement(spec).is_none());
+            // No loaded layer stays no-layer.
+            assert!(resolve(None, &overrides(None, None, None)).unwrap().is_none());
 
-            // Existing settlement stays exactly equal (every field preserved).
-            let mut spec = dev_with(Some(ethereum_layer()));
-            apply_chain_overrides(&mut spec, &overrides(None, None, None)).unwrap();
-            assert_eq!(dev_settlement(spec), Some(ethereum_layer()));
+            // Existing layer stays exactly equal (every field preserved).
+            assert_eq!(
+                resolve(Some(ethereum_layer()), &overrides(None, None, None)).unwrap(),
+                Some(ethereum_layer())
+            );
         }
 
         #[test]
-        fn dev_with_no_settlement_and_all_three_builds_fresh_ethereum() {
-            let mut spec = dev_with(None);
+        fn no_layer_and_all_three_builds_fresh_ethereum() {
             let ovs = overrides(
                 Some(SettlementChainKind::Ethereum),
                 Some("http://eth.example:8545"),
                 Some("0x0000000000000000000000000000000000000123"),
             );
-            apply_chain_overrides(&mut spec, &ovs).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
+            assert_matches!(resolve(None, &ovs).unwrap().unwrap(), SettlementLayer::Ethereum { id, rpc_url, core_contract, block } => {
                 // Defaulted fields when constructing from overrides.
                 assert_eq!(id, 1);
-                assert_eq!(account, alloy_primitives::Address::default());
                 assert_eq!(block, 0);
                 // Supplied fields.
                 assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
@@ -1601,16 +1616,13 @@ explorer = true
         }
 
         #[test]
-        fn dev_with_no_settlement_and_all_three_builds_fresh_starknet() {
-            let mut spec = dev_with(None);
+        fn no_layer_and_all_three_builds_fresh_starknet() {
             let o = overrides(
                 Some(SettlementChainKind::Starknet),
                 Some("http://sn.example:5050"),
                 Some("0x1234"),
             );
-            apply_chain_overrides(&mut spec, &o).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet {
+            assert_matches!(resolve(None, &o).unwrap().unwrap(), SettlementLayer::Starknet {
                 id, rpc_url, core_contract, block, proof_kind,
             } => {
                 assert_eq!(id, ChainId::default());
@@ -1622,104 +1634,62 @@ explorer = true
         }
 
         #[test]
-        fn dev_with_no_settlement_errors_on_partial_overrides() {
-            // Case 1: Overriding settlement chain kind i.e., --settlement.chain only.
-
-            let mut spec = dev_with(None);
-            let ovs = overrides(Some(SettlementChainKind::Ethereum), None, None);
-            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+        fn no_layer_errors_on_partial_overrides() {
+            // Case 1: --settlement.chain only.
+            let err = resolve(None, &overrides(Some(SettlementChainKind::Ethereum), None, None))
+                .unwrap_err();
             assert!(err.to_string().contains("missing --settlement.rpc-url"));
 
-            // Case 2: Overriding settlement rpc url i.e., --settlement.rpc-url only.
-
-            let mut spec = dev_with(None);
-            let ovs = overrides(None, Some("http://eth.example:8545"), None);
-            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            // Case 2: --settlement.rpc-url only.
+            let err =
+                resolve(None, &overrides(None, Some("http://eth.example:8545"), None)).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.chain"));
 
-            // Case 3: Overriding settlement core contract i.e., --settlement.core-contract only.
-
-            let mut spec = dev_with(None);
-            let ovs = overrides(None, None, Some("0x1"));
-            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            // Case 3: --settlement.core-contract only.
+            let err = resolve(None, &overrides(None, None, Some("0x1"))).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.chain"));
         }
 
         #[test]
-        fn dev_with_ethereum_settlement_partial_overrides() {
-            // Case 1: Overriding settlement rpc url i.e., --settlement.rpc-url only.
-
-            let mut spec = dev_with(Some(ethereum_layer()));
+        fn ethereum_layer_partial_overrides() {
+            // Case 1: --settlement.rpc-url only.
             let ovs = overrides(None, Some("http://other:8545"), None);
-            apply_chain_overrides(&mut spec, &ovs).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
+            assert_matches!(resolve(Some(ethereum_layer()), &ovs).unwrap().unwrap(), SettlementLayer::Ethereum { id, rpc_url, core_contract, block } => {
                 // Override applied.
                 assert_eq!(rpc_url.as_str(), "http://other:8545/");
                 // Original fields preserved.
                 assert_eq!(id, 1);
-                assert_eq!(account, alloy_primitives::Address::ZERO);
                 assert_eq!(core_contract, eth_address!("0x0000000000000000000000000000000000000001"));
                 assert_eq!(block, 100);
             });
 
-            // Case 2: Overriding settlement core contract i.e., --settlement.core-contract only.
-
-            let mut spec = dev_with(Some(ethereum_layer()));
+            // Case 2: --settlement.core-contract only.
             let ovs = overrides(None, None, Some("0x000000000000000000000000000000000000beef"));
-            apply_chain_overrides(&mut spec, &ovs).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, core_contract, block, .. } => {
-                // Override applied.
+            assert_matches!(resolve(Some(ethereum_layer()), &ovs).unwrap().unwrap(), SettlementLayer::Ethereum { rpc_url, core_contract, block, .. } => {
                 assert_eq!(core_contract, eth_address!("0x000000000000000000000000000000000000beef"));
-                // Other fields preserved.
                 assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
                 assert_eq!(block, 100);
             });
         }
 
         #[test]
-        fn dev_with_starknet_settlement_partial_overrides() {
-            // Case 1: Overriding settlement rpc url i.e., --settlement.rpc-url only.
-
-            let mut spec = dev_with(Some(starknet_layer()));
+        fn starknet_layer_partial_overrides() {
             let ovs = overrides(None, Some("http://other:5050"), None);
-            apply_chain_overrides(&mut spec, &ovs).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet { id, rpc_url, core_contract, block, proof_kind } => {
+            assert_matches!(resolve(Some(starknet_layer()), &ovs).unwrap().unwrap(), SettlementLayer::Starknet { id, rpc_url, core_contract, block, proof_kind } => {
                 assert_eq!(rpc_url.as_str(), "http://other:5050/");
-                // Original fields preserved.
                 assert_eq!(id, ChainId::SEPOLIA);
                 assert_eq!(core_contract, address!("0x1234"));
                 assert_eq!(block, 42);
                 assert_eq!(proof_kind, SettlementProofKind::ValidityProof);
             });
-
-            // Case 2: Overriding settlement core contract i.e., --settlement.core-contract only.
-
-            let mut spec = dev_with(Some(ethereum_layer()));
-            let ovs = overrides(None, None, Some("0x000000000000000000000000000000000000beef"));
-            apply_chain_overrides(&mut spec, &ovs).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, core_contract, block, .. } => {
-                // Override applied.
-                assert_eq!(core_contract, eth_address!("0x000000000000000000000000000000000000beef"));
-                // Other fields preserved.
-                assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
-                assert_eq!(block, 100);
-            });
         }
 
         #[test]
-        fn dev_existing_ethereum_with_matching_chain_kind_still_patches() {
-            // Setting --settlement.chain to the current kind is allowed and behaves
-            // like a partial override (no fresh-construction requirement).
-            let mut spec = dev_with(Some(ethereum_layer()));
+        fn existing_ethereum_with_matching_chain_kind_still_patches() {
+            // Setting --settlement.chain to the current kind behaves like a partial override.
             let ovs =
                 overrides(Some(SettlementChainKind::Ethereum), Some("http://other:8545"), None);
-            apply_chain_overrides(&mut spec, &ovs).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { rpc_url, block, .. } => {
+            assert_matches!(resolve(Some(ethereum_layer()), &ovs).unwrap().unwrap(), SettlementLayer::Ethereum { rpc_url, block, .. } => {
                 assert_eq!(rpc_url.as_str(), "http://other:8545/");
                 assert_eq!(block, 100);
             });
@@ -1728,15 +1698,12 @@ explorer = true
         #[test]
         fn chain_swap_with_all_three_builds_fresh_layer() {
             // Existing Ethereum + Starknet override with all three fields → fresh Starknet.
-            let mut spec = dev_with(Some(ethereum_layer()));
             let ovs = overrides(
                 Some(SettlementChainKind::Starknet),
                 Some("http://sn.example:5050"),
                 Some("0xabcd"),
             );
-            apply_chain_overrides(&mut spec, &ovs).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Starknet { rpc_url, core_contract, block, .. } => {
+            assert_matches!(resolve(Some(ethereum_layer()), &ovs).unwrap().unwrap(), SettlementLayer::Starknet { rpc_url, core_contract, block, .. } => {
                 assert_eq!(rpc_url.as_str(), "http://sn.example:5050/");
                 assert_eq!(core_contract, address!("0xabcd"));
                 // Block is reset because we built a fresh layer.
@@ -1747,31 +1714,26 @@ explorer = true
         #[test]
         fn chain_swap_with_partial_overrides_errors() {
             // Chain-type swap demands all three fields (cannot reuse fields across types).
-            let mut spec = dev_with(Some(ethereum_layer()));
             let ovs = overrides(Some(SettlementChainKind::Starknet), None, None);
-            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            let err = resolve(Some(ethereum_layer()), &ovs).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.rpc-url"));
         }
 
         #[test]
-        fn sovereign_settlement_requires_all_three_fields() {
-            let mut spec = dev_with(Some(SettlementLayer::Sovereign {}));
+        fn sovereign_layer_requires_all_three_fields() {
             let ovs = overrides(Some(SettlementChainKind::Ethereum), None, None);
-            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
+            let err = resolve(Some(SettlementLayer::Sovereign {}), &ovs).unwrap_err();
             assert!(err.to_string().contains("missing --settlement.rpc-url"));
         }
 
         #[test]
-        fn sovereign_settlement_replaced_with_fresh_layer() {
-            let mut spec = dev_with(Some(SettlementLayer::Sovereign {}));
+        fn sovereign_layer_replaced_with_fresh_layer() {
             let ovs = overrides(
                 Some(SettlementChainKind::Ethereum),
                 Some("http://eth.example:8545"),
                 Some("0x0000000000000000000000000000000000000123"),
             );
-            apply_chain_overrides(&mut spec, &ovs).unwrap();
-
-            assert_matches!(dev_settlement(spec).unwrap(), SettlementLayer::Ethereum { id, block, rpc_url, core_contract, .. } => {
+            assert_matches!(resolve(Some(SettlementLayer::Sovereign {}), &ovs).unwrap().unwrap(), SettlementLayer::Ethereum { id, block, rpc_url, core_contract } => {
                 assert_eq!(id, 1);
                 assert_eq!(block, 0);
                 assert_eq!(rpc_url.as_str(), "http://eth.example:8545/");
@@ -1782,23 +1744,19 @@ explorer = true
         #[test]
         fn invalid_ethereum_contract_address_errors() {
             // Fresh-construction path.
-            let mut spec = dev_with(None);
             let ovs = overrides(
                 Some(SettlementChainKind::Ethereum),
                 Some("http://eth.example:8545"),
                 Some("not-an-address"),
             );
-            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
-
+            let err = resolve(None, &ovs).unwrap_err();
             assert!(err
                 .chain()
                 .any(|e| e.to_string().contains("parse --settlement.core-contract")));
 
             // Partial-patch path on an existing Ethereum layer.
-            let mut spec = dev_with(Some(ethereum_layer()));
             let ovs = overrides(None, None, Some("not-an-address"));
-            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
-
+            let err = resolve(Some(ethereum_layer()), &ovs).unwrap_err();
             assert!(err
                 .chain()
                 .any(|e| e.to_string().contains("parse --settlement.core-contract")));
@@ -1806,11 +1764,8 @@ explorer = true
 
         #[test]
         fn invalid_starknet_contract_address_errors() {
-            // Partial-patch path on an existing Starknet layer.
-            let mut spec = dev_with(Some(starknet_layer()));
             let ovs = overrides(None, None, Some("not-a-felt"));
-            let err = apply_chain_overrides(&mut spec, &ovs).unwrap_err();
-
+            let err = resolve(Some(starknet_layer()), &ovs).unwrap_err();
             assert!(err
                 .chain()
                 .any(|e| e.to_string().contains("parse --settlement.core-contract")));

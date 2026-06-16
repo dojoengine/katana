@@ -1,16 +1,17 @@
 use katana_genesis::Genesis;
-use katana_primitives::block::BlockNumber;
 use katana_primitives::chain::ChainId;
-use katana_primitives::{eth, ContractAddress};
+use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
-use url::Url;
 
 pub mod dev;
 mod fee_token;
 pub mod full_node;
 pub mod rollup;
+pub mod settlement;
 pub mod settlement_check;
 pub mod tee;
+
+pub use settlement::{SettlementConfig, SettlementLayer, SettlementProofKind, SettlementRuntime};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChainSpec {
@@ -55,14 +56,6 @@ impl ChainSpec {
         }
     }
 
-    pub fn settlement(&self) -> Option<&SettlementLayer> {
-        match self {
-            Self::Dev(spec) => spec.settlement.as_ref(),
-            Self::Rollup(spec) => Some(&spec.settlement),
-            Self::FullNode(spec) => spec.settlement.as_ref(),
-        }
-    }
-
     pub fn fee_contracts(&self) -> &FeeContracts {
         match self {
             Self::Dev(spec) => &spec.fee_contracts,
@@ -94,64 +87,6 @@ impl Default for ChainSpec {
     fn default() -> Self {
         Self::dev()
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum SettlementLayer {
-    Ethereum {
-        // The id of the settlement chain.
-        id: eth::ChainId,
-
-        // url for ethereum rpc provider
-        rpc_url: Url,
-
-        /// account on the ethereum network
-        account: eth::Address,
-
-        // - The core appchain contract used to settlement
-        core_contract: eth::Address,
-
-        // the block at which the core contract was deployed
-        block: alloy_primitives::BlockNumber,
-    },
-
-    Starknet {
-        // The id of the settlement chain.
-        id: ChainId,
-
-        // url for starknet rpc provider
-        rpc_url: Url,
-
-        // - The core appchain contract used to settlement
-        core_contract: ContractAddress,
-
-        // the block at which the core contract was deployed
-        block: BlockNumber,
-
-        /// The proof system the core contract was initialized for. Determines which fields of
-        /// Piltover's `program_info` are meaningful and validated at startup.
-        #[serde(default)]
-        proof_kind: SettlementProofKind,
-    },
-
-    Sovereign {
-        // Once Katana can sync from data availability layer, we can add the details of the data
-        // availability layer to the chain spec for Katana to sync from it.
-    },
-}
-
-/// The proof system a Starknet settlement contract was initialized for.
-///
-/// Validity-proof chains have meaningful program hashes (SNOS, layout-bridge, bootloader) on the
-/// core contract. TEE chains do not — only the SNOS config hash is validated against the chain's
-/// own id and fee token.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SettlementProofKind {
-    #[default]
-    ValidityProof,
-    Tee,
 }
 
 /// Tokens that can be used for transaction fee payments in the chain. As

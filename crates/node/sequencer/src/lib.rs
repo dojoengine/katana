@@ -144,11 +144,12 @@ where
 
         // --- build executor factory
 
-        let is_l3 = match config.chain.as_ref() {
-            ChainSpec::Dev(_) => false,
-            ChainSpec::FullNode(_) => false,
-            ChainSpec::Rollup(cs) => matches!(cs.settlement, SettlementLayer::Starknet { .. }),
-        };
+        // L3 = a rollup that settles to a Starknet chain.
+        let is_l3 = matches!(config.chain.as_ref(), ChainSpec::Rollup(_))
+            && matches!(
+                config.settlement.as_ref().map(|s| &s.layer),
+                Some(SettlementLayer::Starknet { .. })
+            );
 
         // Create versioned constants overrides from config
         let overrides = Some(VersionedConstantsOverrides {
@@ -196,8 +197,8 @@ where
                 prices.l1_gas_prices.clone(),
                 prices.l1_data_gas_prices.clone(),
             )
-        } else if let Some(settlement) = config.chain.settlement() {
-            match settlement {
+        } else if let Some(settlement) = config.settlement.as_ref() {
+            match &settlement.layer {
                 SettlementLayer::Starknet { rpc_url, .. } => {
                     GasPriceOracle::sampled_starknet(rpc_url.clone())
                 }
@@ -571,7 +572,15 @@ where
 
         // --- build settlement service (if configured)
 
-        let settlement_service = match &config.settlement {
+        // The embedded service runs only when this node actively settles to a Starknet+TEE chain
+        // (`runtime` present). A node that merely reads the settlement chain (e.g. for messaging)
+        // has a settlement layer but no runtime, so no service is started.
+        let service_cfg = config
+            .settlement
+            .as_ref()
+            .and_then(katana_settlement::SettlementConfig::from_node_config);
+
+        let settlement_service = match service_cfg {
             Some(cfg) => {
                 // The service settles to a Starknet chain (Piltover); only the proving system is
                 // selected here. Each proving system declares its own requirements.
@@ -622,7 +631,7 @@ where
                     provider.clone(),
                     proving_backend,
                     block_notify.clone(),
-                    cfg.clone(),
+                    cfg,
                 ))
             }
 
@@ -784,25 +793,27 @@ where
         let chain = self.backend.chain_spec.id();
         info!(%chain, "Starting node.");
 
-        // --- validate the on-chain settlement contract for rollup chains
+        // --- validate the on-chain settlement contract (when settling to Starknet)
+        //
+        // The config hash committed on-chain is bound to this chain's own id and fee token, so
+        // those come from the chain spec; the core contract + proof kind come from the settlement
+        // config.
 
-        if let ChainSpec::Rollup(spec) = self.config.chain.as_ref() {
-            if let SettlementLayer::Starknet { rpc_url, core_contract, proof_kind, .. } =
-                &spec.settlement
-            {
-                let provider =
-                    settlement_check::SettlementChainProvider::new(rpc_url.clone(), Felt::ZERO);
+        if let Some(SettlementLayer::Starknet { rpc_url, core_contract, proof_kind, .. }) =
+            self.config.settlement.as_ref().map(|s| &s.layer)
+        {
+            let provider =
+                settlement_check::SettlementChainProvider::new(rpc_url.clone(), Felt::ZERO);
 
-                settlement_check::validate_starknet_settlement(
-                    spec.id.id(),
-                    spec.fee_contracts.strk.into(),
-                    *core_contract,
-                    &provider,
-                    *proof_kind,
-                )
-                .await
-                .context("settlement core contract validation failed")?;
-            }
+            settlement_check::validate_starknet_settlement(
+                self.config.chain.id().id(),
+                self.config.chain.fee_contracts().strk.into(),
+                *core_contract,
+                &provider,
+                *proof_kind,
+            )
+            .await
+            .context("settlement core contract validation failed")?;
         }
 
         // --- start the metrics server (if configured)
