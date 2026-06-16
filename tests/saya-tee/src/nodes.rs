@@ -159,6 +159,7 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
         },
         interval: 1,
         from_block: 0,
+        force_refetch: false,
         confirmation_depth: 0,
     });
     // Note: rollup chain specs (provable mode) never produce empty blocks

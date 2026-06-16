@@ -1212,11 +1212,26 @@ pub struct MessagingOptions {
     #[arg(long = "messaging.from-block", value_name = "N")]
     #[serde(default)]
     pub from_block: Option<u64>,
+
+    /// Re-fetch all messages from the starting block, ignoring the stored checkpoint.
+    ///
+    /// On restart Katana normally resumes from the persisted checkpoint. With this flag
+    /// it instead starts from `--messaging.from-block` (or the chain spec's deployment
+    /// block), re-gathering every message from there. Already-processed messages are
+    /// deduplicated by the pool, so this is safe to run.
+    #[arg(long = "messaging.force-refetch", id = "messaging_force_refetch")]
+    #[serde(default)]
+    pub force_refetch: bool,
 }
 
 impl Default for MessagingOptions {
     fn default() -> Self {
-        Self { enabled: false, interval: DEFAULT_MESSAGING_INTERVAL, from_block: None }
+        Self {
+            enabled: false,
+            interval: DEFAULT_MESSAGING_INTERVAL,
+            from_block: None,
+            force_refetch: false,
+        }
     }
 }
 
@@ -1231,6 +1246,9 @@ impl MessagingOptions {
             }
             if self.from_block.is_none() {
                 self.from_block = other.from_block;
+            }
+            if !self.force_refetch {
+                self.force_refetch = other.force_refetch;
             }
         }
     }
