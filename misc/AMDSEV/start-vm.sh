@@ -60,7 +60,7 @@ usage() {
     echo "Starts a SEV-SNP VM and launches Katana asynchronously via control channel."
     echo "Unsealed storage (plain ext4 on /dev/sda) is the DEFAULT. Opt into sealed"
     echo "storage with --sealed (LUKS2 + dm-integrity, key derived via"
-    echo "SNP_GET_DERIVED_KEY). See docs/sealing-key-options-security-analysis.md for"
+    echo "SNP_GET_DERIVED_KEY). See docs/amdsev.md (Sealed storage) for"
     echo "why sealed storage is not the default."
     echo ""
     echo "Required boot components (each pinned by the SEV-SNP launch measurement):"
@@ -97,7 +97,7 @@ usage() {
     echo "                        the canonical sealed launch measurement. NOTE: the key"
     echo "                        is bound to the launch measurement, so a Katana version"
     echo "                        bump re-keys the disk and the old data no longer unseals."
-    echo "                        See docs/sealing-key-options-security-analysis.md."
+    echo "                        See docs/amdsev.md (Sealed storage)."
     echo "  --unsealed            Plain ext4 on /dev/sda (the default). The cmdline does"
     echo "                        NOT carry KATANA_EXPECTED_LUKS_UUID. Accepted explicitly"
     echo "                        for clarity and backward compatibility."
@@ -123,8 +123,8 @@ LUKS_UUID="${KATANA_LUKS_UUID:-}"
 LUKS_UUID_FILE="${HOME}/.katana/luks-uuid"
 # Unsealed storage is the default. Sealed storage binds the disk key to the
 # launch measurement, which breaks across Katana version upgrades and, against
-# an untrusted host, does not deliver the guarantee it appears to (see
-# docs/sealing-key-options-security-analysis.md). Opt in with --sealed.
+# an untrusted host, does not deliver the guarantee it appears to (see the
+# Sealed storage section of docs/amdsev.md). Opt in with --sealed.
 UNSEALED=1
 SEAL_MODE_EXPLICIT=""
 

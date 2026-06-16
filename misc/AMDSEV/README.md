@@ -290,46 +290,19 @@ computed against the canonical `KATANA_CANONICAL_LUKS_UUID` from `build-config`.
 
 ### Storage sealing: why unsealed is the default
 
-Sealed storage (`--sealed`) derives its LUKS key from `MEASUREMENT | GUEST_POLICY`
-(point 2 above). That binding has a fundamental limitation, which is why **`start-vm.sh`
-boots unsealed by default**:
+`start-vm.sh` boots **unsealed** by default; sealed storage is opt-in via `--sealed`.
+The short version: the sealed-storage key is bound to the launch measurement, which
+includes the Katana binary, so a version bump re-keys the disk and the old data no
+longer unseals — and the measurement-independent ways to avoid that either don't
+hold against an untrusted host or add a KMS to the TCB. The default unsealed boot
+has no such limitation (a newer Katana opens an older database normally).
 
-- **It is not forward-compatible across Katana versions.** The Katana binary is
-  part of the measured initrd, so a version bump changes the measurement, changes
-  the derived key, and the previously-sealed disk no longer unseals (`luksOpen`
-  halts). State does not survive upgrades in place. See
-  [`docs/db-forward-compatibility.md`](docs/db-forward-compatibility.md).
-- **Against an untrusted host, it does not deliver what it appears to.** Some of
-  the decoupling options below let the key survive upgrades only by making it
-  forgeable by the host — i.e. weaker than it looks. See the trade-offs below.
-
-Note the derived key is *already* partly decoupled from routine platform changes:
-`snp-derivekey` deliberately leaves the `TCB_VERSION` and `GUEST_SVN` field-select
-bits **off** (`MEASUREMENT | GUEST_POLICY` only), so firmware/microcode/SVN updates
-do **not** re-key the disk. Only the **measurement** — which includes the Katana
-binary in the initrd — still rotates the key. The options below target that
-remaining coupling.
-
-#### Solutions considered to decouple the key from the Katana version
-
-| Option | Idea | Survives upgrades | Holds vs untrusted host | Status |
-|---|---|---|---|---|
-| **A — stable identity fields** | Bind the key to `FAMILY_ID` / `IMAGE_ID` instead of `MEASUREMENT`. Stable across versions. | ✅ | ❌ — those fields are host-supplied at launch and not pinned to a signer, so an untrusted host can forge them and unseal with arbitrary code. Collapses to ~plain disk encryption. | **Rejected** under this threat model |
-| **B — attestation-gated KMS** | Guest attests; an external KMS releases the disk key only for an allow-listed measurement. New version → add its measurement to the allow-list. | ✅ | ✅ — preserves "only attested code decrypts" | **Viable, not built.** Cost: KMS + allow-list (with revocation) + boot-time network dependency added to the TCB |
-| **C — wrapped DEK + re-key ceremony** | Store a random disk key wrapped by the measurement-derived KEK; on upgrade, a transition step unwraps with the old KEK and re-wraps with the new. No disk re-encryption. | ✅ | ✅ (if the transition is trusted) | **Considered, not pursued.** Needs a transition image trusted with both KEKs at once (the running image can't derive the *next* measurement's key) — most operational complexity |
-| **D — unsealed (chosen interim)** | No derived key; plain ext4. | ✅ (nothing to re-key) | n/a — no confidentiality/integrity at rest | **Current default** — honest and simple; revisit if B lands |
-
-Full evaluation of A and B (threat model, attack walkthroughs, controls) is in
-[`docs/sealing-key-options-security-analysis.md`](docs/sealing-key-options-security-analysis.md);
-the broader layer-by-layer view (including C and D) is in
-[`docs/db-forward-compatibility.md`](docs/db-forward-compatibility.md).
-
-Sealed storage remains available and fully supported via `--sealed` for
-deployments that have weighed these trade-offs (e.g. a fixed Katana version, or a
-trusted single-tenant operator concerned only with off-box disk theft). The
-end-to-end test (`scripts/test-snp-e2e.sh`) exercises the sealed path. Until one of
-options A–C is adopted, treat a Katana upgrade under `--sealed` as a fresh disk,
-not an in-place migration.
+Full reasoning, the two-layer (sealing vs `katana-db` format) view, and the
+decoupling options A–D (stable identity fields / attestation-gated KMS / wrapped-DEK
+re-key ceremony / unsealed) are in the architecture doc:
+[`docs/amdsev.md` → Sealed storage](../../docs/amdsev.md#forward-compatibility-and-the-key-binding-limitation).
+The sealed path is fully supported and exercised by `scripts/test-snp-e2e.sh`; until
+one of options A–C lands, treat a Katana upgrade under `--sealed` as a fresh disk.
 
 ### What is measured
 
