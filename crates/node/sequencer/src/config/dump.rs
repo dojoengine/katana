@@ -25,11 +25,10 @@ pub fn node_config_dump(config: &Config, chain_spec: &ChainSpec) -> NodeConfig {
             dir: config.db.dir.as_ref().map(|p| p.display().to_string()),
             migrate: config.db.migrate,
         },
-        forking: config.forking.as_ref().map(|f| ForkingConfigDump {
-            url: f.url.to_string(),
-            block: f.block,
-            init_dev_genesis: f.init_dev_genesis,
-        }),
+        forking: config
+            .forking
+            .as_ref()
+            .map(|f| ForkingConfigDump { url: f.url.to_string(), block: f.block }),
         rpc: RpcConfigDump {
             addr: config.rpc.addr,
             port: config.rpc.port,

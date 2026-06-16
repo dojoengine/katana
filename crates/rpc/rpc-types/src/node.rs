@@ -137,8 +137,6 @@ pub struct ForkingConfigDump {
     pub url: String,
     /// The block forked from. `None` means the latest block at startup.
     pub block: Option<BlockHashOrNumber>,
-    /// Whether local dev genesis allocations are bootstrapped on top of the forked state.
-    pub init_dev_genesis: bool,
 }
 
 /// L1<>L2 messaging options. Mirror of the internal `MessagingConfig`.
