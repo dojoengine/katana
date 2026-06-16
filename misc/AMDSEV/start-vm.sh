@@ -55,11 +55,13 @@ set -euo pipefail
 usage() {
     echo "Usage: $0 --ovmf PATH --kernel PATH --initrd PATH"
     echo "          [--katana-args CSV] [--chain-dir DIR] [--no-start]"
-    echo "          [--data-disk PATH] [--luks-uuid UUID] [--unsealed]"
+    echo "          [--data-disk PATH] [--luks-uuid UUID] [--sealed] [--unsealed]"
     echo ""
     echo "Starts a SEV-SNP VM and launches Katana asynchronously via control channel."
-    echo "Sealed storage is the default — the disk is wrapped in LUKS2 + dm-integrity"
-    echo "and unlocked inside the guest via SNP_GET_DERIVED_KEY."
+    echo "Unsealed storage (plain ext4 on /dev/sda) is the DEFAULT. Opt into sealed"
+    echo "storage with --sealed (LUKS2 + dm-integrity, key derived via"
+    echo "SNP_GET_DERIVED_KEY). See docs/sealing-key-options-security-analysis.md for"
+    echo "why sealed storage is not the default."
     echo ""
     echo "Required boot components (each pinned by the SEV-SNP launch measurement):"
     echo "  --ovmf PATH           OVMF firmware file (.fd)"
@@ -84,15 +86,21 @@ usage() {
     echo "                        A user-specified PATH must already exist."
     echo "                        Env var: KATANA_DATA_DISK"
     echo "  --luks-uuid UUID      Override the LUKS UUID used for sealed storage."
-    echo "                        Default: read from ~/.katana/luks-uuid, auto-generated"
-    echo "                        with uuidgen on first run and reused after. Stable per"
-    echo "                        host so the launch measurement is stable per host."
+    echo "                        Only meaningful with --sealed. Default: read from"
+    echo "                        ~/.katana/luks-uuid, auto-generated with uuidgen on"
+    echo "                        first run and reused after. Stable per host so the"
+    echo "                        launch measurement is stable per host."
     echo "                        Env var: KATANA_LUKS_UUID"
-    echo "  --unsealed            Skip sealed storage — boot with plain ext4 on /dev/sda."
-    echo "                        Used for dev iteration and CI runs without Docker. The"
-    echo "                        kernel cmdline does NOT carry KATANA_EXPECTED_LUKS_UUID,"
-    echo "                        which produces a different (and pinnable) launch"
-    echo "                        measurement from the canonical sealed boot."
+    echo "  --sealed              Opt into sealed storage — LUKS2 + dm-integrity on"
+    echo "                        /dev/sda, key derived in-guest via SNP_GET_DERIVED_KEY."
+    echo "                        The cmdline carries KATANA_EXPECTED_LUKS_UUID, producing"
+    echo "                        the canonical sealed launch measurement. NOTE: the key"
+    echo "                        is bound to the launch measurement, so a Katana version"
+    echo "                        bump re-keys the disk and the old data no longer unseals."
+    echo "                        See docs/sealing-key-options-security-analysis.md."
+    echo "  --unsealed            Plain ext4 on /dev/sda (the default). The cmdline does"
+    echo "                        NOT carry KATANA_EXPECTED_LUKS_UUID. Accepted explicitly"
+    echo "                        for clarity and backward compatibility."
     echo "  -h, --help            Show this help"
 }
 
@@ -113,7 +121,12 @@ DATA_DISK="${KATANA_DATA_DISK:-}"
 DATA_DISK_DEFAULT="${HOME}/.katana/data.img"
 LUKS_UUID="${KATANA_LUKS_UUID:-}"
 LUKS_UUID_FILE="${HOME}/.katana/luks-uuid"
-UNSEALED=0
+# Unsealed storage is the default. Sealed storage binds the disk key to the
+# launch measurement, which breaks across Katana version upgrades and, against
+# an untrusted host, does not deliver the guarantee it appears to (see
+# docs/sealing-key-options-security-analysis.md). Opt in with --sealed.
+UNSEALED=1
+SEAL_MODE_EXPLICIT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -185,7 +198,22 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
+        --sealed)
+            [[ "$SEAL_MODE_EXPLICIT" == "unsealed" ]] && {
+                echo "Error: --sealed and --unsealed are mutually exclusive"
+                exit 1
+            }
+            SEAL_MODE_EXPLICIT="sealed"
+            UNSEALED=0
+            shift
+            ;;
+
         --unsealed)
+            [[ "$SEAL_MODE_EXPLICIT" == "sealed" ]] && {
+                echo "Error: --sealed and --unsealed are mutually exclusive"
+                exit 1
+            }
+            SEAL_MODE_EXPLICIT="unsealed"
             UNSEALED=1
             shift
             ;;
@@ -226,8 +254,8 @@ if (( ${#missing[@]} > 0 )); then
     exit 1
 fi
 
-# Sealed storage is canonical. Resolve the LUKS UUID unless the operator
-# explicitly opted out with --unsealed. Default: read from ~/.katana/luks-uuid,
+# Unsealed storage is the default; sealed storage is opt-in via --sealed.
+# When sealed, resolve the LUKS UUID. Default: read from ~/.katana/luks-uuid,
 # generating with uuidgen on first run. This keeps the measurement stable per
 # host across boots while different operators get distinct UUIDs.
 #
@@ -257,7 +285,7 @@ if [[ "$UNSEALED" -eq 0 ]]; then
         exit 1
     fi
 elif [[ -n "$LUKS_UUID" ]]; then
-    echo "Error: --unsealed and --luks-uuid are mutually exclusive"
+    echo "Error: --luks-uuid requires --sealed (unsealed storage has no LUKS UUID)"
     exit 1
 fi
 
