@@ -48,11 +48,14 @@ DOJO_DIR="$REPO_ROOT/../dojo"
 fail() { echo "error: $1" >&2; exit 1; }
 
 echo "→ preflight…"
-# Dojo toolchain (sozo/torii/scarb), pinned in .tool-versions. Idempotent —
-# installs only what's missing. Best-effort: the command checks below are the
-# real gate, so a hiccup here (e.g. an asdf plugin not added) doesn't abort.
+# Dojo toolchain (scarb/sozo/torii), pinned in .tool-versions. Install each by
+# name rather than a bare `asdf install` — the latter installs every tool in the
+# merged .tool-versions chain (including a global `katana` pin), which we neither
+# need nor use (up.sh builds/uses target/debug/katana). Idempotent and best-effort:
+# the command checks below are the real gate, so a hiccup here doesn't abort.
 if command -v asdf >/dev/null 2>&1; then
-  ( cd "$DEMO_DIR" && asdf install ) || echo "  warning: 'asdf install' had issues; verifying tools below…" >&2
+  ( cd "$DEMO_DIR" && for t in scarb sozo torii; do asdf install "$t" || true; done ) \
+    || echo "  warning: 'asdf install' had issues; verifying tools below…" >&2
 else
   echo "  warning: asdf not found — install it, or put sozo/torii/scarb on PATH (see .tool-versions)." >&2
 fi
