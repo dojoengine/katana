@@ -260,10 +260,15 @@ impl Client {
 ////////////////////////////////////////////////////////////////////////////////
 
 const NODE_GET_INFO: &str = "node_getInfo";
+const NODE_GET_CONFIG: &str = "node_getConfig";
 
 impl Client {
     pub async fn node_get_info(&self) -> Result<Value> {
         self.send_request(NODE_GET_INFO, rpc_params!()).await
+    }
+
+    pub async fn node_get_config(&self) -> Result<Value> {
+        self.send_request(NODE_GET_CONFIG, rpc_params!()).await
     }
 }
 
