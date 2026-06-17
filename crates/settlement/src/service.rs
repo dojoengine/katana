@@ -12,7 +12,8 @@ use anyhow::{Context, Result};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxHash;
 use katana_provider::api::block::BlockNumberProvider;
-use katana_provider::ProviderFactory;
+use katana_provider::api::settlement::SettlementCheckpointWriter;
+use katana_provider::{MutableProvider, ProviderFactory};
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
@@ -20,8 +21,7 @@ use tracing::{error, info, warn};
 
 use crate::backend::ProvingBackend;
 use crate::piltover::PiltoverClient;
-use crate::status::SettlementStatusHandle;
-use crate::{SettlementConfig, LOG_TARGET};
+use crate::SettlementConfig;
 
 /// Initial retry delay after a failed settlement attempt.
 const RETRY_BACKOFF_MIN: Duration = Duration::from_secs(5);
@@ -40,7 +40,6 @@ pub struct SettlementService<P, N> {
     backend: Arc<dyn ProvingBackend>,
     block_notify: broadcast::Sender<N>,
     config: SettlementConfig,
-    status: SettlementStatusHandle,
 }
 
 impl<P, N> SettlementService<P, N> {
@@ -49,9 +48,8 @@ impl<P, N> SettlementService<P, N> {
         backend: Arc<dyn ProvingBackend>,
         block_notify: broadcast::Sender<N>,
         config: SettlementConfig,
-        status: SettlementStatusHandle,
     ) -> Self {
-        Self { provider, backend, block_notify, config, status }
+        Self { provider, backend, block_notify, config }
     }
 }
 
@@ -59,6 +57,7 @@ impl<P, N> SettlementService<P, N>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::Provider: BlockNumberProvider,
+    <P as ProviderFactory>::ProviderMut: SettlementCheckpointWriter + MutableProvider,
     N: Clone + Send + 'static,
 {
     /// Start the settlement service.
@@ -77,18 +76,20 @@ where
         );
 
         let cursor = piltover.settled_block().await.context("read on-chain settlement cursor")?;
+
+        // Seed the durable checkpoint with the authoritative on-chain cursor: if the chain is
+        // already caught up, no settle happens and this is the only write the index would get.
         if let Some(settled) = cursor {
-            self.status.set_settled(settled);
+            persist_settled_block(&self.provider, settled);
         }
 
         let worker = Worker {
-            provider: self.provider.clone(),
-            backend: self.backend.clone(),
+            cursor,
             piltover,
+            backend: self.backend.clone(),
+            provider: self.provider.clone(),
             batch_size: self.config.batch_size.max(1) as u64,
             idle_flush_interval: self.config.idle_flush_interval,
-            cursor,
-            status: self.status.clone(),
         };
 
         let notify_rx = self.block_notify.subscribe();
@@ -96,7 +97,6 @@ where
         let task_handle = tokio::spawn(worker.run(notify_rx, shutdown_rx));
 
         info!(
-            target: LOG_TARGET,
             backend = self.backend.name(),
             settled_block = ?cursor,
             core_contract = %self.config.core_contract,
@@ -145,8 +145,23 @@ struct Worker<P> {
     idle_flush_interval: tokio::time::Duration,
     /// Last settled block, from Piltover's `get_state()`. `None` = nothing settled yet.
     cursor: Option<BlockNumber>,
-    /// Live status published for the `katana_settlementStatus` RPC.
-    status: SettlementStatusHandle,
+}
+
+/// Persists the settled-block cursor to the durable [`tables::SettlementCheckpoints`] index, read
+/// back by the `katana_settlementStatus` RPC. Best-effort: the on-chain Piltover cursor is the
+/// authoritative source of progress, so a failed write is logged but never stalls settlement.
+///
+/// [`tables::SettlementCheckpoints`]: katana_db::tables::SettlementCheckpoints
+fn persist_settled_block<P>(provider: &P, block: BlockNumber)
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: SettlementCheckpointWriter,
+{
+    let db = provider.provider_mut();
+    let result = db.set_settled_block(block).and_then(|()| db.commit());
+    if let Err(error) = result {
+        warn!(%error, block, "Failed to persist settled-block checkpoint.");
+    }
 }
 
 /// What the settle loop should do next, given the current durable state.
@@ -187,6 +202,7 @@ impl<P> Worker<P>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: BlockNumberProvider,
+    <P as ProviderFactory>::ProviderMut: SettlementCheckpointWriter + MutableProvider,
 {
     async fn run<N: Clone>(
         mut self,
@@ -203,7 +219,7 @@ where
             let head = match self.local_head() {
                 Ok(head) => head,
                 Err(error) => {
-                    error!(target: LOG_TARGET, %error, "Failed to read local chain head.");
+                    error!(%error, "Failed to read local chain head.");
                     tokio::time::sleep(RETRY_BACKOFF_MIN).await;
                     continue;
                 }
@@ -216,14 +232,13 @@ where
                     match self.settle_batch(first, last).await {
                         Ok(tx_hash) => {
                             info!(
-                                target: LOG_TARGET,
                                 first,
                                 last,
                                 tx_hash = %format!("{tx_hash:#x}"),
                                 "Settled block range."
                             );
                             self.cursor = Some(last);
-                            self.status.set_settled(last);
+                            persist_settled_block(&self.provider, last);
                             idle_deadline = Instant::now() + self.idle_flush_interval;
                             backoff = RETRY_BACKOFF_MIN;
                             consecutive_failures = 0;
@@ -233,7 +248,6 @@ where
                         Err(error) => {
                             consecutive_failures += 1;
                             error!(
-                                target: LOG_TARGET,
                                 first,
                                 last,
                                 %error,
@@ -256,7 +270,6 @@ where
                                 Ok(cursor) => {
                                     if cursor != self.cursor {
                                         warn!(
-                                            target: LOG_TARGET,
                                             ?cursor,
                                             previous = ?self.cursor,
                                             "On-chain settlement cursor advanced despite the \
@@ -264,13 +277,12 @@ where
                                         );
                                         self.cursor = cursor;
                                         if let Some(settled) = cursor {
-                                            self.status.set_settled(settled);
+                                            persist_settled_block(&self.provider, settled);
                                         }
                                     }
                                 }
                                 Err(error) => {
                                     error!(
-                                        target: LOG_TARGET,
                                         %error,
                                         "Failed to re-read on-chain settlement cursor."
                                     );
@@ -288,9 +300,11 @@ where
                             // New block mined — re-evaluate. The payload is irrelevant; the
                             // provider is re-read on the next iteration.
                             Ok(_) => {}
+
                             // Missed notifications are harmless: the provider is the source
                             // of truth and is re-read every iteration.
                             Err(broadcast::error::RecvError::Lagged(_)) => {}
+
                             // Sender dropped — node is shutting down; wait for the signal.
                             Err(broadcast::error::RecvError::Closed) => {
                                 let _ = (&mut shutdown_rx).await;
@@ -319,7 +333,7 @@ where
             }
         }
 
-        info!(target: LOG_TARGET, "Settlement service stopped.");
+        info!("Settlement service stopped.");
     }
 
     /// Retrieve the latest block on the local chain.

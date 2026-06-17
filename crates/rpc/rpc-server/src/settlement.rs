@@ -4,25 +4,24 @@ use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::error::INTERNAL_ERROR_CODE;
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_provider::api::block::BlockNumberProvider;
+use katana_provider::api::settlement::SettlementCheckpointProvider;
 use katana_provider::ProviderFactory;
 use katana_rpc_api::katana::KatanaSettlementApiServer;
 use katana_rpc_types::settlement::SettlementStatus;
-use katana_settlement::SettlementStatusHandle;
 
-/// Serves `katana_settlementStatus`: the settlement service's most recent settled block (from a
-/// [`SettlementStatusHandle`]) alongside the live local chain head (read from storage).
+/// Serves `katana_settlementStatus` straight from storage: the durable settled-block checkpoint
+/// (written by the embedded settlement service) alongside the live local chain head.
 ///
-/// Registered even on nodes that don't settle — there the settled block is always `0`, while the
-/// head still reflects the actual chain tip.
+/// On a node that doesn't settle, the checkpoint is absent so the settled block reads as `0`, while
+/// the head still reflects the actual chain tip.
 #[derive(Debug, Clone)]
 pub struct SettlementApi<PF> {
-    status: SettlementStatusHandle,
     provider: PF,
 }
 
 impl<PF> SettlementApi<PF> {
-    pub fn new(status: SettlementStatusHandle, provider: PF) -> Self {
-        Self { status, provider }
+    pub fn new(provider: PF) -> Self {
+        Self { provider }
     }
 }
 
@@ -30,14 +29,18 @@ impl<PF> SettlementApi<PF> {
 impl<PF> KatanaSettlementApiServer for SettlementApi<PF>
 where
     PF: ProviderFactory,
-    PF::Provider: BlockNumberProvider,
+    PF::Provider: BlockNumberProvider + SettlementCheckpointProvider,
 {
     async fn settlement_status(&self) -> RpcResult<SettlementStatus> {
-        let head =
-            self.provider.provider().latest_number().map_err(|e| {
-                ErrorObjectOwned::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
-            })?;
+        let provider = self.provider.provider();
 
-        Ok(SettlementStatus { settled_block: self.status.settled_block(), head })
+        let internal = |e: katana_provider::ProviderError| {
+            ErrorObjectOwned::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
+        };
+
+        let head = provider.latest_number().map_err(internal)?;
+        let settled_block = provider.settled_block().map_err(internal)?.unwrap_or(0);
+
+        Ok(SettlementStatus { settled_block, head })
     }
 }

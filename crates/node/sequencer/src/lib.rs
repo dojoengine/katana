@@ -38,6 +38,7 @@ use katana_primitives::Felt;
 use katana_provider::api::messaging::{
     MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
 };
+use katana_provider::api::settlement::{SettlementCheckpointProvider, SettlementCheckpointWriter};
 use katana_provider::{
     DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
     ProviderRW,
@@ -68,8 +69,7 @@ use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::node::NodeInfo;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_settlement::{
-    ProverConfig, ProvingBackend, SettlementService, SettlementServiceHandle,
-    SettlementStatusHandle, TeeBackend, TeeProver,
+    ProverConfig, ProvingBackend, SettlementService, SettlementServiceHandle, TeeBackend, TeeProver,
 };
 use katana_stage::Sequencing;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
@@ -124,9 +124,13 @@ where
 impl<P> Node<P>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
-    <P as ProviderFactory>::Provider: ProviderRO + MessagingL1ToL2IndexProvider,
-    <P as ProviderFactory>::ProviderMut:
-        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
+    <P as ProviderFactory>::Provider:
+        ProviderRO + MessagingL1ToL2IndexProvider + SettlementCheckpointProvider,
+    <P as ProviderFactory>::ProviderMut: ProviderRW
+        + MessagingCheckpointProvider
+        + MessagingL1ToL2IndexWriter
+        + SettlementCheckpointWriter
+        + MutableProvider,
 {
     /// Build the node components from the given [`Config`].
     ///
@@ -259,11 +263,6 @@ where
 
         let mut rpc_modules = RpcModule::new(());
 
-        // Shared status for the `katana_settlementStatus` RPC. Created here so the RPC handler can
-        // hold a clone before the settlement service is built below; it stays at `0`/`0` unless
-        // that service runs and the settle loop updates it.
-        let settlement_status = SettlementStatusHandle::new();
-
         // Allow `POST` when accessing the resource
         let cors = Cors::new()
             .allow_origins(config.rpc.cors_origins.clone())
@@ -321,7 +320,7 @@ where
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
-            let settlement_api = SettlementApi::new(settlement_status.clone(), provider.clone());
+            let settlement_api = SettlementApi::new(provider.clone());
             rpc_modules.merge(KatanaSettlementApiServer::into_rpc(settlement_api))?;
         }
 
@@ -641,7 +640,6 @@ where
                     proving_backend,
                     block_notify.clone(),
                     cfg,
-                    settlement_status.clone(),
                 ))
             }
 
@@ -793,8 +791,11 @@ impl<P> Node<P>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut:
-        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
+    <P as ProviderFactory>::ProviderMut: ProviderRW
+        + MessagingCheckpointProvider
+        + MessagingL1ToL2IndexWriter
+        + SettlementCheckpointWriter
+        + MutableProvider,
 {
     /// Start the node.
     ///

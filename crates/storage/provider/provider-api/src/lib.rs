@@ -7,6 +7,7 @@ pub mod contract;
 pub mod env;
 mod error;
 pub mod messaging;
+pub mod settlement;
 pub mod stage;
 pub mod state;
 pub mod state_update;

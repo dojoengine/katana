@@ -39,3 +39,11 @@ pub struct MigrationCheckpoint {
     /// The most recently migrated key by the migration pipeline.
     pub last_key_migrated: u64,
 }
+
+/// Embedded settlement service checkpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(::arbitrary::Arbitrary))]
+pub struct SettlementCheckpoint {
+    /// The most recent block settled to the settlement chain.
+    pub block: BlockNumber,
+}
