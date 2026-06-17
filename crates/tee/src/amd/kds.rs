@@ -35,6 +35,13 @@ pub struct KdsClient {
     inner: SdkKDS,
 }
 
+impl std::fmt::Debug for KdsClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `SdkKDS` is an opaque external type that doesn't implement `Debug`.
+        f.debug_struct("KdsClient").finish_non_exhaustive()
+    }
+}
+
 impl KdsClient {
     pub fn new() -> Self {
         Self { inner: SdkKDS::new() }
@@ -88,7 +95,7 @@ impl KdsClient {
         let ark_hash = Sha256::digest(ark_der.as_ref());
 
         let ark_hash = format!("0x{}", hex::encode(ark_hash));
-        let source = format!("https://kdsintf.amd.com/vcek/v1/{}/cert_chain", proc_str);
+        let source = format!("https://kdsintf.amd.com/vcek/v1/{proc_str}/cert_chain");
 
         Ok(RootCertInfo { ark_hash, source })
     }

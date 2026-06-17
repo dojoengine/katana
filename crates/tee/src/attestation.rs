@@ -167,7 +167,7 @@ where
                     ]);
                     l2_to_l1_msg_hashes.push(msg_hash);
                     l2_to_l1_messages.push(L2ToL1Message {
-                        from_address: msg.from_address.into(),
+                        from_address: msg.from_address,
                         to_address: msg.to_address,
                         payload: msg.payload.clone(),
                     });
@@ -192,7 +192,7 @@ where
                         payload,
                         from_address,
                         nonce: l1h.nonce,
-                        to_address: l1h.contract_address.into(),
+                        to_address: l1h.contract_address,
                         entry_point_selector: l1h.entry_point_selector,
                     });
                 }

@@ -85,6 +85,7 @@ pub trait Sp1Backend: Send + Sync {
 /// 1. global_state_root = hash("STARKNET_STATE_V0", contracts_tree_root, classes_tree_root)
 /// 2. Contract with storage_root is in contracts_tree at contract_address
 /// 3. Storage keys/values are in contract's storage trie
+///
 /// Then commits poseidon_hash(storage_commitment, contract_address, nonce, global_state_root).
 #[derive(Debug, Clone, Default)]
 pub struct StorageProofParams {
@@ -157,7 +158,7 @@ impl Sp1Backend for Sp1NetworkBackend {
 
         AmdSevSnpProver::new(sdk_config, None)
             .prove_attestation_report(timestamp, Bytes::from(report_bytes.to_vec()), None)
-            .map_err(|e| Error::Prover(format!("Proof generation failed: {}", e)))
+            .map_err(|e| Error::Prover(format!("Proof generation failed: {e}")))
     }
 }
 
@@ -315,7 +316,7 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
                 .map_err(|e| Error::Prover(format!("Onchain proof error: {e}")))
         })
         .await
-        .map_err(|e| Error::Prover(format!("Task join error: {}", e)))??;
+        .map_err(|e| Error::Prover(format!("Task join error: {e}")))??;
 
         Ok(ProofWithCacheInfo { proof, trusted_prefix_len, cert_digests })
     }
@@ -440,5 +441,5 @@ fn current_timestamp() -> Result<u64, Error> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
-        .map_err(|e| Error::Prover(format!("Failed to get timestamp: {}", e)))
+        .map_err(|e| Error::Prover(format!("Failed to get timestamp: {e}")))
 }

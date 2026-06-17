@@ -24,6 +24,10 @@
 use std::fmt::Debug;
 
 use anyhow as _;
+// `sev` is an optional dep pulled in transitively (and by `--all-features`); acknowledge it so
+// `unused_crate_dependencies` stays quiet when its implicit feature is enabled.
+#[cfg(feature = "sev")]
+use sev as _;
 // `zeroize` is used only by the `snp-derivekey` binary, not this library.
 // Acknowledge the workspace dep here so `unused_crate_dependencies` stays quiet.
 #[cfg(feature = "snp")]

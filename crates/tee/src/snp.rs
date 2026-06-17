@@ -86,7 +86,7 @@ mod tests {
         if let Err(TeeError::GenerationFailed(msg)) = result {
             assert!(msg.contains("SEV-SNP"));
         } else {
-            panic!("Expected TeeError::GenerationFailed, got {:?}", result);
+            panic!("Expected TeeError::GenerationFailed, got {result:?}");
         }
     }
 }

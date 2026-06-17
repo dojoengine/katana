@@ -121,19 +121,19 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
     let mut output = String::new();
 
     // Generate inputs function
-    output.push_str(&format!("pub fn get_block_{}_inputs() -> Array<u256> {{\n", block_num));
+    output.push_str(&format!("pub fn get_block_{block_num}_inputs() -> Array<u256> {{\n"));
     output.push_str("    array![\n");
     for bytes in u256_inputs.iter() {
         let high = u128::from_be_bytes(bytes[0..16].try_into().unwrap());
         let low = u128::from_be_bytes(bytes[16..32].try_into().unwrap());
-        output.push_str(&format!("        u256 {{ low: 0x{:032x}, high: 0x{:032x} }},", low, high));
+        output.push_str(&format!("        u256 {{ low: 0x{low:032x}, high: 0x{high:032x} }},"));
         output.push('\n');
     }
     output.push_str("    ]\n");
     output.push_str("}\n\n");
 
     // Generate expected function
-    output.push_str(&format!("pub fn get_block_{}_expected() -> VerifierJournal {{\n", block_num));
+    output.push_str(&format!("pub fn get_block_{block_num}_expected() -> VerifierJournal {{\n"));
 
     // Result enum
     let result_variant = match journal.result {
@@ -144,7 +144,7 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
         _ => return Err(Error::Calldata(format!("Unknown result: {}", journal.result))),
     };
 
-    output.push_str(&format!("    let result = {};\n", result_variant));
+    output.push_str(&format!("    let result = {result_variant};\n"));
     output.push_str(&format!("    let timestamp: u64 = {};\n", journal.timestamp));
     output.push_str(&format!("    let processor_model: u8 = {};\n", journal.processor_model));
     output.push_str(&format!(
@@ -158,7 +158,7 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
         if i > 0 && i % 8 == 0 {
             output.push('\n');
         }
-        output.push_str(&format!("        0x{:08x},", word));
+        output.push_str(&format!("        0x{word:08x},"));
     }
     output.push_str("\n    ];\n\n");
 
@@ -167,8 +167,7 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
     for cert in &journal.certs {
         let high = u128::from_be_bytes(cert[0..16].try_into().unwrap());
         let low = u128::from_be_bytes(cert[16..32].try_into().unwrap());
-        output
-            .push_str(&format!("        u256 {{ low: 0x{:032x}, high: 0x{:032x} }},\n", low, high));
+        output.push_str(&format!("        u256 {{ low: 0x{low:032x}, high: 0x{high:032x} }},\n"));
     }
     output.push_str("    ];\n\n");
 
@@ -176,8 +175,8 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
     output.push_str("    let cert_serials: Array<felt252> = array![\n");
     for serial in &journal.cert_serials {
         // Convert 20 bytes to hex
-        let hex: String = serial.iter().map(|b| format!("{:02x}", b)).collect();
-        output.push_str(&format!("        0x{},\n", hex));
+        let hex: String = serial.iter().map(|b| format!("{b:02x}")).collect();
+        output.push_str(&format!("        0x{hex},\n"));
     }
     output.push_str("    ];\n\n");
 
@@ -206,7 +205,7 @@ pub fn generate_cairo_fixtures(fixture_dir: &Path, output_path: &Path) -> Result
 
     // Generate fixtures for each block
     for block_num in 0..3 {
-        let proof_path = fixture_dir.join(format!("block_{}/proof.json", block_num));
+        let proof_path = fixture_dir.join(format!("block_{block_num}/proof.json"));
 
         if !proof_path.exists() {
             return Err(Error::Calldata(format!("Proof file not found: {}", proof_path.display())));
@@ -217,7 +216,7 @@ pub fn generate_cairo_fixtures(fixture_dir: &Path, output_path: &Path) -> Result
         })?;
 
         let proof = OnchainProof::decode_json(&proof_data)
-            .map_err(|e| Error::Calldata(format!("Failed to parse proof: {}", e)))?;
+            .map_err(|e| Error::Calldata(format!("Failed to parse proof: {e}")))?;
 
         let fixture_code = generate_block_fixture(block_num, &proof)?;
         output.push_str(&fixture_code);
@@ -226,7 +225,7 @@ pub fn generate_cairo_fixtures(fixture_dir: &Path, output_path: &Path) -> Result
 
     // Write output file
     std::fs::write(output_path, &output)
-        .map_err(|e| Error::Calldata(format!("Failed to write output: {}", e)))?;
+        .map_err(|e| Error::Calldata(format!("Failed to write output: {e}")))?;
 
     Ok(())
 }
