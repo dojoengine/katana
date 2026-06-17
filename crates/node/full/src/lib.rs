@@ -434,7 +434,8 @@ impl Node {
 
         if config.rpc.apis.contains(&RpcModuleKind::Node) {
             let info = NodeInfo::from_parts(&config.build_info, chain_spec.as_ref());
-            rpc_modules.merge(NodeApiServer::into_rpc(NodeApi::new(info)))?;
+            // Full nodes don't report a sequencer-shaped config; `node_getConfig` errors.
+            rpc_modules.merge(NodeApiServer::into_rpc(NodeApi::new(info, None)))?;
         }
 
         #[allow(unused_mut)]

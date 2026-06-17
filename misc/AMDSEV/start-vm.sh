@@ -1,9 +1,12 @@
 #!/bin/bash
 # Start TEE VM with AMD SEV-SNP
-# Usage: ./start-vm.sh [BOOT_COMPONENTS_DIR] [--katana-args CSV] [--no-start]
+# Usage: ./start-vm.sh --ovmf PATH --kernel PATH --initrd PATH
+#                     [--katana-args CSV] [--chain-dir DIR] [--no-start] [...]
 #
 # This script:
-# 1. Starts QEMU with the TEE boot components
+# 1. Starts QEMU with the TEE boot components, passing Katana's CLI args via
+#    fw_cfg and the optional chain config dir as a read-only virtio-blk ext2
+#    disk packed from --chain-dir
 # 2. Creates and attaches a data disk as /dev/sda
 # 3. Optionally starts Katana asynchronously via a virtio-serial control channel
 # 4. Forwards RPC port to host
@@ -34,8 +37,11 @@
 #   CBITPOS           - 51 (C-bit position for memory encryption)
 #   REDUCED_PHYS_BITS - 1
 #
-# Katana launch arguments are sent after boot over a control channel and are NOT
-# part of the measured kernel command line.
+# Katana launch configuration (CLI args + chain config dir) is delivered via
+# QEMU fw_cfg entries under opt/org.katana/ and is NOT part of the launch
+# measurement — fw_cfg blobs are read by the guest at runtime, not hashed
+# into the launch digest. The guest treats them as untrusted operator input
+# and strips flags it owns (--db-*, --data-dir, --chain) before use.
 #
 # To compute expected measurement, use snp-digest from snp-tools:
 #   cargo build -p snp-tools
@@ -47,54 +53,125 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 [BOOT_COMPONENTS_DIR] [--katana-args CSV] [--no-start]"
-    echo "          [--data-disk PATH] [--luks-uuid UUID] [--unsealed]"
+    echo "Usage: $0 --ovmf PATH --kernel PATH --initrd PATH"
+    echo "          [--katana-args CSV] [--chain-dir DIR] [--no-start]"
+    echo "          [--data-disk PATH] [--luks-uuid UUID] [--sealed] [--unsealed]"
     echo ""
     echo "Starts a SEV-SNP VM and launches Katana asynchronously via control channel."
-    echo "Sealed storage is the default — the disk is wrapped in LUKS2 + dm-integrity"
-    echo "and unlocked inside the guest via SNP_GET_DERIVED_KEY."
+    echo "Unsealed storage (plain ext4 on /dev/sda) is the DEFAULT. Opt into sealed"
+    echo "storage with --sealed (LUKS2 + dm-integrity, key derived via"
+    echo "SNP_GET_DERIVED_KEY). See docs/amdsev.md (Sealed storage) for"
+    echo "why sealed storage is not the default."
     echo ""
-    echo "Arguments:"
-    echo "  BOOT_COMPONENTS_DIR   Optional path containing OVMF.fd, vmlinuz, initrd.img"
+    echo "Required boot components (each pinned by the SEV-SNP launch measurement):"
+    echo "  --ovmf PATH           OVMF firmware file (.fd)"
+    echo "  --kernel PATH         Linux kernel (vmlinuz)"
+    echo "  --initrd PATH         Initrd image (.img)"
     echo ""
     echo "Options:"
-    echo "  --katana-args CSV     Comma-separated Katana CLI args sent after boot"
+    echo "  --katana-args CSV     Comma-separated Katana CLI args, delivered to the"
+    echo "                        guest via QEMU fw_cfg (opt/org.katana/args). NOT part"
+    echo "                        of the launch measurement."
+    echo "  --chain-dir DIR       Directory with chain config files. Packed into a"
+    echo "                        small ext2 image at boot and attached as a read-only"
+    echo "                        virtio-blk disk; the guest mounts it and passes the"
+    echo "                        mount point to Katana as --chain. fw_cfg is not used"
+    echo "                        for the chain dir because its port-I/O sysfs read"
+    echo "                        path is prohibitively slow under SEV-SNP for multi-MB"
+    echo "                        blobs (e.g., a Cartridge-Controller-enabled genesis"
+    echo "                        ~18 MB). NOT part of the launch measurement."
     echo "  --no-start            Boot VM without sending Katana start command"
     echo "  --data-disk PATH      Persistent data disk file attached as /dev/sda"
     echo "                        (default: ~/.katana/data.img, auto-created if absent)"
     echo "                        A user-specified PATH must already exist."
     echo "                        Env var: KATANA_DATA_DISK"
     echo "  --luks-uuid UUID      Override the LUKS UUID used for sealed storage."
-    echo "                        Default: read from ~/.katana/luks-uuid, auto-generated"
-    echo "                        with uuidgen on first run and reused after. Stable per"
-    echo "                        host so the launch measurement is stable per host."
+    echo "                        Only meaningful with --sealed. Default: read from"
+    echo "                        ~/.katana/luks-uuid, auto-generated with uuidgen on"
+    echo "                        first run and reused after. Stable per host so the"
+    echo "                        launch measurement is stable per host."
     echo "                        Env var: KATANA_LUKS_UUID"
-    echo "  --unsealed            Skip sealed storage — boot with plain ext4 on /dev/sda."
-    echo "                        Used for dev iteration and CI runs without Docker. The"
-    echo "                        kernel cmdline does NOT carry KATANA_EXPECTED_LUKS_UUID,"
-    echo "                        which produces a different (and pinnable) launch"
-    echo "                        measurement from the canonical sealed boot."
+    echo "  --sealed              Opt into sealed storage — LUKS2 + dm-integrity on"
+    echo "                        /dev/sda, key derived in-guest via SNP_GET_DERIVED_KEY."
+    echo "                        The cmdline carries KATANA_EXPECTED_LUKS_UUID, producing"
+    echo "                        the canonical sealed launch measurement. NOTE: the key"
+    echo "                        is bound to the launch measurement, so a Katana version"
+    echo "                        bump re-keys the disk and the old data no longer unseals."
+    echo "                        See docs/amdsev.md (Sealed storage)."
+    echo "  --unsealed            Plain ext4 on /dev/sda (the default). The cmdline does"
+    echo "                        NOT carry KATANA_EXPECTED_LUKS_UUID. Accepted explicitly"
+    echo "                        for clarity and backward compatibility."
     echo "  -h, --help            Show this help"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BOOT_DIR="${SCRIPT_DIR}/output/qemu"
+# Boot components are required and named explicitly via --ovmf / --kernel /
+# --initrd. The SEV-SNP launch measurement pins each file by content hash; the
+# script doesn't infer them from a directory anymore because doing so encoded
+# a hidden contract on filenames + colocation that didn't survive a real deploy
+# (artifacts often land on different filesystems, or audits want to swap one
+# file against an otherwise-pinned set).
+OVMF_FILE=""
+KERNEL_FILE=""
+INITRD_FILE=""
 KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp"
+CHAIN_DIR=""
 AUTO_START_KATANA=1
 DATA_DISK="${KATANA_DATA_DISK:-}"
 DATA_DISK_DEFAULT="${HOME}/.katana/data.img"
 LUKS_UUID="${KATANA_LUKS_UUID:-}"
 LUKS_UUID_FILE="${HOME}/.katana/luks-uuid"
-UNSEALED=0
+# Unsealed storage is the default. Sealed storage binds the disk key to the
+# launch measurement, which breaks across Katana version upgrades and, against
+# an untrusted host, does not deliver the guarantee it appears to (see the
+# Sealed storage section of docs/amdsev.md). Opt in with --sealed.
+UNSEALED=1
+SEAL_MODE_EXPLICIT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --ovmf)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --ovmf requires a value"
+                exit 1
+            }
+            OVMF_FILE="$2"
+            shift 2
+            ;;
+
+        --kernel)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --kernel requires a value"
+                exit 1
+            }
+            KERNEL_FILE="$2"
+            shift 2
+            ;;
+
+        --initrd)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --initrd requires a value"
+                exit 1
+            }
+            INITRD_FILE="$2"
+            shift 2
+            ;;
+
         --katana-args)
             [[ $# -ge 2 ]] || {
                 echo "Error: --katana-args requires a value"
                 exit 1
             }
             KATANA_ARGS_CSV="$2"
+            shift 2
+            ;;
+
+        --chain-dir)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --chain-dir requires a value"
+                exit 1
+            }
+            CHAIN_DIR="$2"
             shift 2
             ;;
 
@@ -121,7 +198,22 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
+        --sealed)
+            [[ "$SEAL_MODE_EXPLICIT" == "unsealed" ]] && {
+                echo "Error: --sealed and --unsealed are mutually exclusive"
+                exit 1
+            }
+            SEAL_MODE_EXPLICIT="sealed"
+            UNSEALED=0
+            shift
+            ;;
+
         --unsealed)
+            [[ "$SEAL_MODE_EXPLICIT" == "sealed" ]] && {
+                echo "Error: --sealed and --unsealed are mutually exclusive"
+                exit 1
+            }
+            SEAL_MODE_EXPLICIT="unsealed"
             UNSEALED=1
             shift
             ;;
@@ -139,14 +231,31 @@ while [[ $# -gt 0 ]]; do
             ;;
 
         *)
-            BOOT_DIR="$1"
-            shift
+            echo "Error: Unexpected positional argument: $1"
+            echo "       Boot components are specified via --ovmf / --kernel / --initrd."
+            echo ""
+            usage
+            exit 1
             ;;
     esac
 done
 
-# Sealed storage is canonical. Resolve the LUKS UUID unless the operator
-# explicitly opted out with --unsealed. Default: read from ~/.katana/luks-uuid,
+# Boot components are required — every measurement-relevant input must be
+# explicitly named by the operator so a typo or missing artifact fails loudly
+# at the script level rather than producing a silently-wrong launch digest.
+missing=()
+[[ -z "$OVMF_FILE" ]]   && missing+=(--ovmf)
+[[ -z "$KERNEL_FILE" ]] && missing+=(--kernel)
+[[ -z "$INITRD_FILE" ]] && missing+=(--initrd)
+if (( ${#missing[@]} > 0 )); then
+    echo "Error: missing required boot component flag(s): ${missing[*]}"
+    echo ""
+    usage
+    exit 1
+fi
+
+# Unsealed storage is the default; sealed storage is opt-in via --sealed.
+# When sealed, resolve the LUKS UUID. Default: read from ~/.katana/luks-uuid,
 # generating with uuidgen on first run. This keeps the measurement stable per
 # host across boots while different operators get distinct UUIDs.
 #
@@ -176,7 +285,7 @@ if [[ "$UNSEALED" -eq 0 ]]; then
         exit 1
     fi
 elif [[ -n "$LUKS_UUID" ]]; then
-    echo "Error: --unsealed and --luks-uuid are mutually exclusive"
+    echo "Error: --luks-uuid requires --sealed (unsealed storage has no LUKS UUID)"
     exit 1
 fi
 
@@ -184,10 +293,8 @@ fi
 # Launch measurement inputs (must match values documented above)
 # ------------------------------------------------------------------------------
 
-# Boot components
-OVMF_FILE="$BOOT_DIR/OVMF.fd"
-KERNEL_FILE="$BOOT_DIR/vmlinuz"
-INITRD_FILE="$BOOT_DIR/initrd.img"
+# Boot components are set by the --ovmf / --kernel / --initrd flag handlers
+# above and validated to be non-empty + readable before we get here.
 KERNEL_CMDLINE="console=ttyS0"
 
 # SEV-SNP guest configuration
@@ -230,6 +337,65 @@ DISK_SIZE_MB=1024
 # Logs
 SERIAL_LOG="$(mktemp /tmp/katana-tee-vm-serial.XXXXXX.log)"
 
+# ------------------------------------------------------------------------------
+# Katana launch configuration: fw_cfg (args) + virtio-blk ext2 disk (chain dir)
+# ------------------------------------------------------------------------------
+# Neither channel is part of the SEV-SNP launch measurement — both are
+# operator-supplied at boot. See the header comment.
+#
+# fw_cfg carries the CLI args (one per line at opt/org.katana/args). Small
+# payload, port-I/O cost is negligible.
+#
+# The chain config dir is delivered via a read-only virtio-blk disk built
+# here from --chain-dir. fw_cfg's sysfs read path uses port I/O byte-by-byte,
+# and the upstream Linux qemu_fw_cfg driver re-reads the whole blob on every
+# sysfs read() call — so cp(1)'ing an 18 MB genesis costs O(blob_size^2)
+# port I/O and stalls the guest indefinitely under SEV-SNP. virtio-blk goes
+# through DMA, finishes the same copy in milliseconds, and uses the same
+# trust posture (host-supplied bytes, guest validates via Katana's parser).
+KATANA_ARGS_FILE="$(mktemp /tmp/katana-tee-vm-args.XXXXXX)"
+printf '%s' "$KATANA_ARGS_CSV" | tr ',' '\n' > "$KATANA_ARGS_FILE"
+FW_CFG_OPTS=(-fw_cfg "name=opt/org.katana/args,file=$KATANA_ARGS_FILE")
+
+CHAIN_IMG=""
+CHAIN_DRIVE_OPTS=()
+if [[ -n "$CHAIN_DIR" ]]; then
+    if [[ ! -d "$CHAIN_DIR" ]]; then
+        echo "Error: --chain-dir is not a directory: $CHAIN_DIR"
+        exit 1
+    fi
+    if ! find "$CHAIN_DIR" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
+        echo "Error: --chain-dir contains no regular files: $CHAIN_DIR"
+        exit 1
+    fi
+    if ! command -v mkfs.ext2 >/dev/null 2>&1; then
+        echo "Error: mkfs.ext2 not found on host; required to pack --chain-dir into the guest disk."
+        echo "       Install via: apt-get install -y e2fsprogs"
+        exit 1
+    fi
+
+    # Size the image as 2 * dir contents + 16 MB headroom, rounded up to MB.
+    # mkfs.ext2 itself needs ~5% overhead; doubling is generous and keeps room
+    # for future genesis growth without re-running this code.
+    CHAIN_DIR_MB=$(du -sm "$CHAIN_DIR" | awk '{print $1}')
+    CHAIN_IMG_MB=$(( CHAIN_DIR_MB * 2 + 16 ))
+    CHAIN_IMG="$(mktemp /tmp/katana-tee-vm-chain.XXXXXX.img)"
+    truncate -s "${CHAIN_IMG_MB}M" "$CHAIN_IMG"
+    # -F: force-create on a regular file. -d: populate from a host directory at
+    # format time. -L katana-chain: stable label for debug; the guest mounts by
+    # device path, not label. -E no_copy_xattrs: keep deterministic content
+    # regardless of the host's xattr config.
+    mkfs.ext2 -q -F -d "$CHAIN_DIR" -L katana-chain -E no_copy_xattrs "$CHAIN_IMG" \
+        || { echo "Error: mkfs.ext2 failed to pack $CHAIN_DIR into $CHAIN_IMG"; exit 1; }
+
+    # Attach as a read-only virtio-blk device. The guest sees it at /dev/vda
+    # and mounts it read-only at $KATANA_CHAIN_DIR.
+    CHAIN_DRIVE_OPTS=(
+        -drive "file=$CHAIN_IMG,format=raw,if=none,id=chaincfg,readonly=on"
+        -device 'virtio-blk-pci,drive=chaincfg,serial=katana-chain'
+    )
+fi
+
 show_serial_tail() {
     echo ""
     echo "=== Serial output (last 80 lines) ==="
@@ -261,6 +427,27 @@ cleanup() {
     echo "=== Cleanup ==="
 
     if [[ -n "$QEMU_PID" ]] && kill -0 "$QEMU_PID" 2>/dev/null; then
+        # Prefer a graceful guest shutdown over killing QEMU: the `stop`
+        # control command runs the guest's teardown (katana TERM, sync,
+        # unmount, luksClose, poweroff), so writes still in the guest page
+        # cache reach the sealed data disk. Killing QEMU is a power cut —
+        # crash-safe for the LUKS/dm-integrity layers but not for database
+        # state above them. Falls through to the kill path if the guest
+        # doesn't answer (wedged, or an old initrd without `stop`).
+        if [[ -S "$CONTROL_SOCKET" ]] && command -v socat >/dev/null 2>&1; then
+            echo "Requesting graceful guest shutdown..."
+            { printf 'stop\n'; sleep 2; } | socat -t 2 -T 4 - UNIX-CONNECT:"$CONTROL_SOCKET" >/dev/null 2>&1 || true
+            for _ in $(seq 1 30); do
+                if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+                    echo "Guest powered off gracefully."
+                    break
+                fi
+                sleep 1
+            done
+        fi
+    fi
+
+    if [[ -n "$QEMU_PID" ]] && kill -0 "$QEMU_PID" 2>/dev/null; then
         echo "Stopping QEMU (PID $QEMU_PID)..."
         kill "$QEMU_PID" 2>/dev/null || true
         for _ in $(seq 1 10); do
@@ -277,6 +464,8 @@ cleanup() {
     fi
 
     [[ -f "$SERIAL_LOG" ]] && rm -f "$SERIAL_LOG"
+    [[ -n "${KATANA_ARGS_FILE:-}" && -f "$KATANA_ARGS_FILE" ]] && rm -f "$KATANA_ARGS_FILE"
+    [[ -n "${CHAIN_IMG:-}" && -f "$CHAIN_IMG" ]] && rm -f "$CHAIN_IMG"
     [[ -S "$CONTROL_SOCKET" ]] && rm -f "$CONTROL_SOCKET"
     # NOTE: $DISK_IMAGE is persistent — not cleaned up.
 
@@ -348,9 +537,12 @@ fi
 
 # Build the effective measured kernel command line. Adding the UUID produces
 # a different launch measurement from the unsealed boot; verifiers pin the
-# exact variant they expect.
+# exact variant they expect. The sealed cmdline format is defined in
+# sealed-cmdline.sh — shared with the release workflow and verify-build.sh
+# so the measurement is reproducible byte-for-byte.
 if [[ -n "$LUKS_UUID" ]]; then
-    KERNEL_CMDLINE="${KERNEL_CMDLINE} KATANA_EXPECTED_LUKS_UUID=${LUKS_UUID}"
+    . "${SCRIPT_DIR}/scripts/sealed-cmdline.sh"
+    KERNEL_CMDLINE="$(build_sealed_cmdline "$LUKS_UUID")"
 fi
 
 echo ""
@@ -364,6 +556,12 @@ echo "  vCPUs:          $VCPU_COUNT"
 echo "  Memory:         $MEMORY"
 echo "  Serial:         $SERIAL_LOG"
 echo "  Control socket: $CONTROL_SOCKET"
+echo "  Katana args:    $KATANA_ARGS_CSV (via fw_cfg, unmeasured)"
+if [[ -n "$CHAIN_DIR" ]]; then
+    echo "  Chain dir:      $CHAIN_DIR -> $CHAIN_IMG (${CHAIN_IMG_MB}M ext2, ro virtio-blk, unmeasured)"
+else
+    echo "  Chain dir:      <none>"
+fi
 echo "  RPC:            localhost:$HOST_RPC_PORT -> VM:$KATANA_RPC_PORT"
 echo ""
 echo "To compute expected launch measurement:"
@@ -388,6 +586,8 @@ qemu-system-x86_64 \
     -device virtio-serial-pci,id=virtio-serial0 \
     -chardev socket,id=katanactl,path="$CONTROL_SOCKET",server=on,wait=off \
     -device virtserialport,chardev=katanactl,name="$CONTROL_PORT_NAME" \
+    "${FW_CFG_OPTS[@]}" \
+    "${CHAIN_DRIVE_OPTS[@]}" \
     -device virtio-scsi-pci,id=scsi0 \
     -drive file="$DISK_IMAGE",format=raw,if=none,id=disk0,cache=none \
     -device scsi-hd,drive=disk0,bus=scsi0.0 \
@@ -463,7 +663,8 @@ if [[ "$AUTO_START_KATANA" -eq 1 ]]; then
 
     echo ""
     echo "Sending async Katana start command..."
-    START_RESPONSE="$(send_control_command "start $KATANA_ARGS_CSV" || true)"
+    # Bare `start` — launch config was already delivered via fw_cfg.
+    START_RESPONSE="$(send_control_command "start" || true)"
     if [[ -z "$START_RESPONSE" ]]; then
         echo "Error: No response from guest control channel"
         show_serial_tail
@@ -509,9 +710,11 @@ if [[ "$AUTO_START_KATANA" -eq 1 ]]; then
 else
     echo ""
     echo "Katana auto-start disabled (--no-start)."
-    echo "Use the control socket to send commands manually:"
-    echo "  printf 'start $KATANA_ARGS_CSV\n' | socat - UNIX-CONNECT:$CONTROL_SOCKET"
+    echo "Use the control socket to send commands manually (launch config was"
+    echo "already delivered via fw_cfg; start takes no arguments):"
+    echo "  printf 'start\n' | socat - UNIX-CONNECT:$CONTROL_SOCKET"
     echo "  printf 'status\n' | socat - UNIX-CONNECT:$CONTROL_SOCKET"
+    echo "  printf 'stop\n'   | socat - UNIX-CONNECT:$CONTROL_SOCKET   # graceful shutdown"
 fi
 
 echo ""

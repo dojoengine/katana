@@ -562,6 +562,7 @@ impl SequencerNodeArgs {
             settlement: settlement_cfg,
             interval: self.messaging.interval,
             from_block: self.messaging.from_block.unwrap_or(deployment_block),
+            force_refetch: self.messaging.force_refetch,
             confirmation_depth: 0,
         }))
     }

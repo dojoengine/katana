@@ -7,6 +7,7 @@ use katana_primitives::block::{BlockIdOrTag, BlockNumber, ConfirmedBlockIdOrTag}
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, StorageKey};
 use katana_primitives::transaction::TxHash;
+use katana_primitives::B256;
 use katana_rpc_types::event::EventFilterWithPage;
 use katana_rpc_types::trie::ContractStorageKeys;
 use katana_rpc_types::FunctionCall;
@@ -77,6 +78,7 @@ const GET_BLOCK_WITH_RECEIPTS: &str = "starknet_getBlockWithReceipts";
 const GET_STATE_UPDATE: &str = "starknet_getStateUpdate";
 const GET_STORAGE_AT: &str = "starknet_getStorageAt";
 const GET_TRANSACTION_STATUS: &str = "starknet_getTransactionStatus";
+const GET_MESSAGES_STATUS: &str = "starknet_getMessagesStatus";
 const GET_TRANSACTION_BY_HASH: &str = "starknet_getTransactionByHash";
 const GET_TRANSACTION_BY_BLOCK_ID_AND_INDEX: &str = "starknet_getTransactionByBlockIdAndIndex";
 const GET_TRANSACTION_RECEIPT: &str = "starknet_getTransactionReceipt";
@@ -129,6 +131,10 @@ impl Client {
 
     pub async fn get_transaction_status(&self, transaction_hash: TxHash) -> Result<Value> {
         self.send_request(GET_TRANSACTION_STATUS, rpc_params!(transaction_hash)).await
+    }
+
+    pub async fn get_messages_status(&self, transaction_hash: B256) -> Result<Value> {
+        self.send_request(GET_MESSAGES_STATUS, rpc_params!(transaction_hash)).await
     }
 
     pub async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> Result<Value> {
@@ -260,10 +266,15 @@ impl Client {
 ////////////////////////////////////////////////////////////////////////////////
 
 const NODE_GET_INFO: &str = "node_getInfo";
+const NODE_GET_CONFIG: &str = "node_getConfig";
 
 impl Client {
     pub async fn node_get_info(&self) -> Result<Value> {
         self.send_request(NODE_GET_INFO, rpc_params!()).await
+    }
+
+    pub async fn node_get_config(&self) -> Result<Value> {
+        self.send_request(NODE_GET_CONFIG, rpc_params!()).await
     }
 }
 

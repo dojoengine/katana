@@ -336,7 +336,9 @@ where
 
         if config.rpc.apis.contains(&RpcModuleKind::Node) {
             let info = NodeInfo::from_parts(&config.build_info, backend.chain_spec.as_ref());
-            rpc_modules.merge(NodeApiServer::into_rpc(NodeApi::new(info)))?;
+            let node_config =
+                crate::config::dump::node_config_dump(&config, backend.chain_spec.as_ref());
+            rpc_modules.merge(NodeApiServer::into_rpc(NodeApi::new(info, Some(node_config))))?;
         }
 
         // --- build cartridge api (plus middleware)
@@ -575,6 +577,7 @@ where
             )
             .interval(cfg.interval)
             .from_block(cfg.from_block)
+            .force_refetch(cfg.force_refetch)
             .confirmation_depth(cfg.confirmation_depth)
         });
 

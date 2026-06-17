@@ -1,0 +1,468 @@
+name: amdsev-release
+
+# Builds the Katana TEE VM image (OVMF + kernel + initrd, with a katana
+# binary embedded in the initrd) from misc/AMDSEV, computes the
+# sealed-storage SEV-SNP launch measurement, and publishes a `katana-v*`
+# GitHub Release with the artifacts.
+#
+# Trigger contract
+# ----------------
+# 1. `release: published` (primary) — fires for every katana release. The
+#    job builds a VM image bundling that release's katana binary and
+#    publishes `katana-<release tag>` (e.g. katana-v1.9.0). The VM is built
+#    from the *release tag's* commit, so the misc/AMDSEV tooling and the
+#    embedded binary are a consistent, reproducible pair. Releases whose tag
+#    already starts with `katana-v` (our own VM releases) are skipped by the
+#    job guard below — and GITHUB_TOKEN-created releases do not re-trigger
+#    workflows anyway, so there is no release→release loop.
+# 2. `push` of a `katana-v*` tag — manual pipeline re-release against the
+#    same katana version (katana-v1.9.0-pipeline.2). The katana version is
+#    parsed from the tag (strip `katana-` and any `-pipeline.N`).
+# 3. `workflow_dispatch` — dry run: builds and uploads workflow artifacts
+#    but creates no GitHub Release.
+#
+# After publishing, the hardware end-to-end test (amdsev-snp-e2e) is
+# dispatched against the new VM release (GITHUB_TOKEN cannot re-trigger it
+# via the release event, but workflow_dispatch from GITHUB_TOKEN is allowed).
+#
+# Runner
+# ------
+# Runs on stock `ubuntu-latest`. None of the build steps require AMD SEV-SNP
+# hardware — OVMF is cross-compiled, kernel comes from a Ubuntu .deb,
+# snp-digest is pure userspace hashing. SEV-SNP hardware is only needed at
+# VM-boot time, which is outside this workflow.
+
+on:
+  release:
+    types: [published]
+  push:
+    tags: ['katana-v*']
+  workflow_dispatch:
+    inputs:
+      katana_version:
+        description: 'Katana release tag to bundle (used only for workflow_dispatch; e.g. v1.0.0, or "latest")'
+        required: true
+        default: 'latest'
+      force_rebuild:
+        description: 'Rebuild OVMF and kernel even when the previous release used identical pins'
+        required: false
+        type: boolean
+        default: false
+
+defaults:
+  run:
+    working-directory: misc/AMDSEV
+
+jobs:
+  build:
+    # Skip our own VM releases (the release event would otherwise loop on
+    # the katana-v* release this job creates). Defense in depth: a release
+    # created with GITHUB_TOKEN does not re-trigger workflows regardless.
+    if: github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'katana-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # On a katana release, build from that release's commit so the
+          # misc/AMDSEV tooling matches the embedded binary. Empty ref (push
+          # / workflow_dispatch) checks out the triggering ref as usual.
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
+      - name: Resolve release context
+        id: ctx
+        run: |
+          case "${{ github.event_name }}" in
+            release)
+              # The katana release tag IS the katana version.
+              katana_ver="${{ github.event.release.tag_name }}"
+              vm_tag="katana-${katana_ver}"
+              publish=1
+              prerelease="${{ github.event.release.prerelease }}"
+              ;;
+            push)
+              # Manual katana-v* tag push (pipeline re-release).
+              vm_tag="${GITHUB_REF_NAME}"
+              katana_ver="${vm_tag#katana-}"
+              katana_ver="${katana_ver%-pipeline.*}"
+              publish=1
+              prerelease=false
+              ;;
+            *)
+              # workflow_dispatch — dry run, no release published.
+              katana_ver="${{ github.event.inputs.katana_version }}"
+              [ -z "$katana_ver" ] && katana_ver="latest"
+              vm_tag=""
+              publish=0
+              prerelease=false
+              ;;
+          esac
+          {
+            echo "katana_ver=$katana_ver"
+            echo "vm_tag=$vm_tag"
+            echo "publish=$publish"
+            echo "prerelease=$prerelease"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          echo "event=${{ github.event_name }} katana_ver=$katana_ver vm_tag=${vm_tag:-<none>} publish=$publish"
+
+      - name: Pin SOURCE_DATE_EPOCH to HEAD commit time
+        # Without this, build.sh falls back to `date +%s` and embeds the
+        # wall-clock build time into the initrd cpio mtimes — producing
+        # different bytes (and a different launch measurement) on every run
+        # of the same source. Anchoring to the commit time makes the published
+        # measurement a function of (commit + katana version + LUKS_UUID),
+        # fully reproducible by anyone rebuilding from the same ref. (OVMF
+        # derives its own epoch from the pinned OVMF commit — see
+        # scripts/build-ovmf.sh.)
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          # nasm, iasl, uuid-dev: EDK2 / OVMF build toolchain
+          # musl-tools:           linker for the snp-derivekey musl cross-compile
+          # zstd, cpio:           initrd packaging
+          sudo apt-get install -y --no-install-recommends \
+            nasm iasl uuid-dev \
+            musl-tools \
+            zstd cpio
+
+      - name: Install Rust musl target
+        # Run inside snp-tools so its rust-toolchain.toml selects the same
+        # toolchain build.sh will use for the snp-derivekey build.
+        working-directory: misc/AMDSEV/snp-tools
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Download katana linux binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
+        run: |
+          mkdir -p .katana-dl
+          # On a release trigger this downloads from the release that fired
+          # the workflow ($KATANA_VER == the release tag). katana releases
+          # ship several products per tag: katana_*, paymaster-service_*,
+          # vrf-server_* — each with portable (_linux_amd64.tar.gz) and
+          # CPU-tuned (_linux_amd64_native.tar.gz) variants. The `katana_`
+          # prefix selects the product; the anchored suffix selects the
+          # portable build over `_native`. A looser `*_linux_amd64.tar.gz`
+          # matches three tarballs and breaks the single-file `tar -xzf`.
+          if [ "$KATANA_VER" = "latest" ]; then
+            # workflow_dispatch convenience: no positional tag → latest.
+            gh release download \
+              --repo dojoengine/katana \
+              --pattern 'katana_*_linux_amd64.tar.gz' \
+              --dir .katana-dl/
+          else
+            gh release download "$KATANA_VER" \
+              --repo dojoengine/katana \
+              --pattern 'katana_*_linux_amd64.tar.gz' \
+              --dir .katana-dl/
+          fi
+          tar -xzf .katana-dl/*.tar.gz -C .katana-dl/
+          KATANA_BIN="$(find "$PWD/.katana-dl" -type f -name katana -perm -u+x | head -n1)"
+          if [ -z "$KATANA_BIN" ]; then
+            echo "katana binary not found in downloaded asset" >&2
+            exit 1
+          fi
+          echo "KATANA_BIN=$KATANA_BIN" >> "$GITHUB_ENV"
+
+      - name: Reuse OVMF/kernel from previous release when pins are unchanged
+        # Only the initrd actually changes between releases when the OVMF
+        # commit and kernel pins are untouched. Reuse saves the ~10-minute
+        # EDK2 build and shields the measurement from toolchain drift on
+        # ubuntu-latest: verifiers see only the initrd hash move when only
+        # katana moved. Every reused artifact is verified against the
+        # SHA-256 recorded in the previous release's build-info.txt; any
+        # mismatch or missing data falls back to a full rebuild of that
+        # component. Only katana-v* releases are considered — katana's own
+        # vX.Y.Z releases carry no VM build-info.
+        if: github.event.inputs.force_rebuild != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VM_TAG: ${{ steps.ctx.outputs.vm_tag }}
+        run: |
+          . ./build-config
+
+          mkdir -p output/qemu prev-release
+          REUSE_OVMF=0
+          REUSE_KERNEL=0
+          PREV_TAG=""
+
+          # Latest published VM release (katana-v* namespace only), excluding
+          # the tag being built (relevant on re-runs after the release object
+          # already exists). VM_TAG is empty on dry runs, which excludes
+          # nothing.
+          PREV_TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 50 --json tagName --jq '.[].tagName' \
+            | grep '^katana-v' | grep -vFx "${VM_TAG}" | head -n1 || true)"
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous VM release found — building all components."
+          elif ! gh release download "$PREV_TAG" --repo "$GITHUB_REPOSITORY" \
+                 --pattern "build-info-${PREV_TAG}.txt" --output prev-release/build-info.txt; then
+            echo "Previous release $PREV_TAG has no build-info — building all components."
+          else
+            echo "Previous release: $PREV_TAG"
+            info_prev() {
+              awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' prev-release/build-info.txt
+            }
+
+            WANT_OVMF=0
+            WANT_KERNEL=0
+            # OVMF reuse additionally requires the previous artifact to carry
+            # OVMF_SOURCE_DATE_EPOCH — i.e. to have been built under the
+            # "epoch = OVMF commit time" rule (build-ovmf.sh). Artifacts from
+            # before that rule were built with their release's epoch and are
+            # not reproducible from a tag checkout, so they get rebuilt once.
+            # Within the rule, an OVMF_COMMIT match implies an epoch match,
+            # because the epoch is a pure function of the commit.
+            [ "$(info_prev OVMF_COMMIT)" = "$OVMF_COMMIT" ] \
+              && [ -n "$(info_prev OVMF_SHA256)" ] \
+              && [ -n "$(info_prev OVMF_SOURCE_DATE_EPOCH)" ] && WANT_OVMF=1
+            [ "$(info_prev KERNEL_VERSION)" = "$KERNEL_VERSION" ] \
+              && [ "$(info_prev KERNEL_PKG_SHA256)" = "$KERNEL_PKG_SHA256" ] \
+              && [ -n "$(info_prev KERNEL_SHA256)" ] && WANT_KERNEL=1
+
+            if [ "$WANT_OVMF" -eq 1 ] || [ "$WANT_KERNEL" -eq 1 ]; then
+              gh release download "$PREV_TAG" --repo "$GITHUB_REPOSITORY" \
+                --pattern "katana-tee-vm-${PREV_TAG}.tar.gz" --dir prev-release/
+              tar -xzf "prev-release/katana-tee-vm-${PREV_TAG}.tar.gz" -C prev-release/
+            fi
+
+            if [ "$WANT_OVMF" -eq 1 ] && [ -f prev-release/OVMF.fd ]; then
+              ACTUAL="$(sha256sum prev-release/OVMF.fd | awk '{print $1}')"
+              if [ "$ACTUAL" = "$(info_prev OVMF_SHA256)" ]; then
+                cp prev-release/OVMF.fd output/qemu/OVMF.fd
+                REUSE_OVMF=1
+                echo "Reusing OVMF.fd from $PREV_TAG (commit $OVMF_COMMIT, sha256 $ACTUAL)"
+              else
+                echo "::warning::OVMF.fd from $PREV_TAG does not match its build-info sha256 — rebuilding OVMF"
+              fi
+            fi
+
+            if [ "$WANT_KERNEL" -eq 1 ] && [ -f prev-release/vmlinuz ]; then
+              ACTUAL="$(sha256sum prev-release/vmlinuz | awk '{print $1}')"
+              if [ "$ACTUAL" = "$(info_prev KERNEL_SHA256)" ]; then
+                cp prev-release/vmlinuz output/qemu/vmlinuz
+                REUSE_KERNEL=1
+                echo "Reusing vmlinuz from $PREV_TAG (version $KERNEL_VERSION, sha256 $ACTUAL)"
+              else
+                echo "::warning::vmlinuz from $PREV_TAG does not match its build-info sha256 — rebuilding kernel"
+              fi
+            fi
+
+            # Seed build-info with the previous release's values: build.sh
+            # merges with an existing build-info.txt and only overwrites
+            # fields for components it actually builds, so the reused
+            # components keep their recorded provenance (including the
+            # OVMF_* pins and output sha256s).
+            if [ "$REUSE_OVMF" -eq 1 ] || [ "$REUSE_KERNEL" -eq 1 ]; then
+              cp prev-release/build-info.txt output/qemu/build-info.txt
+            fi
+          fi
+
+          rm -rf prev-release
+          {
+            echo "REUSE_OVMF=$REUSE_OVMF"
+            echo "REUSE_KERNEL=$REUSE_KERNEL"
+            echo "PREV_RELEASE_TAG=$PREV_TAG"
+          } >> "$GITHUB_ENV"
+
+      - name: Build VM image
+        run: |
+          COMPONENTS="initrd"
+          [ "${REUSE_KERNEL:-0}" -eq 1 ] || COMPONENTS="kernel $COMPONENTS"
+          [ "${REUSE_OVMF:-0}" -eq 1 ] || COMPONENTS="ovmf $COMPONENTS"
+          echo "Building components: $COMPONENTS"
+          # shellcheck disable=SC2086
+          ./build.sh --katana "$KATANA_BIN" $COMPONENTS
+
+          # Record artifact reuse in the build provenance (flows into the
+          # release notes via the embedded build-info.txt).
+          if [ "${REUSE_OVMF:-0}" -eq 1 ]; then
+            echo "OVMF_REUSED_FROM=$PREV_RELEASE_TAG" >> output/qemu/build-info.txt
+          fi
+          if [ "${REUSE_KERNEL:-0}" -eq 1 ]; then
+            echo "KERNEL_REUSED_FROM=$PREV_RELEASE_TAG" >> output/qemu/build-info.txt
+          fi
+
+      - name: Build snp-tools
+        # snp-tools binaries are NOT shipped as release artifacts (separate
+        # release stream). We build them here only so the next step can run
+        # snp-digest to compute the published launch measurement.
+        # snp-tools/.cargo/config.toml pins build.target, so the binary lands
+        # under target/<triple>/release; locate it explicitly rather than
+        # hardcoding the triple here.
+        working-directory: misc/AMDSEV/snp-tools
+        run: |
+          cargo build --release
+          SNP_DIGEST="$(find target -type f -name snp-digest -perm -u+x | head -n1)"
+          if [ -z "$SNP_DIGEST" ]; then
+            echo "snp-digest binary not found after build" >&2
+            exit 1
+          fi
+          echo "SNP_DIGEST=$PWD/$SNP_DIGEST" >> "$GITHUB_ENV"
+
+      - name: Compute sealed launch measurement
+        run: |
+          . ./build-config
+          . ./scripts/sealed-cmdline.sh
+          LUKS_UUID="$KATANA_CANONICAL_LUKS_UUID"
+          # Validate canonical UUID format (matches start-vm.sh).
+          if [[ ! "$LUKS_UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "KATANA_CANONICAL_LUKS_UUID is not a canonical lowercase UUID: $LUKS_UUID" >&2
+            exit 1
+          fi
+          CMDLINE="$(build_sealed_cmdline "$LUKS_UUID")"
+          DIGEST=$("$SNP_DIGEST" \
+            --ovmf=output/qemu/OVMF.fd \
+            --kernel=output/qemu/vmlinuz \
+            --initrd=output/qemu/initrd.img \
+            --append="$CMDLINE" \
+            --vcpus=1 --cpu=epyc-v4 --vmm=qemu --guest-features=0x1)
+          # Validate digest is a 96-char lowercase hex string.
+          # SEV-SNP launch measurement is SHA-384 (48 bytes / 96 hex chars).
+          if [[ ! "$DIGEST" =~ ^[0-9a-f]{96}$ ]]; then
+            echo "snp-digest produced unexpected output: $DIGEST" >&2
+            exit 1
+          fi
+          echo "Launch measurement: $DIGEST"
+          echo "$DIGEST" > output/qemu/launch-measurement.txt
+          {
+            echo ""
+            echo "# Sealed launch measurement (canonical project-wide LUKS_UUID from build-config)"
+            echo "LUKS_UUID=${LUKS_UUID}"
+            echo "LAUNCH_MEASUREMENT=${DIGEST}"
+          } >> output/qemu/build-info.txt
+
+      - name: Stage release artifacts
+        env:
+          VM_TAG: ${{ steps.ctx.outputs.vm_tag }}
+        run: |
+          mkdir -p release
+          tag="${VM_TAG:-dev}"
+          tar -czf "release/katana-tee-vm-${tag}.tar.gz" -C output/qemu .
+          cp output/qemu/build-info.txt "release/build-info-${tag}.txt"
+          cp output/qemu/launch-measurement.txt "release/launch-measurement-${tag}.txt"
+
+      - name: Generate release notes
+        if: steps.ctx.outputs.publish == '1'
+        env:
+          VM_TAG: ${{ steps.ctx.outputs.vm_tag }}
+          KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
+        run: |
+          # VM_TAG/KATANA_VER come from the env: block above; shellcheck
+          # cannot see it and reads the lowercase alias as a misspelling.
+          tag="${VM_TAG}"
+          # shellcheck disable=SC2153
+          katana_ver="${KATANA_VER}"
+          # Pull values from build-info.txt for the human-readable summary.
+          info_get() {
+            awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' output/qemu/build-info.txt
+          }
+          OVMF_SHA="$(info_get OVMF_SHA256)"
+          KERNEL_SHA="$(info_get KERNEL_SHA256)"
+          INITRD_SHA="$(info_get INITRD_SHA256)"
+          KATANA_SHA="$(info_get KATANA_BINARY_SHA256)"
+          LUKS_UUID="$(info_get LUKS_UUID)"
+          LAUNCH_MEASUREMENT="$(info_get LAUNCH_MEASUREMENT)"
+          OVMF_GIT_URL="$(info_get OVMF_GIT_URL)"
+          OVMF_BRANCH="$(info_get OVMF_BRANCH)"
+          OVMF_COMMIT="$(info_get OVMF_COMMIT)"
+          KERNEL_VERSION="$(info_get KERNEL_VERSION)"
+          {
+            echo "# Katana TEE VM ${tag}"
+            echo
+            echo "Sealed-mode SEV-SNP confidential VM image bundling Katana **${katana_ver}**."
+            echo
+            echo "## Sealed launch measurement (SHA-384)"
+            echo
+            echo '```'
+            echo "LUKS_UUID            = ${LUKS_UUID}"
+            echo "LAUNCH_MEASUREMENT   = ${LAUNCH_MEASUREMENT}"
+            echo '```'
+            echo
+            echo "This is the launch measurement that attestation verifiers should compare"
+            echo "against. It is bound to the canonical project-wide \`LUKS_UUID\` from"
+            echo "\`misc/AMDSEV/build-config\`. Operators running with a different LUKS_UUID"
+            echo "must recompute their expected measurement via \`./verify-build.sh\` or"
+            echo "\`snp-tools/snp-digest\`."
+            echo
+            echo "## Component checksums (SHA-256)"
+            echo
+            echo "| Artifact | SHA-256 |"
+            echo "|---|---|"
+            echo "| \`OVMF.fd\` (guest BIOS firmware) | \`${OVMF_SHA}\` |"
+            echo "| \`vmlinuz\` (kernel)              | \`${KERNEL_SHA}\` |"
+            echo "| \`initrd.img\`                    | \`${INITRD_SHA}\` |"
+            echo "| \`katana\`                        | \`${KATANA_SHA}\` |"
+            echo
+            echo "## Pinned upstream sources"
+            echo
+            echo "| Component | Source | Pin |"
+            echo "|---|---|---|"
+            echo "| OVMF (guest BIOS) | [\`${OVMF_GIT_URL}\`](${OVMF_GIT_URL%.git}/tree/${OVMF_COMMIT}) (branch \`${OVMF_BRANCH}\`) | \`${OVMF_COMMIT}\` |"
+            echo "| Linux kernel      | Ubuntu \`linux-image-unsigned-${KERNEL_VERSION}-generic\` .deb | sha256 \`$(info_get KERNEL_PKG_SHA256)\` |"
+            echo "| Katana            | [\`dojoengine/katana\`](https://github.com/dojoengine/katana/releases/tag/${katana_ver}) | \`${katana_ver}\` |"
+            echo
+            echo "## Verify before booting"
+            echo
+            echo '```sh'
+            echo "mkdir -p /tmp/katana-tee-vm && tar xzf katana-tee-vm-${tag}.tar.gz -C /tmp/katana-tee-vm"
+            echo "misc/AMDSEV/verify-build.sh /tmp/katana-tee-vm"
+            echo '```'
+            echo
+            echo "The verifier asserts every sha256 above and re-derives the launch measurement"
+            echo "from \`OVMF.fd\` + \`vmlinuz\` + \`initrd.img\` + the canonical LUKS_UUID. Exits"
+            echo "non-zero on any mismatch. For full from-source reproduction, see"
+            echo "\`misc/AMDSEV/reproduce-release.sh\`."
+            echo
+            echo "## Full build provenance"
+            echo
+            echo "<details>"
+            echo "<summary><code>build-info.txt</code></summary>"
+            echo
+            echo '```'
+            cat output/qemu/build-info.txt
+            echo '```'
+            echo
+            echo "</details>"
+          } > release/release-notes.md
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: katana-tee-vm
+          path: misc/AMDSEV/release/
+
+      - name: Create GitHub Release
+        if: steps.ctx.outputs.publish == '1'
+        uses: softprops/action-gh-release@v2
+        with:
+          # On a release trigger the katana-v* tag does not exist yet;
+          # action-gh-release creates it at the release commit. On a
+          # katana-v* tag push it already exists and target_commitish is
+          # ignored. prerelease mirrors the upstream katana release.
+          tag_name: ${{ steps.ctx.outputs.vm_tag }}
+          target_commitish: ${{ steps.ctx.outputs.sha }}
+          prerelease: ${{ steps.ctx.outputs.prerelease }}
+          body_path: misc/AMDSEV/release/release-notes.md
+          files: |
+            misc/AMDSEV/release/katana-tee-vm-*.tar.gz
+            misc/AMDSEV/release/build-info-*.txt
+            misc/AMDSEV/release/launch-measurement-*.txt
+
+      - name: Trigger hardware E2E test
+        # The VM release was created with GITHUB_TOKEN, which does not
+        # re-trigger workflows via the release event — so dispatch the
+        # hardware test explicitly (workflow_dispatch IS permitted from
+        # GITHUB_TOKEN). amdsev-snp-e2e checks out the VM tag, which now
+        # exists.
+        if: steps.ctx.outputs.publish == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VM_TAG: ${{ steps.ctx.outputs.vm_tag }}
+        run: gh workflow run amdsev-snp-e2e.yml -f tag="$VM_TAG"

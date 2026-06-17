@@ -1,0 +1,7 @@
+# Build outputs
+output/
+snp-tools/target/
+
+# Editor / OS
+.DS_Store
+*.swp

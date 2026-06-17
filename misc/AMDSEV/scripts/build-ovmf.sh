@@ -119,9 +119,24 @@ pushd "$OVMF_DIR" >/dev/null
         exit 1
     fi
     run_cmd git submodule update --init --recursive
+
+    # Reproducibility: pin SOURCE_DATE_EPOCH for the OVMF build to the
+    # checked-out OVMF commit's own timestamp, overriding whatever epoch the
+    # caller exported (build.sh exports the *release* epoch — the repo HEAD
+    # commit time — which differs per release). EDK2's BaseTools embed
+    # SOURCE_DATE_EPOCH-derived timestamps in the firmware image, so with
+    # this override OVMF.fd becomes a pure function of (OVMF commit,
+    # toolchain): any checkout of any release tag rebuilds byte-identical
+    # firmware without needing to know which release originally built it.
+    # The value is recorded next to the artifact (and in build-info.txt via
+    # build.sh) so verifiers can see exactly what was used.
+    OVMF_SOURCE_DATE_EPOCH="$(git log -1 --format=%ct HEAD)"
+    export SOURCE_DATE_EPOCH="$OVMF_SOURCE_DATE_EPOCH"
+    echo "SOURCE_DATE_EPOCH for OVMF build pinned to OVMF commit time: $SOURCE_DATE_EPOCH"
+
     run_cmd touch OvmfPkg/AmdSev/Grub/grub.efi # https://github.com/AMDESE/ovmf/issues/6#issuecomment-2843109558
     run_cmd make -C BaseTools clean
-    run_cmd make -C BaseTools -j $(getconf _NPROCESSORS_ONLN)
+    run_cmd make -C BaseTools -j "$(getconf _NPROCESSORS_ONLN)"
     # Temporarily disable strict mode for edksetup.sh (has unbound variables)
     set +u
     . ./edksetup.sh --reconfig
@@ -131,8 +146,11 @@ pushd "$OVMF_DIR" >/dev/null
     mkdir -p "$DEST"
     run_cmd cp -f Build/AmdSev/DEBUG_$GCCVERS/FV/OVMF.fd $DEST
 
-    COMMIT=$(git log --format="%h" -1 HEAD)
-    echo "$COMMIT" > "${SCRIPT_DIR}/source-commit.ovmf"
+    # Record the epoch the firmware was actually built with; build.sh folds
+    # this into build-info.txt as OVMF_SOURCE_DATE_EPOCH.
+    printf '%s\n' "$OVMF_SOURCE_DATE_EPOCH" > "$DEST/ovmf-source-date-epoch.txt"
+
+    COMMIT=$(git log --format="%H" -1 HEAD)
 popd >/dev/null
 
 echo ""
