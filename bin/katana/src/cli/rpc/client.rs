@@ -291,3 +291,15 @@ impl Client {
         self.send_request(TEE_GET_EVENT_PROOF, rpc_params!(block_number, event_index)).await
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Katana JSON-RPC API
+////////////////////////////////////////////////////////////////////////////////
+
+const KATANA_SETTLEMENT_STATUS: &str = "katana_settlementStatus";
+
+impl Client {
+    pub async fn katana_settlement_status(&self) -> Result<Value> {
+        self.send_request(KATANA_SETTLEMENT_STATUS, rpc_params!()).await
+    }
+}
