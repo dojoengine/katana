@@ -55,8 +55,13 @@ pub struct MessagingConfig {
     /// new blocks on the settlement chain.
     pub interval: u64,
     /// The block on settlement chain from where Katana will start fetching messages.
-    /// Used only on first start. On restart, the persisted checkpoint takes precedence.
+    /// Used only on first start. On restart, the persisted checkpoint takes precedence
+    /// unless [`force_refetch`](Self::force_refetch) is set.
     pub from_block: u64,
+    /// Force fetching from [`from_block`](Self::from_block), ignoring any persisted
+    /// checkpoint. Use to re-fetch all messages from the starting block on restart.
+    #[serde(default)]
+    pub force_refetch: bool,
     /// Number of confirmations to wait before considering a settlement chain block safe
     /// to gather messages from. The messenger only inspects blocks at or below
     /// `latest_block - confirmation_depth`.

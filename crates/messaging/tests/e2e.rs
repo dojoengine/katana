@@ -70,6 +70,7 @@ async fn test_messaging() {
         },
         interval: 2,
         from_block: 0,
+        force_refetch: false,
         confirmation_depth: 0,
     };
 

@@ -552,6 +552,7 @@ where
             )
             .interval(cfg.interval)
             .from_block(cfg.from_block)
+            .force_refetch(cfg.force_refetch)
             .confirmation_depth(cfg.confirmation_depth)
         });
 

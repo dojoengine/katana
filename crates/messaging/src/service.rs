@@ -48,6 +48,7 @@ pub struct MessagingService<P, Pl = TxPool> {
     settlement: SettlementChainConfig,
     interval: u64,
     from_block: u64,
+    force_refetch: bool,
     confirmation_depth: u64,
 }
 
@@ -69,6 +70,7 @@ impl<P, Pl> MessagingService<P, Pl> {
             settlement,
             interval: DEFAULT_INTERVAL,
             from_block: 0,
+            force_refetch: false,
             confirmation_depth: 0,
         }
     }
@@ -84,6 +86,14 @@ impl<P, Pl> MessagingService<P, Pl> {
     /// run (no persisted checkpoint). Default is `0`.
     pub fn from_block(mut self, from_block: u64) -> Self {
         self.from_block = from_block;
+        self
+    }
+
+    /// Force fetching from [`from_block`](Self::from_block) and ignore any persisted
+    /// checkpoint. Use to re-fetch all messages from the starting block. Default is
+    /// `false` (resume from the persisted checkpoint when present).
+    pub fn force_refetch(mut self, force_refetch: bool) -> Self {
+        self.force_refetch = force_refetch;
         self
     }
 
@@ -108,7 +118,8 @@ where
     /// loop. Returns an error if no settlement chain has been configured via
     /// [`settlement`](Self::settlement).
     pub fn start(&self) -> Result<MessagingServiceHandle, anyhow::Error> {
-        let (from_block, from_tx_index) = resume_cursor(&self.provider, self.from_block)?;
+        let (from_block, from_tx_index) =
+            resume_cursor(&self.provider, self.from_block, self.force_refetch)?;
 
         let trigger = IntervalTrigger::new(self.interval);
 
@@ -240,11 +251,27 @@ where
 ///
 /// If a persisted checkpoint exists, resume from the message immediately after it
 /// (same block, next `tx_index`). Otherwise fall back to `default_from_block`.
-fn resume_cursor<P>(provider: &P, default_from_block: u64) -> Result<(u64, u64), anyhow::Error>
+///
+/// When `force_refetch` is set, the persisted checkpoint is skipped entirely and
+/// gathering starts from `default_from_block`, re-fetching all messages from there.
+fn resume_cursor<P>(
+    provider: &P,
+    default_from_block: u64,
+    force_refetch: bool,
+) -> Result<(u64, u64), anyhow::Error>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::ProviderMut: MessagingCheckpointProvider + MutableProvider,
 {
+    if force_refetch {
+        warn!(
+            target: LOG_TARGET,
+            from_block = default_from_block,
+            "Ignoring persisted messaging checkpoint; re-fetching from starting block."
+        );
+        return Ok((default_from_block, 0));
+    }
+
     let db_tx = provider.provider_mut();
     let cp = db_tx.messaging_checkpoint(CHECKPOINT_ID).context("read messaging checkpoint")?;
     db_tx.commit().context("commit checkpoint read tx")?;
@@ -270,6 +297,7 @@ impl<P: Clone, Pl: Clone> Clone for MessagingService<P, Pl> {
             settlement: self.settlement.clone(),
             interval: self.interval,
             from_block: self.from_block,
+            force_refetch: self.force_refetch,
             confirmation_depth: self.confirmation_depth,
         }
     }
@@ -334,7 +362,7 @@ mod tests {
     fn resume_cursor_falls_back_to_default_from_block_when_no_checkpoint_persisted() {
         let provider = DbProviderFactory::new_in_memory();
 
-        let (from_block, from_tx_index) = resume_cursor(&provider, 42).unwrap();
+        let (from_block, from_tx_index) = resume_cursor(&provider, 42, false).unwrap();
 
         assert_eq!(from_block, 42, "should use the default from_block on fresh start");
         assert_eq!(from_tx_index, 0, "should start from the first tx in the block");
@@ -356,13 +384,33 @@ mod tests {
 
         // The default from_block is intentionally far below the persisted checkpoint —
         // the persisted state must take precedence to avoid re-processing on restart.
-        let (from_block, from_tx_index) = resume_cursor(&provider, 0).unwrap();
+        let (from_block, from_tx_index) = resume_cursor(&provider, 0, false).unwrap();
 
         assert_eq!(from_block, 100, "should resume on the same block as the checkpoint");
         assert_eq!(
             from_tx_index, 6,
             "should resume at tx_index + 1 (the message after the last processed one)"
         );
+    }
+
+    #[test]
+    fn resume_cursor_ignores_persisted_checkpoint_when_force_refetch_is_set() {
+        let provider = DbProviderFactory::new_in_memory();
+
+        // Persist a checkpoint that would normally take precedence over from_block.
+        let db_tx = provider.provider_mut();
+        db_tx
+            .set_messaging_checkpoint(
+                CHECKPOINT_ID,
+                &MessagingCheckpoint { block: 100, tx_index: 5 },
+            )
+            .unwrap();
+        db_tx.commit().unwrap();
+
+        let (from_block, from_tx_index) = resume_cursor(&provider, 42, true).unwrap();
+
+        assert_eq!(from_block, 42, "should ignore the checkpoint and use the default from_block");
+        assert_eq!(from_tx_index, 0, "should re-fetch from the first tx in the block");
     }
 
     /// One pool insert advances both the L1->L2 index AND the checkpoint in a single
