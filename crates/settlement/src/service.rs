@@ -20,6 +20,7 @@ use tracing::{error, info, warn};
 
 use crate::backend::ProvingBackend;
 use crate::piltover::PiltoverClient;
+use crate::status::SettlementStatusHandle;
 use crate::{SettlementConfig, LOG_TARGET};
 
 /// Initial retry delay after a failed settlement attempt.
@@ -39,6 +40,7 @@ pub struct SettlementService<P, N> {
     backend: Arc<dyn ProvingBackend>,
     block_notify: broadcast::Sender<N>,
     config: SettlementConfig,
+    status: SettlementStatusHandle,
 }
 
 impl<P, N> SettlementService<P, N> {
@@ -47,8 +49,9 @@ impl<P, N> SettlementService<P, N> {
         backend: Arc<dyn ProvingBackend>,
         block_notify: broadcast::Sender<N>,
         config: SettlementConfig,
+        status: SettlementStatusHandle,
     ) -> Self {
-        Self { provider, backend, block_notify, config }
+        Self { provider, backend, block_notify, config, status }
     }
 }
 
@@ -74,6 +77,9 @@ where
         );
 
         let cursor = piltover.settled_block().await.context("read on-chain settlement cursor")?;
+        if let Some(settled) = cursor {
+            self.status.set_settled(settled);
+        }
 
         let worker = Worker {
             provider: self.provider.clone(),
@@ -82,6 +88,7 @@ where
             batch_size: self.config.batch_size.max(1) as u64,
             idle_flush_interval: self.config.idle_flush_interval,
             cursor,
+            status: self.status.clone(),
         };
 
         let notify_rx = self.block_notify.subscribe();
@@ -138,6 +145,8 @@ struct Worker<P> {
     idle_flush_interval: tokio::time::Duration,
     /// Last settled block, from Piltover's `get_state()`. `None` = nothing settled yet.
     cursor: Option<BlockNumber>,
+    /// Live status published for the `katana_settlementStatus` RPC.
+    status: SettlementStatusHandle,
 }
 
 /// What the settle loop should do next, given the current durable state.
@@ -214,6 +223,7 @@ where
                                 "Settled block range."
                             );
                             self.cursor = Some(last);
+                            self.status.set_settled(last);
                             idle_deadline = Instant::now() + self.idle_flush_interval;
                             backoff = RETRY_BACKOFF_MIN;
                             consecutive_failures = 0;
@@ -253,6 +263,9 @@ where
                                              error; continuing from it."
                                         );
                                         self.cursor = cursor;
+                                        if let Some(settled) = cursor {
+                                            self.status.set_settled(settled);
+                                        }
                                     }
                                 }
                                 Err(error) => {

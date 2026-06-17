@@ -44,7 +44,7 @@ use katana_provider::{
 };
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
-use katana_rpc_api::katana::KatanaApiServer;
+use katana_rpc_api::katana::{KatanaApiServer, KatanaSettlementApiServer};
 use katana_rpc_api::node::NodeApiServer;
 use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetSubscriptionApiServer};
@@ -60,6 +60,7 @@ use katana_rpc_server::middleware::logger::RpcLoggerLayer;
 use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
 use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
+use katana_rpc_server::settlement::SettlementApi;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 #[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
 use katana_rpc_server::tee::TeeApi;
@@ -67,7 +68,8 @@ use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::node::NodeInfo;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_settlement::{
-    ProverConfig, ProvingBackend, SettlementService, SettlementServiceHandle, TeeBackend, TeeProver,
+    ProverConfig, ProvingBackend, SettlementService, SettlementServiceHandle,
+    SettlementStatusHandle, TeeBackend, TeeProver,
 };
 use katana_stage::Sequencing;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
@@ -257,6 +259,11 @@ where
 
         let mut rpc_modules = RpcModule::new(());
 
+        // Shared status for the `katana_settlementStatus` RPC. Created here so the RPC handler can
+        // hold a clone before the settlement service is built below; it stays at `0`/`0` unless
+        // that service runs and the settle loop updates it.
+        let settlement_status = SettlementStatusHandle::new();
+
         // Allow `POST` when accessing the resource
         let cors = Cors::new()
             .allow_origins(config.rpc.cors_origins.clone())
@@ -314,6 +321,8 @@ where
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
+            let settlement_api = SettlementApi::new(settlement_status.clone(), provider.clone());
+            rpc_modules.merge(KatanaSettlementApiServer::into_rpc(settlement_api))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
@@ -632,6 +641,7 @@ where
                     proving_backend,
                     block_notify.clone(),
                     cfg,
+                    settlement_status.clone(),
                 ))
             }
 

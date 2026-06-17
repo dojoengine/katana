@@ -21,10 +21,12 @@ pub mod backend;
 mod config;
 mod piltover;
 mod service;
+mod status;
 
 pub use backend::tee::{TeeBackend, TeeProver};
 pub use backend::ProvingBackend;
 pub use config::{ProverConfig, SettlementConfig};
 pub use service::{SettlementService, SettlementServiceHandle};
+pub use status::SettlementStatusHandle;
 
 pub(crate) const LOG_TARGET: &str = "settlement";

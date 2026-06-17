@@ -95,6 +95,11 @@ async fn main() -> Result<()> {
         .await?;
     }
 
+    // 5b. The embedded settlement service exposes its progress via `katana_settlementStatus`.
+    //     Assert the RPC reflects the live settler: enabled, TEE prover, cursor caught up to the
+    //     L3 tip, pointed at the real Piltover, no failures.
+    assertions::assert_settlement_status(&l3).await?;
+
     // 6. Backlog drain: drive two blocks back-to-back without waiting in between, then wait for the
     //    service to catch up. Exercises the resume/backfill path (cursor behind head by more than
     //    one block) that the one-at-a-time loop above never hits.

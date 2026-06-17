@@ -24,6 +24,7 @@ pub mod middleware;
 pub mod node;
 pub mod paymaster;
 pub mod permit;
+pub mod settlement;
 pub mod starknet;
 pub mod tee;
 pub mod txpool;

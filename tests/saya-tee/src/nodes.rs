@@ -93,6 +93,15 @@ impl L3InProcess {
     pub fn account(&self) -> SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet> {
         self.inner.account()
     }
+
+    /// Query the L3's `katana_settlementStatus` over JSON-RPC.
+    pub async fn settlement_status(
+        &self,
+    ) -> Result<katana_rpc_types::settlement::SettlementStatus> {
+        use katana_rpc_api::katana::KatanaSettlementApiClient;
+        let client = self.inner.rpc_http_client();
+        Ok(client.settlement_status().await?)
+    }
 }
 
 /// Spawns the L2 settlement Katana as an in-process `TestNode` on the standard dev chain spec

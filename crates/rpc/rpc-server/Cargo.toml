@@ -20,6 +20,7 @@ katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
+katana-settlement.workspace = true
 katana-starknet.workspace = true
 katana-tasks.workspace = true
 katana-tracing.workspace = true
