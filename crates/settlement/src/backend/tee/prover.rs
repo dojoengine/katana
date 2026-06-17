@@ -26,7 +26,6 @@ use url::Url;
 use x509_verifier_rust_crypto::CertChain;
 
 use super::mock;
-use crate::LOG_TARGET;
 
 /// Maximum time for the entire proof generation pipeline (KDS + registry + SP1).
 const PROOF_GENERATION_TIMEOUT: Duration = Duration::from_secs(600);
@@ -82,7 +81,7 @@ impl TeeProver {
                     attestation.katana_tee_config_hash,
                 );
 
-                debug!(target: LOG_TARGET, %commitment, "Synthesized mock proof journal.");
+                debug!(%commitment, "Synthesized mock proof journal.");
 
                 Ok(mock::serialize_mock_journal(commitment, attestation.katana_tee_config_hash))
             }
@@ -116,7 +115,6 @@ impl TeeProver {
         let quote = hex::decode(quote).map_err(|e| ProverError::InvalidReport(e.to_string()))?;
 
         info!(
-            target: LOG_TARGET,
             block_number = %attestation.block_number,
             "Generating SP1 proof for TEE attestation."
         );
@@ -196,7 +194,7 @@ impl TeeProver {
                 None,
                 None,
             );
-            debug!(target: LOG_TARGET, ?input, "SP1 Groth16 prover input.");
+            debug!(?input, "SP1 Groth16 prover input.");
 
             let raw_proof = prover
                 .verifier

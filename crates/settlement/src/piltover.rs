@@ -21,8 +21,6 @@ use starknet::signers::{LocalWallet, SigningKey};
 use tracing::debug;
 use url::Url;
 
-use crate::LOG_TARGET;
-
 /// Receipt polling interval while waiting for a settlement transaction.
 const RECEIPT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
@@ -120,7 +118,7 @@ impl PiltoverClient {
                 Err(starknet::providers::ProviderError::StarknetError(
                     starknet::core::types::StarknetError::TransactionHashNotFound,
                 )) => {
-                    debug!(target: LOG_TARGET, tx_hash = %format!("{tx_hash:#x}"), "Waiting for settlement transaction.");
+                    debug!(tx_hash = %format!("{tx_hash:#x}"), "Waiting for settlement transaction.");
                     continue;
                 }
                 Err(e) => return Err(e.into()),

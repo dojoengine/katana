@@ -99,7 +99,9 @@ where
         info!(
             backend = self.backend.name(),
             settled_block = ?cursor,
+            settlement_chain = %self.config.chain_id,
             core_contract = %self.config.core_contract,
+            batch_size = %self.config.batch_size,
             "Settlement service started."
         );
 
