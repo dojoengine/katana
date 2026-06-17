@@ -7,7 +7,7 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::contract::StorageKey;
 use katana_primitives::execution::{Call, EntryPointSelector};
 use katana_primitives::transaction::TxHash;
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::{ContractAddress, Felt, B256};
 use katana_rpc_types::event::{EventFilter, EventFilterWithPage, ResultPageRequest};
 use katana_rpc_types::trie::ContractStorageKeys;
 
@@ -35,6 +35,10 @@ pub enum StarknetCommands {
     /// Get transaction by hash [starknet_getTransactionByHash]
     #[command(name = "tx")]
     GetTransactionByHash(GetTransactionArgs),
+
+    /// Get the status of L2 messages spawned from an L1 transaction [starknet_getMessagesStatus]
+    #[command(name = "messages-status")]
+    GetMessagesStatus(GetMessagesStatusArgs),
 
     /// Get transaction by block ID and index [starknet_getTransactionByBlockIdAndIndex]
     #[command(name = "tx-by-block")]
@@ -158,6 +162,14 @@ pub struct GetStorageAtArgs {
     #[arg(long)]
     #[arg(default_value = "latest")]
     block: BlockIdArg,
+}
+
+#[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+pub struct GetMessagesStatusArgs {
+    /// The L1 (settlement chain) transaction hash that spawned the L2 messages
+    #[arg(value_name = "L1_TX_HASH")]
+    transaction_hash: B256,
 }
 
 #[derive(Debug, Args)]
@@ -351,6 +363,11 @@ impl StarknetCommands {
                     let result = client.get_transaction_by_hash(hash).await?;
                     println!("{}", colored_json::to_colored_json_auto(&result)?);
                 };
+            }
+
+            StarknetCommands::GetMessagesStatus(args) => {
+                let result = client.get_messages_status(args.transaction_hash).await?;
+                println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
 
             StarknetCommands::GetTransactionByBlockIdAndIndex(args) => {
