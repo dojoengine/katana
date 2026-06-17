@@ -269,9 +269,9 @@ cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb", default-features = false }
 starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb" }
 
-cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
-cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
-piltover = { path = "crates/contracts/contracts/piltover/piltover" }
+cainome = { version = "0.10.1", features = [ "abigen-rs" ] }
+cainome-cairo-serde = "0.4.1"
+piltover = { git = "https://github.com/cartridge-gg/piltover", branch = "feat/tee-persistent" }
 
 # paymaster
 paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main

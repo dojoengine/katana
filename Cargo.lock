@@ -2846,8 +2846,9 @@ checksum = "ade8366b8bd5ba243f0a58f036cc0ca8a2f069cff1a2351ef1cac6b083e16fc0"
 
 [[package]]
 name = "cainome"
-version = "0.9.1"
-source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b3644677f55cee053596e99f461"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f296568cda6f1f4934270a321151f9f51afa737450f67ef13a8534f2bd9afdac"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2863,7 +2864,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.2.3",
  "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
@@ -2872,8 +2873,9 @@ dependencies = [
 
 [[package]]
 name = "cainome-cairo-serde"
-version = "0.3.0"
-source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b3644677f55cee053596e99f461"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95ae2d4c21db23c7730a85187c2e9d73fe00c123171839185fb13f31550f3240"
 dependencies = [
  "num-bigint 0.4.6",
  "serde",
@@ -2885,7 +2887,8 @@ dependencies = [
 [[package]]
 name = "cainome-cairo-serde-derive"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b3644677f55cee053596e99f461"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d272424141f0ced49ca5f40bc4b756235ee6e7c9cf6ab01f7ef5ac010f5f8864"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2895,8 +2898,9 @@ dependencies = [
 
 [[package]]
 name = "cainome-parser"
-version = "0.5.1"
-source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b3644677f55cee053596e99f461"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ffdbc6abfba9c7e91beb87fe7561f097d9f7bbda45c6ff74be3a9ff3f1a0124"
 dependencies = [
  "convert_case 0.8.0",
  "quote",
@@ -2908,8 +2912,9 @@ dependencies = [
 
 [[package]]
 name = "cainome-rs"
-version = "0.4.0"
-source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b3644677f55cee053596e99f461"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93aa5c33e66b58ff6723d3e43e60fe163ac20719ea89fce921096e654b15bcd6"
 dependencies = [
  "anyhow",
  "cainome-cairo-serde",
@@ -2926,8 +2931,9 @@ dependencies = [
 
 [[package]]
 name = "cainome-rs-macro"
-version = "0.4.0"
-source = "git+https://github.com/cartridge-gg/cainome?rev=7d60de1#7d60de1780374b3644677f55cee053596e99f461"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d679cd9a88b9d412ed4ed30264b80f1bec6c1aa9656e238f06be560ddebb652"
 dependencies = [
  "anyhow",
  "cainome-cairo-serde",
@@ -8512,18 +8518,6 @@ dependencies = [
 
 [[package]]
 name = "lambdaworks-crypto"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbc2a4da0d9e52ccfe6306801a112e81a8fc0c76aa3e4449fefeda7fef72bb34"
-dependencies = [
- "lambdaworks-math 0.10.0",
- "serde",
- "sha2 0.10.9",
- "sha3",
-]
-
-[[package]]
-name = "lambdaworks-crypto"
 version = "0.11.0"
 source = "git+https://github.com/lambdaclass/lambdaworks.git?rev=be4a329#be4a329dad5c847a37ab3831b6fdee546b2d0af9"
 dependencies = [
@@ -8545,16 +8539,6 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "sha3",
-]
-
-[[package]]
-name = "lambdaworks-math"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1bd2632acbd9957afc5aeec07ad39f078ae38656654043bf16e046fa2730e23"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -10461,6 +10445,7 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 [[package]]
 name = "piltover"
 version = "0.1.0"
+source = "git+https://github.com/cartridge-gg/piltover?branch=feat%2Ftee-persistent#be11565b0340d1664d9b74cfdd605efee7868f1a"
 dependencies = [
  "cainome",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -14164,21 +14149,6 @@ dependencies = [
 
 [[package]]
 name = "starknet-types-core"
-version = "0.1.8"
-source = "git+https://github.com/kariy/types-rs?rev=0f6ae31#0f6ae31a5a19352cc99b74604fab15cd9d1bb76e"
-dependencies = [
- "lambdaworks-crypto 0.10.0",
- "lambdaworks-math 0.10.0",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "serde",
- "size-of",
- "zeroize",
-]
-
-[[package]]
-name = "starknet-types-core"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab92594a86ac627dd4c8d3350362cc8035e55c548c27c71dfa4c9fc6b3b6ab1a"
@@ -17155,3 +17125,8 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "starknet-types-core"
+version = "0.1.8"
+source = "git+https://github.com/kariy/types-rs?rev=0f6ae31#0f6ae31a5a19352cc99b74604fab15cd9d1bb76e"
