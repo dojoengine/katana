@@ -4,15 +4,16 @@
 #   settlement Katana ("L1", SN_SEPOLIA)
 #     + piltover core contract        (deployed by `katana init rollup --tee`)
 #     + mock TEE registry             (deployed by `saya-ops`)
-#   appchain Katana ("L2", rollup, --tee mock) settling to piltover
-#   saya-tee --mock-prove sidecar     (proves appchain blocks, drives settlement)
+#   appchain Katana ("L2", rollup, --tee mock) settling to piltover, with its
+#     embedded settlement service (the [settlement.runtime] section) proving each
+#     block and driving update_state itself — no external saya-tee sidecar.
 #   demo contracts (game_minter, achievements, score_registry)
 #   React frontend
 #
 #   L1 -> L2: piltover.send_message_to_appchain -> appchain mint_game
-#   L2 -> L1: appchain send_message_to_l1 -> saya settles -> score_registry consumes
+#   L2 -> L1: appchain send_message_to_l1 -> appchain settles -> score_registry consumes
 #
-# Ctrl-C tears down the settlement/appchain nodes and the saya-tee sidecar.
+# Ctrl-C tears down the settlement/appchain nodes.
 set -euo pipefail
 
 DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -61,10 +62,10 @@ elif [[ -x "$REPO_ROOT/target/debug/katana" ]]; then KATANA="$REPO_ROOT/target/d
 elif command -v katana >/dev/null 2>&1; then KATANA="$(command -v katana)"
 else fail "katana binary not found. Build it:  ( cd \"$REPO_ROOT\" && cargo build --release )"; fi
 
-# saya — must be the PATCHED v0.4.0 (L1->L2 Poseidon hash fix).
-for bin in saya-ops saya-tee; do
-  command -v "$bin" >/dev/null 2>&1 || fail "'$bin' not found on PATH. Install the patched saya v0.4.0 — see ./saya-patch/README.md."
-done
+# saya-ops — used once to deploy the mock TEE registry (a bootstrap helper, not
+# the settlement sidecar). Settlement itself is now done by katana's embedded
+# settlement service (this branch), so saya-tee is no longer required.
+command -v saya-ops >/dev/null 2>&1 || fail "'saya-ops' not found on PATH. Install saya v0.4.0 — see ./saya-patch/README.md."
 
 # Dojo toolchain + the sibling dojo checkout the cairo packages depend on by path.
 for bin in sozo torii scarb; do
@@ -93,12 +94,11 @@ fi
 TORII_SCORE_HTTP=8081; TORII_SCORE_GRPC=50081; TORII_SCORE_RELAY=9181
 TORII_GAME_HTTP=8082;  TORII_GAME_GRPC=50082;  TORII_GAME_RELAY=9184
 
-SETTLEMENT_PID=""; APPCHAIN_PID=""; SAYA_PID=""; TORII_SCORE_PID=""; TORII_GAME_PID=""
+SETTLEMENT_PID=""; APPCHAIN_PID=""; TORII_SCORE_PID=""; TORII_GAME_PID=""
 cleanup() {
   echo ""; echo "→ shutting down…"
   [[ -n "$TORII_GAME_PID" ]] && kill "$TORII_GAME_PID" 2>/dev/null || true
   [[ -n "$TORII_SCORE_PID" ]] && kill "$TORII_SCORE_PID" 2>/dev/null || true
-  [[ -n "$SAYA_PID" ]] && kill "$SAYA_PID" 2>/dev/null || true
   [[ -n "$APPCHAIN_PID" ]] && kill "$APPCHAIN_PID" 2>/dev/null || true
   [[ -n "$SETTLEMENT_PID" ]] && kill "$SETTLEMENT_PID" 2>/dev/null || true
 }
@@ -146,6 +146,21 @@ PILTOVER=$(sed -nE 's/^core_contract = "(0x[0-9a-fA-F]+)".*/\1/p' "$CHAIN_DIR/co
 [[ -n "$PILTOVER" ]] || { echo "error: could not parse piltover address from config.toml" >&2; cat "$RUN_DIR/init.log" >&2; exit 1; }
 echo "   piltover=$PILTOVER"
 
+# Enable katana's embedded settlement service. `init rollup` writes only the
+# settlement *layer* (where to settle); the operator adds the [settlement.runtime]
+# section (the settling account + key, TEE registry, batching) that turns this node
+# into an active settler. With it present, katana proves and submits update_state
+# itself — this is the job that used to belong to the saya-tee sidecar.
+echo "→ adding [settlement.runtime] (embedded settlement, replaces saya-tee)…"
+cat >> "$CHAIN_DIR/config.toml" <<EOF
+
+[settlement.runtime]
+account-address = "$SAYA_ADDR"
+account-private-key = "$SAYA_PK"
+tee-registry = "$TEE_REGISTRY"
+batch-size = 1
+EOF
+
 # 4. Write the base deployments.json (rpc urls, accounts, piltover). The appchain
 #    account comes from the generated rollup genesis.
 echo "→ writing base deployments.json…"
@@ -182,23 +197,10 @@ echo "→ starting appchain node on :5051…"
 APPCHAIN_PID=$!
 until curl -s -o /dev/null http://localhost:5051/ 2>/dev/null; do sleep 0.5; done
 
-# 6. saya-tee sidecar: proves appchain blocks and submits state updates (which
-#    carry L2->L1 message hashes) to the piltover core.
-echo "→ starting saya-tee --mock-prove sidecar…"
-rm -rf "$RUN_DIR/saya-db"
-saya-tee tee start --mock-prove \
-  --rollup-rpc http://localhost:5051 \
-  --settlement-rpc http://localhost:5050 \
-  --settlement-piltover-address "$PILTOVER" \
-  --tee-registry-address "$TEE_REGISTRY" \
-  --settlement-account-address "$SAYA_ADDR" \
-  --settlement-account-private-key "$SAYA_PK" \
-  --prover-private-key 0xdeadbeef \
-  --db-dir "$RUN_DIR/saya-db" \
-  --batch-size 1 \
-  --attestor-poll-interval-ms 1000 \
-  > "$RUN_DIR/saya.log" 2>&1 &
-SAYA_PID=$!
+# 6. Settlement: handled by the appchain node's embedded settlement service
+#    (configured via the [settlement.runtime] section written above). It proves
+#    each appchain block (--tee mock) and submits update_state — carrying the
+#    L2->L1 message hashes — to the piltover core. No external saya-tee sidecar.
 
 # 7. Migrate the two Dojo worlds (sozo) and fill in their addresses.
 ( cd "$DEMO_DIR" && bun run scripts/deploy.ts )
@@ -241,8 +243,7 @@ until curl -s -o /dev/null "http://localhost:$TORII_GAME_HTTP/" 2>/dev/null; do 
 echo ""
 echo "✓ Demo is up:"
 echo "    settlement RPC : http://localhost:5050   explorer: http://localhost:5050/explorer"
-echo "    appchain RPC   : http://localhost:5051   explorer: http://localhost:5051/explorer"
-echo "    saya-tee       : running (.run/saya.log)"
+echo "    appchain RPC   : http://localhost:5051   explorer: http://localhost:5051/explorer  (embedded settlement)"
 echo "    torii (score)  : http://localhost:$TORII_SCORE_HTTP/sql   (.run/torii-score.log)"
 echo "    torii (game)   : http://localhost:$TORII_GAME_HTTP/sql    (.run/torii-game.log)"
 # Controller mode serves the app over trusted HTTPS (mkcert) so passkey login works.

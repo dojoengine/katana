@@ -12,15 +12,18 @@ by **Torii**. The whole game lives in three Dojo worlds (`store` + `score` on L1
 2. **Play a game (L2).** *Roll* calls the game system's `play_game` — the appchain
    rolls a score on-chain, consumes one credit, and finishes the game.
 3. **Bank the score (L2 → L1).** `play_game` emits the score to L1 via
-   `send_message_to_l1` in the same tx. **saya** proves and settles the appchain
-   block onto the piltover core; the settlement score world's `claim_score` then
-   consumes the message (`consume_message_from_appchain`) and records the run.
+   `send_message_to_l1` in the same tx. The appchain Katana's **embedded settlement
+   service** proves and settles the block onto the piltover core; the settlement
+   score world's `claim_score` then consumes the message
+   (`consume_message_from_appchain`) and records the run.
 
 Both roles are Katana instances: a settlement Katana acting as the Starknet
 settlement layer, and an appchain Katana running as a **rollup** (`--tee mock`)
-that settles to a piltover core via a **saya-tee** sidecar. Game/score state lives
-in Dojo models; the frontend reads it from a Torii indexer per chain (it never
-calls contract views), and rebuilds its feeds from Dojo events.
+that settles to a piltover core. Settlement is done by the appchain node itself —
+its embedded settlement service proves each block and submits `update_state`, the
+job a separate **saya-tee** sidecar used to do. Game/score state lives in Dojo
+models; the frontend reads it from a Torii indexer per chain (it never calls
+contract views), and rebuilds its feeds from Dojo events.
 
 > **Building your own appchain app?** This demo doubles as a worked example for a
 > generalized guide — architecture, why each service exists, the contracts, and
@@ -32,12 +35,12 @@ calls contract views), and rebuilds its feeds from Dojo events.
    │  Settlement Katana :5050   │  relayed as L1-handler  │   Appchain Katana :5051   │
    │   (SN_SEPOLIA, the "L1")   │                         │  (rollup, --tee mock, L2) │
    │  • piltover core           │ ◄───────────────────── │  • game world             │
-   │  • store + score worlds    │  score (L2 → L1) + saya │    (mint / play / publish)│
-   └───────────────────────────┘                         └──────────────────────────┘
-        │ torii :8081                                          │ torii :8082
-        └──────────────────── React app :3001 ◄────────────────┘
+   │  • store + score worlds    │  score (L2 → L1)        │    (mint / play / publish)│
+   └───────────────────────────┘            ▲            │  • embedded settlement    │
+        │ torii :8081                        │           └──────────────────────────┘
+        │                                    └── proves each block, update_state ───┘
+        └──────────────── React app :3001 ◄──────────── torii :8082 ────────────────┘
                           (reads models + events via Torii SQL)
-   saya-tee --mock-prove ── proves each appchain block, submits update_state ──┘
 ```
 
 ## Prerequisites
@@ -50,11 +53,11 @@ calls contract views), and rebuilds its feeds from Dojo events.
 - A sibling checkout of the [`dojo`](https://github.com/dojoengine/dojo) repo
   (`../../../../dojo`, i.e. alongside `katana`) at the `sozo/v1.8.7` line — the
   Cairo packages depend on it by path so the world class hash matches `sozo`.
-- [`saya-tee`](https://github.com/cartridge-gg/saya) and `saya-ops` **v0.4.0** on
-  `PATH`, **with the patch in [`saya-patch/`](./saya-patch/README.md) applied**
-  (saya 0.4.0 hashes L1→L2 messages with the Ethereum keccak formula; a
-  Starknet-settled appchain needs the Poseidon formula, or settlement of blocks
-  that consume an L1→L2 message — i.e. every purchase — stalls).
+- [`saya-ops`](https://github.com/cartridge-gg/saya) **v0.4.0** on `PATH` — used
+  once to deploy the mock TEE registry. Settlement itself is done by Katana's
+  embedded settlement service, so the `saya-tee` sidecar is no longer needed (and
+  neither is the old `saya-patch/` L1→L2-hash fix: Katana computes the Poseidon
+  message hash itself).
 
 ## Run it
 
@@ -66,13 +69,14 @@ cd examples/cross-chain-game
 `up.sh` is the one-click entry point. It first **preflights the toolchain** —
 auto-installing the Dojo tools (`sozo`/`torii`/`scarb` via `asdf install`) and the
 JS deps, and failing fast with the exact command if a heavy prerequisite is
-missing (the `katana` binary, the patched `saya`, or the sibling `dojo` checkout).
+missing (the `katana` binary, `saya-ops`, or the sibling `dojo` checkout).
 It then starts the settlement Katana, deploys a mock TEE registry (`saya-ops`) +
-the piltover core (`katana init rollup --tee`), starts the appchain rollup + the
-`saya-tee` sidecar, **migrates the Dojo worlds with `sozo`** (the settlement-side
-`store` and `score` worlds, then the appchain `game` world — wired with each
-other's addresses), starts a **Torii indexer per chain**, and serves the UI. Open
-**http://localhost:3001**. Ctrl-C (or `./down.sh`) tears everything down.
+the piltover core (`katana init rollup --tee`), adds the `[settlement.runtime]`
+section to the generated chain config (enabling the appchain's embedded settlement
+service), starts the appchain rollup, **migrates the Dojo worlds with `sozo`** (the
+settlement-side `store` and `score` worlds, then the appchain `game` world — wired
+with each other's addresses), starts a **Torii indexer per chain**, and serves the
+UI. Open **http://localhost:3001**. Ctrl-C (or `./down.sh`) tears everything down.
 
 Each node serves Katana's block explorer (`--explorer`) at `/explorer`; every tx
 hash in the UI deep-links to the right node's explorer.
@@ -128,8 +132,8 @@ dev account keeps working.
 | `cairo/score/src/lib.cairo` | Settlement score world (Dojo): `claim_score` (consumes the settled message), `Leaderboard`/`PlayerScore` models, `ScoreClaimed` event |
 | `scripts/deploy.ts` | `sozo migrate` the three worlds (score → game → store) and record addresses in `deployments.json` |
 | `app/` | React + Vite + TS + [shadcn/ui](https://ui.shadcn.com) frontend; reads via Torii SQL (`app/src/chain.ts`); wallet picker (dev account / Controller) in `app/src/wallet.tsx` |
-| `saya-patch/` | The required saya-tee fix + rationale |
-| `up.sh` / `down.sh` | Start / stop the whole stack (2 Katanas + saya-tee + 2 Torii + frontend) |
+| `saya-patch/` | Historical: the L1→L2-hash fix the old `saya-tee` sidecar needed. No longer used now that Katana settles (kept for reference) |
+| `up.sh` / `down.sh` | Start / stop the whole stack (2 Katanas + 2 Torii + frontend; settlement is embedded in the appchain Katana) |
 
 ## How the messaging works
 
@@ -138,11 +142,12 @@ calls `piltover.send_message_to_appchain(game, mint_game, [game_id])` and emits 
 the appchain (`--messaging.enabled`) relays it as an `L1HandlerTx` that runs the game
 world's `mint_game` l1_handler, incrementing the `Stats.available` model.
 
-**Play → publish (L2 → L1, settled by saya):** the game system's `play_game()` rolls a
-score, then calls `send_message_to_l1(score_system, [player, score])` in the same tx.
-saya-tee proves the appchain block and submits `update_state` to the piltover core,
-which registers the message. The frontend then calls the score system's `claim_score(...)`,
-which consumes it via `consume_message_from_appchain` and writes the `Leaderboard` model.
+**Play → publish (L2 → L1, settled by the appchain):** the game system's `play_game()`
+rolls a score, then calls `send_message_to_l1(score_system, [player, score])` in the same
+tx. The appchain Katana's embedded settlement service proves the block and submits
+`update_state` to the piltover core, which registers the message. The frontend then calls
+the score system's `claim_score(...)`, which consumes it via `consume_message_from_appchain`
+and writes the `Leaderboard` model.
 
 **Reads:** every Dojo write updates a model (indexed by Torii) and/or emits a Dojo event
 (stored in per-event tables). The frontend queries each chain's Torii over its SQL
@@ -153,8 +158,8 @@ straight from the settlement RPC so the "pending mint" state shows before the re
 ## Notes
 
 - The settlement node runs `--dev.no-fee`, the appchain runs `--dev --dev.no-fee`
-  (fees off, mirroring the saya-tee test harness). Dev keys are throwaway local
-  keys — never reuse with real funds.
+  (fees off, mirroring the embedded-settlement e2e test in `tests/saya-tee`). Dev
+  keys are throwaway local keys — never reuse with real funds.
 - Dojo worlds are deterministic in their seed (`ccg_game` / `ccg_score` / `ccg_store`), so a
   re-migration onto a fresh chain lands at the same world address.
 - The on-chain roll is a Poseidon-based pseudo-random in `1..=100` — fine for a demo,
@@ -165,5 +170,6 @@ straight from the settlement RPC so the "pending mint" state shows before the re
   with each other and with other local Dojo projects' defaults (8080 / 9090).
 - `app/src/deployments.json`, the generated `cairo/*/dojo_dev.toml` + `manifest_dev.json`,
   and `.run/` are regenerated every `up.sh` run.
-- This is `--mock-prove` (no real SP1/TEE). It exercises the messaging + settlement
+- The appchain runs `--tee mock`, which forces the embedded settlement service into
+  mock-proof mode (no real SP1/TEE). It exercises the messaging + settlement
   plumbing, not proof soundness.

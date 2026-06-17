@@ -119,11 +119,13 @@ repo** — the genesis keypair is generated on first run and any Dojo manifests
 
 #### Configure the settlement runtime
 
-Add a `[settlement-runtime]` section to `chain-config/config.toml`. This is
-what enables the embedded settlement service:
+Add a `[settlement.runtime]` section to `chain-config/config.toml`. This is
+what enables the embedded settlement service. `init rollup` writes only the
+settlement *layer* (under `[settlement.layer.starknet]`); `runtime` is the
+operator-local half you add by hand:
 
 ```toml
-[settlement-runtime]
+[settlement.runtime]
 account-address = "<DEPLOYER_ADDRESS>"
 account-private-key = "<SEPOLIA_DEPLOYER_PRIVATE_KEY>"
 tee-registry = "<TEE_REGISTRY_ADDRESS>"
@@ -135,7 +137,7 @@ idle-flush-secs = 30    # settle a partial batch after this many idle seconds
 > **Note:** the settlement account's private key lives in the chain config
 > file in plaintext — the file is operator-local, not part of what you publish
 > to chain participants. Other nodes following the chain simply omit the
-> `[settlement-runtime]` section from their copy.
+> `[settlement.runtime]` section from their copy.
 
 ### 2. Run katana (dev)
 
