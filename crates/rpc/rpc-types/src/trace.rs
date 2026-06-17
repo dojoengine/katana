@@ -71,12 +71,19 @@ pub enum CallType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderedEvent {
     pub order: u64,
+    /// Flattened so the JSON matches the Starknet RPC `ORDERED_EVENT` shape
+    /// (`keys`/`data` at the top level, not nested under `event`).
+    #[serde(flatten)]
     pub event: RawEvent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderedL2ToL1Message {
     pub order: u64,
+    /// Flattened so the JSON matches the Starknet RPC `ORDERED_MESSAGE` shape
+    /// (`from_address`/`to_address`/`payload` at the top level, not nested under
+    /// `message`).
+    #[serde(flatten)]
     pub message: L2ToL1Message,
 }
 

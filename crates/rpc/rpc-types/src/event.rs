@@ -83,6 +83,10 @@ pub struct EmittedEvent {
     /// The address of the contract that emitted the event.
     pub from_address: ContractAddress,
 
+    /// The event's `keys` and `data`. Flattened to the top level so the JSON
+    /// matches the Starknet RPC `EMITTED_EVENT` shape (spec-compliant clients and
+    /// indexers like Torii read `keys`/`data` directly, not nested under `event`).
+    #[serde(flatten)]
     pub event: RawEvent,
 }
 
@@ -90,4 +94,34 @@ pub struct EmittedEvent {
 pub struct RawEvent {
     pub keys: Vec<Felt>,
     pub data: Vec<Felt>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `EmittedEvent` must serialize `keys`/`data` at the top level (the Starknet
+    /// RPC `EMITTED_EVENT` shape), not nested under an `event` object — otherwise
+    /// spec-compliant clients/indexers (e.g. Torii) fail to deserialize the
+    /// `getEvents` response with "missing field `keys`".
+    #[test]
+    fn emitted_event_serializes_keys_and_data_flat() {
+        let event = EmittedEvent {
+            block_hash: Some(Felt::from(1u8)),
+            block_number: Some(2),
+            transaction_hash: Felt::from(3u8),
+            transaction_index: 0,
+            event_index: 0,
+            from_address: ContractAddress::from(Felt::from(4u8)),
+            event: RawEvent { keys: vec![Felt::from(5u8)], data: vec![Felt::from(6u8)] },
+        };
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert!(json.get("keys").is_some(), "`keys` must be a top-level field");
+        assert!(json.get("data").is_some(), "`data` must be a top-level field");
+        assert!(json.get("event").is_none(), "`keys`/`data` must not be nested under `event`");
+
+        // And it round-trips from the flat shape.
+        assert_eq!(serde_json::from_value::<EmittedEvent>(json).unwrap(), event);
+    }
 }
