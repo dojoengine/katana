@@ -40,9 +40,10 @@ TEE_REGISTRY_SALT="0x7ee"
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 # up.sh is the one-click entry point. It auto-installs the deps it safely can
-# (the Dojo toolchain via asdf, then JS deps below), and fails fast with the
-# exact command for the heavy prerequisites it won't build for you: the katana
-# binary and the patched saya. See README.md "Prerequisites".
+# (the Dojo toolchain via asdf, the JS deps below, and the katana binary — built
+# from this repo if target/debug is empty), and fails fast with the exact command
+# for the heavy prerequisites it won't provide: saya-ops and the sibling dojo
+# checkout. See README.md "Prerequisites".
 DOJO_DIR="$REPO_ROOT/../dojo"
 fail() { echo "error: $1" >&2; exit 1; }
 
@@ -56,11 +57,16 @@ else
   echo "  warning: asdf not found — install it, or put sozo/torii/scarb on PATH (see .tool-versions)." >&2
 fi
 
-# katana — built from this repo.
-if [[ -x "$REPO_ROOT/target/release/katana" ]]; then KATANA="$REPO_ROOT/target/release/katana"
-elif [[ -x "$REPO_ROOT/target/debug/katana" ]]; then KATANA="$REPO_ROOT/target/debug/katana"
-elif command -v katana >/dev/null 2>&1; then KATANA="$(command -v katana)"
-else fail "katana binary not found. Build it:  ( cd \"$REPO_ROOT\" && cargo build --release )"; fi
+# katana — always the binary built from THIS repo, never the asdf/PATH katana
+# (a different, released version that doesn't have the embedded settlement
+# service). Use the existing target/debug build; build it from source if absent.
+KATANA="$REPO_ROOT/target/debug/katana"
+if [[ ! -x "$KATANA" ]]; then
+  echo "  katana not found at target/debug — building from source (cargo build -p katana)…"
+  ( cd "$REPO_ROOT" && cargo build -p katana --bin katana ) \
+    || fail "failed to build katana. Build it manually:  ( cd \"$REPO_ROOT\" && cargo build -p katana --bin katana )"
+fi
+[[ -x "$KATANA" ]] || fail "katana still not found at $KATANA after build."
 
 # saya-ops — used once to deploy the mock TEE registry (a bootstrap helper, not
 # the settlement sidecar). Settlement itself is now done by katana's embedded
@@ -73,7 +79,7 @@ for bin in sozo torii scarb; do
 done
 [[ -d "$DOJO_DIR/crates/dojo/core" ]] || fail "dojo checkout not found at $DOJO_DIR — the cairo packages depend on it by path. Clone it as a sibling of katana:  ( cd \"$REPO_ROOT/..\" && git clone https://github.com/dojoengine/dojo )  then check out the sozo-matching ref (sozo/v1.8.7)."
 echo "→ katana: $KATANA"
-echo "→ saya-tee: $(command -v saya-tee)"
+echo "→ saya-ops: $(command -v saya-ops)"
 echo "→ sozo: $(sozo --version 2>&1 | head -1)   torii: $(torii --version 2>&1 | head -1)"
 
 # Optional: Cartridge Controller wallet. The default run uses the dev account only

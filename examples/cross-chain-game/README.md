@@ -45,7 +45,10 @@ contract views), and rebuilds its feeds from Dojo events.
 
 ## Prerequisites
 
-- The `katana` binary (`cargo build --release`), or `katana` on `PATH`.
+- The `katana` binary is built from this repo automatically — `up.sh` uses
+  `target/debug/katana`, running `cargo build -p katana` if it's missing. (It
+  never uses an asdf/`PATH` `katana`, which would be a different version without
+  the embedded settlement service.)
 - [`bun`](https://bun.sh/) — deploy scripts + frontend.
 - The Dojo toolchain, pinned in [`.tool-versions`](./.tool-versions): **sozo 1.8.7**
   (migrates the worlds; bundles its own scarb 2.13.1) and **torii 1.8.16** (indexer).
