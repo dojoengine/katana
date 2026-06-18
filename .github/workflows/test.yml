@@ -316,7 +316,9 @@ jobs:
                 build-katana-binary-macos,
             ]
         runs-on: ${{ matrix.runner }}
-        timeout-minutes: ${{ matrix.os == 'macos' && 60 || 30 }}
+        # ubuntu runs the llvm-cov coverage build at reduced --build-jobs (to stay under the
+        # runner's memory limit), which is slower than the plain test build — give it more headroom.
+        timeout-minutes: ${{ matrix.os == 'macos' && 60 || 50 }}
         strategy:
             matrix:
                 include:
