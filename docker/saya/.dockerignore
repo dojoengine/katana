@@ -1,4 +1,0 @@
-/target/
-/.dockerignore
-/Dockerfile
-!target/debug/saya
