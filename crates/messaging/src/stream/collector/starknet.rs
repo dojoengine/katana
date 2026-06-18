@@ -196,7 +196,7 @@ fn l1_handler_tx_from_event(
         calldata,
         chain_id,
         message_hash,
-        paid_fee_on_l1: 30000_u128,
+        paid_fee_on_l1: 1000000_u128,
         entry_point_selector,
         version: Felt::ZERO,
         contract_address: to_address.into(),

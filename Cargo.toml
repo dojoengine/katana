@@ -252,8 +252,8 @@ starknet-types-core = { version = "=0.2.3", features = [ "arbitrary", "hash" ] }
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
 # branch: blockifier/v0.16.0-rc.0
-blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb", default-features = false }
-starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb" }
+blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "2a241ef0f", default-features = false }
+starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "2a241ef0f" }
 
 cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
