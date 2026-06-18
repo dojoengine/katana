@@ -255,7 +255,7 @@ jobs:
             # are already compiled.
             - name: Build and archive test binaries
               run: |
-                  cargo nextest archive --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --archive-file nextest-archive.tar.zst
+                  cargo nextest archive --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude saya-e2e --archive-file nextest-archive.tar.zst
 
             - name: Upload binary
               uses: actions/upload-artifact@v4
@@ -406,7 +406,7 @@ jobs:
             - name: Run tests (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name != 'pull_request'
               run: |
-                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --build-jobs 20
+                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --exclude saya-e2e --build-jobs 20
 
             - name: Run tests w/ code coverage (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name == 'pull_request'
@@ -414,7 +414,7 @@ jobs:
               # roughly doubles per-rustc memory, and the cainome abigen crates are heavy,
               # so --build-jobs 20 OOM-kills the runner (exit 137). 8 keeps peak memory in check.
               run: |
-                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --build-jobs 8
+                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --exclude saya-e2e --build-jobs 8
                   cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Upload code coverage
