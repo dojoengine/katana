@@ -7,12 +7,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::chain::ChainId;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
-use piltover::{AppchainContract, AppchainContractReader, PiltoverInput};
+use piltover::{AppchainContract, PiltoverInput};
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, TransactionReceipt};
 use starknet::providers::jsonrpc::HttpTransport;
@@ -26,11 +25,32 @@ const RECEIPT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 type SettlementAccount = SingleOwnerAccount<Arc<JsonRpcClient<HttpTransport>>, LocalWallet>;
 
+/// Errors from interacting with the Piltover core contract on the settlement chain.
+#[derive(Debug, thiserror::Error)]
+pub enum PiltoverError {
+    #[error("reading piltover state failed: {0}")]
+    GetState(String),
+
+    #[error("piltover block number {0:#x} does not fit in u64")]
+    InvalidBlockNumber(Felt),
+
+    #[error("estimating update_state fee failed: {0}")]
+    EstimateFee(String),
+
+    #[error("submitting update_state failed: {0}")]
+    SendTransaction(String),
+
+    #[error("settlement transaction reverted: {0}")]
+    TransactionReverted(String),
+
+    #[error("polling settlement transaction receipt failed: {0}")]
+    Receipt(String),
+}
+
 /// Client for the Piltover appchain core contract on the settlement chain.
 #[allow(missing_debug_implementations)]
 pub struct PiltoverClient {
     provider: Arc<JsonRpcClient<HttpTransport>>,
-    reader: AppchainContractReader<Arc<JsonRpcClient<HttpTransport>>>,
     contract: AppchainContract<SettlementAccount>,
 }
 
@@ -56,50 +76,52 @@ impl PiltoverClient {
         );
         account.set_block_id(BlockId::Tag(BlockTag::Latest));
 
-        let reader = AppchainContractReader::new(core_contract.into(), provider.clone());
         let contract = AppchainContract::new(core_contract.into(), account);
 
-        Self { provider, reader, contract }
+        Self { provider, contract }
     }
 
     /// Reads the settled block number from the contract's `AppchainState`.
     ///
     /// `None` corresponds to Piltover's `Felt::MAX` genesis sentinel (nothing
     /// settled yet).
-    pub async fn settled_block(&self) -> Result<Option<BlockNumber>> {
+    pub async fn settled_block(&self) -> Result<Option<BlockNumber>, PiltoverError> {
         // AppchainState: (state_root, block_number, block_hash).
         let (_, block_number, _) = self
-            .reader
+            .contract
             .get_state()
             .block_id(BlockId::Tag(BlockTag::Latest))
             .call()
             .await
-            .context("piltover get_state")?;
+            .map_err(|e| PiltoverError::GetState(e.to_string()))?;
 
         if block_number == Felt::MAX {
             return Ok(None);
         }
 
         let block_number = u64::try_from(block_number)
-            .map_err(|_| anyhow!("piltover block number {block_number:#x} does not fit in u64"))?;
+            .map_err(|_| PiltoverError::InvalidBlockNumber(block_number))?;
 
         Ok(Some(block_number))
     }
 
     /// Submits `update_state` and waits for the transaction to be confirmed.
-    pub async fn update_state(&self, update: PiltoverInput) -> Result<TxHash> {
-        let execution = self.contract.update_state(&update);
+    pub async fn update_state(&self, update: PiltoverInput) -> Result<TxHash, PiltoverError> {
+        let tx = self
+            .contract
+            .update_state(&update)
+            .send()
+            .await
+            .map_err(|e| PiltoverError::SendTransaction(e.to_string()))?;
 
-        execution.estimate_fee().await.context("estimate update_state fee")?;
-        let tx = execution.send().await.context("send update_state")?;
+        let tx_hash = tx.transaction_hash;
+        self.watch_tx(tx_hash).await?;
 
-        self.watch_tx(tx.transaction_hash).await?;
-
-        Ok(tx.transaction_hash)
+        Ok(tx_hash)
     }
 
     /// Polls the settlement chain until the transaction lands; errors on revert.
-    async fn watch_tx(&self, tx_hash: TxHash) -> Result<()> {
+    async fn watch_tx(&self, tx_hash: TxHash) -> Result<(), PiltoverError> {
         loop {
             tokio::time::sleep(RECEIPT_POLL_INTERVAL).await;
             match self.provider.get_transaction_receipt(tx_hash).await {
@@ -109,19 +131,21 @@ impl PiltoverClient {
                         match r.execution_result {
                             ExecutionResult::Succeeded => return Ok(()),
                             ExecutionResult::Reverted { reason } => {
-                                return Err(anyhow!("settlement transaction reverted: {reason}"))
+                                return Err(PiltoverError::TransactionReverted(reason))
                             }
                         }
                     }
                     _ => return Ok(()),
                 },
+
                 Err(starknet::providers::ProviderError::StarknetError(
                     starknet::core::types::StarknetError::TransactionHashNotFound,
                 )) => {
                     debug!(tx_hash = %format!("{tx_hash:#x}"), "Waiting for settlement transaction.");
                     continue;
                 }
-                Err(e) => return Err(e.into()),
+
+                Err(e) => return Err(PiltoverError::Receipt(e.to_string())),
             }
         }
     }

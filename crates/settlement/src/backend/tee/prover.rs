@@ -15,7 +15,6 @@ use amd_sev_snp_attestation_prover::{
 };
 use amd_sev_snp_attestation_verifier::stub::ProcessorType;
 use amd_sev_snp_attestation_verifier::AttestationReport;
-use anyhow::anyhow;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::tee::BlockAttestation;
 use katana_tee::amd::report::AttestationReportBytes;
@@ -31,9 +30,15 @@ use super::mock;
 const PROOF_GENERATION_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Debug, thiserror::Error)]
-pub enum ProverError {
+pub enum TeeProverError {
     #[error("invalid attestation report: {0}")]
     InvalidReport(String),
+
+    #[error("KDS certificate / TEE registry error: {0}")]
+    Kds(String),
+
+    #[error("system time error: {0}")]
+    SystemTime(String),
 
     #[error("proof generation failed: {0}")]
     ProofGenerationFailed(String),
@@ -41,8 +46,8 @@ pub enum ProverError {
     #[error("proof generation timed out after {0:?}")]
     Timeout(Duration),
 
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    #[error("calldata generation failed: {0}")]
+    Calldata(String),
 }
 
 /// Proof backend for the settlement service.
@@ -65,7 +70,7 @@ pub enum TeeProver {
 
 impl TeeProver {
     /// Produces the felts for `TEEInput.sp1_proof` from the given attestation.
-    pub async fn prove(&self, attestation: &BlockAttestation) -> Result<Vec<Felt>, ProverError> {
+    pub async fn prove(&self, attestation: &BlockAttestation) -> Result<Vec<Felt>, TeeProverError> {
         match self {
             Self::Mock => {
                 // The mock journal carries the exact v1 commitment Piltover recomputes from the
@@ -92,9 +97,9 @@ impl TeeProver {
                     self.generate_sp1_proof(attestation, settlement_rpc, *tee_registry, prover_key),
                 )
                 .await
-                .map_err(|_| ProverError::Timeout(PROOF_GENERATION_TIMEOUT))??;
+                .map_err(|_| TeeProverError::Timeout(PROOF_GENERATION_TIMEOUT))??;
 
-                onchain_proof_to_calldata(&proof).map_err(ProverError::Other)
+                onchain_proof_to_calldata(&proof)
             }
         }
     }
@@ -110,9 +115,9 @@ impl TeeProver {
         settlement_rpc: &Url,
         tee_registry: ContractAddress,
         prover_key: &str,
-    ) -> Result<OnchainProof, ProverError> {
+    ) -> Result<OnchainProof, TeeProverError> {
         let quote = attestation.quote.strip_prefix("0x").unwrap_or(&attestation.quote);
-        let quote = hex::decode(quote).map_err(|e| ProverError::InvalidReport(e.to_string()))?;
+        let quote = hex::decode(quote).map_err(|e| TeeProverError::InvalidReport(e.to_string()))?;
 
         info!(
             block_number = %attestation.block_number,
@@ -123,22 +128,22 @@ impl TeeProver {
         // `reqwest::blocking`, which panics inside an async context).
         let quote_bytes = quote.clone();
         let (processor_model, vek_der_chain, cert_digests) =
-            tokio::task::spawn_blocking(move || -> Result<_, ProverError> {
+            tokio::task::spawn_blocking(move || -> Result<_, TeeProverError> {
                 let report = AttestationReportBytes::new(&quote_bytes)
-                    .map_err(|e| ProverError::InvalidReport(e.to_string()))?;
+                    .map_err(|e| TeeProverError::InvalidReport(e.to_string()))?;
                 let report = AttestationReport::from_bytes(report.as_bytes())
-                    .map_err(|e| ProverError::InvalidReport(e.to_string()))?;
+                    .map_err(|e| TeeProverError::InvalidReport(e.to_string()))?;
 
                 let processor_model = match report
                     .get_cpu_codename()
-                    .map_err(|e| ProverError::InvalidReport(e.to_string()))?
+                    .map_err(|e| TeeProverError::InvalidReport(e.to_string()))?
                 {
                     ProcessorType::Milan => 0u8,
                     ProcessorType::Genoa => 1,
                     ProcessorType::Bergamo => 2,
                     ProcessorType::Siena => 3,
                     other => {
-                        return Err(ProverError::InvalidReport(format!(
+                        return Err(TeeProverError::InvalidReport(format!(
                             "unsupported processor model: {other:?}"
                         )))
                     }
@@ -146,38 +151,38 @@ impl TeeProver {
 
                 let kds_chain = KDS::new()
                     .fetch_report_cert_chain(&report)
-                    .map_err(|e| anyhow!("KDS cert chain fetch failed: {e}"))?;
+                    .map_err(|e| TeeProverError::Kds(format!("cert chain fetch failed: {e}")))?;
                 let cert_chain = CertChain::parse_rev(&kds_chain)
-                    .map_err(|e| anyhow!("cert chain parse failed: {e}"))?;
+                    .map_err(|e| TeeProverError::Kds(format!("cert chain parse failed: {e}")))?;
 
                 let timestamp = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_secs())
-                    .map_err(|e| anyhow!("system time error: {e}"))?;
-                cert_chain
-                    .check_valid(timestamp)
-                    .map_err(|e| anyhow!("cert chain time validation failed: {e}"))?;
+                    .map_err(|e| TeeProverError::SystemTime(e.to_string()))?;
+                cert_chain.check_valid(timestamp).map_err(|e| {
+                    TeeProverError::Kds(format!("cert chain time validation failed: {e}"))
+                })?;
 
                 Ok((processor_model, cert_chain.to_ders(), cert_chain.digest().to_vec()))
             })
             .await
-            .map_err(|e| ProverError::Other(anyhow!("KDS task panicked: {e}")))??;
+            .map_err(|e| TeeProverError::Kds(format!("KDS task panicked: {e}")))??;
 
         // Phase 2: trusted-prefix lookup against the on-chain TEE registry — natively async.
         let registry_client = StarknetRegistryClient::new(settlement_rpc.as_str(), tee_registry);
         let trusted_prefix_len = registry_client
             .fetch_trusted_prefix_len(processor_model, &cert_digests)
             .await
-            .map_err(|e| anyhow!("TEE registry fetch failed: {e}"))?;
+            .map_err(|e| TeeProverError::Kds(format!("TEE registry fetch failed: {e}")))?;
 
         // Phase 3: SP1 Groth16 proving — blocking (CPU + synchronous network calls in the SDK).
         let prover_key = prover_key.to_string();
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .map_err(|e| ProverError::Other(anyhow!("system time error: {e}")))?;
+            .map_err(|e| TeeProverError::SystemTime(e.to_string()))?;
 
-        tokio::task::spawn_blocking(move || -> Result<OnchainProof, ProverError> {
+        tokio::task::spawn_blocking(move || -> Result<OnchainProof, TeeProverError> {
             let sp1_config = SP1ProverConfig {
                 private_key: Some(prover_key),
                 rpc_url: None,
@@ -199,26 +204,28 @@ impl TeeProver {
             let raw_proof = prover
                 .verifier
                 .gen_proof(&input, RawProofType::Groth16, None)
-                .map_err(|e| ProverError::ProofGenerationFailed(e.to_string()))?;
+                .map_err(|e| TeeProverError::ProofGenerationFailed(e.to_string()))?;
             prover
                 .create_onchain_proof(raw_proof)
-                .map_err(|e| ProverError::ProofGenerationFailed(e.to_string()))
+                .map_err(|e| TeeProverError::ProofGenerationFailed(e.to_string()))
         })
         .await
-        .map_err(|e| ProverError::Other(anyhow!("SP1 proof task panicked: {e}")))?
+        .map_err(|e| {
+            TeeProverError::ProofGenerationFailed(format!("SP1 proof task panicked: {e}"))
+        })?
     }
 }
 
 /// Converts an [`OnchainProof`] into the Garaga Groth16 calldata felts that Piltover's SP1
 /// verifier expects in `TEEInput.sp1_proof`.
-fn onchain_proof_to_calldata(proof: &OnchainProof) -> Result<Vec<Felt>, anyhow::Error> {
+fn onchain_proof_to_calldata(proof: &OnchainProof) -> Result<Vec<Felt>, TeeProverError> {
     use garaga_rs::calldata::full_proof_with_hints::groth16::{
         get_groth16_calldata, get_sp1_vk, Groth16Proof,
     };
     use garaga_rs::definitions::CurveID;
 
     if proof.onchain_proof.is_empty() {
-        return Err(anyhow!("cannot generate calldata from empty proof"));
+        return Err(TeeProverError::Calldata("cannot generate calldata from empty proof".into()));
     }
 
     // The verifier_id is the SP1 program vkey as bytes; the public values are in the raw_proof
@@ -231,7 +238,7 @@ fn onchain_proof_to_calldata(proof: &OnchainProof) -> Result<Vec<Felt>, anyhow::
     let sp1_vk = get_sp1_vk();
 
     let calldata = get_groth16_calldata(&groth16_proof, &sp1_vk, CurveID::BN254)
-        .map_err(|e| anyhow!("failed to generate calldata: {e}"))?;
+        .map_err(|e| TeeProverError::Calldata(format!("failed to generate calldata: {e}")))?;
 
     Ok(calldata.into_iter().map(Felt::from).collect())
 }

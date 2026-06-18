@@ -19,10 +19,13 @@
 
 pub mod backend;
 mod config;
+pub mod error;
 mod piltover;
 mod service;
 
-pub use backend::tee::{TeeBackend, TeeProver};
+pub use backend::tee::{TeeBackend, TeeProver, TeeProverError};
 pub use backend::ProvingBackend;
 pub use config::{ProverConfig, SettlementConfig};
+pub use error::SettlementError;
+pub use piltover::PiltoverError;
 pub use service::{SettlementService, SettlementServiceHandle};

@@ -17,6 +17,8 @@ use async_trait::async_trait;
 use katana_primitives::block::BlockNumber;
 use piltover::PiltoverInput;
 
+use crate::error::SettlementError;
+
 /// A proving system that can produce Piltover `update_state` payloads.
 ///
 /// Backends own whatever they need to do their job (a provider handle for
@@ -36,5 +38,5 @@ pub trait ProvingBackend: Send + Sync {
         &self,
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
-    ) -> Result<PiltoverInput, anyhow::Error>;
+    ) -> Result<PiltoverInput, SettlementError>;
 }

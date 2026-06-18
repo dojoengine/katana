@@ -12,7 +12,6 @@ mod prover;
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use async_trait::async_trait;
 use cainome::cairo_serde::ContractAddress as CainomeContractAddress;
 use katana_chain_spec::tee::compute_katana_tee_config_hash;
@@ -28,9 +27,10 @@ use katana_rpc_types::{L1ToL2Message, L2ToL1Message};
 use katana_tee::attestation::build_block_attestation;
 use katana_tee::Attester;
 use piltover::{MessageToAppchain, MessageToStarknet, PiltoverInput, TEEInput};
-pub use prover::{ProverError, TeeProver};
+pub use prover::{TeeProver, TeeProverError};
 
 use super::ProvingBackend;
+use crate::error::SettlementError;
 
 /// TEE proving backend: attest → prove → `TeeInput`.
 pub struct TeeBackend<P> {
@@ -74,7 +74,7 @@ where
         &self,
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
-    ) -> Result<PiltoverInput> {
+    ) -> Result<PiltoverInput, SettlementError> {
         let attestation = {
             let provider = self.provider.provider();
             build_block_attestation(
@@ -84,11 +84,10 @@ where
                 block,
                 None,
                 self.katana_tee_config_hash,
-            )
-            .context("build block attestation")?
+            )?
         };
 
-        let sp1_proof = self.prover.prove(&attestation).await.context("prove attestation")?;
+        let sp1_proof = self.prover.prove(&attestation).await?;
 
         Ok(build_tee_input(&attestation, sp1_proof))
     }

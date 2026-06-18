@@ -8,7 +8,6 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxHash;
 use katana_provider::api::block::BlockNumberProvider;
@@ -20,6 +19,7 @@ use tokio::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 use crate::backend::ProvingBackend;
+use crate::error::SettlementError;
 use crate::piltover::PiltoverClient;
 use crate::SettlementConfig;
 
@@ -64,7 +64,7 @@ where
     ///
     /// Connects to the Piltover core contract, reads the settled-block cursor, and spawns the
     /// settle loop.
-    pub async fn start(&self) -> Result<SettlementServiceHandle> {
+    pub async fn start(&self) -> Result<SettlementServiceHandle, SettlementError> {
         // validate core contract is configured correctly
 
         let piltover = PiltoverClient::new(
@@ -75,7 +75,7 @@ where
             self.config.account_private_key,
         );
 
-        let cursor = piltover.settled_block().await.context("read on-chain settlement cursor")?;
+        let cursor = piltover.settled_block().await?;
 
         // Seed the durable checkpoint with the authoritative on-chain cursor: if the chain is
         // already caught up, no settle happens and this is the only write the index would get.
@@ -343,15 +343,19 @@ where
     /// Errors if the chain has no blocks at all — which should not happen in normal operation,
     /// since the node commits the genesis block at startup. The run loop treats that error like
     /// any other transient read failure (log, back off, retry).
-    fn local_head(&self) -> Result<BlockNumber> {
-        self.provider.provider().latest_number().map_err(|e| e.into())
+    fn local_head(&self) -> Result<BlockNumber, SettlementError> {
+        self.provider.provider().latest_number().map_err(Into::into)
     }
 
     /// Prove and settle the inclusive block range `[first, last]`.
-    async fn settle_batch(&self, first: BlockNumber, last: BlockNumber) -> Result<TxHash> {
+    async fn settle_batch(
+        &self,
+        first: BlockNumber,
+        last: BlockNumber,
+    ) -> Result<TxHash, SettlementError> {
         let prev_block = if first == 0 { None } else { Some(first - 1) };
         let update = self.backend.prove(prev_block, last).await?;
-        self.piltover.update_state(update).await
+        self.piltover.update_state(update).await.map_err(Into::into)
     }
 }
 
