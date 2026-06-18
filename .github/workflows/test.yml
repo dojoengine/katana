@@ -410,8 +410,11 @@ jobs:
 
             - name: Run tests w/ code coverage (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name == 'pull_request'
+              # Lower build parallelism than the plain test run: llvm-cov instrumentation
+              # roughly doubles per-rustc memory, and the cainome abigen crates are heavy,
+              # so --build-jobs 20 OOM-kills the runner (exit 137). 8 keeps peak memory in check.
               run: |
-                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --build-jobs 20
+                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --build-jobs 8
                   cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Upload code coverage
