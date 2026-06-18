@@ -752,7 +752,7 @@ checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 [[package]]
 name = "apollo_compilation_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_infra_utils",
  "cairo-lang-sierra",
@@ -770,7 +770,7 @@ dependencies = [
 [[package]]
 name = "apollo_compile_to_native"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_compilation_utils",
  "apollo_compile_to_native_types",
@@ -783,7 +783,7 @@ dependencies = [
 [[package]]
 name = "apollo_compile_to_native_types"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_config",
  "serde",
@@ -793,7 +793,7 @@ dependencies = [
 [[package]]
 name = "apollo_config"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_infra_utils",
  "clap",
@@ -811,7 +811,7 @@ dependencies = [
 [[package]]
 name = "apollo_infra_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_proc_macros",
  "assert-json-diff",
@@ -829,7 +829,7 @@ dependencies = [
 [[package]]
 name = "apollo_metrics"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "indexmap 2.10.0",
  "metrics",
@@ -841,7 +841,7 @@ dependencies = [
 [[package]]
 name = "apollo_proc_macros"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1841,7 +1841,7 @@ dependencies = [
 [[package]]
 name = "blockifier"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "anyhow",
  "apollo_compilation_utils",
@@ -1892,7 +1892,7 @@ dependencies = [
 [[package]]
 name = "blockifier_test_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_infra_utils",
  "cairo-lang-starknet-classes",
@@ -11480,7 +11480,7 @@ dependencies = [
 [[package]]
 name = "starknet_api"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_infra_utils",
  "base64 0.13.1",
