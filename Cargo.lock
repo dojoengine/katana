@@ -920,7 +920,7 @@ dependencies = [
 [[package]]
 name = "apollo_compilation_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_infra_utils",
  "cairo-lang-sierra",
@@ -938,7 +938,7 @@ dependencies = [
 [[package]]
 name = "apollo_compile_to_native"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_compilation_utils",
  "apollo_compile_to_native_types",
@@ -951,7 +951,7 @@ dependencies = [
 [[package]]
 name = "apollo_compile_to_native_types"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_config",
  "serde",
@@ -961,7 +961,7 @@ dependencies = [
 [[package]]
 name = "apollo_config"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_infra_utils",
  "clap",
@@ -979,7 +979,7 @@ dependencies = [
 [[package]]
 name = "apollo_infra_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_proc_macros",
  "assert-json-diff",
@@ -997,7 +997,7 @@ dependencies = [
 [[package]]
 name = "apollo_metrics"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "indexmap 2.10.0",
  "metrics",
@@ -1009,7 +1009,7 @@ dependencies = [
 [[package]]
 name = "apollo_proc_macros"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -2512,7 +2512,7 @@ dependencies = [
 [[package]]
 name = "blockifier"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "anyhow",
  "apollo_compilation_utils",
@@ -2563,7 +2563,7 @@ dependencies = [
 [[package]]
 name = "blockifier_test_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_infra_utils",
  "cairo-lang-starknet-classes",
@@ -3633,7 +3633,7 @@ dependencies = [
 
 [[package]]
 name = "cartridge"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "ark-ec 0.4.2",
@@ -4621,7 +4621,7 @@ checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 
 [[package]]
 name = "db-compat-test"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "katana-chain-spec",
@@ -7284,7 +7284,7 @@ dependencies = [
 
 [[package]]
 name = "katana"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -7336,7 +7336,7 @@ dependencies = [
 
 [[package]]
 name = "katana-bootstrap"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "cairo-lang-starknet-classes",
@@ -7363,7 +7363,7 @@ dependencies = [
 
 [[package]]
 name = "katana-chain-spec"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -7386,7 +7386,7 @@ dependencies = [
 
 [[package]]
 name = "katana-cli"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -7433,7 +7433,7 @@ dependencies = [
 
 [[package]]
 name = "katana-codecs"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "bytes",
  "katana-primitives",
@@ -7441,7 +7441,7 @@ dependencies = [
 
 [[package]]
 name = "katana-codecs-derive"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7451,7 +7451,7 @@ dependencies = [
 
 [[package]]
 name = "katana-contracts"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "flate2",
  "katana-contracts-macro",
@@ -7463,7 +7463,7 @@ dependencies = [
 
 [[package]]
 name = "katana-contracts-macro"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "cairo-lang-starknet-classes",
  "flate2",
@@ -7478,7 +7478,7 @@ dependencies = [
 
 [[package]]
 name = "katana-core"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -7515,7 +7515,7 @@ dependencies = [
 
 [[package]]
 name = "katana-db"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -7549,7 +7549,7 @@ dependencies = [
 
 [[package]]
 name = "katana-executor"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -7585,7 +7585,7 @@ dependencies = [
 
 [[package]]
 name = "katana-explorer"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "bytes",
  "http 1.3.1",
@@ -7605,7 +7605,7 @@ dependencies = [
 
 [[package]]
 name = "katana-fork"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "futures",
@@ -7626,7 +7626,7 @@ dependencies = [
 
 [[package]]
 name = "katana-full-node"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "backon",
@@ -7665,7 +7665,7 @@ dependencies = [
 
 [[package]]
 name = "katana-gas-price-oracle"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-provider",
  "alloy-rpc-types-eth",
@@ -7692,7 +7692,7 @@ dependencies = [
 
 [[package]]
 name = "katana-gateway-client"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -7712,7 +7712,7 @@ dependencies = [
 
 [[package]]
 name = "katana-gateway-server"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "axum 0.7.9",
  "http 1.3.1",
@@ -7741,7 +7741,7 @@ dependencies = [
 
 [[package]]
 name = "katana-gateway-types"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "base64 0.21.7",
  "cairo-lang-starknet-classes",
@@ -7760,7 +7760,7 @@ dependencies = [
 
 [[package]]
 name = "katana-genesis"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -7779,7 +7779,7 @@ dependencies = [
 
 [[package]]
 name = "katana-grpc"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "cairo-lang-starknet-classes",
  "hex",
@@ -7807,7 +7807,7 @@ dependencies = [
 
 [[package]]
 name = "katana-messaging"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-contract",
  "alloy-network",
@@ -7842,7 +7842,7 @@ dependencies = [
 
 [[package]]
 name = "katana-metrics"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "hyper 0.14.32",
  "jemalloc-ctl",
@@ -7860,7 +7860,7 @@ dependencies = [
 
 [[package]]
 name = "katana-node-bindings"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "criterion",
  "pprof",
@@ -7878,7 +7878,7 @@ dependencies = [
 
 [[package]]
 name = "katana-node-config"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "http 1.3.1",
  "serde",
@@ -7889,7 +7889,7 @@ dependencies = [
 
 [[package]]
 name = "katana-paymaster"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "cainome",
  "http 1.3.1",
@@ -7910,7 +7910,7 @@ dependencies = [
 
 [[package]]
 name = "katana-pipeline"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7928,7 +7928,7 @@ dependencies = [
 
 [[package]]
 name = "katana-pool"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "futures",
  "futures-util",
@@ -7946,7 +7946,7 @@ dependencies = [
 
 [[package]]
 name = "katana-pool-api"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "futures",
  "futures-util",
@@ -7958,7 +7958,7 @@ dependencies = [
 
 [[package]]
 name = "katana-primitives"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -7994,7 +7994,7 @@ dependencies = [
 
 [[package]]
 name = "katana-primitives-macro"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "proc-macro2",
@@ -8005,7 +8005,7 @@ dependencies = [
 
 [[package]]
 name = "katana-provider"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -8042,7 +8042,7 @@ dependencies = [
 
 [[package]]
 name = "katana-provider-api"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "auto_impl",
  "katana-db",
@@ -8056,7 +8056,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-api"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "jsonrpsee 0.26.0",
@@ -8073,7 +8073,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-server"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -8140,7 +8140,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-types"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "arbitrary",
  "assert_matches",
@@ -8171,7 +8171,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-types-builder"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "katana-primitives",
@@ -8181,7 +8181,7 @@ dependencies = [
 
 [[package]]
 name = "katana-runner"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "assert_fs",
@@ -8194,7 +8194,7 @@ dependencies = [
 
 [[package]]
 name = "katana-runner-macro"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8203,7 +8203,7 @@ dependencies = [
 
 [[package]]
 name = "katana-sequencer-node"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "cartridge",
@@ -8243,7 +8243,7 @@ dependencies = [
 
 [[package]]
 name = "katana-settlement"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "amd-sev-snp-attestation-prover",
@@ -8270,7 +8270,7 @@ dependencies = [
 
 [[package]]
 name = "katana-slot-controller"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "katana-contracts",
  "katana-genesis",
@@ -8279,7 +8279,7 @@ dependencies = [
 
 [[package]]
 name = "katana-stage"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "backon",
@@ -8309,7 +8309,7 @@ dependencies = [
 
 [[package]]
 name = "katana-starknet"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-contract",
  "alloy-network",
@@ -8330,7 +8330,7 @@ dependencies = [
 
 [[package]]
 name = "katana-tasks"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "futures",
  "rayon",
@@ -8342,7 +8342,7 @@ dependencies = [
 
 [[package]]
 name = "katana-tee"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "alloy-primitives",
  "amd-sev-snp-attestation-prover",
@@ -8376,7 +8376,7 @@ dependencies = [
 
 [[package]]
 name = "katana-tracing"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "bytes",
@@ -8404,7 +8404,7 @@ dependencies = [
 
 [[package]]
 name = "katana-trie"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -8419,7 +8419,7 @@ dependencies = [
 
 [[package]]
 name = "katana-utils"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -8448,7 +8448,7 @@ dependencies = [
 
 [[package]]
 name = "katana-utils-macro"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "async-trait",
  "proc-macro2",
@@ -11452,7 +11452,7 @@ dependencies = [
 
 [[package]]
 name = "reverse-proxy-test"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "headless_chrome",
@@ -12317,7 +12317,7 @@ dependencies = [
 
 [[package]]
 name = "saya-e2e"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "piltover",
@@ -12329,7 +12329,7 @@ dependencies = [
 
 [[package]]
 name = "saya-tee-e2e-test"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "anyhow",
  "cainome",
@@ -12607,7 +12607,7 @@ dependencies = [
 
 [[package]]
 name = "serde-utils"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "base64 0.21.7",
  "serde",
@@ -14137,7 +14137,7 @@ dependencies = [
 [[package]]
 name = "starknet_api"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=d2591bb#d2591bb07b5da4bf0feebf18953c291becd45910"
+source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
 dependencies = [
  "apollo_infra_utils",
  "base64 0.13.1",
@@ -15692,7 +15692,7 @@ checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "vrf-e2e-test"
-version = "1.8.0-rc.2"
+version = "1.8.0-rc.3"
 dependencies = [
  "axum 0.7.9",
  "cainome",
