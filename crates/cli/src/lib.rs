@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 pub mod args;
+pub mod chain_config;
 pub mod file;
 pub mod full;
 pub mod options;

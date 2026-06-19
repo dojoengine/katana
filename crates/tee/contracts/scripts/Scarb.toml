@@ -1,0 +1,26 @@
+[package]
+name = "deployment"
+version = "0.1.0"
+edition = "2024_07"
+
+# See more keys and their definitions at https://docs.swmansion.com/scarb/docs/reference/manifest.html
+
+# [executable]
+
+#[cairo]
+#enable-gas = false
+
+[dependencies]
+cairo_execute = "2.15.0"
+sncast_std = "0.54.1"
+snforge_std = "0.54.1"
+starknet = ">=2.15.0"
+shell = "1.0.0"
+amd_tee_registry = { path = "../amd_tee_registry" }
+katana_tee = { path = "../katana_tee" }
+
+[[target.starknet-contract]]
+build-external-contracts = ["amd_tee_registry::tee_registry::AMDTEERegistry", "katana_tee::KatanaTee"]
+
+[[target.lib]]
+sierra = true

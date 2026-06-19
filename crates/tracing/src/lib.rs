@@ -8,13 +8,15 @@ use tracing_log::log::SetLoggerError;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{filter, EnvFilter, Layer};
+use tracing_subscriber::Layer;
 
 mod fmt;
 pub mod gcloud;
 pub mod otlp;
 
 pub use fmt::{LogColor, LogFormat};
+pub use tracing::{debug, info, trace};
+pub use tracing_subscriber::EnvFilter;
 
 use crate::fmt::LocalTime;
 
@@ -59,9 +61,6 @@ pub enum Error {
     #[error("failed to initialize log tracer: {0}")]
     LogTracerInit(#[from] SetLoggerError),
 
-    #[error("failed to parse environment filter: {0}")]
-    EnvFilterParse(#[from] filter::ParseError),
-
     #[error("failed to set global dispatcher: {0}")]
     SetGlobalDefault(#[from] SetGlobalDefaultError),
 
@@ -93,17 +92,8 @@ static LOG_FILE_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = O
 pub async fn init(
     logging: LoggingConfig,
     telemetry_config: Option<TracerConfig>,
+    filter: EnvFilter,
 ) -> Result<(), Error> {
-    const DEFAULT_LOG_FILTER: &str =
-        "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
-         executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
-         messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,\
-         katana_stage::downloader=trace,katana_paymaster=trace,middleware::cartridge=trace,\
-         middleware::cartridge::vrf=trace,rpc::cartridge=debug,messaging=trace,info";
-
-    let default_filter = EnvFilter::try_new(DEFAULT_LOG_FILTER);
-    let filter = EnvFilter::try_from_default_env().or(default_filter)?;
-
     // Initialize tracing subscriber with optional telemetry
     if let Some(telemetry_config) = telemetry_config {
         // Initialize telemetry layer based on exporter type

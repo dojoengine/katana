@@ -3,6 +3,7 @@ use clap::{Args, Subcommand};
 use url::Url;
 
 mod client;
+mod katana;
 mod node;
 mod starknet;
 mod tee;
@@ -41,6 +42,11 @@ enum Commands {
         #[command(subcommand)]
         command: tee::TeeCommands,
     },
+    /// Katana-specific JSON-RPC methods
+    Katana {
+        #[command(subcommand)]
+        command: katana::KatanaCommands,
+    },
 }
 
 impl RpcArgs {
@@ -51,6 +57,7 @@ impl RpcArgs {
             Commands::Txpool { command } => command.execute(&client).await,
             Commands::Node { command } => command.execute(&client).await,
             Commands::Tee { command } => command.execute(&client).await,
+            Commands::Katana { command } => command.execute(&client).await,
         }
     }
 

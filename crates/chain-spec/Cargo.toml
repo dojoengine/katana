@@ -13,15 +13,12 @@ katana-primitives.workspace = true
 alloy-primitives.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
-dirs = "6.0.0"
 lazy_static.workspace = true
 num-traits.workspace = true
 piltover.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
-toml.workspace = true
 url.workspace = true
 
 [dev-dependencies]
@@ -29,4 +26,3 @@ katana-executor.workspace = true
 katana-provider = { workspace = true, features = [ "test-utils" ] }
 rstest.workspace = true
 similar-asserts.workspace = true
-tempfile.workspace = true

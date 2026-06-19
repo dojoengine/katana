@@ -54,6 +54,7 @@ use crate::models::contract::ContractInfoChangeList;
 use crate::models::list::BlockChangeList;
 use crate::models::stage::{
     ExecutionCheckpoint, MessagingCheckpoint, MigrationCheckpoint, PruningCheckpoint,
+    SettlementCheckpoint,
 };
 use crate::models::state::HistoricalStateRetention;
 use crate::models::trie::TrieDatabaseValue;
@@ -106,6 +107,7 @@ impl_compress_and_decompress_for_table_values!(
     MessagingCheckpoint,
     MigrationCheckpoint,
     PruningCheckpoint,
+    SettlementCheckpoint,
     HistoricalStateRetention,
     GenericContractInfo,
     StoredBlockBodyIndices,

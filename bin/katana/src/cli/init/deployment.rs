@@ -5,7 +5,7 @@ use katana_chain_spec::settlement_check::{
 };
 use katana_chain_spec::tee::compute_katana_tee_config_hash;
 use katana_chain_spec::SettlementProofKind;
-use katana_contracts::piltover::Appchain;
+use katana_contracts::piltover::AppchainCoreContract;
 use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::ContractClass;
@@ -89,7 +89,7 @@ pub async fn deploy_settlement_contract(
         // both `LayoutBridgeOutput*` (ZK/Atlantic) and `TeeInput` (TEE/SP1 Groth16)
         // variants of `PiltoverInput` — only `set_facts_registry(...)` differs between
         // modes.
-        let class_hash = Appchain::HASH;
+        let class_hash = AppchainCoreContract::HASH;
 
         // Check if the class has already been declared,
         let class_declared = match account
@@ -104,7 +104,7 @@ pub async fn deploy_settlement_contract(
 
             Err(ProviderError::StarknetError(StarknetError::ClassHashNotFound)) => {
                 sp.update_text("Declaring contract...");
-                let class = (*Appchain::CLASS).clone();
+                let class = (*AppchainCoreContract::CLASS).clone();
 
                 // Starknet >= 0.14.1 switched the canonical compiled class hash from Poseidon
                 // to Blake2s and rejects declares using the old algorithm; older chains still
@@ -118,7 +118,7 @@ pub async fn deploy_settlement_contract(
                         .class_hash_blake2s()
                         .map_err(|e| ContractInitError::Other(anyhow!(e)))?
                 } else {
-                    Appchain::CASM_HASH
+                    AppchainCoreContract::CASM_HASH
                 };
 
                 let rpc_class = prepare_contract_declaration_params(class)?;

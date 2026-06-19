@@ -48,11 +48,9 @@ paymaster-rpc.workspace = true
 serde.workspace = true
 url.workspace = true
 
-hex.workspace = true
 katana-tee.workspace = true
 katana-trie.workspace = true
 regex.workspace = true
-starknet-types-core.workspace = true
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
@@ -71,6 +69,7 @@ assert_matches.workspace = true
 axum.workspace = true
 cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
+hex.workspace = true
 indexmap.workspace = true
 jsonrpsee = { workspace = true, features = [ "client" ] }
 num-traits.workspace = true
@@ -89,5 +88,5 @@ url.workspace = true
 
 [features]
 explorer = [ "dep:katana-explorer" ]
-# Enables `MockProvider` for use by integration tests. Not for production binaries.
+# Enables `MockAttester` for use by integration tests. Not for production binaries.
 tee-mock = [ "katana-tee/mock" ]

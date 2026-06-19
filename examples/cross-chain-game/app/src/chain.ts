@@ -377,15 +377,28 @@ export async function appchainBlock(): Promise<number> {
   return appchainProvider.getBlockNumber();
 }
 
-/** Block height settled onto the piltover core by saya (get_state()[1]). */
+/** Block height the appchain's embedded settlement service has settled onto the
+ *  piltover core, via the node's `katana_settlementStatus` RPC. Served from the
+ *  node's durable settled-block checkpoint — a fast local call to the appchain RPC
+ *  instead of a `piltover.get_state()` round-trip to the settlement chain. Returns
+ *  0 when nothing has settled yet. */
 export async function settledBlock(): Promise<number> {
-  const res = await settlementProvider.callContract({
-    contractAddress: PILTOVER,
-    entrypoint: "get_state",
-    calldata: [],
+  return (await settlementStatus()).settledBlock;
+}
+
+/** The appchain node's embedded-settlement status — the durable settled-block
+ *  checkpoint plus the local chain head — in one JSON-RPC call to the appchain.
+ *  (`katana_settlementStatus` isn't in starknet.js, so call it over raw fetch.) */
+async function settlementStatus(): Promise<{ head: number; settledBlock: number }> {
+  const res = await fetch(APPCHAIN_RPC, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "katana_settlementStatus", params: [] }),
   });
-  const bn = BigInt(res[1]);
-  return bn > 0xffffffffffffffffn ? -1 : Number(bn);
+  if (!res.ok) throw new Error(`katana_settlementStatus: HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`katana_settlementStatus: ${json.error.message}`);
+  return { head: Number(json.result.head), settledBlock: Number(json.result.settledBlock) };
 }
 
 /** L1 op: consume the settled score on the settlement layer (banking a run). */

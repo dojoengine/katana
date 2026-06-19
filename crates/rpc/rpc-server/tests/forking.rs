@@ -448,8 +448,8 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
         assert_eq!(a.block_hash, b.block_hash);
         assert_eq!(a.transaction_hash, b.transaction_hash);
         assert_eq!(a.from_address, b.from_address);
-        assert_eq!(a.keys, b.keys);
-        assert_eq!(a.data, b.data);
+        assert_eq!(a.event.keys, b.event.keys);
+        assert_eq!(a.event.data, b.event.data);
     }
 
     Ok(())
@@ -493,8 +493,8 @@ async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) {
         assert_eq!(a.block_hash, b.block_hash);
         assert_eq!(a.transaction_hash, b.transaction_hash);
         assert_eq!(a.from_address, b.from_address);
-        assert_eq!(a.keys, b.keys);
-        assert_eq!(a.data, b.data);
+        assert_eq!(a.event.keys, b.event.keys);
+        assert_eq!(a.event.data, b.event.data);
     }
 }
 

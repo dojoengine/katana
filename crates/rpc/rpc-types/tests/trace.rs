@@ -5,7 +5,7 @@ use katana_rpc_types::trace::{
     CallType, ExecuteInvocation, FunctionInvocation, InnerCallExecutionResources, InvokeTxTrace,
     OrderedEvent, OrderedL2ToL1Message, RevertedInvocation, TxTrace,
 };
-use katana_rpc_types::ExecutionResources;
+use katana_rpc_types::{ExecutionResources, L2ToL1Message, RawEvent};
 use serde_json::Value;
 use similar_asserts::assert_eq;
 
@@ -156,8 +156,8 @@ fn invoke_trace() {
         assert_eq!(invocation.events.len(), 1);
         let event = &invocation.events[0];
         assert_eq!(event.order, 0);
-        assert_eq!(event.keys, vec![felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9")]);
-        assert_eq!(event.data, vec![
+        assert_eq!(event.event.keys, vec![felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9")]);
+        assert_eq!(event.event.data, vec![
             felt!("0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43"),
             felt!("0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8"),
             felt!("0x1536bcb089b900"),
@@ -212,7 +212,7 @@ fn declare_trace() {
         assert_eq!(invocation.events.len(), 1);
         let event = &invocation.events[0];
         assert_eq!(event.order, 0);
-        assert_eq!(event.keys[0], felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"));
+        assert_eq!(event.event.keys[0], felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"));
     });
 
     // Test execution_resources
@@ -283,7 +283,7 @@ fn deploy_account_trace() {
         assert_eq!(invocation.events.len(), 1);
         let event = &invocation.events[0];
         assert_eq!(event.order, 0);
-        assert_eq!(event.keys[0], felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"));
+        assert_eq!(event.event.keys[0], felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"));
     });
 
     // Test execution_resources
@@ -369,11 +369,13 @@ fn reverted_invocation() {
 fn ordered_event_serialization() {
     let event = OrderedEvent {
         order: 42,
-        keys: vec![
-            felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"),
-            felt!("0x1234567890abcdef"),
-        ],
-        data: vec![felt!("0x1"), felt!("0x2"), felt!("0x3")],
+        event: RawEvent {
+            keys: vec![
+                felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"),
+                felt!("0x1234567890abcdef"),
+            ],
+            data: vec![felt!("0x1"), felt!("0x2"), felt!("0x3")],
+        },
     };
 
     // Test serialization
@@ -391,9 +393,13 @@ fn ordered_event_serialization() {
 fn ordered_l2_to_l1_message_serialization() {
     let message = OrderedL2ToL1Message {
         order: 10,
-        from_address: address!("0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43"),
-        to_address: felt!("0x8453fc6cd1bcfe8d4dfc069c400b433054d47bdc"),
-        payload: vec![felt!("0x1"), felt!("0x2")],
+        message: L2ToL1Message {
+            from_address: address!(
+                "0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43"
+            ),
+            to_address: felt!("0x8453fc6cd1bcfe8d4dfc069c400b433054d47bdc"),
+            payload: vec![felt!("0x1"), felt!("0x2")],
+        },
     };
 
     // Test serialization
@@ -464,8 +470,10 @@ fn function_invocation_with_nested_calls() {
         entry_point_type: EntryPointType::External,
         events: vec![OrderedEvent {
             order: 0,
-            keys: vec![felt!("0x777")],
-            data: vec![felt!("0x888"), felt!("0x999")],
+            event: RawEvent {
+                keys: vec![felt!("0x777")],
+                data: vec![felt!("0x888"), felt!("0x999")],
+            },
         }],
         execution_resources: InnerCallExecutionResources { l1_gas: 500, l2_gas: 1000 },
         is_reverted: false,

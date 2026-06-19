@@ -15,6 +15,7 @@ katana-gas-price-oracle.workspace = true
 katana-gateway-server.workspace = true
 katana-grpc = { workspace = true, optional = true }
 katana-messaging.workspace = true
+katana-settlement.workspace = true
 katana-metrics.workspace = true
 katana-node-config.workspace = true
 katana-pool.workspace = true
@@ -44,7 +45,7 @@ explorer = [ "katana-node-config/explorer", "katana-rpc-server/explorer" ]
 grpc = [ "dep:katana-grpc" ]
 native = [ "katana-executor/native" ]
 tee-snp = [ "katana-tee/snp" ]
-# Enables `TeeProviderType::Mock` (software-only attestation provider) for use
+# Enables `AttesterKind::Mock` (software-only attester) for use
 # by integration test crates. Not intended for production binaries.
 tee-mock = [ "katana-tee/mock" ]
 

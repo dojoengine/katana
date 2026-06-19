@@ -30,11 +30,12 @@ use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::TipOrdering;
 use katana_provider::DbProviderFactory;
-use katana_rpc_api::katana::KatanaApiServer;
+use katana_rpc_api::katana::{KatanaApiServer, KatanaSettlementApiServer};
 use katana_rpc_api::node::NodeApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetSubscriptionApiServer};
 use katana_rpc_server::middleware::cors::Cors;
 use katana_rpc_server::node::NodeApi;
+use katana_rpc_server::settlement::SettlementApi;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_rpc_types::node::NodeInfo;
@@ -416,6 +417,13 @@ impl Node {
             rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
             rpc_modules.merge(StarknetSubscriptionApiServer::into_rpc(starknet_api.clone()))?;
             rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
+
+            // A full node never settles, but keep the `katana` namespace consistent across node
+            // types: serve `katana_settlementStatus` (the settled-block checkpoint is absent so it
+            // reads as `0`; the head still reflects the live chain tip) so clients don't hit
+            // MethodNotFound.
+            let settlement_api = SettlementApi::new(storage_provider.clone());
+            rpc_modules.merge(KatanaSettlementApiServer::into_rpc(settlement_api))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::TxPool) {

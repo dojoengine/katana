@@ -1,7 +1,7 @@
 use jsonrpsee::core::client::{self, ClientT, Subscription, SubscriptionClientT};
 use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
-use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
+use katana_primitives::block::ConfirmedBlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
@@ -31,9 +31,10 @@ use katana_rpc_types::trace::{
 };
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
+pub use katana_rpc_types::{BlockIdOrTag, FunctionCall};
 use katana_rpc_types::{
-    CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall,
-    ResultPageRequest, SimulationFlag, SyncingResponse, TxStatus,
+    CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, ResultPageRequest,
+    SimulationFlag, SyncingResponse, TxStatus,
 };
 use serde::de::DeserializeOwned;
 use url::Url;

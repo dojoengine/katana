@@ -4,15 +4,14 @@
 //!
 //! `TeeApi<DbProviderFactory>` is constructed directly against an in-memory provider —
 //! no HTTP server needed because the method is a thin wrapper over provider reads plus
-//! a TEE provider call. `MockProvider` lays out its output as
+//! a TEE attester call. `MockAttester` lays out its output as
 //! `"MOCK" (4 bytes) | user_data (64 bytes) | checksum (4 bytes)`, so decoding the
 //! response's `quote` hex and slicing `[4..68]` recovers the exact `report_data` the
-//! API passed to the TEE provider — giving us a cryptographic handle on whether the
+//! API passed to the attester — giving us a cryptographic handle on whether the
 //! response is bound to the requested inputs.
 
 use std::sync::Arc;
 
-use assert_matches::assert_matches;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
@@ -32,9 +31,11 @@ use katana_primitives::transaction::{InvokeTx, InvokeTxV1, L1HandlerTx, Tx, TxWi
 use katana_primitives::{address, felt, ContractAddress, Felt, B256};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
-use katana_rpc_api::tee::{TeeApiServer, TeeL1ToL2Message, TeeL2ToL1Message};
+use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_server::tee::TeeApi;
-use katana_tee::MockProvider;
+use katana_rpc_types::tee::BlockAttestation;
+use katana_rpc_types::{L1ToL2Message, L2ToL1Message};
+use katana_tee::MockAttester;
 
 // ---------- helpers ----------
 
@@ -43,7 +44,7 @@ fn mock_api(
     fork_block_number: Option<u64>,
 ) -> TeeApi<DbProviderFactory> {
     let chain_spec = sample_chain_spec();
-    TeeApi::new(factory, Arc::new(MockProvider::new()), fork_block_number, &chain_spec)
+    TeeApi::new(factory, Arc::new(MockAttester::new()), fork_block_number, &chain_spec)
 }
 
 fn make_block(
@@ -64,9 +65,9 @@ fn insert(factory: &DbProviderFactory, block: SealedBlockWithStatus, receipts: V
     pm.commit().expect("commit");
 }
 
-/// Extract the 64-byte `report_data` that was passed to the mock TEE provider.
+/// Extract the 64-byte `report_data` that was passed to the mock TEE attester.
 ///
-/// See [`katana_tee::MockProvider`] — layout: `"MOCK" | user_data | checksum_le_u32`.
+/// See [`katana_tee::MockAttester`] — layout: `"MOCK" | user_data | checksum_le_u32`.
 fn extract_report_data(quote_hex: &str) -> [u8; 64] {
     let bytes =
         hex::decode(quote_hex.strip_prefix("0x").expect("quote has 0x prefix")).expect("valid hex");
@@ -221,8 +222,8 @@ async fn generate_quote_genesis_appchain() {
     let api = mock_api(factory, None);
     let resp = api.generate_quote(None, 0).await.expect("generate_quote");
 
-    assert_eq!(resp.prev_block_number, None);
-    assert_eq!(resp.block_number, 0);
+    assert_eq!(resp.prev_block_number, Felt::MAX);
+    assert_eq!(resp.block_number, Felt::ZERO);
     assert_eq!(resp.fork_block_number, None);
     assert_eq!(resp.prev_state_root, Felt::ZERO);
     assert_eq!(resp.prev_block_hash, Felt::ZERO);
@@ -262,7 +263,7 @@ async fn generate_quote_rpc_wire_shape() {
     let handle = server.start(mock_api(factory, None).into_rpc());
 
     let client = HttpClientBuilder::default().build(format!("http://{addr}")).unwrap();
-    let resp: katana_rpc_api::tee::TeeQuoteResponse = client
+    let resp: BlockAttestation = client
         .request("tee_generateQuote", rpc_params!(Option::<BlockNumber>::None, 0u64))
         .await
         .expect("two-param request");
@@ -340,9 +341,9 @@ async fn generate_quote_fork_sharding_mode() {
     let api = mock_api(factory, Some(fork_block));
     let resp = api.generate_quote(Some(0), 1).await.expect("generate_quote");
 
-    assert_eq!(resp.prev_block_number, Some(0));
-    assert_eq!(resp.block_number, 1);
-    assert_eq!(resp.fork_block_number, Some(fork_block));
+    assert_eq!(resp.prev_block_number, Felt::ZERO);
+    assert_eq!(resp.block_number, Felt::ONE);
+    assert_eq!(resp.fork_block_number, Some(Felt::from(fork_block)));
     assert_eq!(resp.prev_block_hash, h0);
     assert_eq!(resp.prev_state_root, sr0);
     assert_eq!(resp.block_hash, h1);
@@ -460,8 +461,8 @@ async fn generate_quote_l2_to_l1_message_aggregation() {
     let api = mock_api(factory, None);
     let resp = api.generate_quote(Some(0), 2).await.expect("generate_quote");
 
-    let expected_msgs = [&msg_a, &msg_b, &msg_c].map(|m| TeeL2ToL1Message {
-        from_address: m.from_address.into(),
+    let expected_msgs = [&msg_a, &msg_b, &msg_c].map(|m| L2ToL1Message {
+        from_address: m.from_address,
         to_address: m.to_address,
         payload: m.payload.clone(),
     });
@@ -529,10 +530,10 @@ async fn generate_quote_l1_to_l2_message_aggregation() {
     assert!(resp.l2_to_l1_messages.is_empty());
     assert_eq!(
         resp.l1_to_l2_messages,
-        vec![TeeL1ToL2Message {
+        vec![L1ToL2Message {
             from_address: sender_on_l1,
-            to_address: contract_address.into(),
-            selector,
+            to_address: contract_address,
+            entry_point_selector: selector,
             payload: payload_elems,
             nonce,
         }]
@@ -582,10 +583,10 @@ async fn generate_quote_missing_prev_block_errors() {
     );
 }
 
-/// Wire-format contract for `prev_block_number`: custom serde maps `None ↔ Felt::MAX`
-/// (not `None ↔ null`) so the field can be hashed into the on-chain commitment as a
-/// `Felt` without a separate sentinel encoding step. Validates both branches *and*
-/// that round-trip restores the original `Option<BlockNumber>` value.
+/// Wire-format contract for `prev_block_number`: the genesis "no previous block"
+/// case is encoded as `Felt::MAX` (not JSON `null`) so the field can be hashed
+/// into the on-chain commitment as a `Felt` without a separate sentinel encoding
+/// step. Validates both branches *and* that round-trip preserves the value.
 #[tokio::test]
 async fn generate_quote_prev_block_number_wire_format() {
     let factory = DbProviderFactory::new_in_memory();
@@ -603,9 +604,8 @@ async fn generate_quote_prev_block_number_wire_format() {
         "None must serialize to Felt::MAX, not null"
     );
     assert!(!json_none["prevBlockNumber"].is_null(), "None must NOT serialize to JSON null");
-    let round_trip_none: katana_rpc_api::tee::TeeQuoteResponse =
-        serde_json::from_value(json_none).expect("deserialize");
-    assert_matches!(round_trip_none.prev_block_number, None);
+    let round_trip_none: BlockAttestation = serde_json::from_value(json_none).expect("deserialize");
+    assert_eq!(round_trip_none.prev_block_number, Felt::MAX);
 
     // Case 2: Some(0) → serialized as Felt::from(0). Using Some(0) specifically exercises
     // the boundary where the value is not the Felt::MAX sentinel but is also numerically zero.
@@ -616,9 +616,8 @@ async fn generate_quote_prev_block_number_wire_format() {
         serde_json::to_value(Felt::from(0u64)).unwrap(),
         "Some(0) must serialize to the Felt form of 0"
     );
-    let round_trip_some: katana_rpc_api::tee::TeeQuoteResponse =
-        serde_json::from_value(json_some).expect("deserialize");
-    assert_eq!(round_trip_some.prev_block_number, Some(0));
+    let round_trip_some: BlockAttestation = serde_json::from_value(json_some).expect("deserialize");
+    assert_eq!(round_trip_some.prev_block_number, Felt::ZERO);
 }
 
 /// `TeeApi::new` derives the config hash from chain spec inputs (`chain_id`,
@@ -642,7 +641,7 @@ async fn generate_quote_precomputed_config_hash_binding() {
     let expected_hash = compute_katana_tee_config_hash(chain_id, fee_token.into());
     let chain_spec = build_chain_spec(chain_id, fee_token);
 
-    let api = TeeApi::new(factory, Arc::new(MockProvider::new()), None, &chain_spec);
+    let api = TeeApi::new(factory, Arc::new(MockAttester::new()), None, &chain_spec);
     let resp = api.generate_quote(None, 0).await.expect("generate_quote");
 
     // 1. Response carries the derived hash.

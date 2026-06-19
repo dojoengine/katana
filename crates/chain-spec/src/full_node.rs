@@ -2,7 +2,7 @@ use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use lazy_static::lazy_static;
 
-use crate::{FeeContracts, SettlementLayer};
+use crate::FeeContracts;
 
 /// The full node chain specification.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,9 +15,6 @@ pub struct ChainSpec {
 
     /// The chain fee token contract.
     pub fee_contracts: FeeContracts,
-
-    /// The chain's settlement layer configurations (if any).
-    pub settlement: Option<SettlementLayer>,
 }
 
 //////////////////////////////////////////////////////////////
@@ -49,7 +46,6 @@ lazy_static! {
             eth: katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS,
             strk: katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         },
-        settlement: None,
     };
 
     /// Starknet sepolia testnet chain specification.
@@ -60,6 +56,5 @@ lazy_static! {
             eth: katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS,
             strk: katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         },
-        settlement: None,
     };
 }

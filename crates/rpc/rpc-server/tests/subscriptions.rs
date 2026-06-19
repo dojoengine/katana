@@ -163,7 +163,7 @@ async fn subscribe_events_receives_events() {
 
     assert!(event.event.block_number.is_some());
     assert!(event.event.block_hash.is_some());
-    assert!(!event.event.keys.is_empty());
+    assert!(!event.event.event.keys.is_empty());
 }
 
 /// Path: tx is already in storage at subscribe-time, receipt is successful.

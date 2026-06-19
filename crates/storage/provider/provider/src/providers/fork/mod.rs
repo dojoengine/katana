@@ -26,6 +26,7 @@ use katana_provider_api::messaging::{
     MessagingCheckpoint, MessagingCheckpointProvider, MessagingL1ToL2IndexProvider,
     MessagingL1ToL2IndexWriter,
 };
+use katana_provider_api::settlement::{SettlementCheckpointProvider, SettlementCheckpointWriter};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
@@ -710,6 +711,18 @@ impl<Tx1: DbTx> MessagingL1ToL2IndexProvider for ForkedProvider<Tx1> {
 impl<Tx1: DbTxMut> MessagingL1ToL2IndexWriter for ForkedProvider<Tx1> {
     fn record_l1_to_l2(&self, l1_tx_hash: &[u8; 32], l2_tx_hash: TxHash) -> ProviderResult<()> {
         self.local_db.record_l1_to_l2(l1_tx_hash, l2_tx_hash)
+    }
+}
+
+impl<Tx1: DbTx> SettlementCheckpointProvider for ForkedProvider<Tx1> {
+    fn settled_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        self.local_db.settled_block()
+    }
+}
+
+impl<Tx1: DbTxMut> SettlementCheckpointWriter for ForkedProvider<Tx1> {
+    fn set_settled_block(&self, block: BlockNumber) -> ProviderResult<()> {
+        self.local_db.set_settled_block(block)
     }
 }
 

@@ -106,7 +106,7 @@ pub fn node_config_dump(config: &Config, chain_spec: &ChainSpec) -> NodeConfig {
             }),
         }),
         tee: config.tee.as_ref().map(|t| TeeConfigDump {
-            provider_type: t.provider_type.to_string(),
+            provider_type: t.attester.to_string(),
             fork_block_number: t.fork_block_number,
         }),
         grpc: grpc_dump(config),

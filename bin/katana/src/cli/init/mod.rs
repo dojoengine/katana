@@ -61,11 +61,13 @@ use std::str::FromStr;
 use anyhow::Context;
 use clap::{Args, Subcommand};
 use deployment::DeploymentOutcome;
-use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::settlement_check::SettlementChainProvider;
-use katana_chain_spec::{rollup, FeeContracts, SettlementLayer, SettlementProofKind};
+use katana_chain_spec::{
+    rollup, ChainSpec, FeeContracts, SettlementConfig, SettlementLayer, SettlementProofKind,
+};
+use katana_cli::chain_config::{self, ChainConfigDir};
 use katana_cli::utils::ShortStringValueParser;
-use katana_contracts::piltover::Appchain;
+use katana_contracts::piltover::AppchainCoreContract;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 use katana_genesis::Genesis;
@@ -280,15 +282,20 @@ impl RollupArgs {
             strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
 
-        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
+        let chain_spec = ChainSpec::Rollup(rollup::ChainSpec { id, genesis, fee_contracts });
+
+        // Settlement is recorded alongside the chain spec, not inside it. `init` writes only the
+        // settlement layer; the operator adds a `[settlement.runtime]` section to actively settle.
+        let settlement = SettlementConfig { layer: settlement, runtime: None };
 
         let dir = match &self.output_path {
             Some(path) => ChainConfigDir::create(path)?,
             // Write to the local chain config directory by default if user
             // doesn't specify the output path
-            None => ChainConfigDir::create_local(&chain_spec.id)?,
+            None => ChainConfigDir::create_local(&chain_spec.id())?,
         };
-        rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
+        chain_config::write(&dir, &chain_spec, Some(&settlement))
+            .context("failed to write chain spec file")?;
 
         // ----- Print initialization summary -----
 
@@ -332,7 +339,10 @@ SETTLEMENT LAYER
         // For --settlement-contract (user-supplied), check_program_info validates program info
         // but not the on-chain class hash, so printing it would risk misleading the operator.
         if output.deployment_outcome.class_declared {
-            println!("| Class hash      | {:#066x} (declared this run)", Appchain::HASH);
+            println!(
+                "| Class hash      | {:#066x} (declared this run)",
+                AppchainCoreContract::HASH
+            );
         }
         println!();
 
@@ -495,13 +505,16 @@ impl SovereignArgs {
             strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
         };
 
-        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
+        let chain_spec = ChainSpec::Rollup(rollup::ChainSpec { id, genesis, fee_contracts });
+
+        let settlement = SettlementConfig { layer: settlement, runtime: None };
 
         let dir = match &self.output_path {
             Some(path) => ChainConfigDir::create(path)?,
-            None => ChainConfigDir::create_local(&chain_spec.id)?,
+            None => ChainConfigDir::create_local(&chain_spec.id())?,
         };
-        rollup::write(&dir, &chain_spec).context("failed to write chain spec file")?;
+        chain_config::write(&dir, &chain_spec, Some(&settlement))
+            .context("failed to write chain spec file")?;
 
         // ----- Print initialization summary -----
 

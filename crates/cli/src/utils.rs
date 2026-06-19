@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use console::Style;
-use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::{ChainSpec, SettlementLayer, SettlementProofKind};
 use katana_db::Db;
 use katana_genesis::allocation::GenesisAccountAlloc;
@@ -17,11 +16,12 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
 use katana_rpc_server::middleware::cors::HeaderValue;
-use katana_tracing::LogFormat;
+use katana_tracing::{EnvFilter, LogFormat};
 use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;
 
 use crate::args::LOG_TARGET;
+use crate::chain_config::ChainConfigDir;
 use crate::SequencerNodeArgs;
 
 pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
@@ -62,6 +62,22 @@ pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
     }
 }
 
+/// Default per-target log levels used when `RUST_LOG` is unset.
+pub const DEFAULT_LOG_FILTER: &str =
+    "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
+     executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
+     node=error,explorer=info,rpc=trace,pool=trace,katana_stage::downloader=trace,\
+     katana_paymaster=trace,middleware::cartridge=trace,middleware::cartridge::vrf=trace,\
+     rpc::cartridge=debug,info";
+
+/// Builds the [`EnvFilter`] used by the node binaries: honors `RUST_LOG` when set,
+/// otherwise falls back to [`DEFAULT_LOG_FILTER`].
+pub fn default_log_filter() -> Result<EnvFilter> {
+    EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new(DEFAULT_LOG_FILTER))
+        .context("failed to parse log filter")
+}
+
 pub fn parse_seed(seed: &str) -> [u8; 32] {
     let seed = seed.as_bytes();
 
@@ -91,7 +107,11 @@ pub fn parse_block_hash_or_number(value: &str) -> Result<BlockHashOrNumber> {
     }
 }
 
-pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
+pub fn print_intro(
+    args: &SequencerNodeArgs,
+    chain: &ChainSpec,
+    settlement: Option<&SettlementLayer>,
+) {
     let mut accounts = chain.genesis().accounts().peekable();
     let account_class_hash = accounts.peek().map(|e| e.1.class_hash());
     let seed = &args.development.seed;
@@ -103,7 +123,7 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
             serde_json::json!({
                 "accounts": accounts.map(|a| serde_json::json!(a)).collect::<Vec<_>>(),
                 "seed": format!("{}", seed),
-                "settlement": chain.settlement(),
+                "settlement": settlement,
             })
         )
     } else {
@@ -126,7 +146,7 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
         print_genesis_contracts(chain, account_class_hash);
         print_genesis_accounts(accounts);
 
-        if let Some(settlement) = chain.settlement() {
+        if let Some(settlement) = settlement {
             print_settlement(settlement);
         }
 
@@ -197,7 +217,7 @@ PREDEPLOYED CONTRACTS
 
 fn print_settlement(settlement: &SettlementLayer) {
     match settlement {
-        SettlementLayer::Ethereum { id, rpc_url, account, core_contract, block } => {
+        SettlementLayer::Ethereum { id, rpc_url, core_contract, block } => {
             println!(
                 r"
 
@@ -207,7 +227,6 @@ SETTLEMENT
 | Settlement      | Ethereum
 | Chain ID        | {id}
 | RPC URL         | {rpc_url}
-| Account         | {account}
 | Core Contract   | {core_contract}
 | Deployed Block  | {block}"
             );

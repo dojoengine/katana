@@ -51,5 +51,13 @@ katana-tee
 misc/AMDSEV/ovmf/
 misc/AMDSEV/output/
 misc/AMDSEV/source-commit.ovmf
+
+# saya runtime artifacts
+/programs/
+.env.persistent
+.env.sovereign
+saya.db
+config.toml
+sequencer_venv
 .gstack/
 examples/cross-chain-game/app/.env.local

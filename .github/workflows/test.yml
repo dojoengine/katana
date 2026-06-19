@@ -255,7 +255,7 @@ jobs:
             # are already compiled.
             - name: Build and archive test binaries
               run: |
-                  cargo nextest archive --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --archive-file nextest-archive.tar.zst
+                  cargo nextest archive --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude saya-e2e --archive-file nextest-archive.tar.zst
 
             - name: Upload binary
               uses: actions/upload-artifact@v4
@@ -316,7 +316,9 @@ jobs:
                 build-katana-binary-macos,
             ]
         runs-on: ${{ matrix.runner }}
-        timeout-minutes: ${{ matrix.os == 'macos' && 60 || 30 }}
+        # ubuntu runs the llvm-cov coverage build at reduced --build-jobs (to stay under the
+        # runner's memory limit), which is slower than the plain test build — give it more headroom.
+        timeout-minutes: ${{ matrix.os == 'macos' && 60 || 50 }}
         strategy:
             matrix:
                 include:
@@ -406,12 +408,15 @@ jobs:
             - name: Run tests (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name != 'pull_request'
               run: |
-                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --build-jobs 20
+                  cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --exclude saya-e2e --build-jobs 20
 
             - name: Run tests w/ code coverage (ubuntu)
               if: matrix.os == 'ubuntu' && github.event_name == 'pull_request'
+              # Lower build parallelism than the plain test run: llvm-cov instrumentation
+              # roughly doubles per-rustc memory, and the cainome abigen crates are heavy,
+              # so --build-jobs 20 OOM-kills the runner (exit 137). 8 keeps peak memory in check.
               run: |
-                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --build-jobs 20
+                  cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --exclude vrf-e2e-test --exclude saya-tee-e2e-test --exclude saya-e2e --build-jobs 8
                   cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Upload code coverage
@@ -663,24 +668,9 @@ jobs:
               with:
                   name: fixtures
 
-            - name: Clone Saya repository
-              run: |
-                  git clone https://github.com/dojoengine/saya /tmp/saya
-                  git -C /tmp/saya checkout v0.4.1
-
-            - uses: software-mansion/setup-scarb@v1
-              with:
-                  scarb-version: "2.13.1"
-
-            - name: Install saya-ops
-              run: cargo install --locked --path /tmp/saya/bin/ops --bin saya-ops
-
-            - name: Install saya-tee
-              run: cargo install --locked --path /tmp/saya/bin/persistent-tee --bin saya-tee
-
             - name: Run saya-tee e2e test
               env:
-                  RUST_LOG: info,saya_tee_e2e_test=debug,persistent_tee=info
+                  RUST_LOG: info,saya_tee_e2e_test=debug,settlement=debug
               run: cargo run -p saya-tee-e2e-test
 
     db-compatibility-check:

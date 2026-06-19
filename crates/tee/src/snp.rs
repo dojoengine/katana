@@ -1,19 +1,19 @@
-use tracing::{debug, info};
+use katana_tracing::{debug, info};
 
 use crate::error::TeeError;
-use crate::provider::TeeProvider;
+use crate::Attester;
 
-/// AMD SEV-SNP provider using the Automata Network SEV-SNP SDK.
+/// AMD SEV-SNP attester using the Automata Network SEV-SNP SDK.
 ///
-/// This provider uses the /dev/sev-guest device to generate SEV-SNP
+/// This attester uses the /dev/sev-guest device to generate SEV-SNP
 /// attestation reports via the Automata Network SDK.
-pub struct SevSnpProvider {
+pub struct SevSnpAttester {
     /// SEV-SNP SDK instance
     sev_snp: sev_snp::SevSnp,
 }
 
-impl SevSnpProvider {
-    /// Create a new SEV-SNP provider.
+impl SevSnpAttester {
+    /// Create a new SEV-SNP attester.
     ///
     /// # Errors
     ///
@@ -22,19 +22,19 @@ impl SevSnpProvider {
         let sev_snp = sev_snp::SevSnp::new()
             .map_err(|e| TeeError::NotSupported(format!("Failed to initialize SEV-SNP: {e}")))?;
 
-        info!(target: "tee::snp", "SEV-SNP provider initialized");
+        info!(target: "tee::snp", "SEV-SNP attester initialized");
 
         Ok(Self { sev_snp })
     }
 }
 
-impl std::fmt::Debug for SevSnpProvider {
+impl std::fmt::Debug for SevSnpAttester {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SevSnpProvider").finish_non_exhaustive()
+        f.debug_struct("SevSnpAttester").finish_non_exhaustive()
     }
 }
 
-impl TeeProvider for SevSnpProvider {
+impl Attester for SevSnpAttester {
     fn generate_quote(&self, user_data: &[u8; 64]) -> Result<Vec<u8>, TeeError> {
         debug!(target: "tee::snp", "Generating SEV-SNP attestation report");
 
@@ -62,7 +62,7 @@ impl TeeProvider for SevSnpProvider {
         Ok(report_bytes)
     }
 
-    fn provider_type(&self) -> &'static str {
+    fn name(&self) -> &'static str {
         "SEV-SNP"
     }
 }
@@ -75,18 +75,18 @@ mod tests {
     fn generate_quote_fails_on_unsupported_machine() {
         // SevSnp::new() succeeds because it only initializes the KDS client,
         // not the actual SEV-SNP device.
-        let provider = SevSnpProvider::new().expect("SevSnpProvider::new should succeed");
+        let attester = SevSnpAttester::new().expect("SevSnpAttester::new should succeed");
 
         let user_data = [0u8; 64];
 
         // generate_quote should fail on non-SEV-SNP machines because it attempts
         // to access /dev/sev-guest via Device::new() internally.
-        let result = provider.generate_quote(&user_data);
+        let result = attester.generate_quote(&user_data);
 
         if let Err(TeeError::GenerationFailed(msg)) = result {
             assert!(msg.contains("SEV-SNP"));
         } else {
-            panic!("Expected TeeError::GenerationFailed, got {:?}", result);
+            panic!("Expected TeeError::GenerationFailed, got {result:?}");
         }
     }
 }

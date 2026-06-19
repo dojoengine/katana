@@ -7,13 +7,10 @@ use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 
-pub mod file;
 pub mod utils;
 
-pub use file::*;
-
 use crate::fee_token::add_fee_token;
-use crate::{FeeContracts, SettlementLayer};
+use crate::FeeContracts;
 
 /// The rollup chain specification.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,9 +23,6 @@ pub struct ChainSpec {
 
     /// The chain fee token contract.
     pub fee_contracts: FeeContracts,
-
-    /// The chain's settlement layer configurations.
-    pub settlement: SettlementLayer,
 }
 
 //////////////////////////////////////////////////////////////
