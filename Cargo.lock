@@ -6657,6 +6657,7 @@ name = "katana-grpc"
 version = "1.8.0-rc.3"
 dependencies = [
  "cairo-lang-starknet-classes",
+ "criterion",
  "hex",
  "http 0.2.12",
  "katana-pool",
@@ -6669,6 +6670,7 @@ dependencies = [
  "katana-utils",
  "num-bigint",
  "prost 0.12.6",
+ "rand 0.8.5",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 1.0.69",

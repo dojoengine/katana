@@ -126,6 +126,49 @@ jobs:
             output.txt
             hw-specs.txt
 
+  bench-payload:
+    needs: [detect-changes, generate-artifacts]
+    runs-on: ubuntu-latest
+    if: |
+      needs.detect-changes.outputs.broader-rust == 'true' &&
+      (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bench-payload
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts
+          path: crates/contracts/build
+
+      - name: Run RPC payload codec benchmarks
+        env:
+          # Pin the RNG so historical regression tracking compares identical data across runs
+          # (locally the benchmark defaults to fresh random data each run).
+          BENCH_SEED: "42"
+        run: |
+          cargo bench -p katana-grpc --bench payload -- --output-format bencher 2>&1 | tee raw.txt
+          grep '^test ' raw.txt > output.txt || true
+          echo "::group::RPC payload benchmark output"
+          cat output.txt
+          echo "::endgroup::"
+          if [ ! -s output.txt ]; then
+            echo "::error::RPC payload benchmark produced no results. Raw output:"
+            cat raw.txt
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-payload
+          path: output.txt
+
   # bench-commit:
   #   runs-on: ubuntu-latest
   #   if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
@@ -174,7 +217,7 @@ jobs:
   #         path: output.txt
 
   report:
-    needs: [detect-changes, bench-codec]
+    needs: [detect-changes, bench-codec, bench-payload]
     runs-on: ubuntu-latest
     if: |
       needs.detect-changes.outputs.broader-rust == 'true' &&
@@ -187,9 +230,14 @@ jobs:
           name: bench-codec
           path: bench-results/bench-codec
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: bench-payload
+          path: bench-results/bench-payload
+
       - name: Merge benchmark results
         run: |
-          cat bench-results/bench-codec/output.txt > output.txt
+          cat bench-results/bench-codec/output.txt bench-results/bench-payload/output.txt > output.txt
           echo "::group::Merged benchmark output"
           cat output.txt
           echo "::endgroup::"
