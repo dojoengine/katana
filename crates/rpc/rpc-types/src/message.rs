@@ -8,6 +8,29 @@ use serde::{Deserialize, Serialize};
 
 use crate::ExecutionResult;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct L1ToL2Message {
+    /// The sender on the settlement chain — an Ethereum address or a Starknet contract address
+    /// depending on the settlement layer, so it is kept as a full felt (truncating to 20 bytes
+    /// would lose Starknet sender addresses).
+    pub from_address: Felt,
+    /// The target L2 address the message is sent to
+    pub to_address: ContractAddress,
+    /// The selector of the l1_handler in invoke in the target contract
+    pub entry_point_selector: EntryPointSelector,
+    /// The payload of the message
+    pub payload: Vec<Felt>,
+
+    pub nonce: Felt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct L2ToL1Message {
+    pub from_address: ContractAddress,
+    pub to_address: Felt,
+    pub payload: Vec<Felt>,
+}
+
 /// Finality status of an L1->L2 message.
 ///
 /// Mirrors `TXN_FINALITY_STATUS` from the Starknet JSON-RPC spec.

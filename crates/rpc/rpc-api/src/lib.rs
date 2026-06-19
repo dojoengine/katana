@@ -14,3 +14,6 @@ pub mod paymaster {
 }
 
 pub mod tee;
+
+#[cfg(feature = "client")]
+pub use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};

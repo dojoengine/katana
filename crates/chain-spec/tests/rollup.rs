@@ -3,7 +3,7 @@ use std::sync::Arc;
 use alloy_primitives::U256;
 use katana_chain_spec::rollup::utils::GenesisTransactionsBuilder;
 use katana_chain_spec::rollup::ChainSpec;
-use katana_chain_spec::{FeeContracts, SettlementLayer};
+use katana_chain_spec::FeeContracts;
 use katana_contracts::contracts;
 use katana_executor::blockifier::cache::ClassCache;
 use katana_executor::blockifier::BlockifierFactory;
@@ -22,7 +22,6 @@ use katana_primitives::Felt;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::providers::PreloadedStateProvider;
 use katana_provider::{DbProviderFactory, ProviderFactory};
-use url::Url;
 
 fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
     let accounts = if with_balance {
@@ -40,15 +39,7 @@ fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
     let fee_contracts =
         FeeContracts { eth: DEFAULT_STRK_FEE_TOKEN_ADDRESS, strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS };
 
-    let settlement = SettlementLayer::Starknet {
-        block: 0,
-        id: ChainId::default(),
-        core_contract: Default::default(),
-        rpc_url: Url::parse("http://localhost:5050").unwrap(),
-        proof_kind: Default::default(),
-    };
-
-    ChainSpec { id, genesis, settlement, fee_contracts }
+    ChainSpec { id, genesis, fee_contracts }
 }
 
 fn executor(chain_spec: ChainSpec) -> BlockifierFactory {

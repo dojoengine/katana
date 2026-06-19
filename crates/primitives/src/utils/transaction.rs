@@ -362,6 +362,31 @@ pub fn compute_l1_to_l2_message_hash(
     hasher.finalize()
 }
 
+/// Calculates the hash of a settlement-to-appchain message when the settlement layer is a
+/// Starknet chain.
+///
+/// The Starknet-settled counterpart of [`compute_l1_to_l2_message_hash`]: Piltover's
+/// `send_message_to_appchain` (and Katana's messaging collector) identify messages by this
+/// Poseidon hash, with the sender being a full Starknet contract address felt.
+pub fn compute_starknet_to_appchain_message_hash(
+    from_address: Felt,
+    to_address: Felt,
+    nonce: Felt,
+    entry_point_selector: Felt,
+    payload: &[Felt],
+) -> Felt {
+    use crate::hash::StarkHash;
+
+    let mut buf: Vec<Felt> =
+        vec![from_address, to_address, nonce, entry_point_selector, Felt::from(payload.len())];
+
+    for p in payload {
+        buf.push(*p);
+    }
+
+    crate::hash::Poseidon::hash_array(&buf)
+}
+
 fn encode_gas_bound(name: &[u8], bound: &ResourceBounds) -> Felt {
     let mut buffer = [0u8; 32];
     let (remainder, max_price) = buffer.split_at_mut(128 / 8);

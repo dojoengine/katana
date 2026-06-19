@@ -5,9 +5,9 @@ use anyhow::Result;
 use futures::Future;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::chain::ChainId;
-use katana_primitives::hash::StarkHash;
 use katana_primitives::transaction::L1HandlerTx;
-use katana_primitives::{hash, ContractAddress, Felt};
+use katana_primitives::utils::transaction::compute_starknet_to_appchain_message_hash;
+use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::event::{EmittedEvent, EventFilter};
 use katana_starknet::rpc::{StarknetRpcClient, StarknetRpcClientError};
 use starknet::macros::selector;
@@ -149,37 +149,40 @@ fn l1_handler_tx_from_event(
     event: &EmittedEvent,
     chain_id: ChainId,
 ) -> Result<L1HandlerTx, StarknetCollectorError> {
+    let keys = &event.event.keys;
+    let data = &event.event.data;
+
     // Validate event shape before any indexing — the `MessageSent` schema requires
     // exactly 4 keys (event_key, random_hash, from_address, to_address) and at least
     // 3 data entries (selector, nonce, payload_length, ...payload).
-    if event.keys.len() != 4 {
+    if keys.len() != 4 {
         return Err(StarknetCollectorError::MalformedMessage(format!(
             "MessageSent event expected 4 keys, got {}",
-            event.keys.len()
+            keys.len()
         )));
     }
-    if event.data.len() < 3 {
+    if data.len() < 3 {
         return Err(StarknetCollectorError::MalformedMessage(format!(
             "MessageSent event expected at least 3 data entries (selector, nonce, \
              payload_length), got {}",
-            event.data.len()
+            data.len()
         )));
     }
 
-    if event.keys[0] != MESSAGE_SENT_EVENT_KEY {
+    if keys[0] != MESSAGE_SENT_EVENT_KEY {
         return Err(StarknetCollectorError::MalformedMessage(format!(
             "MessageSent event key mismatch: expected {MESSAGE_SENT_EVENT_KEY:#x}, got {:#x}",
-            event.keys[0]
+            keys[0]
         )));
     }
 
-    let from_address = event.keys[2];
-    let to_address = event.keys[3];
-    let entry_point_selector = event.data[0];
-    let nonce = event.data[1];
+    let from_address = keys[2];
+    let to_address = keys[3];
+    let entry_point_selector = data[0];
+    let nonce = data[1];
 
     let mut calldata = vec![from_address];
-    calldata.extend(&event.data[3..]);
+    calldata.extend(&data[3..]);
 
     let message_hash = compute_starknet_to_appchain_message_hash(
         from_address,
@@ -203,26 +206,10 @@ fn l1_handler_tx_from_event(
     })
 }
 
-fn compute_starknet_to_appchain_message_hash(
-    from_address: Felt,
-    to_address: Felt,
-    nonce: Felt,
-    entry_point_selector: Felt,
-    payload: &[Felt],
-) -> Felt {
-    let mut buf: Vec<Felt> =
-        vec![from_address, to_address, nonce, entry_point_selector, Felt::from(payload.len())];
-
-    for p in payload {
-        buf.push(*p);
-    }
-
-    hash::Poseidon::hash_array(&buf)
-}
-
 #[cfg(test)]
 mod tests {
     use katana_primitives::utils::transaction::compute_l1_handler_tx_hash;
+    use katana_rpc_types::event::RawEvent;
     use starknet::macros::felt;
 
     use super::*;
@@ -250,8 +237,15 @@ mod tests {
                 "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
             )
             .into(),
-            keys: vec![MESSAGE_SENT_EVENT_KEY, selector!("random_hash"), from_address, to_address],
-            data: vec![selector, nonce, Felt::from(calldata.len() as u128), Felt::THREE],
+            event: RawEvent {
+                keys: vec![
+                    MESSAGE_SENT_EVENT_KEY,
+                    selector!("random_hash"),
+                    from_address,
+                    to_address,
+                ],
+                data: vec![selector, nonce, Felt::from(calldata.len() as u128), Felt::THREE],
+            },
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,
@@ -297,13 +291,15 @@ mod tests {
                 "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
             )
             .into(),
-            keys: vec![
-                selector!("AnOtherUnexpectedEvent"),
-                selector!("random_hash"),
-                from_address,
-                to_address,
-            ],
-            data: vec![selector, nonce, Felt::from(calldata.len() as u128), Felt::THREE],
+            event: RawEvent {
+                keys: vec![
+                    selector!("AnOtherUnexpectedEvent"),
+                    selector!("random_hash"),
+                    from_address,
+                    to_address,
+                ],
+                data: vec![selector, nonce, Felt::from(calldata.len() as u128), Felt::THREE],
+            },
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,
@@ -326,8 +322,14 @@ mod tests {
                 "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
             )
             .into(),
-            keys: vec![selector!("AnOtherUnexpectedEvent"), selector!("random_hash"), from_address],
-            data: vec![],
+            event: RawEvent {
+                keys: vec![
+                    selector!("AnOtherUnexpectedEvent"),
+                    selector!("random_hash"),
+                    from_address,
+                ],
+                data: vec![],
+            },
             block_hash: Some(selector!("block_hash")),
             block_number: Some(0),
             transaction_hash,

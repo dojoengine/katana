@@ -155,6 +155,44 @@ pub async fn wait_for_settlement(
     }
 }
 
+/// Asserts the L3's `katana_settlementStatus` RPC reflects the live settler: the reported settled
+/// block and head both catch up to the L3 tip.
+///
+/// Polls until the cursor catches up: `wait_for_settlement` confirms via Piltover (on L2) that the
+/// state advanced, but the worker updates its in-memory status a beat later, so a single read
+/// could race the cursor write.
+pub async fn assert_settlement_status(l3: &L3InProcess) -> Result<()> {
+    let l3_tip =
+        l3.provider().block_number().await.context("failed to fetch L3 latest block number")?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+
+    loop {
+        let status = l3.settlement_status().await.context("katana_settlementStatus call failed")?;
+
+        if status.settled_block == l3_tip {
+            println!(
+                "katana_settlementStatus: settled_block={} head={}",
+                status.settled_block, status.head
+            );
+
+            if status.head != l3_tip {
+                return Err(anyhow!("expected head={l3_tip} (the L3 tip), got {}", status.head));
+            }
+            return Ok(());
+        }
+
+        if Instant::now() >= deadline {
+            return Err(anyhow!(
+                "timed out waiting for katana_settlementStatus settled_block to reach {l3_tip}, \
+                 last saw {}",
+                status.settled_block
+            ));
+        }
+
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
 fn hex(felt: &Felt) -> String {
     format!("0x{:x}", felt)
 }

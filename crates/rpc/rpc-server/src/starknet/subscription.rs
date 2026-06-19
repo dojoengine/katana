@@ -13,7 +13,7 @@ use katana_provider::api::transaction::{
 use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetSubscriptionApiServer;
-use katana_rpc_types::event::EmittedEvent;
+use katana_rpc_types::event::{EmittedEvent, RawEvent};
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::subscription::{
     EmittedEventWithFinalityStatus, ExecutionStatus, NewTxnStatus, SubscriptionBlockHeader,
@@ -486,8 +486,7 @@ fn fetch_block_events(
                 transaction_index: tx_idx as u64,
                 event_index: event_idx as u64,
                 from_address: event.from_address,
-                keys: event.keys.clone(),
-                data: event.data.clone(),
+                event: RawEvent { keys: event.keys.clone(), data: event.data.clone() },
             });
         }
     }

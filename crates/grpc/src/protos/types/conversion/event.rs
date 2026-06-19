@@ -66,8 +66,8 @@ impl From<EmittedEvent> for ProtoEmittedEvent {
     fn from(event: EmittedEvent) -> Self {
         ProtoEmittedEvent {
             from_address: Some(ProtoFelt::from(Felt::from(event.from_address))),
-            keys: event.keys.to_proto_felts(),
-            data: event.data.to_proto_felts(),
+            keys: event.event.keys.to_proto_felts(),
+            data: event.event.data.to_proto_felts(),
             block_hash: event.block_hash.map(ProtoFelt::from),
             block_number: event.block_number.unwrap_or(0),
             transaction_hash: Some(event.transaction_hash.into()),

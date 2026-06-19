@@ -38,13 +38,14 @@ use katana_primitives::Felt;
 use katana_provider::api::messaging::{
     MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
 };
+use katana_provider::api::settlement::{SettlementCheckpointProvider, SettlementCheckpointWriter};
 use katana_provider::{
     DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
     ProviderRW,
 };
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
-use katana_rpc_api::katana::KatanaApiServer;
+use katana_rpc_api::katana::{KatanaApiServer, KatanaSettlementApiServer};
 use katana_rpc_api::node::NodeApiServer;
 use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetSubscriptionApiServer};
@@ -60,12 +61,16 @@ use katana_rpc_server::middleware::logger::RpcLoggerLayer;
 use katana_rpc_server::middleware::metrics::RpcServerMetricsLayer;
 use katana_rpc_server::node::NodeApi;
 use katana_rpc_server::paymaster::PaymasterProxy;
+use katana_rpc_server::settlement::SettlementApi;
 use katana_rpc_server::starknet::{RpcCache, StarknetApi, StarknetApiConfig};
 #[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
 use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::node::NodeInfo;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
+use katana_settlement::{
+    ProverConfig, ProvingBackend, SettlementService, SettlementServiceHandle, TeeBackend, TeeProver,
+};
 use katana_stage::Sequencing;
 use katana_starknet::rpc::StarknetRpcClient as StarknetClient;
 use katana_tasks::TaskManager;
@@ -113,14 +118,19 @@ where
     gateway_server: Option<GatewayServer<TxPool, BlockProducer<P>, P>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
     messaging_service: Option<MessagingService<P>>,
+    settlement_service: Option<SettlementService<P, MinedBlockOutcome>>,
 }
 
 impl<P> Node<P>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
-    <P as ProviderFactory>::Provider: ProviderRO + MessagingL1ToL2IndexProvider,
-    <P as ProviderFactory>::ProviderMut:
-        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
+    <P as ProviderFactory>::Provider:
+        ProviderRO + MessagingL1ToL2IndexProvider + SettlementCheckpointProvider,
+    <P as ProviderFactory>::ProviderMut: ProviderRW
+        + MessagingCheckpointProvider
+        + MessagingL1ToL2IndexWriter
+        + SettlementCheckpointWriter
+        + MutableProvider,
 {
     /// Build the node components from the given [`Config`].
     ///
@@ -140,11 +150,12 @@ where
 
         // --- build executor factory
 
-        let is_l3 = match config.chain.as_ref() {
-            ChainSpec::Dev(_) => false,
-            ChainSpec::FullNode(_) => false,
-            ChainSpec::Rollup(cs) => matches!(cs.settlement, SettlementLayer::Starknet { .. }),
-        };
+        // L3 = a rollup that settles to a Starknet chain.
+        let is_l3 = matches!(config.chain.as_ref(), ChainSpec::Rollup(_))
+            && matches!(
+                config.settlement.as_ref().map(|s| &s.layer),
+                Some(SettlementLayer::Starknet { .. })
+            );
 
         // Create versioned constants overrides from config
         let overrides = Some(VersionedConstantsOverrides {
@@ -192,8 +203,8 @@ where
                 prices.l1_gas_prices.clone(),
                 prices.l1_data_gas_prices.clone(),
             )
-        } else if let Some(settlement) = config.chain.settlement() {
-            match settlement {
+        } else if let Some(settlement) = config.settlement.as_ref() {
+            match &settlement.layer {
                 SettlementLayer::Starknet { rpc_url, .. } => {
                     GasPriceOracle::sampled_starknet(rpc_url.clone())
                 }
@@ -309,6 +320,8 @@ where
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             rpc_modules.merge(KatanaApiServer::into_rpc(starknet_api.clone()))?;
+            let settlement_api = SettlementApi::new(provider.clone());
+            rpc_modules.merge(KatanaSettlementApiServer::into_rpc(settlement_api))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
@@ -393,57 +406,69 @@ where
             (None, None)
         };
 
-        // --- build tee api (if configured)
-        if let Some(ref tee_config) = config.tee {
+        // --- build tee attester + api (if configured)
+
+        // The attester is shared between the TEE RPC API and the settlement service so both
+        // attest through the same hardware (or mock) instance.
+        let attester: Option<Arc<dyn katana_tee::Attester>> = if let Some(ref tee_config) =
+            config.tee
+        {
             #[cfg(not(any(feature = "tee-snp", feature = "tee-mock")))]
             {
                 let _ = tee_config;
                 anyhow::bail!(
-                    "TEE configuration provided but no TEE provider feature is compiled in \
+                    "TEE configuration provided but no TEE attester feature is compiled in \
                      (enable 'tee-snp' or 'tee-mock')"
                 );
             }
 
             #[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
             {
-                use katana_tee::{TeeProvider, TeeProviderType};
+                use katana_tee::{Attester, AttesterKind};
 
-                let tee_provider: Arc<dyn TeeProvider> = match tee_config.provider_type {
-                    TeeProviderType::SevSnp => {
+                let attester: Arc<dyn Attester> = match tee_config.attester {
+                    AttesterKind::SevSnp => {
                         #[cfg(feature = "tee-snp")]
                         {
                             Arc::new(
-                                katana_tee::SevSnpProvider::new()
-                                    .context("Failed to initialize SEV-SNP provider")?,
+                                katana_tee::SevSnpAttester::new()
+                                    .context("Failed to initialize SEV-SNP attester")?,
                             )
                         }
                         #[cfg(not(feature = "tee-snp"))]
                         {
                             anyhow::bail!(
-                                "SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled"
+                                "SEV-SNP TEE attester requires the 'tee-snp' feature to be enabled"
                             );
                         }
                     }
                     #[cfg(feature = "tee-mock")]
-                    TeeProviderType::Mock => Arc::new(katana_tee::MockProvider::new()),
-                    // The `Mock` variant on `TeeProviderType` is gated on
-                    // `feature = "tee-mock"` in `katana-tee`, but cargo features
+                    AttesterKind::Mock => Arc::new(katana_tee::MockAttester::new()),
+                    // The `Mock` variant on `AttesterKind` is gated on
+                    // `feature = "mock"` in `katana-tee`, but cargo features
                     // unify across the workspace — so the variant can be visible
                     // here even when this crate's own `tee-mock` feature is off.
                     #[allow(unreachable_patterns)]
-                    _ => anyhow::bail!("Mock TEE provider requires the 'tee-mock' feature"),
+                    _ => anyhow::bail!("Mock TEE attester requires the 'tee-mock' feature"),
                 };
 
-                let api = TeeApi::new(
-                    provider.clone(),
-                    tee_provider,
-                    tee_config.fork_block_number,
-                    &backend.chain_spec,
-                );
-                rpc_modules.merge(TeeApiServer::into_rpc(api))?;
-
-                info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
+                Some(attester)
             }
+        } else {
+            None
+        };
+
+        #[cfg(any(feature = "tee-snp", feature = "tee-mock"))]
+        if let (Some(tee_config), Some(attester)) = (&config.tee, &attester) {
+            let api = TeeApi::new(
+                provider.clone(),
+                attester.clone(),
+                tee_config.fork_block_number,
+                &backend.chain_spec,
+            );
+            rpc_modules.merge(TeeApiServer::into_rpc(api))?;
+
+            info!(target: "node", attester = ?tee_config.attester, "TEE API enabled");
         }
 
         // --- build rpc middleware
@@ -556,6 +581,74 @@ where
             .confirmation_depth(cfg.confirmation_depth)
         });
 
+        // --- build settlement service (if configured)
+
+        // The embedded service runs only when this node actively settles to a Starknet+TEE chain
+        // (`runtime` present). A node that merely reads the settlement chain (e.g. for messaging)
+        // has a settlement layer but no runtime, so no service is started.
+        let service_cfg = config
+            .settlement
+            .as_ref()
+            .and_then(katana_settlement::SettlementConfig::from_node_config);
+
+        let settlement_service = match service_cfg {
+            Some(cfg) => {
+                // The service settles to a Starknet chain (Piltover); only the proving system is
+                // selected here. Each proving system declares its own requirements.
+                let proving_backend: Arc<dyn ProvingBackend> = match &cfg.prover {
+                    ProverConfig::Tee { tee_registry, prover_key } => {
+                        let Some(attester) = &attester else {
+                            anyhow::bail!(
+                                "TEE settlement is configured but TEE attestation is not; enable \
+                                 a TEE attester with --tee"
+                            );
+                        };
+                        let tee_config =
+                            config.tee.as_ref().expect("qed; attester implies tee config");
+
+                        // Fork mode attests with the sharding report schema, which carries no
+                        // message data — Piltover's appchain `TeeInput` path can't validate it.
+                        if tee_config.fork_block_number.is_some() {
+                            anyhow::bail!("settlement of forked chains is not supported");
+                        }
+
+                        // A mock attester's quotes can never yield a real SP1 proof (the SP1
+                        // program verifies the AMD signature), so the prover is forced by the
+                        // attester kind.
+                        let prover =
+                            if matches!(tee_config.attester, katana_tee::AttesterKind::SevSnp) {
+                                let prover_key = prover_key.clone().context(
+                                    "SP1 prover key is required for SEV-SNP attestation proving",
+                                )?;
+                                TeeProver::Sp1 {
+                                    settlement_rpc: cfg.rpc_url.clone(),
+                                    tee_registry: *tee_registry,
+                                    prover_key,
+                                }
+                            } else {
+                                TeeProver::Mock
+                            };
+
+                        Arc::new(TeeBackend::new(
+                            provider.clone(),
+                            attester.clone(),
+                            &backend.chain_spec,
+                            prover,
+                        ))
+                    }
+                };
+
+                Some(SettlementService::new(
+                    provider.clone(),
+                    proving_backend,
+                    block_notify.clone(),
+                    cfg,
+                ))
+            }
+
+            None => None,
+        };
+
         Ok(Node {
             db,
             provider,
@@ -569,6 +662,7 @@ where
             block_notify,
             metrics_server,
             messaging_service,
+            settlement_service,
             task_manager,
             config: Arc::new(config),
         })
@@ -700,8 +794,11 @@ impl<P> Node<P>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::Provider: ProviderRO,
-    <P as ProviderFactory>::ProviderMut:
-        ProviderRW + MessagingCheckpointProvider + MessagingL1ToL2IndexWriter + MutableProvider,
+    <P as ProviderFactory>::ProviderMut: ProviderRW
+        + MessagingCheckpointProvider
+        + MessagingL1ToL2IndexWriter
+        + SettlementCheckpointWriter
+        + MutableProvider,
 {
     /// Start the node.
     ///
@@ -710,25 +807,27 @@ where
         let chain = self.backend.chain_spec.id();
         info!(%chain, "Starting node.");
 
-        // --- validate the on-chain settlement contract for rollup chains
+        // --- validate the on-chain settlement contract (when settling to Starknet)
+        //
+        // The config hash committed on-chain is bound to this chain's own id and fee token, so
+        // those come from the chain spec; the core contract + proof kind come from the settlement
+        // config.
 
-        if let ChainSpec::Rollup(spec) = self.config.chain.as_ref() {
-            if let SettlementLayer::Starknet { rpc_url, core_contract, proof_kind, .. } =
-                &spec.settlement
-            {
-                let provider =
-                    settlement_check::SettlementChainProvider::new(rpc_url.clone(), Felt::ZERO);
+        if let Some(SettlementLayer::Starknet { rpc_url, core_contract, proof_kind, .. }) =
+            self.config.settlement.as_ref().map(|s| &s.layer)
+        {
+            let provider =
+                settlement_check::SettlementChainProvider::new(rpc_url.clone(), Felt::ZERO);
 
-                settlement_check::validate_starknet_settlement(
-                    spec.id.id(),
-                    spec.fee_contracts.strk.into(),
-                    *core_contract,
-                    &provider,
-                    *proof_kind,
-                )
-                .await
-                .context("settlement core contract validation failed")?;
-            }
+            settlement_check::validate_starknet_settlement(
+                self.config.chain.id().id(),
+                self.config.chain.fee_contracts().strk.into(),
+                *core_contract,
+                &provider,
+                *proof_kind,
+            )
+            .await
+            .context("settlement core contract validation failed")?;
         }
 
         // --- start the metrics server (if configured)
@@ -808,6 +907,16 @@ where
 
         let messaging_handle = self.messaging_service.as_ref().map(|s| s.start()).transpose()?;
 
+        // --- start the settlement service (skipped when settlement is not configured)
+        //
+        // Launched after the settlement contract validation above, so the service only ever
+        // trusts a cursor read from a contract with the expected program info and config hash.
+
+        let settlement_handle = match &self.settlement_service {
+            Some(service) => Some(service.start().await?),
+            None => None,
+        };
+
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
@@ -816,6 +925,7 @@ where
             grpc: grpc_handle,
             metrics: metrics_handle,
             messaging: messaging_handle,
+            settlement: settlement_handle,
         })
     }
 }
@@ -886,6 +996,8 @@ where
     metrics: Option<MetricsServerHandle>,
     /// Handle to the messaging server (if running).
     messaging: Option<MessagingServiceHandle>,
+    /// Handle to the settlement service (if running).
+    settlement: Option<SettlementServiceHandle>,
 }
 
 impl<P> LaunchedNode<P>
@@ -917,6 +1029,11 @@ where
     /// Returns a reference to the messaging server handle (if running).
     pub fn messaging(&self) -> Option<&MessagingServiceHandle> {
         self.messaging.as_ref()
+    }
+
+    /// Returns a reference to the settlement service handle (if running).
+    pub fn settlement(&self) -> Option<&SettlementServiceHandle> {
+        self.settlement.as_ref()
     }
 
     /// Returns a reference to the gRPC server handle (if enabled).
@@ -951,6 +1068,13 @@ where
         // Stop messaging server if running. Signal and then await so the final
         // checkpoint write completes before we tear down the provider.
         if let Some(mut handle) = self.messaging {
+            handle.stop();
+            handle.stopped().await;
+        }
+
+        // Stop settlement service if running. Signal and then await so an in-flight
+        // `update_state` submission is not torn down mid-watch.
+        if let Some(mut handle) = self.settlement {
             handle.stop();
             handle.stopped().await;
         }

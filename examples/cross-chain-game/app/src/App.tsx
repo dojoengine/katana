@@ -143,7 +143,7 @@ function ServiceStatusBar({ items }: { items: SvcItem[] }) {
   );
 }
 
-// Detailed list for the offline modal: every service, including the saya settler.
+// Detailed list for the offline modal: one row per directly-probeable service.
 function ServiceStatusList({ items }: { items: SvcItem[] }) {
   return (
     <div className="space-y-1.5">
@@ -322,11 +322,6 @@ export default function App() {
         ? "stalled"
         : "settling";
   const networkItems = networkServiceItems(services);
-  const sayaItem: SvcItem = {
-    label: "saya settler",
-    detail: online && settled >= 0 ? `settled ${settled}/${tip}` : "L2→L1 settler",
-    status: sayaStatus,
-  };
 
   const pendingMints = purchases.filter((p) => !p.mintTxHash).length;
   const coinLoading = buying || pendingMints > 0; // submitting on L1 or still minting on L2
@@ -426,7 +421,7 @@ export default function App() {
     <TooltipProvider>
       {/* When the stack is down, the offline modal stands in for the intro. The
           intro only opens once we're connected, so the two never collide. */}
-      <OfflineDialog open={offline} services={[...networkItems, sayaItem]} />
+      <OfflineDialog open={offline} services={networkItems} />
       <IntroDialog
         open={introOpen && online}
         onSkip={() => setIntroOpen(false)}

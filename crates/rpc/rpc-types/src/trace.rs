@@ -10,7 +10,7 @@ use katana_primitives::{receipt, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
 use crate::state_update::StateDiff;
-use crate::{ExecutionResources, FeeEstimate};
+use crate::{ExecutionResources, FeeEstimate, L2ToL1Message, RawEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -71,16 +71,20 @@ pub enum CallType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderedEvent {
     pub order: u64,
-    pub keys: Vec<Felt>,
-    pub data: Vec<Felt>,
+    /// Flattened so the JSON matches the Starknet RPC `ORDERED_EVENT` shape
+    /// (`keys`/`data` at the top level, not nested under `event`).
+    #[serde(flatten)]
+    pub event: RawEvent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderedL2ToL1Message {
     pub order: u64,
-    pub from_address: ContractAddress,
-    pub to_address: Felt,
-    pub payload: Vec<Felt>,
+    /// Flattened so the JSON matches the Starknet RPC `ORDERED_MESSAGE` shape
+    /// (`from_address`/`to_address`/`payload` at the top level, not nested under
+    /// `message`).
+    #[serde(flatten)]
+    pub message: L2ToL1Message,
 }
 
 /// Execution resources.
@@ -288,9 +292,11 @@ impl From<katana_primitives::execution::CallInfo> for FunctionInvocation {
             .into_iter()
             .map(|m| OrderedL2ToL1Message {
                 order: m.order as u64,
-                payload: m.message.payload.0,
-                from_address: contract_address,
-                to_address: m.message.to_address,
+                message: L2ToL1Message {
+                    payload: m.message.payload.0,
+                    from_address: contract_address,
+                    to_address: m.message.to_address,
+                },
             })
             .collect();
 
@@ -319,8 +325,10 @@ impl From<katana_primitives::execution::OrderedEvent> for OrderedEvent {
     fn from(event: katana_primitives::execution::OrderedEvent) -> Self {
         Self {
             order: event.order as u64,
-            data: event.event.data.0,
-            keys: event.event.keys.into_iter().map(|k| k.0).collect(),
+            event: RawEvent {
+                data: event.event.data.0,
+                keys: event.event.keys.into_iter().map(|k| k.0).collect(),
+            },
         }
     }
 }

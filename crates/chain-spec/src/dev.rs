@@ -15,7 +15,7 @@ use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use lazy_static::lazy_static;
 
 use crate::fee_token::add_fee_token;
-use crate::{FeeContracts, SettlementLayer};
+use crate::FeeContracts;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainSpec {
@@ -27,8 +27,6 @@ pub struct ChainSpec {
 
     /// The chain fee token contract.
     pub fee_contracts: FeeContracts,
-
-    pub settlement: Option<SettlementLayer>,
 }
 
 //////////////////////////////////////////////////////////////
@@ -129,7 +127,6 @@ lazy_static! {
             id,
             genesis,
             fee_contracts,
-            settlement: None,
         }
     };
 }
@@ -311,7 +308,6 @@ mod tests {
                 eth: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
                 strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
             },
-            settlement: None,
         };
 
         // setup expected storage values

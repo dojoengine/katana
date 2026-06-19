@@ -11,7 +11,7 @@ use crate::models::contract::{ContractClassChange, ContractInfoChangeList, Contr
 use crate::models::list::BlockChangeList;
 use crate::models::stage::{
     ExecutionCheckpoint, MessagingCheckpoint, MigrationCheckpoint, MigrationStageId,
-    PruningCheckpoint, StageId,
+    PruningCheckpoint, SettlementCheckpoint, StageId,
 };
 use crate::models::state::HistoricalStateRetention;
 use crate::models::state_update::StateUpdateEnvelope;
@@ -59,7 +59,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 39;
+pub const NUM_TABLES: usize = 40;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -198,7 +198,8 @@ define_tables_enum! {[
     (StoragesTrieChangeSet, TableType::Table),
     (MigrationCheckpoints, TableType::Table),
     (MessagingCheckpoints, TableType::Table),
-    (MessagingL1ToL2, TableType::DupSort)
+    (MessagingL1ToL2, TableType::DupSort),
+    (SettlementCheckpoints, TableType::Table)
 ]}
 
 tables! {
@@ -295,7 +296,11 @@ tables! {
 
     /// Index from settlement chain L1 transaction hash to spawned L2 L1Handler tx hashes.
     /// One L1 transaction can call sendMessageToL2 multiple times, hence DupSort.
-    MessagingL1ToL2: ([u8; 32], TxHash) => TxHash
+    MessagingL1ToL2: ([u8; 32], TxHash) => TxHash,
+
+    /// Embedded settlement service progress: the most recent block settled to the settlement
+    /// chain. A singleton, keyed by a constant (see `SETTLEMENT_CHECKPOINT_KEY`).
+    SettlementCheckpoints: (u64) => SettlementCheckpoint
 }
 
 impl Trie for ClassesTrie {
@@ -360,6 +365,7 @@ mod tests {
         assert_eq!(Tables::ALL[36].name(), MigrationCheckpoints::NAME);
         assert_eq!(Tables::ALL[37].name(), MessagingCheckpoints::NAME);
         assert_eq!(Tables::ALL[38].name(), MessagingL1ToL2::NAME);
+        assert_eq!(Tables::ALL[39].name(), SettlementCheckpoints::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockStateUpdates.table_type(), TableType::Table);
@@ -400,6 +406,7 @@ mod tests {
         assert_eq!(Tables::MigrationCheckpoints.table_type(), TableType::Table);
         assert_eq!(Tables::MessagingCheckpoints.table_type(), TableType::Table);
         assert_eq!(Tables::MessagingL1ToL2.table_type(), TableType::DupSort);
+        assert_eq!(Tables::SettlementCheckpoints.table_type(), TableType::Table);
     }
 
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};

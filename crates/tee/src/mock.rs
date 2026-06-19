@@ -1,29 +1,29 @@
 use crate::error::TeeError;
-use crate::provider::TeeProvider;
+use crate::Attester;
 
-/// Mock TEE provider for testing on non-TEE hardware.
+/// Mock TEE attester for testing on non-TEE hardware.
 ///
-/// This provider generates deterministic mock quotes that include
+/// This attester generates deterministic mock quotes that include
 /// the user data for verification in tests.
 #[derive(Debug, Default, Clone)]
-pub struct MockProvider {
+pub struct MockAttester {
     /// Optional custom prefix for mock quotes.
     prefix: Vec<u8>,
 }
 
-impl MockProvider {
-    /// Create a new mock provider.
+impl MockAttester {
+    /// Create a new mock attester.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create a mock provider with a custom prefix.
+    /// Create a mock attester with a custom prefix.
     pub fn with_prefix(prefix: Vec<u8>) -> Self {
         Self { prefix }
     }
 }
 
-impl TeeProvider for MockProvider {
+impl Attester for MockAttester {
     fn generate_quote(&self, user_data: &[u8; 64]) -> Result<Vec<u8>, TeeError> {
         // Mock quote format:
         // [4 bytes: magic] [prefix] [64 bytes: user_data] [4 bytes: checksum]
@@ -41,7 +41,7 @@ impl TeeProvider for MockProvider {
         Ok(quote)
     }
 
-    fn provider_type(&self) -> &'static str {
+    fn name(&self) -> &'static str {
         "Mock"
     }
 }
@@ -52,10 +52,10 @@ mod tests {
 
     #[test]
     fn test_mock_quote_generation() {
-        let provider = MockProvider::new();
+        let attester = MockAttester::new();
         let user_data = [0u8; 64];
 
-        let quote = provider.generate_quote(&user_data).unwrap();
+        let quote = attester.generate_quote(&user_data).unwrap();
 
         // Verify magic header
         assert_eq!(&quote[0..4], b"MOCK");
@@ -66,10 +66,10 @@ mod tests {
     #[test]
     fn test_mock_with_prefix() {
         let prefix = b"TEST".to_vec();
-        let provider = MockProvider::with_prefix(prefix.clone());
+        let attester = MockAttester::with_prefix(prefix.clone());
         let user_data = [1u8; 64];
 
-        let quote = provider.generate_quote(&user_data).unwrap();
+        let quote = attester.generate_quote(&user_data).unwrap();
 
         assert_eq!(&quote[0..4], b"MOCK");
         assert_eq!(&quote[4..8], &prefix[..]);

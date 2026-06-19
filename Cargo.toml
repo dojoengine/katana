@@ -36,6 +36,7 @@ members = [
 	"crates/runner",
 	"crates/runner/macro",
 	"crates/serde-utils",
+	"crates/settlement",
 	"crates/starknet",
 	"crates/storage/codecs",
 	"crates/storage/codecs/derive",
@@ -52,17 +53,24 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
+	"tests/saya-e2e",
 	"tests/saya-tee",
 	"tests/vrf",
 	# "tests/snos",
 ]
+
+# NOTE: the saya binaries are gone. bin/saya (the SNOS/validity prover) was
+# removed because its generate-pie -> karnotxyz starknet_os chain hard-requires
+# c-kzg 1.x, which collides with alloy's optional c-kzg 2.x on the native
+# `links = "ckzg"` slot. bin/saya-tee (the TEE prover) was embedded into the
+# katana node itself — see crates/settlement.
 
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
 license-file = "LICENSE"
 repository = "https://github.com/dojoengine/katana/"
-version = "1.8.0-rc.3"
+version = "1.8.0-rc.4"
 
 [profile.performance]
 codegen-units = 1
@@ -114,6 +122,7 @@ katana-rpc-types = { path = "crates/rpc/rpc-types" }
 katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }
 katana-sequencer-node = { path = "crates/node/sequencer" }
+katana-settlement = { path = "crates/settlement" }
 katana-slot-controller = { path = "crates/controller" }
 katana-stage = { path = "crates/sync/stage" }
 katana-starknet = { path = "crates/starknet" }
@@ -167,7 +176,7 @@ proptest = "1.5"
 rand = "0.8.5"
 rayon = "1.8.0"
 regex = "1.10.3"
-reqwest = { version = "0.12.15", features = [ "json", "rustls-tls" ], default-features = false }
+reqwest = { version = "0.12.15", features = [ "json", "rustls-tls", "multipart" ], default-features = false }
 rstest = "0.18.2"
 rstest_reuse = "0.6.0"
 sev = { version = "7", default-features = false, features = [ "snp" ] }
@@ -212,16 +221,20 @@ tonic-reflection = "0.11"
 criterion = "0.5.1"
 pprof = { version = "0.13.0", features = [ "criterion", "flamegraph" ] }
 
-# alloys
-alloy-contract = { version = "1.2.1", default-features = false }
-alloy-network = { version = "1.2.1", default-features = false }
-alloy-primitives = { version = "1.2.1", default-features = false }
-alloy-provider = { version = "1.2.1", default-features = false }
-alloy-rpc-types-eth = { version = "1.2.1", default-features = false }
-alloy-signer = { version = "1.2.1", default-features = false }
-alloy-sol-types = { version = "1.2.1", default-features = false }
-alloy-transport = { version = "1.2.1", default-features = false }
-alloy-transport-http = { version = "1.2.1", default-features = false }
+# alloys — alloy-rs sub-crates have independent release tracks: the umbrella
+# crates (contract, provider, network, signer, transport*) are on 1.2.x while
+# alloy-primitives / alloy-sol-types live on 1.4+ (the 1.2.x umbrella requires
+# alloy-primitives >=1.4.1 transitively). All ranges below are tilde-pinned so
+# the workspace stays in a known-good resolution band.
+alloy-contract = { version = "~1.4", default-features = false }
+alloy-network = { version = "~1.4", default-features = false }
+alloy-primitives = { version = "~1.4", default-features = false }
+alloy-provider = { version = "~1.4", default-features = false }
+alloy-rpc-types-eth = { version = "~1.4", default-features = false }
+alloy-signer = { version = "~1.4", default-features = false }
+alloy-sol-types = { version = "~1.4", default-features = false }
+alloy-transport = { version = "~1.4", default-features = false }
+alloy-transport-http = { version = "~1.4", default-features = false }
 
 # macro
 proc-macro2 = "1.0"
@@ -255,13 +268,21 @@ cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "2a241ef0f", default-features = false }
 starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "2a241ef0f" }
 
-cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
-cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
-piltover = { git = "https://github.com/cartridge-gg/piltover.git", branch = "feat/tee-persistent" }
+cainome = { version = "0.10.1", features = [ "abigen-rs" ] }
+cainome-cairo-serde = "0.4.1"
+piltover = { git = "https://github.com/cartridge-gg/piltover", branch = "feat/tee-persistent" }
 
 # paymaster
 paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main
 paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "d89b5d2" } # branch = main
+
+
+# AMD SEV-SNP SDKs
+amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16", default-features = false }
+amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
+x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
+
+garaga_rs = { git = "https://github.com/keep-starknet-strange/garaga.git", rev = "191ce19" }
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>

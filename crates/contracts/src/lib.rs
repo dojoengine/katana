@@ -85,7 +85,10 @@ pub mod piltover {
     //
     // Rebuilt from the `cartridge-gg/piltover` submodule at
     // `crates/contracts/contracts/piltover` (branch `feat/tee-persistent`).
-    contract!(Appchain, "{CARGO_MANIFEST_DIR}/build/piltover_appchain.contract_class.json");
+    contract!(
+        AppchainCoreContract,
+        "{CARGO_MANIFEST_DIR}/build/piltover_appchain.contract_class.json"
+    );
 
     // Mock `IAMDTeeRegistry` — accepts any SP1 proof without verification. Intended
     // for local/e2e testing of the TEE settlement path; do not deploy to production.
@@ -124,7 +127,10 @@ mod tests {
             controller::ControllerLatest::CLASS.class_hash().unwrap(),
             controller::ControllerLatest::HASH
         );
-        assert_eq!(piltover::Appchain::CLASS.class_hash().unwrap(), piltover::Appchain::HASH);
+        assert_eq!(
+            piltover::AppchainCoreContract::CLASS.class_hash().unwrap(),
+            piltover::AppchainCoreContract::HASH
+        );
         assert_eq!(
             piltover::MockAmdTeeRegistry::CLASS.class_hash().unwrap(),
             piltover::MockAmdTeeRegistry::HASH

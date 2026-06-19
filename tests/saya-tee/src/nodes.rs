@@ -5,8 +5,8 @@
 //! - **L2** — vanilla dev chain acting as the settlement layer. Hosts Piltover and the mock TEE
 //!   registry that `saya-ops` deploys into it.
 //! - **L3** — rollup chain whose `SettlementLayer::Starknet` points at L2's Piltover address.
-//!   Configured with `Config.tee = TeeConfig { provider_type: Mock, .. }` so its
-//!   `tee_generateQuote` RPC serves a stub attestation that `saya-tee --mock-prove` consumes.
+//!   Configured with `Config.tee = TeeConfig { attester: Mock, .. }` so its `tee_generateQuote` RPC
+//!   serves a stub attestation that `saya-tee --mock-prove` consumes.
 //!
 //! Both Nodes run in one process with independent [`ClassCache`] instances. Previously the L2
 //! had to be spawned as a subprocess because Katana's executor shared a process-global
@@ -22,14 +22,17 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use cainome::rs::abigen_legacy;
-use katana_chain_spec::{rollup, ChainSpec, FeeContracts, SettlementLayer, SettlementProofKind};
+use katana_chain_spec::{
+    rollup, ChainSpec, FeeContracts, SettlementLayer, SettlementProofKind, SettlementRuntime,
+};
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use katana_primitives::U256;
+use katana_sequencer_node::config::settlement::SettlementConfig;
 use katana_sequencer_node::config::tee::TeeConfig;
-use katana_tee::TeeProviderType;
+use katana_tee::AttesterKind;
 use katana_utils::TestNode;
 use starknet::accounts::SingleOwnerAccount;
 use starknet::providers::jsonrpc::HttpTransport;
@@ -37,6 +40,8 @@ use starknet::providers::JsonRpcClient;
 use starknet::signers::LocalWallet;
 use starknet_types_core::felt::Felt;
 use url::Url;
+
+use crate::bootstrap::BootstrapResult;
 
 /// L2 settlement Katana, spawned in-process via [`TestNode`] on a dev chain spec.
 pub struct L2InProcess {
@@ -88,6 +93,15 @@ impl L3InProcess {
     pub fn account(&self) -> SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet> {
         self.inner.account()
     }
+
+    /// Query the L3's `katana_settlementStatus` over JSON-RPC.
+    pub async fn settlement_status(
+        &self,
+    ) -> Result<katana_rpc_types::settlement::SettlementStatus> {
+        use katana_rpc_api::katana::KatanaSettlementApiClient;
+        let client = self.inner.rpc_http_client();
+        Ok(client.settlement_status().await?)
+    }
 }
 
 /// Spawns the L2 settlement Katana as an in-process `TestNode` on the standard dev chain spec
@@ -103,11 +117,12 @@ pub async fn spawn_l2() -> L2InProcess {
 
 /// Spawns the L3 rollup Katana with TEE config and settlement pointed at L2.
 ///
-/// Constructs a [`rollup::ChainSpec`] with `SettlementLayer::Starknet`
-/// referencing the L2 Piltover address, and a [`Config`] with the mock TEE
-/// provider enabled so `tee_generateQuote` works without real SEV-SNP
-/// hardware.
-pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
+/// Constructs a [`rollup::ChainSpec`] and a separate `SettlementConfig` whose
+/// `SettlementLayer::Starknet` references the L2 Piltover address, with a
+/// `SettlementRuntime` driving the embedded settlement service, plus a mock TEE
+/// attester so attestations work without real SEV-SNP hardware.
+pub async fn spawn_l3(l2: &L2InProcess, bootstrap: &BootstrapResult) -> L3InProcess {
+    let piltover_address = bootstrap.piltover_address;
     let l2_url = l2.url();
     let l2_chain_id = ChainId::SEPOLIA; // Matches katana_utils::test_config()'s default.
 
@@ -131,7 +146,7 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
     let mut genesis = Genesis { classes: Default::default(), ..Genesis::default() };
     genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
-    let settlement = SettlementLayer::Starknet {
+    let settlement_layer = SettlementLayer::Starknet {
         block: 0,
         id: l2_chain_id,
         rpc_url: l2_url.clone(),
@@ -139,16 +154,30 @@ pub async fn spawn_l3(l2: &L2InProcess, piltover_address: Felt) -> L3InProcess {
         proof_kind: SettlementProofKind::Tee,
     };
 
+    // Drives the embedded settlement service. `batch_size: 1` settles every block
+    // immediately, so the per-iteration `wait_for_settlement` assertions don't sit
+    // out the idle-flush window.
+    let settlement_runtime = SettlementRuntime {
+        account_address: bootstrap.account_address.into(),
+        account_private_key: bootstrap.account_private_key,
+        tee_registry: bootstrap.tee_registry_address.into(),
+        prover_key: None,
+        batch_size: 1,
+        idle_flush_secs: 120,
+    };
+
     let l3_chain = rollup::ChainSpec {
         id: ChainId::parse("KATANA").expect("KATANA is a valid chain id"),
         genesis,
         fee_contracts,
-        settlement,
     };
 
     let mut config = katana_utils::node::test_config();
+    // Settlement is orthogonal to the chain spec — it goes straight to the node config.
+    config.settlement =
+        Some(SettlementConfig { layer: settlement_layer, runtime: Some(settlement_runtime) });
     config.chain = Arc::new(ChainSpec::Rollup(l3_chain));
-    config.tee = Some(TeeConfig { provider_type: TeeProviderType::Mock, fork_block_number: None });
+    config.tee = Some(TeeConfig { attester: AttesterKind::Mock, fork_block_number: None });
     // Enable the inbound messaging collector so L1->L2 messages sent on L2's
     // piltover core are relayed into L3 as L1-handler txs — letting the messaging
     // regression settle a block that actually consumes a cross-chain message.

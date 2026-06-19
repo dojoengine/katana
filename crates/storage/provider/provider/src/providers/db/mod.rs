@@ -13,7 +13,7 @@ use katana_db::models::contract::{
     ContractClassChange, ContractInfoChangeList, ContractNonceChange,
 };
 use katana_db::models::list::BlockChangeList;
-use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
+use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint, SettlementCheckpoint};
 use katana_db::models::state::HistoricalStateRetention;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::models::{
@@ -39,6 +39,7 @@ use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::messaging::{
     self, MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
 };
+use katana_provider_api::settlement::{SettlementCheckpointProvider, SettlementCheckpointWriter};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
@@ -971,6 +972,27 @@ impl<Tx: DbTxMut> MessagingL1ToL2IndexWriter for DbProvider<Tx> {
     }
 }
 
+/// The embedded settlement service tracks a single global cursor, so its checkpoint table is a
+/// singleton keyed by this constant.
+pub const SETTLEMENT_CHECKPOINT_KEY: u64 = 0;
+
+impl<Tx: DbTx> SettlementCheckpointProvider for DbProvider<Tx> {
+    fn settled_block(&self) -> ProviderResult<Option<BlockNumber>> {
+        let checkpoint = self.0.get::<tables::SettlementCheckpoints>(SETTLEMENT_CHECKPOINT_KEY)?;
+        Ok(checkpoint.map(|c| c.block))
+    }
+}
+
+impl<Tx: DbTxMut> SettlementCheckpointWriter for DbProvider<Tx> {
+    fn set_settled_block(&self, block: BlockNumber) -> ProviderResult<()> {
+        self.0.put::<tables::SettlementCheckpoints>(
+            SETTLEMENT_CHECKPOINT_KEY,
+            SettlementCheckpoint { block },
+        )?;
+        Ok(())
+    }
+}
+
 pub const STATE_HISTORY_RETENTION_KEY: u64 = 0;
 pub const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
 
@@ -1030,10 +1052,13 @@ mod tests {
     use katana_provider_api::block::{
         BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     };
+    use katana_provider_api::settlement::{
+        SettlementCheckpointProvider, SettlementCheckpointWriter,
+    };
     use katana_provider_api::state::StateFactoryProvider;
     use katana_provider_api::transaction::TransactionProvider;
 
-    use crate::{DbProviderFactory, ProviderFactory};
+    use crate::{DbProviderFactory, MutableProvider, ProviderFactory};
 
     fn create_dummy_block() -> SealedBlockWithStatus {
         let header = Header { parent_hash: 199u8.into(), number: 0, ..Default::default() };
@@ -1099,6 +1124,25 @@ mod tests {
 
     fn create_db_provider() -> DbProviderFactory {
         DbProviderFactory::new_in_memory()
+    }
+
+    #[test]
+    fn settlement_checkpoint_roundtrip() {
+        let factory = create_db_provider();
+
+        // Absent until the settlement service writes.
+        assert_eq!(factory.provider().settled_block().unwrap(), None);
+
+        let writer = factory.provider_mut();
+        writer.set_settled_block(7).unwrap();
+        writer.commit().unwrap();
+        assert_eq!(factory.provider().settled_block().unwrap(), Some(7));
+
+        // Singleton: the latest write wins.
+        let writer = factory.provider_mut();
+        writer.set_settled_block(42).unwrap();
+        writer.commit().unwrap();
+        assert_eq!(factory.provider().settled_block().unwrap(), Some(42));
     }
 
     #[test]

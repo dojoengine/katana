@@ -1,14 +1,16 @@
+kind = "rollup"
+
 [id]
 Id = "0x57505f4e554d535f415050434841494e"
 
 [fee-contract]
 strk = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
 
-[settlement.starknet]
+[settlement.layer.starknet]
 rpc_url = "https://api.cartridge.gg/x/starknet/sepolia"
-account = "0x4ba5ae775eb7da75f092b3b30b03bce15c3476337ef5f9e3cdf18db7a7534bd"
 core_contract = "0x435fa004dc91661cd1f692933ba1eb41e7f696f2a0b207234e5c81dd965aa3b"
 block = 523003
+proof_kind = "validity-proof"
 
-[settlement.starknet.id]
+[settlement.layer.starknet.id]
 Named = "Sepolia"

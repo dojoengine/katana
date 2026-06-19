@@ -1,0 +1,31 @@
+//! Embedded settlement service.
+//!
+//! Settles the node's own blocks to the Piltover core contract on a Starknet
+//! settlement chain. The service is generic over the proving system: a
+//! [`backend::ProvingBackend`] turns each unsettled block range into the
+//! `update_state` payload, while the service owns the proof-agnostic
+//! machinery — the serial settle loop, batching, the on-chain progress
+//! cursor, retries, and transaction submission.
+//!
+//! [`TeeBackend`] (AMD SEV-SNP attestations proven with SP1 Groth16, or mock
+//! journals under a mock attester) is the only proving system today; standard
+//! validity proofs (e.g. SNOS + STARK) would slot in as a second backend.
+//!
+//! Progress tracking is fully on-chain: Piltover's `get_state()` is the only
+//! durable cursor. On (re)start the service reads it and drains the backlog
+//! from the local provider; afterwards the node's block broadcast is used as a
+//! low-latency wake-up only — every iteration recomputes from durable state,
+//! so missed or lagged notifications are harmless.
+
+pub mod backend;
+mod config;
+pub mod error;
+mod piltover;
+mod service;
+
+pub use backend::tee::{TeeBackend, TeeProver, TeeProverError};
+pub use backend::ProvingBackend;
+pub use config::{ProverConfig, SettlementConfig};
+pub use error::SettlementError;
+pub use piltover::PiltoverError;
+pub use service::{SettlementService, SettlementServiceHandle};
