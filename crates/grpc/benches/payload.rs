@@ -18,11 +18,12 @@
 //! # Data
 //!
 //! Fixtures are generated with random field elements every run, so no single hand-picked payload
-//! biases the result. Leaf vectors (calldata, signatures, event keys/data, message payloads, …)
-//! get `0..=MAX_VEC_LEN` random elements; the two deliberately *heavy* knobs — the real Sierra
-//! class in `declare` and the `BLOCK_TX_COUNT`-tx block — are left at their large sizes. Each
-//! method's JSON and gRPC bytes are derived from the *same* random domain object, keeping the two
-//! codecs fed equivalent content. Set `BENCH_SEED=<u64>` for a reproducible run.
+//! biases the result. Leaf vectors (signatures, event keys/data, message payloads, …) get
+//! `0..=MAX_VEC_LEN` random elements; `INVOKE` calldata models a multicall (`INVOKE_CALLDATA_LEN`,
+//! 100..=150 elems), and the two deliberately *heavy* knobs — the real Sierra class in `declare`
+//! and the `BLOCK_TX_COUNT`-tx block — are left at their large sizes. Each method's JSON and gRPC
+//! bytes are derived from the *same* random domain object, keeping the two codecs fed equivalent
+//! content. Set `BENCH_SEED=<u64>` for a reproducible run.
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -60,10 +61,14 @@ use starknet::core::types::ResourcePrice;
 /// block read — deliberately large and *not* subject to the leaf-vector cap.
 const BLOCK_TX_COUNT: u64 = 100;
 
-/// Inclusive upper bound on the length of randomly generated *leaf* vectors (calldata, signatures,
-/// event keys/data, message payloads, …). Keeps each vector small and realistic while its contents
-/// vary every run.
+/// Inclusive upper bound on the length of randomly generated *leaf* vectors (signatures, event
+/// keys/data, message payloads, …). Keeps each vector small and realistic while its contents vary
+/// every run.
 const MAX_VEC_LEN: usize = 10;
+
+/// Length range for `INVOKE` calldata. Real-world invokes are multicalls, so their calldata is far
+/// larger than other leaf vectors — model it with 100..=150 elements for a realistic payload.
+const INVOKE_CALLDATA_LEN: std::ops::RangeInclusive<usize> = 100..=150;
 
 /// A real, sizeable Sierra class used as the `DECLARE` payload (~2k felt program). The heavy knob
 /// for `declare`; intentionally left intact (not capped to `MAX_VEC_LEN`).
@@ -104,7 +109,8 @@ fn rand_resource_bounds(rng: &mut impl Rng) -> ResourceBoundsMapping {
 fn invoke_domain(rng: &mut impl Rng) -> BroadcastedInvokeTx {
     BroadcastedInvokeTx {
         sender_address: ContractAddress::from(rand_felt(rng)),
-        calldata: rand_felts(rng),
+        // Multicall-sized calldata (100..=150), unlike the small leaf vectors below.
+        calldata: (0..rng.gen_range(INVOKE_CALLDATA_LEN)).map(|_| rand_felt(rng)).collect(),
         signature: rand_felts(rng),
         nonce: rand_felt(rng),
         paymaster_data: rand_felts(rng),
