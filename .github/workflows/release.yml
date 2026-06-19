@@ -109,11 +109,10 @@ jobs:
             target: aarch64-apple-darwin
             arch: arm64
             native_build: false
-          - os: windows-2025
-            platform: win32
-            target: x86_64-pc-windows-msvc
-            arch: amd64
-            native_build: false
+          # x86_64-pc-windows-msvc is dropped: the embedded TEE settlement pulls in the SP1
+          # prover (sp1-recursion-core), whose native C++ uses C++20 designated initializers that
+          # MSVC rejects under -std:c++17, so the katana binary no longer builds on Windows. The
+          # Windows sidecar binaries (build-sidecars below) don't depend on SP1 and still build.
 
     steps:
       - uses: actions/checkout@v4
