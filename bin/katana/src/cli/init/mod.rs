@@ -74,7 +74,7 @@ use katana_genesis::Genesis;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
-use katana_primitives::{ContractAddress, Felt, U256};
+use katana_primitives::{felt, ContractAddress, Felt, U256};
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::providers::Provider;
 use starknet::signers::SigningKey;
@@ -84,6 +84,13 @@ mod deployment;
 mod prompt;
 #[cfg(feature = "init-slot")]
 mod slot;
+
+/// The mock AMD TEE registry (`mock_amd_tee_registry`) deployed on Starknet Sepolia by the
+/// `cartridge-gg/piltover` project. It skips real SEV-SNP / SP1 Groth16 verification, so it pairs
+/// with the mock prover (`saya-tee --mock-prove`). Used to prefill the TEE registry address when a
+/// rollup is initialized with the Mock TEE proof on Sepolia.
+const MOCK_TEE_REGISTRY_SEPOLIA: Felt =
+    felt!("0x037189b1807f1358074b70b3dc8ab79167bbf72cff1296286052f6dfe31c8f15");
 
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -589,13 +596,18 @@ pub(super) enum ProofImpl {
     Stark,
     /// AMD SEV-SNP attestations verified via SP1 Groth16 in the IAMDTeeRegistry contract.
     AmdSevSnpSp1Groth16,
+    /// Mock TEE: attestations are accepted by a mock registry that skips real SEV-SNP / SP1
+    /// Groth16 verification (pairs with the mock prover, `saya-tee --mock-prove`). On-chain this
+    /// is configured identically to a real TEE rollup (`proof_kind = "tee"`); only the registry
+    /// address differs.
+    MockTee,
 }
 
 impl ProofImpl {
     pub(super) fn category_label(self) -> &'static str {
         match self {
             Self::Stark => "Validity Proof",
-            Self::AmdSevSnpSp1Groth16 => "TEE",
+            Self::AmdSevSnpSp1Groth16 | Self::MockTee => "TEE",
         }
     }
 
@@ -603,11 +615,12 @@ impl ProofImpl {
         match self {
             Self::Stark => "STARK (Atlantic)",
             Self::AmdSevSnpSp1Groth16 => "AMD SEV-SNP + SP1 Groth16",
+            Self::MockTee => "Mock (no attestation verification)",
         }
     }
 
     pub(super) fn is_tee(self) -> bool {
-        matches!(self, Self::AmdSevSnpSp1Groth16)
+        matches!(self, Self::AmdSevSnpSp1Groth16 | Self::MockTee)
     }
 }
 
@@ -887,6 +900,29 @@ mod tests {
                  required when settling on a custom chain"
             );
         });
+    }
+
+    #[test]
+    fn mock_tee_is_a_tee_proof() {
+        // The mock variant settles in TEE mode on-chain (`proof_kind = "tee"`); it differs from
+        // the real AMD attestation only in which registry contract is wired in.
+        assert!(ProofImpl::MockTee.is_tee());
+        assert_eq!(ProofImpl::MockTee.category_label(), "TEE");
+        assert_ne!(
+            ProofImpl::MockTee.implementation_label(),
+            ProofImpl::AmdSevSnpSp1Groth16.implementation_label()
+        );
+    }
+
+    #[test]
+    fn mock_tee_sepolia_registry_constant() {
+        // The deployed mock AMD TEE registry on Starknet Sepolia (cartridge-gg/piltover).
+        assert_eq!(
+            MOCK_TEE_REGISTRY_SEPOLIA,
+            katana_primitives::felt!(
+                "0x037189b1807f1358074b70b3dc8ab79167bbf72cff1296286052f6dfe31c8f15"
+            )
+        );
     }
 
     #[test]
