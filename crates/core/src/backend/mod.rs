@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use katana_chain_spec::ChainSpec;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_gas_price_oracle::GasPriceOracle;
@@ -295,6 +295,16 @@ where
         let block = chain_spec.block();
         let header = block.header.clone();
 
+        // If a genesis block already exists locally, there's nothing to initialize. We trust
+        // the stored block and don't recompute/compare its hash — just surface it.
+        if let Some(local_hash) = provider.block_hash_by_num(header.number)? {
+            info!(
+                genesis_hash = format!("{:#x}", local_hash),
+                "Genesis has already been initialized"
+            );
+            return Ok(());
+        }
+
         // Pre-allocated genesis state — currently the STRK fee token at its canonical mainnet
         // address. The executor needs to see this when processing the genesis transactions
         // (they `transfer` from this contract); the same state is merged into the execution
@@ -325,53 +335,26 @@ where
             }
         }
 
-        // Check whether the genesis block has been initialized or not.
-        if let Some(local_hash) = provider.block_hash_by_num(header.number)? {
-            // commit the block but compute the trie using volatile storage so that it won't
-            // overwrite the existing trie this is very hacky and we should find for a
-            // much elegant solution.
-            let block = commit_genesis_block(
-                GenesisTrieWriter,
-                header.clone(),
-                transactions.clone(),
-                &receipts,
-                &mut output.states.state_updates,
-            )?;
+        let provider_mut = self.storage.provider_mut();
 
-            let provided_genesis_hash = block.hash;
-            if provided_genesis_hash != local_hash {
-                return Err(anyhow!(
-                    "Genesis block hash mismatch: local hash {local_hash:#x} is different than \
-                     the provided genesis hash {provided_genesis_hash:#x}",
-                ));
-            }
+        let block = commit_genesis_block(
+            &provider_mut,
+            header,
+            transactions,
+            &receipts,
+            &mut output.states.state_updates,
+        )?;
+        let genesis_hash = block.hash;
 
-            info!(
-                genesis_hash = format!("{:#x}", local_hash),
-                "Genesis has already been initialized"
-            );
-        } else {
-            let provider_mut = self.storage.provider_mut();
+        let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
 
-            let block = commit_genesis_block(
-                &provider_mut,
-                header,
-                transactions,
-                &receipts,
-                &mut output.states.state_updates,
-            )?;
-            let genesis_hash = block.hash;
+        // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
+        // accept ReceiptWithTxHash instead to avoid this conversion.
+        let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
+        store_block(&provider_mut, block, output.states, receipts, traces)?;
 
-            let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
-
-            // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
-            // accept ReceiptWithTxHash instead to avoid this conversion.
-            let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
-            store_block(&provider_mut, block, output.states, receipts, traces)?;
-
-            provider_mut.commit()?;
-            info!(genesis_hash = %genesis_hash, "Genesis initialized");
-        }
+        provider_mut.commit()?;
+        info!(genesis_hash = %genesis_hash, "Genesis initialized");
 
         Ok(())
     }
