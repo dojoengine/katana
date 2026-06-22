@@ -43,6 +43,10 @@ pub struct BootstrapArgs {
     #[arg(long, global = true)]
     manifest: Option<PathBuf>,
 
+    /// Emit a machine-readable JSON report instead of the human-readable tables.
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -111,7 +115,11 @@ impl BootstrapArgs {
             Commands::Deploy(args) => self.build_deploy_plan(&args.specs)?,
         };
         let report = executor::execute(&plan, &cfg).await?;
-        report::print(&report);
+        if self.json {
+            report::print_json(&report);
+        } else {
+            report::print(&report);
+        }
         Ok(())
     }
 
