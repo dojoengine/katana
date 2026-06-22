@@ -36,7 +36,7 @@ export class RootErrorBoundary extends Component<Props, State> {
           </pre>
           <p className="mt-3 text-xs text-muted-foreground">
             It brings up the settlement node (<span className="font-mono">:5050</span>), appchain (
-            <span className="font-mono">:5051</span>), Torii (<span className="font-mono">:8081/:8082</span>) and saya.
+            <span className="font-mono">:5051</span>) and Torii (<span className="font-mono">:8081/:8082</span>).
           </p>
           <button
             type="button"

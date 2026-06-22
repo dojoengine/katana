@@ -99,14 +99,14 @@ which the script records in `deployments.json` for the client. The generated
 depends on the previous. For your own app, this is the template:
 
 1. **Preflight** — install the Dojo toolchain (`asdf install`) + JS deps and
-   verify the heavy prerequisites (katana binary, patched saya, dojo checkout).
+   verify the heavy prerequisites (katana binary, starkli, dojo checkout).
 2. **Settlement Katana** (`:5050`, `SN_SEPOLIA`). [`up.sh:91`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L91)
-3. **Mock TEE registry** via `saya-ops` — the attestation verifier saya needs. [`up.sh:98`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L98)
+3. **Mock TEE registry** via `scripts/bootstrap/deploy-tee-registry-mock.sh` — the attestation verifier the settler needs. [`up.sh:98`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L98)
 4. **piltover core + rollup config** via `katana init rollup --tee` — deploys the
    mailbox on L1 and writes the appchain's chain config. [`up.sh:109`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L109)
 5. **Base `deployments.json`** — rpc urls, accounts, piltover, Torii urls. [`up.sh:125`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L125)
 6. **Appchain Katana** (`:5051`, rollup, `--tee mock --messaging.enabled`). [`up.sh:147`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L147)
-7. **saya-tee** sidecar — starts proving/settling appchain blocks. [`up.sh:159`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L159)
+7. **Embedded settlement service** — the appchain node proves/settles its own blocks via the `[settlement.runtime]` section in its chain config; no separate sidecar. [`up.sh:159`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L159)
 8. **Migrate the three worlds** (`scripts/deploy.ts`: score → game → store) and record addresses.
 9. **Two Torii instances** — settlement world `:8081`, appchain world `:8082`,
    distinct relay ports. [`up.sh:185`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L185)
@@ -127,8 +127,8 @@ node -e 'console.log(require("./app/src/deployments.json"))'
 # Torii indexed the initial model rows?
 curl "http://localhost:8082/sql?query=$(python3 -c 'import urllib.parse;print(urllib.parse.quote("SELECT * FROM \"game-Stats\" WHERE id=0"))')"
 
-# saya settling? compare settled vs tip
-# (piltover get_state vs appchain block height — the UI's saya gauge)
+# settler settling? compare settled vs tip
+# (piltover get_state vs appchain block height — the UI's settler gauge)
 ```
 
 A full round-trip check (buy → play → settle → bank) is the real test; the client

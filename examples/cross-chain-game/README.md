@@ -56,11 +56,12 @@ contract views), and rebuilds its feeds from Dojo events.
 - A sibling checkout of the [`dojo`](https://github.com/dojoengine/dojo) repo
   (`../../../../dojo`, i.e. alongside `katana`) at the `sozo/v1.8.7` line — the
   Cairo packages depend on it by path so the world class hash matches `sozo`.
-- [`saya-ops`](https://github.com/cartridge-gg/saya) **v0.4.0** on `PATH` — used
-  once to deploy the mock TEE registry. Settlement itself is done by Katana's
-  embedded settlement service, so the `saya-tee` sidecar is no longer needed (and
-  neither is the old `saya-patch/` L1→L2-hash fix: Katana computes the Poseidon
-  message hash itself).
+- [`starkli`](https://github.com/xJonathanLEI/starkli) on `PATH` — used once to
+  declare + deploy the mock TEE registry from this repo's built artifact (via
+  [`scripts/bootstrap/deploy-tee-registry-mock.sh`](../../scripts/bootstrap/deploy-tee-registry-mock.sh)).
+  Settlement itself is done by Katana's embedded settlement service, so the
+  `saya-tee` sidecar is no longer needed (and Katana computes the Poseidon L1→L2
+  message hash itself — no external patch required).
 
 ## Run it
 
@@ -72,8 +73,8 @@ cd examples/cross-chain-game
 `up.sh` is the one-click entry point. It first **preflights the toolchain** —
 auto-installing the Dojo tools (`sozo`/`torii`/`scarb` via `asdf install`) and the
 JS deps, and failing fast with the exact command if a heavy prerequisite is
-missing (the `katana` binary, `saya-ops`, or the sibling `dojo` checkout).
-It then starts the settlement Katana, deploys a mock TEE registry (`saya-ops`) +
+missing (the `katana` binary, `starkli`, or the sibling `dojo` checkout).
+It then starts the settlement Katana, deploys a mock TEE registry (`starkli`) +
 the piltover core (`katana init rollup --tee`), adds the `[settlement.runtime]`
 section to the generated chain config (enabling the appchain's embedded settlement
 service), starts the appchain rollup, **migrates the Dojo worlds with `sozo`** (the
@@ -135,7 +136,6 @@ dev account keeps working.
 | `cairo/score/src/lib.cairo` | Settlement score world (Dojo): `claim_score` (consumes the settled message), `Leaderboard`/`PlayerScore` models, `ScoreClaimed` event |
 | `scripts/deploy.ts` | `sozo migrate` the three worlds (score → game → store) and record addresses in `deployments.json` |
 | `app/` | React + Vite + TS + [shadcn/ui](https://ui.shadcn.com) frontend; reads via Torii SQL (`app/src/chain.ts`); wallet picker (dev account / Controller) in `app/src/wallet.tsx` |
-| `saya-patch/` | Historical: the L1→L2-hash fix the old `saya-tee` sidecar needed. No longer used now that Katana settles (kept for reference) |
 | `up.sh` / `down.sh` | Start / stop the whole stack (2 Katanas + 2 Torii + frontend; settlement is embedded in the appchain Katana) |
 
 ## How the messaging works

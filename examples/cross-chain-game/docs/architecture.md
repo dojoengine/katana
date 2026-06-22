@@ -51,8 +51,9 @@ They are connected by **cross-chain messages** in both directions (covered in
 
 - **L1 → L2** is instant: the appchain relays a settlement message as a
   transaction. Use it for "an L1 action should cause an L2 effect."
-- **L2 → L1** is *settled*: it only completes after a prover (saya) settles the
-  appchain block onto L1. Use it for "an L2 result should become an L1 fact."
+- **L2 → L1** is *settled*: it only completes after the settler (the appchain's
+  embedded settlement service) settles the appchain block onto L1. Use it for "an
+  L2 result should become an L1 fact."
 
 Because the two directions have different trust/latency, many apps put a **world
 on each chain**: the appchain world for live state, a small settlement world for
@@ -89,8 +90,8 @@ For each operation or piece of state, run it through this checklist:
   official. (Banking a score, completing a purchase.)
 
 **Tie-breakers when an op could live on either side:**
-- **Latency tolerance** — an L2 → L1 result isn't usable on L1 until saya settles
-  the block (seconds+). If the op can't wait, keep it on L2.
+- **Latency tolerance** — an L2 → L1 result isn't usable on L1 until the settler
+  settles the block (seconds+). If the op can't wait, keep it on L2.
 - **Who must verify it** — if the answer is "only the game," L2; if "anyone," L1.
 - **Cost vs security** — frequent/cheap leans L2; valuable/contested leans L1.
 

@@ -166,7 +166,7 @@ subs.push(await client.onEventMessageUpdated(null, null, () => onUpdate()));
 [`app/src/chain.ts:107`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/app/src/chain.ts#L107)
 
 The slow interval stays as a safety net and to refresh the few facts Torii can't
-push: the saya-settled block and the appchain tip are read straight from RPC, and
+push: the settled block height and the appchain tip are read straight from RPC, and
 the piltover `MessageSent` purchase log is RPC too (so a buy also nudges a refetch
 explicitly). Everything shown is then derived from the reads — e.g. unbanked vs
 banked runs are just a filter over the joined play list:
@@ -246,6 +246,6 @@ only in React.
 ---
 
 That's the whole loop: [architecture](./architecture.md) (worlds + two chains) →
-[services](./services.md) (Katana, piltover, saya, Torii) →
+[services](./services.md) (Katana, piltover, the settler, Torii) →
 [contracts](./contracts.md) (both messaging directions) →
 [deployment](./deployment.md) (migrate + orchestrate) → this read/write client.

@@ -35,11 +35,11 @@ mostly about understanding that system.
    │  Settlement Katana ("L1")  │  relayed as L1-handler  │   Appchain Katana ("L2")  │
    │  • piltover core           │                         │  (rollup, --tee mock)     │
    │  • your settlement world   │ ◄───────────────────── │  • your appchain world    │
-   └───────────────────────────┘  msg (L2 → L1) + saya    └──────────────────────────┘
+   └───────────────────────────┘  msg (L2 → L1) + settle  └──────────────────────────┘
         │ Torii (indexer)                                      │ Torii (indexer)
         └──────────────────────── client / UI ◄────────────────┘
                           (reads models + events via Torii)
-   saya  ── proves each appchain block, submits update_state to piltover ──┘
+   settler ── proves each appchain block, submits update_state to piltover ──┘
 ```
 
 Five kinds of process, explained in [services.md](./services.md):
@@ -49,7 +49,7 @@ Five kinds of process, explained in [services.md](./services.md):
 | **Katana** (settlement) | The chain you settle to — acts as "L1". Hosts the piltover core. |
 | **Katana** (appchain) | Your app's chain — a rollup that settles to the piltover core. |
 | **piltover core** | The settlement-side messaging contract: the L1↔L2 mailbox + settled state. |
-| **saya** | Proves appchain blocks and submits state updates to piltover (enables L2→L1). |
+| **settler** | The appchain node's embedded settlement service: proves appchain blocks and submits state updates to piltover (enables L2→L1). |
 | **Torii** | Indexes a chain's world into a queryable DB so the client can read it. |
 
 ## The spine: one action, end to end
@@ -66,8 +66,9 @@ rest of the guide is just detail.
 3. **Act on L2.** The client calls a system on the appchain (the demo: `play_game`
    rolls a score). The system writes a model and, to talk back to L1, calls
    `send_message_to_l1`.
-4. **Settle.** saya proves the appchain block and submits `update_state` to
-   piltover, which **registers** the outbound message hash. → [services.md](./services.md)
+4. **Settle.** The settler (the appchain node's embedded settlement service)
+   proves the appchain block and submits `update_state` to piltover, which
+   **registers** the outbound message hash. → [services.md](./services.md)
 5. **Consume on L1.** The client calls your settlement system (the demo:
    `claim_score`), which calls `piltover.consume_message_from_appchain(...)` —
    this only succeeds because step 4 registered the message.
@@ -91,5 +92,5 @@ rest of the guide is just detail.
 
 The same as the demo (`../README.md`): the `katana` binary, `bun`, the Dojo
 toolchain (`sozo`, `torii` — pinned in `../.tool-versions`), a sibling `dojo`
-checkout, and patched `saya-tee`/`saya-ops`. You don't need them installed to
-read the guide, but you do to run the example commands.
+checkout, and `starkli` (used once to deploy the mock TEE registry). You don't
+need them installed to read the guide, but you do to run the example commands.

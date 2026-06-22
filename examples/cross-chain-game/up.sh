@@ -3,10 +3,10 @@
 #
 #   settlement Katana ("L1", SN_SEPOLIA)
 #     + piltover core contract        (deployed by `katana init rollup --tee`)
-#     + mock TEE registry             (deployed by `saya-ops`)
+#     + mock TEE registry             (deployed by scripts/bootstrap/deploy-tee-registry-mock.sh)
 #   appchain Katana ("L2", rollup, --tee mock) settling to piltover, with its
 #     embedded settlement service (the [settlement.runtime] section) proving each
-#     block and driving update_state itself — no external saya-tee sidecar.
+#     block and driving update_state itself — no external settlement sidecar.
 #   demo contracts (game_minter, achievements, score_registry)
 #   React frontend
 #
@@ -26,23 +26,24 @@ mkdir -p "$RUN_DIR"
 #   SETTLE = account 0: bootstrap (TEE registry deploy) + the demo's dev-path
 #     buy/bank signer. In Controller mode katana also reserves account 0 as the
 #     paymaster *relayer* (gas tank = 1, estimate = 2).
-#   SAYA   = account 3: piltover operator + saya's update_state submitter. It MUST
-#     be distinct from the paymaster's accounts 0/1/2 — otherwise saya and the
-#     relayer race for the same nonce and settlement stalls mid-stream (the relayer
-#     bumps the nonce under saya, its update_state is rejected, the orchestrator
-#     freezes). init rollup and saya-tee must use the SAME account (the operator
-#     deploying piltover is the only one allowed to call update_state).
+#   SETTLER = account 3: piltover operator + the settlement service's update_state
+#     submitter. It MUST be distinct from the paymaster's accounts 0/1/2 —
+#     otherwise the settler and the relayer race for the same nonce and settlement
+#     stalls mid-stream (the relayer bumps the nonce under the settler, its
+#     update_state is rejected, the orchestrator freezes). init rollup and the
+#     embedded settlement service must use the SAME account (the operator deploying
+#     piltover is the only one allowed to call update_state).
 SETTLE_ADDR="0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec"
 SETTLE_PK="0xc5b2fcab997346f3ea1c00b002ecf6f382c5f9c9659a3894eb783c5320f912"
-SAYA_ADDR="0x2af9427c5a277474c079a1283c880ee8a6f0f8fbf73ce969c08d88befec1bba"
-SAYA_PK="0x1800000000300000180000000000030000000000003006001800006600"
+SETTLER_ADDR="0x2af9427c5a277474c079a1283c880ee8a6f0f8fbf73ce969c08d88befec1bba"
+SETTLER_PK="0x1800000000300000180000000000030000000000003006001800006600"
 TEE_REGISTRY_SALT="0x7ee"
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 # up.sh is the one-click entry point. It auto-installs the deps it safely can
 # (the Dojo toolchain via asdf, the JS deps below, and the katana binary — built
 # from this repo if target/debug is empty), and fails fast with the exact command
-# for the heavy prerequisites it won't provide: saya-ops and the sibling dojo
+# for the heavy prerequisites it won't provide: starkli and the sibling dojo
 # checkout. See README.md "Prerequisites".
 DOJO_DIR="$REPO_ROOT/../dojo"
 fail() { echo "error: $1" >&2; exit 1; }
@@ -71,10 +72,10 @@ if [[ ! -x "$KATANA" ]]; then
 fi
 [[ -x "$KATANA" ]] || fail "katana still not found at $KATANA after build."
 
-# saya-ops — used once to deploy the mock TEE registry (a bootstrap helper, not
-# the settlement sidecar). Settlement itself is now done by katana's embedded
-# settlement service (this branch), so saya-tee is no longer required.
-command -v saya-ops >/dev/null 2>&1 || fail "'saya-ops' not found on PATH. Install saya v0.4.0 — see ./saya-patch/README.md."
+# starkli — used once to declare + deploy the mock TEE registry (a bootstrap
+# helper). Settlement itself is done by katana's embedded settlement service
+# (this branch), so no external settlement sidecar is required anymore.
+command -v starkli >/dev/null 2>&1 || fail "'starkli' not found on PATH. Install it: https://github.com/xJonathanLEI/starkli"
 
 # Dojo toolchain + the sibling dojo checkout the cairo packages depend on by path.
 for bin in sozo torii scarb; do
@@ -82,7 +83,7 @@ for bin in sozo torii scarb; do
 done
 [[ -d "$DOJO_DIR/crates/dojo/core" ]] || fail "dojo checkout not found at $DOJO_DIR — the cairo packages depend on it by path. Clone it as a sibling of katana:  ( cd \"$REPO_ROOT/..\" && git clone https://github.com/dojoengine/dojo )  then check out the sozo-matching ref (sozo/v1.8.7)."
 echo "→ katana: $KATANA"
-echo "→ saya-ops: $(command -v saya-ops)"
+echo "→ starkli: $(command -v starkli)"
 echo "→ sozo: $(sozo --version 2>&1 | head -1)   torii: $(torii --version 2>&1 | head -1)"
 
 # Optional: Cartridge Controller wallet. The default run uses the dev account only
@@ -118,7 +119,7 @@ echo "→ installing JS dependencies…"
 ( cd "$DEMO_DIR/app" && bun install >/dev/null )
 # Contracts are built + migrated per-world by scripts/deploy.ts (sozo build/migrate).
 
-# 1. Settlement node (SN_SEPOLIA so saya-ops / init rollup chain id match).
+# 1. Settlement node (SN_SEPOLIA so the init rollup chain id matches).
 echo "→ starting settlement node on :5050…"
 "$KATANA" --dev --dev.no-fee --chain-id SN_SEPOLIA --http.port 5050 \
   --http.cors_origins '*' --explorer $CONTROLLER_FLAGS > "$RUN_DIR/settlement.log" 2>&1 &
@@ -126,18 +127,18 @@ SETTLEMENT_PID=$!
 until curl -s -o /dev/null http://localhost:5050/ 2>/dev/null; do sleep 0.5; done
 
 # 2. Mock TEE registry on settlement (permissive attestation verifier).
-#    Deploy from the SAYA account (3), not account 0: in Controller mode the
+#    Deploy from the settler account (3), not account 0: in Controller mode the
 #    settlement node's paymaster bootstrap deploys the AVNU forwarder from account
 #    0 right after startup, and a concurrent deploy from account 0 here races its
 #    nonce ("Account nonce: 0x2; got: 0x1") and aborts the launch.
-echo "→ deploying mock TEE registry (saya-ops)…"
-REG_OUT=$(SETTLEMENT_RPC_URL=http://localhost:5050 \
-  SETTLEMENT_ACCOUNT_ADDRESS="$SAYA_ADDR" \
-  SETTLEMENT_ACCOUNT_PRIVATE_KEY="$SAYA_PK" \
-  SETTLEMENT_CHAIN_ID=SN_SEPOLIA \
-  saya-ops core-contract declare-and-deploy-tee-registry-mock --salt "$TEE_REGISTRY_SALT" 2>&1)
+echo "→ deploying mock TEE registry…"
+REG_OUT=$(RPC_URL=http://localhost:5050 \
+  ACCOUNT_ADDRESS="$SETTLER_ADDR" \
+  PRIVATE_KEY="$SETTLER_PK" \
+  SALT="$TEE_REGISTRY_SALT" \
+  "$REPO_ROOT/scripts/bootstrap/deploy-tee-registry-mock.sh" 2>&1)
 TEE_REGISTRY=$(echo "$REG_OUT" | sed -nE 's/.*TEE registry mock address:[[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | tail -1)
-[[ -n "$TEE_REGISTRY" ]] || { echo "error: could not parse TEE registry address:" >&2; echo "$REG_OUT" >&2; exit 1; }
+[[ -n "$TEE_REGISTRY" ]] || { echo "error: could not deploy TEE registry:" >&2; echo "$REG_OUT" >&2; exit 1; }
 echo "   tee_registry=$TEE_REGISTRY"
 
 # 3. Deploy + configure the piltover core on settlement and write the rollup chain config.
@@ -146,8 +147,8 @@ rm -rf "$CHAIN_DIR"
 "$KATANA" init rollup \
   --id GAMECHAIN \
   --settlement-chain http://localhost:5050 \
-  --settlement-account-address "$SAYA_ADDR" \
-  --settlement-account-private-key "$SAYA_PK" \
+  --settlement-account-address "$SETTLER_ADDR" \
+  --settlement-account-private-key "$SETTLER_PK" \
   --tee \
   --tee-registry-address "$TEE_REGISTRY" \
   --output-path "$CHAIN_DIR" > "$RUN_DIR/init.log" 2>&1
@@ -159,13 +160,13 @@ echo "   piltover=$PILTOVER"
 # settlement *layer* (where to settle); the operator adds the [settlement.runtime]
 # section (the settling account + key, TEE registry, batching) that turns this node
 # into an active settler. With it present, katana proves and submits update_state
-# itself — this is the job that used to belong to the saya-tee sidecar.
-echo "→ adding [settlement.runtime] (embedded settlement, replaces saya-tee)…"
+# itself — this is the job that used to belong to an external settlement sidecar.
+echo "→ adding [settlement.runtime] (embedded settlement, no external sidecar)…"
 cat >> "$CHAIN_DIR/config.toml" <<EOF
 
 [settlement.runtime]
-account-address = "$SAYA_ADDR"
-account-private-key = "$SAYA_PK"
+account-address = "$SETTLER_ADDR"
+account-private-key = "$SETTLER_PK"
 tee-registry = "$TEE_REGISTRY"
 batch-size = 1
 EOF
@@ -195,11 +196,11 @@ node -e '
 
 # 5. Appchain rollup node, settling to piltover, with L1->L2 messaging enabled.
 echo "→ starting appchain node on :5051…"
-# --dev --dev.no-fee disables fees on the rollup (mirrors the saya-tee test
+# --dev --dev.no-fee disables fees on the rollup (mirrors the tests/saya-tee
 # harness' fee:false config); without it, fee estimation on the near-empty
 # rollup produces resource bounds below the actual gas price and txs revert.
 # --block-time 5000 mines a block every 5s (interval mining) instead of per-tx, so
-# the chain advances steadily and saya keeps settling even when the app is idle.
+# the chain advances steadily and the settler keeps settling even when the app is idle.
 "$KATANA" --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 --http.port 5051 \
   --http.cors_origins '*' --explorer --messaging.enabled $CONTROLLER_FLAGS \
   > "$RUN_DIR/appchain.log" 2>&1 &
@@ -209,7 +210,7 @@ until curl -s -o /dev/null http://localhost:5051/ 2>/dev/null; do sleep 0.5; don
 # 6. Settlement: handled by the appchain node's embedded settlement service
 #    (configured via the [settlement.runtime] section written above). It proves
 #    each appchain block (--tee mock) and submits update_state — carrying the
-#    L2->L1 message hashes — to the piltover core. No external saya-tee sidecar.
+#    L2->L1 message hashes — to the piltover core. No external settlement sidecar.
 
 # 7. Migrate the two Dojo worlds (sozo) and fill in their addresses.
 ( cd "$DEMO_DIR" && bun run scripts/deploy.ts )

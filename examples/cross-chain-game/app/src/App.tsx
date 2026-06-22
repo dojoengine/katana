@@ -129,7 +129,7 @@ function networkServiceItems(services: Record<ServiceId, boolean> | null): SvcIt
   ];
 }
 
-// Compact always-visible row (bottom of the page). saya is shown by <SayaGauge>.
+// Compact always-visible row (bottom of the page). the settler is shown by <SettlerGauge>.
 function ServiceStatusBar({ items }: { items: SvcItem[] }) {
   return (
     <div className="flex flex-wrap items-center justify-center gap-x-3.5 gap-y-1.5 text-xs text-muted-foreground">
@@ -217,7 +217,7 @@ export default function App() {
   const rollStart = useRef(0); // plays.length when the current roll started
   const rollToken = useRef(0); // invalidates a stale play_game() resolution
   const refetch = useRef<() => void>(() => {}); // nudge the data layer after a write
-  const sayaProgress = useRef({ last: -1, stalls: 0 }); // detect a stalled settler
+  const settlerProgress = useRef({ last: -1, stalls: 0 }); // detect a stalled settler
 
   useEffect(() => {
     let active = true;
@@ -248,8 +248,8 @@ export default function App() {
         setTip(tp);
         setCredits(cr);
         // Track settler progress to tell "settling" (advancing) from "stalled"
-        // (behind and not moving — saya likely down).
-        const p = sayaProgress.current;
+        // (behind and not moving — the settler likely down).
+        const p = settlerProgress.current;
         if (sb > p.last) p.stalls = 0;
         else if (tp > sb) p.stalls += 1;
         p.last = sb;
@@ -273,7 +273,7 @@ export default function App() {
     tick(); // initial load
 
     // Torii entity/event subscriptions drive the snappy gameplay state. A slow
-    // poll stays as a safety net and keeps the RPC-only reads fresh (saya-settled
+    // poll stays as a safety net and keeps the RPC-only reads fresh (the settler-settled
     // block + appchain tip have no Torii subscription to push them).
     const slow = setInterval(tick, 4000);
     let cleanupSub: (() => void) | undefined;
@@ -312,13 +312,13 @@ export default function App() {
   const offline = !loading && !online; // first read failed → services aren't up
 
   // Per-service status. The four network services come straight from the probe;
-  // saya has no endpoint, so it's inferred: caught up → running, behind but
+  // the settler has no endpoint, so it's inferred: caught up → running, behind but
   // advancing → settling, behind and stuck → stalled (likely not running).
-  const sayaStatus: SvcStatus = !online
+  const settlerStatus: SvcStatus = !online
     ? "unknown"
     : settled >= 0 && settled >= tip
       ? "up"
-      : sayaProgress.current.stalls >= 3
+      : settlerProgress.current.stalls >= 3
         ? "stalled"
         : "settling";
   const networkItems = networkServiceItems(services);
@@ -388,7 +388,7 @@ export default function App() {
     }
   }
 
-  // Bank a roll to the Vault (settle L2 -> L1). Retries until saya has settled.
+  // Bank a roll to the Vault (settle L2 -> L1). Retries until the settler has settled.
   // `player` is the roll's own player (GamePlayed.player), not the connected
   // wallet: claim_score consumes the L2→L1 message keyed to whoever rolled, and
   // its consume isn't caller-restricted, so any connected L1 signer can settle it.
@@ -415,7 +415,7 @@ export default function App() {
     }
   }
 
-  const sayaCaughtUp = settled >= tip;
+  const settlerCaughtUp = settled >= tip;
 
   return (
     <TooltipProvider>
@@ -633,15 +633,15 @@ export default function App() {
             </Card>
           </div>
 
-          {/* System status: per-service dots + the saya settler gauge */}
-          <div data-tour="saya" className="mt-4 flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2">
+          {/* System status: per-service dots + the settler gauge */}
+          <div data-tour="settler" className="mt-4 flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2">
             <ServiceStatusBar items={networkItems} />
             <span className="hidden h-4 w-px bg-border sm:block" />
             {online ? (
-              <SayaGauge settled={settled} tip={tip} caughtUp={sayaCaughtUp} stalled={sayaStatus === "stalled"} />
+              <SettlerGauge settled={settled} tip={tip} caughtUp={settlerCaughtUp} stalled={settlerStatus === "stalled"} />
             ) : (
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <ServiceDot status={sayaStatus} /> saya: {loading ? "connecting…" : "offline"}
+                <ServiceDot status={settlerStatus} /> settler: {loading ? "connecting…" : "offline"}
               </span>
             )}
           </div>
@@ -693,21 +693,21 @@ function UnbankedRoll({
   onBank: () => void;
   onInspect: () => void;
 }) {
-  const sayaReady = settled >= play.block;
+  const settlerReady = settled >= play.block;
   return (
     <div className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2">
       <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-sm font-bold tabular-nums text-primary">
         {play.score}
       </span>
       <button onClick={onInspect} className="flex-1 cursor-pointer text-left text-xs text-muted-foreground hover:text-foreground">
-        {settling ? "banking…" : sayaReady ? "ready to bank" : "settling on saya…"}{" "}
+        {settling ? "banking…" : settlerReady ? "ready to bank" : "settling…"}{" "}
         <span className="underline decoration-dotted">details</span>
       </button>
       <Button
         size="sm"
         data-tour="bank"
         className="h-8 shrink-0 gap-1.5 bg-green-600 text-xs text-white hover:bg-green-600/90"
-        disabled={settling || !sayaReady}
+        disabled={settling || !settlerReady}
         onClick={onBank}
       >
         {settling ? <Loader2 className="size-3.5 animate-spin" /> : <Vault className="size-3.5" />}
@@ -740,7 +740,7 @@ function VaultStat(props: { label: string; value: React.ReactNode }) {
   );
 }
 
-function SayaGauge({ settled, tip, caughtUp, stalled }: { settled: number; tip: number; caughtUp: boolean; stalled?: boolean }) {
+function SettlerGauge({ settled, tip, caughtUp, stalled }: { settled: number; tip: number; caughtUp: boolean; stalled?: boolean }) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -756,23 +756,23 @@ function SayaGauge({ settled, tip, caughtUp, stalled }: { settled: number; tip: 
         ) : (
           <Loader2 className="size-3.5 animate-spin text-primary" />
         )}
-        saya: settled <span className="font-mono text-foreground">{Math.max(settled, 0)}</span> / tip{" "}
+        settler: settled <span className="font-mono text-foreground">{Math.max(settled, 0)}</span> / tip{" "}
         <span className="font-mono text-foreground">{tip}</span>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs">
         <div className="space-y-1.5 text-left leading-snug">
           <p>
-            <b>saya</b> proves each appchain block and settles it onto L1. A roll can only be <b>banked</b> once its block
+            The <b>settler</b> proves each appchain block and settles it onto L1. A roll can only be <b>banked</b> once its block
             is settled.
           </p>
           {stalled ? (
             <p>
-              <b className="text-red-600">Stalled</b> — the settled height is stuck below the tip. saya may have stopped;
+              <b className="text-red-600">Stalled</b> — the settled height is stuck below the tip. The settler may have stopped;
               check its log.
             </p>
           ) : (
             <p>
-              <b>settled = tip</b> means saya is fully caught up — every roll is ready to bank.
+              <b>settled = tip</b> means the settler is fully caught up — every roll is ready to bank.
             </p>
           )}
         </div>
@@ -811,7 +811,7 @@ function HoodDialog({ open, onOpenChange, online }: { open: boolean; onOpenChang
             <span className="font-mono text-[11px] text-primary">buy → mint</span>
             <ArrowRight className="size-5 text-primary" />
             <ArrowLeft className="size-5 text-green-600" />
-            <span className="font-mono text-[11px] text-green-600">bank + saya</span>
+            <span className="font-mono text-[11px] text-green-600">bank + settle</span>
           </div>
           <ChainCard
             tag="Appchain · “L2”"
@@ -894,7 +894,7 @@ function FlowDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
               relays it into <Code>mint_game</Code> — instant, no prover.
             </FlowHop>
             <FlowHop tag="L2 → L1" tone="green" dir="left">
-              <Code>play_game</Code> emits <Code>send_message_to_l1</Code>. <b>saya</b> proves the block and{" "}
+              <Code>play_game</Code> emits <Code>send_message_to_l1</Code>. The <b>settler</b> proves the block and{" "}
               <Code>update_state</Code>s piltover; then <Code>claim_score</Code> calls{" "}
               <Code>consume_message_from_appchain</Code> — settled.
             </FlowHop>
@@ -910,7 +910,7 @@ function FlowDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
         <div className="flex items-start gap-2.5 rounded-lg border bg-muted/50 p-3 text-xs text-muted-foreground [&_b]:text-foreground">
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-green-600" />
           <p>
-            <b>saya</b> bridges L2 → L1: it proves each appchain block and submits <Code>update_state</Code>, which is what
+            The appchain's embedded <b>settler</b> bridges L2 → L1: it proves each appchain block and submits <Code>update_state</Code>, which is what
             lets the settlement layer consume a message. A <b>Torii</b> indexer per chain mirrors the worlds so this UI can
             read them. (Proving runs in mock mode for this demo.)
           </p>
@@ -1035,7 +1035,7 @@ function PlayDetailDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const banked = !!play?.claimTxHash;
-  const sayaReady = !!play && settled >= play.block;
+  const settlerReady = !!play && settled >= play.block;
   const steps = play
     ? [
         {
@@ -1045,9 +1045,9 @@ function PlayDetailDialog({
           tx: { label: "L2 tx", tone: "l2" as const, hash: play.l2TxHash, href: explorerTxUrl(APPCHAIN_EXPLORER, play.l2TxHash) },
         },
         {
-          label: "Settled by saya",
-          done: banked || sayaReady,
-          desc: "saya proves the appchain block and submits `update_state` to the piltover core, registering the message.",
+          label: "Settled by the settler",
+          done: banked || settlerReady,
+          desc: "The settler proves the appchain block and submits `update_state` to the piltover core, registering the message.",
         },
         {
           label: "Banked to L1",
@@ -1386,10 +1386,10 @@ function PublishInfo() {
   return (
     <StepInfo
       heading="Bank · L2 → L1"
-      services={["saya-tee — prover / settler", "settlement katana (L1)"]}
+      services={["katana — embedded settler", "settlement katana (L1)"]}
       steps={[
         <>
-          <b>saya</b> proves the appchain block and submits <Code>update_state</Code> to the <b>piltover core</b>,
+          The <b>settler</b> proves the appchain block and submits <Code>update_state</Code> to the <b>piltover core</b>,
           registering the message.
         </>,
         <>
@@ -1423,7 +1423,7 @@ function IntroDialog({
         <div className="space-y-4 text-sm">
           <p>
             You play in the <b>Arcade</b> (a Katana <b>appchain</b>, “L2”) and bank your scores into the <b>Vault</b> (the
-            settlement layer, “L1”) — the permanent record, secured by <b>saya</b>.
+            settlement layer, “L1”) — the permanent record, secured by the <b>settler</b>.
           </p>
           <div className="space-y-2.5">
             <div className="flex items-start gap-2.5">
@@ -1442,7 +1442,7 @@ function IntroDialog({
             <div className="flex items-start gap-2.5">
               <Vault className="mt-0.5 size-4 shrink-0 text-green-600" />
               <p>
-                <b className="text-green-600">Bank</b> — settle a score to L1 (L2 → L1, via saya) to lock it into the Vault
+                <b className="text-green-600">Bank</b> — settle a score to L1 (L2 → L1, via the settler) to lock it into the Vault
                 for good.
               </p>
             </div>
@@ -1572,13 +1572,13 @@ const TOUR_STEPS: TourStep[] = [
     ),
   },
   {
-    sel: "saya",
+    sel: "settler",
     tag: "Settlement",
     tone: "muted",
-    title: "saya proves & settles the block",
+    title: "The settler proves & settles the block",
     body: (
       <>
-        <b>saya</b> proves each appchain block and submits <Code>update_state</Code> to the piltover core contract
+        The <b>settler</b> proves each appchain block and submits <Code>update_state</Code> to the piltover core contract
         (deployed on the L1), which <b>registers</b> the block's outbound message hashes. This gauge shows the settled
         block height vs the appchain tip. Only after settlement can L1 consume your score.
         <span className="mt-2 flex items-start gap-1.5 text-left text-xs text-muted-foreground/80">
@@ -1607,7 +1607,7 @@ const TOUR_STEPS: TourStep[] = [
     body: (
       <>
         <b>Bank</b> calls <Code>claim_score</Code> on the settlement world, which calls{" "}
-        <Code>consume_message_from_appchain</Code> on the piltover core — this succeeds only because saya settled the
+        <Code>consume_message_from_appchain</Code> on the piltover core — this succeeds only because the settler settled the
         message. The button stays disabled until then. On success the score is stored on L1 and <Code>ScoreClaimed</Code>{" "}
         is emitted.
       </>
