@@ -180,9 +180,33 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         }
     };
 
+    // // Parses the address format only; the on-chain existence check is done by the validator
+    // below // so the two failure modes report distinct error messages.
+    // let address_parser = &|input: &str|
+    // Felt::from_str(input).map(ContractAddress::from).map_err(|_| ());
+
+    let account_exists_validator = {
+        let settlement_provider = settlement_provider.clone();
+        move |address: &ContractAddress| {
+            let block_id = BlockId::Tag(BlockTag::PreConfirmed);
+            let result = tokio::task::block_in_place(|| {
+                Handle::current()
+                    .block_on(settlement_provider.get_class_hash_at(block_id, Felt::from(*address)))
+            });
+
+            match result {
+                Ok(..) => Ok(Validation::Valid),
+                Err(..) => Ok(Validation::Invalid(ErrorMessage::Custom(
+                    "Account does not exist on the settlement chain".to_string(),
+                ))),
+            }
+        }
+    };
+
     let account_address = CustomType::<ContractAddress>::new("Account")
         .with_error_message("Please enter a valid account address")
-        .with_parser(contract_exist_parser)
+        // .with_parser(address_parser)
+        .with_validator(account_exists_validator)
         .prompt()?;
 
     let private_key = CustomType::<Felt>::new("Private key")
