@@ -15,7 +15,9 @@ use starknet::providers::Provider;
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::runtime::Handle;
 
-use super::{deployment, PersistentOutcome, ProofImpl, SovereignOutcome};
+use super::{
+    deployment, PersistentOutcome, ProofImpl, SovereignOutcome, MOCK_TEE_REGISTRY_SEPOLIA,
+};
 use crate::cli::init::deployment::DeploymentOutcome;
 use crate::cli::init::slot::{self, PaymasterAccountArgs};
 
@@ -77,6 +79,8 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
     enum TeeVariant {
         #[strum(serialize = "AMD SEV-SNP + SP1 Groth16")]
         AmdSevSnpSp1Groth16,
+        #[strum(serialize = "Mock (no attestation verification)")]
+        Mock,
     }
 
     let proof_mode = Select::new("Proof mode", vec![ProofMode::ValidityProof, ProofMode::Tee])
@@ -93,21 +97,28 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
             }
         }
         ProofMode::Tee => {
-            match Select::new("TEE type", vec![TeeVariant::AmdSevSnpSp1Groth16]).prompt()? {
+            let tee_opts = vec![TeeVariant::AmdSevSnpSp1Groth16, TeeVariant::Mock];
+            match Select::new("TEE type", tee_opts).prompt()? {
                 TeeVariant::AmdSevSnpSp1Groth16 => ProofImpl::AmdSevSnpSp1Groth16,
+                TeeVariant::Mock => ProofImpl::MockTee,
             }
         }
     };
     let use_tee = proof_impl.is_tee();
 
     let tee_registry_address: Option<ContractAddress> = if use_tee {
-        Some(
-            CustomType::<ContractAddress>::new("TEE registry address")
-                .with_help_message(
-                    "Address of the IAMDTeeRegistry contract on the settlement chain.",
-                )
-                .prompt()?,
-        )
+        let mut prompt = CustomType::<ContractAddress>::new("TEE registry address")
+            .with_help_message("Address of the IAMDTeeRegistry contract on the settlement chain.");
+
+        // The mock TEE registry is already deployed on Sepolia, so prefill its address as the
+        // default. It stays editable in case the operator points at their own mock deployment.
+        if matches!(proof_impl, ProofImpl::MockTee)
+            && matches!(network_type, SettlementChainOpt::Sepolia)
+        {
+            prompt = prompt.with_default(ContractAddress::from(MOCK_TEE_REGISTRY_SEPOLIA));
+        }
+
+        Some(prompt.prompt()?)
     } else {
         None
     };
