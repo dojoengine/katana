@@ -180,11 +180,6 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         }
     };
 
-    // // Parses the address format only; the on-chain existence check is done by the validator
-    // below // so the two failure modes report distinct error messages.
-    // let address_parser = &|input: &str|
-    // Felt::from_str(input).map(ContractAddress::from).map_err(|_| ());
-
     let account_exists_validator = {
         let settlement_provider = settlement_provider.clone();
         move |address: &ContractAddress| {
@@ -205,7 +200,6 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
 
     let account_address = CustomType::<ContractAddress>::new("Account")
         .with_error_message("Please enter a valid account address")
-        // .with_parser(address_parser)
         .with_validator(account_exists_validator)
         .prompt()?;
 
