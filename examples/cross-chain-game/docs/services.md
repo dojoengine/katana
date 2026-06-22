@@ -14,7 +14,7 @@ appchain runs this same set.
    └───────│────────────────│─────────┘  L2→L1  └───────│────────────────────────┘
            │ update_state   │ index            relay │  │ index
         ┌──┴──┐          ┌──┴───┐                     │ ┌┴─────┐
-        │ saya│          │Torii │◄──── client ────────┘ │Torii │
+        │ tee │          │Torii │◄──── client ────────┘ │Torii │
         └─────┘          └──────┘   reads/writes        └──────┘
 ```
 
@@ -28,8 +28,8 @@ chain your app runs *on* — and each is a Katana instance:
 
 - **Settlement Katana ("L1").** Stands in for the chain you anchor to (Starknet
   mainnet/Sepolia in production). It hosts the **piltover core** and your
-  settlement world. In the demo it runs with `--chain-id SN_SEPOLIA` so saya's
-  tooling and `katana init rollup` agree on the chain id.
+  settlement world. In the demo it runs with `--chain-id SN_SEPOLIA` so the
+  embedded settlement service and `katana init rollup` agree on the chain id.
   [`up.sh:91`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L91)
 - **Appchain Katana ("L2").** Your app's chain, started as a **rollup** that
   settles to the piltover core. Key flags:
@@ -38,8 +38,8 @@ chain your app runs *on* — and each is a Katana instance:
     messages** as `L1HandlerTx`. Without this, purchases never reach L2.
   - `--dev --dev.no-fee` — fees off (an empty rollup can't price gas sanely).
   - `--block-time 5000` — mine a block every 5s (interval mining) instead of
-    per-transaction, so the chain advances on a steady cadence and saya keeps
-    settling even when the app is idle (trades instant inclusion for a predictable
+    per-transaction, so the chain advances on a steady cadence and the settler
+    keeps settling even when the app is idle (trades instant inclusion for a predictable
     block time).
   ```bash
   katana --chain "$CHAIN_DIR" --tee mock --dev --dev.no-fee --block-time 5000 \
@@ -69,46 +69,55 @@ contract is piltover.
   `MessageSent`; the appchain relays it. (In the demo, called by the L1 `store`
   contract's `buy_game` to start a round trip.)
 - `consume_message_from_appchain(from, payload)` — **L2 → L1**. Succeeds only if
-  saya has settled a block containing that message. (Called by your settlement
-  system.)
+  the settler has settled a block containing that message. (Called by your
+  settlement system.)
 - `get_state()` — returns the latest settled block height; the demo reads it to
   show the "settled N / tip M" gauge.
 
-## saya — the prover that makes L2 → L1 possible
+## The settler — what makes L2 → L1 possible
 
-**What.** saya (here the `saya-tee` sidecar) watches the appchain, **proves each
-block**, and submits an `update_state` transaction to the piltover core.
+**What.** Katana's **embedded settlement service** (the *settler*) runs inside the
+appchain node itself — no separate process. It watches the appchain, **proves each
+block** (`--tee mock` locally), and submits an `update_state` transaction to the
+piltover core.
 
 **Why it's the linchpin of L2→L1.** When an appchain system calls
 `send_message_to_l1`, that only emits intent on L2 — L1 doesn't know about it yet.
 The message becomes consumable on L1 **only after** its block is settled:
 `update_state` registers the block's outbound message hashes in piltover. So:
 
-> No saya ⇒ `consume_message_from_appchain` always reverts ⇒ nothing ever banks
-> back to L1.
+> Without settlement ⇒ `consume_message_from_appchain` always reverts ⇒ nothing
+> ever banks back to L1.
 
 This is why the demo's *bank* step can't be instant: the client has to wait for
-saya to settle the block the play landed in before claiming.
+the settler to settle the block the play landed in before claiming.
 
-**Where / how.** A sidecar process next to the two Katanas ([`up.sh:159`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L159)):
+**Where / how.** The settler isn't a sidecar — it's turned on by adding a
+`[settlement.runtime]` section to the chain config (`katana init rollup` writes
+only the settlement *layer*; the operator adds the runtime) and running the
+appchain node with `--tee mock` ([`up.sh:163`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L163)):
 
-```bash
-saya-tee tee start --mock-prove \
-  --rollup-rpc http://localhost:5051 --settlement-rpc http://localhost:5050 \
-  --settlement-piltover-address "$PILTOVER" --tee-registry-address "$TEE_REGISTRY" …
+```toml
+[settlement.runtime]
+account-address = "$SETTLER_ADDR"     # the operator account that submits update_state
+account-private-key = "$SETTLER_PK"
+tee-registry = "$TEE_REGISTRY"        # on-L1 attestation verifier (mock locally)
+batch-size = 1
 ```
 
-- `--mock-prove` — exercises the settlement *plumbing* without a real SP1/TEE
+- `--tee mock` — exercises the settlement *plumbing* without a real SP1/TEE
   prover. It proves the messaging path works, not proof soundness.
-- The **mock TEE registry** (deployed by `saya-ops`, [`up.sh:98`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/up.sh#L98)) is the on-L1
-  attestation verifier; the mock accepts saya's attestation so `update_state` is
-  allowed. In production this is a real attestation registry.
+- The **mock TEE registry** (declared + deployed by
+  [`scripts/bootstrap/deploy-tee-registry-mock.sh`](../../../scripts/bootstrap/deploy-tee-registry-mock.sh),
+  run from `up.sh`) is the on-L1 attestation verifier; the mock accepts the
+  settlement service's attestation so `update_state` is allowed. In production this
+  is a real attestation registry.
 
 > **Gotcha (see [contracts.md](./contracts.md#the-message-hash-gotcha)):** a
 > Starknet-settled appchain must hash L1→L2 messages with Poseidon, not Ethereum
-> keccak. saya 0.4.0 ships the keccak formula; the demo patches it
-> (`../saya-patch/`). Wrong hash ⇒ blocks that consume an L1→L2 message never
-> settle.
+> keccak. Katana's embedded settlement service hashes with Poseidon, so the demo
+> handles this out of the box (saya 0.4.0 shipped keccak and needed a patch — no
+> longer used). Wrong hash ⇒ blocks that consume an L1→L2 message never settle.
 
 ## Torii — the indexer the client reads
 
@@ -145,7 +154,7 @@ instance so two Toriis don't collide (`up.sh` `--relay.port …`).
 | Send L1→L2 | client → `store` → piltover (settlement Katana) | piltover emits `MessageSent` |
 | Relay | appchain Katana (`--messaging.enabled`) | runs your `#[l1_handler]` |
 | Act on L2 | client → appchain system | writes model, maybe `send_message_to_l1` |
-| Settle | saya → piltover | registers L2→L1 message hashes |
+| Settle | embedded settler → piltover | registers L2→L1 message hashes |
 | Consume L1 | client → settlement system → piltover | `consume_message_from_appchain` |
 | Read | client → Torii ×2 | model rows + event feeds |
 

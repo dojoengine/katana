@@ -1,7 +1,8 @@
 //! Settlement ("L1") score world for the L2 -> L1 direction.
 //!
 //! `claim_score` consumes a message that the appchain `game` world emitted and
-//! saya settled onto the piltover core. Consumption only succeeds once the
+//! the appchain's embedded settlement service settled onto the piltover core.
+//! Consumption only succeeds once the
 //! message has been registered by a settled state update, so this is the moment
 //! the cross-chain round trip completes. State lives in Dojo models (indexed by
 //! Torii) so the frontend can react to the settled score.
@@ -21,7 +22,7 @@ pub trait IPiltoverMessaging<T> {
 pub trait IScoreRegistry<T> {
     /// Consume the settled L2 -> L1 message `(player, score)` emitted by the
     /// appchain `game` world at `from_address`. Reverts until the message has
-    /// been settled onto the piltover core by saya.
+    /// been settled onto the piltover core.
     fn claim_score(ref self: T, from_address: ContractAddress, player: felt252, score: felt252);
 }
 

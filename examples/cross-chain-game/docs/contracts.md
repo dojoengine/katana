@@ -89,7 +89,7 @@ send_message_to_l1_syscall(config.registry.into(), array![player, score.into()].
 [`cairo/game/src/lib.cairo:131`](https://github.com/dojoengine/katana/blob/2e36ba5ae08b2f7c07e6e6a458464995e1d59a25/examples/cross-chain-game/cairo/game/src/lib.cairo#L131)
 
 **2. Consume on a settlement system.** It calls the piltover core; this reverts
-until saya has settled the block containing the message (that's the whole point —
+until the settler has settled the block containing the message (that's the whole point —
 [services.md](./services.md)):
 
 ```cairo
@@ -140,11 +140,13 @@ client's feeds need ([client.md](./client.md)).
 ## The message-hash gotcha
 
 A Starknet-settled appchain hashes **L1→L2** messages with **Poseidon**; Ethereum
-L1s use keccak. saya 0.4.0 ships the keccak formula, so on a Katana settlement
-chain the message hash saya registers won't match what piltover expects, and
-**every block that consumes an L1→L2 message (i.e. every purchase) stalls in
-settlement.** The demo patches saya to use Poseidon — see `../saya-patch/`. If you
-build your own appchain, verify your prover hashes L1→L2 messages the way your
-settlement chain expects.
+L1s use keccak. Whatever settles the appchain must register the L1→L2 message hash
+the way piltover expects, or **every block that consumes an L1→L2 message (i.e.
+every purchase) stalls in settlement.** Katana's embedded settlement service hashes
+with Poseidon, so this matches out of the box. (Historically the demo ran the
+external `saya-tee` sidecar; saya 0.4.0 shipped the keccak formula and needed a
+patch to fix it — no longer relevant now that Katana settles.) If you build your
+own appchain, verify your prover hashes L1→L2 messages the way your settlement
+chain expects.
 
 Next: [build the worlds and bring up the stack →](./deployment.md)

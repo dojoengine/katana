@@ -93,8 +93,8 @@ async function toriiSql<T = Record<string, string | number>>(base: string, sql: 
 
 // --- Per-service health ---
 
-/** The independently-probeable network services (saya has no endpoint of its own
- *  — its health is inferred from settlement progress in the UI). */
+/** The independently-probeable network services (the settler has no endpoint of
+ *  its own — its health is inferred from settlement progress in the UI). */
 export type ServiceId = "settlement" | "appchain" | "toriiScore" | "toriiGame";
 
 /** Ping each service in parallel and report which are reachable. Each probe is
@@ -304,7 +304,7 @@ export type PlayRecord = {
   seq: number;
   player: string; // who rolled (GamePlayed.player) — the address claim_score must consume for
   score: number;
-  block: number; // appchain block the play landed in (gates settling on saya)
+  block: number; // appchain block the play landed in (gates when it can settle to L1)
   l2TxHash: string; // play_game tx on the appchain
   claimTxHash?: string; // claim_score (settle) tx on the settlement layer, once published
 };

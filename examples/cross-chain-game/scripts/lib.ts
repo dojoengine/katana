@@ -1,7 +1,8 @@
 // Shared helpers for the cross-chain game deploy step (Dojo edition).
 //
 // The unified demo runs a settlement Katana ("L1", SN_SEPOLIA) and a rollup
-// appchain Katana ("L2") that settles to a piltover core via saya-tee. `up.sh`
+// appchain Katana ("L2") that settles to a piltover core via its embedded
+// settlement service. `up.sh`
 // deploys the piltover core (via `katana init rollup`) and writes the base
 // `deployments.json` (rpc urls, accounts, piltover, torii urls).
 //
