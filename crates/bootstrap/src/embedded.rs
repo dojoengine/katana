@@ -5,7 +5,7 @@
 //! via the manifest. Adding a new embedded class is a single entry in [`REGISTRY`].
 
 use anyhow::{anyhow, Result};
-use katana_contracts::contracts;
+use katana_contracts::{contracts, piltover};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 
 /// A Sierra class compiled into the katana binary, exposed to bootstrap by name.
@@ -52,11 +52,28 @@ pub const REGISTRY: &[EmbeddedClass] = &[
         class_hash: contracts::OpenZeppelinUniversalDeployer::HASH,
         casm_hash: contracts::OpenZeppelinUniversalDeployer::CASM_HASH,
     },
+    EmbeddedClass {
+        name: "mock_amd_tee_registry",
+        description: "Mock AMD TEE registry (accepts any SP1 proof; testing only)",
+        load: || piltover::MockAmdTeeRegistry::CLASS.clone(),
+        class_hash: piltover::MockAmdTeeRegistry::HASH,
+        casm_hash: piltover::MockAmdTeeRegistry::CASM_HASH,
+    },
 ];
 
 /// Look up an embedded class by name.
 pub fn get(name: &str) -> Option<&'static EmbeddedClass> {
     REGISTRY.iter().find(|c| c.name == name)
+}
+
+/// A human-readable listing of every embedded class as `name - description`, one per
+/// indented line. Used to surface the available class names in CLI `--help` output.
+pub fn help_listing() -> String {
+    REGISTRY
+        .iter()
+        .map(|c| format!("  {} - {}", c.name, c.description))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Look up an embedded class, returning a friendly error listing alternatives on miss.
