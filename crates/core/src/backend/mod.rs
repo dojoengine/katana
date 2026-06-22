@@ -346,7 +346,10 @@ where
                 ));
             }
 
-            info!("Genesis has already been initialized");
+            info!(
+                genesis_hash = format!("{:#x}", local_hash),
+                "Genesis has already been initialized"
+            );
         } else {
             let provider_mut = self.storage.provider_mut();
 
@@ -357,6 +360,7 @@ where
                 &receipts,
                 &mut output.states.state_updates,
             )?;
+            let genesis_hash = block.hash;
 
             let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
 
@@ -366,7 +370,7 @@ where
             store_block(&provider_mut, block, output.states, receipts, traces)?;
 
             provider_mut.commit()?;
-            info!("Genesis initialized");
+            info!(genesis_hash = %genesis_hash, "Genesis initialized");
         }
 
         Ok(())
