@@ -98,9 +98,9 @@ const MOCK_TEE_REGISTRY_SEPOLIA: Felt =
 /// registry address when a rollup is initialized with the AMD SEV-SNP + SP1 Groth16 proof on
 /// Sepolia.
 ///
-/// Source: <https://github.com/cartridge-gg/katana-tee/blob/39831d1854fac9b39ea56d9378ad8eeed6c6c193/deployments/sepolia.json#L10>
+/// Source: <https://github.com/cartridge-gg/katana-tee/blob/2a51f3d4ea4f3176baa316400b18a3faca41358e/deployments/sepolia.json#L10>
 const AMD_TEE_REGISTRY_SEPOLIA: Felt =
-    felt!("0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a");
+    felt!("0x06ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b");
 
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
