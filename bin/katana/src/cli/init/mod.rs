@@ -80,7 +80,7 @@ use starknet::providers::Provider;
 use starknet::signers::SigningKey;
 use url::Url;
 
-mod deployment;
+pub mod deployment;
 mod prompt;
 #[cfg(feature = "init-slot")]
 mod slot;

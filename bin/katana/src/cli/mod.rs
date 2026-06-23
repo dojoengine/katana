@@ -9,7 +9,7 @@ use tokio::runtime::Runtime;
 
 mod config;
 pub mod db;
-mod init;
+pub mod init;
 mod stage;
 mod version;
 
