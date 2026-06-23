@@ -179,6 +179,16 @@ with a known chain is a no-op for now.")
     #[arg(requires = "settlement_contract")]
     settlement_contract_deployed_block: Option<BlockNumber>,
 
+    /// Reset an existing settlement contract to genesis instead of reusing it as-is.
+    ///
+    /// Re-running `katana init rollup` against an already-initialized chain is idempotent by
+    /// default: it reuses the recorded settlement contract and regenerates the config without
+    /// touching on-chain state. With `--force`, the settlement contract is reset to genesis
+    /// (its message nonce and state checkpoint are rewound) and the messaging start block is
+    /// advanced to the reset transaction's block.
+    #[arg(long)]
+    force: bool,
+
     /// The address of the facts registry contract on the settlement chain.
     ///
     /// Required if a custom settlement chain is specified.
@@ -356,6 +366,29 @@ SETTLEMENT LAYER
         Ok(())
     }
 
+    /// Recovers an already-deployed settlement contract for this chain id from a
+    /// previously-generated config at the output path (`--output-path` or the local config dir).
+    ///
+    /// Returns `None` if no config exists yet or it has no Starknet settlement layer. This is what
+    /// makes re-running `katana init rollup` idempotent: the recorded contract + deployment block
+    /// are reused instead of deploying a fresh contract.
+    fn existing_settlement_from_config(
+        &self,
+        id: &ChainId,
+    ) -> Option<(ContractAddress, BlockNumber)> {
+        let dir = match &self.output_path {
+            Some(path) => ChainConfigDir::open(path).ok()?,
+            None => ChainConfigDir::open_local(id).ok()?,
+        };
+
+        let (_, settlement) = chain_config::read(&dir).ok()?;
+
+        match settlement?.layer {
+            SettlementLayer::Starknet { core_contract, block, .. } => Some((core_contract, block)),
+            _ => None,
+        }
+    }
+
     async fn configure_from_args(&self) -> Option<anyhow::Result<PersistentOutcome>> {
         if let Some(id) = self.id {
             // Check if all required settlement args are provided
@@ -420,7 +453,21 @@ SETTLEMENT LAYER
 
             let chain_id = Felt::from(id);
 
-            let deployment_outcome = if let Some(contract) = self.settlement_contract {
+            // An already-deployed settlement contract is known either explicitly (via
+            // `--settlement-contract`) or by reading a previously-generated config for this chain
+            // id. The explicit flag takes precedence over the recorded config.
+            let existing = if let Some(contract) = self.settlement_contract {
+                let block = self.settlement_contract_deployed_block.expect("clap requires");
+                Some((contract, block))
+            } else {
+                match ChainId::parse(&id) {
+                    Ok(chain_id) => self.existing_settlement_from_config(&chain_id),
+                    Err(_) => None,
+                }
+            };
+
+            let deployment_outcome = if let Some((contract, existing_block)) = existing {
+                // Validate the on-chain contract regardless of whether we reuse or reset it.
                 let config_hash = match deployment::check_program_info(
                     chain_id,
                     contract,
@@ -435,16 +482,57 @@ SETTLEMENT LAYER
                     Err(err) => return Some(Err(err)),
                 };
 
-                DeploymentOutcome {
-                    contract_address: contract,
-                    block_number: self
-                        .settlement_contract_deployed_block
-                        .expect("must exist at this point"),
-                    class_declared: false,
-                    config_hash,
+                if self.force {
+                    println!(
+                        "WARNING: resetting settlement contract {contract} to genesis. This \
+                         zeroes the L1->L2 message nonce and resets the state root; any \
+                         pending/un-sealed messages are abandoned."
+                    );
+
+                    let account = SingleOwnerAccount::new(
+                        settlement_provider.clone(),
+                        SigningKey::from_secret_scalar(settlement_private_key).into(),
+                        settlement_account_address.into(),
+                        l1_chain_id,
+                        ExecutionEncoding::New,
+                    );
+
+                    let reset_block = match deployment::reset_settlement_contract(account, contract)
+                        .await
+                        .with_context(|| "failed to reset settlement contract".to_string())
+                    {
+                        Ok(block) => block,
+                        Err(err) => return Some(Err(err)),
+                    };
+
+                    println!(
+                        "Settlement contract reset. Messaging will resume from block \
+                         #{reset_block}. Start your next `katana` run with a fresh/in-memory DB, \
+                         or pass `--messaging.force-refetch` once if reusing a persistent \
+                         --data-dir, so the new start block takes effect."
+                    );
+
+                    DeploymentOutcome {
+                        contract_address: contract,
+                        block_number: reset_block,
+                        class_declared: false,
+                        config_hash,
+                    }
+                } else {
+                    println!(
+                        "Reusing settlement contract {contract} (idempotent; pass --force to \
+                         reset it to genesis)."
+                    );
+
+                    DeploymentOutcome {
+                        contract_address: contract,
+                        block_number: existing_block,
+                        class_declared: false,
+                        config_hash,
+                    }
                 }
             }
-            // If settlement contract is not provided, then we will deploy it.
+            // No existing contract: deploy a fresh one.
             else {
                 let account = SingleOwnerAccount::new(
                     settlement_provider.clone(),
@@ -820,6 +908,41 @@ mod tests {
                 config.settlement_facts_registry_contract,
                 Some(ContractAddress::from_str(custom_settlement_fact_registry).unwrap())
             );
+        });
+    }
+
+    #[test]
+    fn cli_accept_force_flag() {
+        #[derive(Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: InitCommand,
+        }
+
+        let base = [
+            "init",
+            "rollup",
+            "--id",
+            "wot",
+            "--settlement-chain",
+            "sepolia",
+            "--settlement-account-address",
+            "0x1234567890123456789012345678901234567890",
+            "--settlement-account-private-key",
+            "0x1234567890123456789012345678901234567890",
+        ];
+
+        // Defaults to false when not provided.
+        let result = Cli::parse_from(base);
+        assert_matches!(result.args.mode, InitMode::Rollup(config) => {
+            assert!(!config.force);
+        });
+
+        // Parsed as true when provided.
+        let with_force = base.iter().copied().chain(["--force"]).collect::<Vec<_>>();
+        let result = Cli::parse_from(with_force);
+        assert_matches!(result.args.mode, InitMode::Rollup(config) => {
+            assert!(config.force);
         });
     }
 
