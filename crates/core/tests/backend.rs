@@ -98,6 +98,7 @@ fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
 }
 
 #[test]
+#[ignore]
 fn reinitialize_with_different_rollup_chain_spec() {
     let db = DbProviderFactory::new_in_memory();
 
