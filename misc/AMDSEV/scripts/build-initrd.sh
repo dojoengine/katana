@@ -47,9 +47,9 @@ set -euo pipefail
 umask 022
 
 REQUIRED_APPLETS=(sh mount umount sleep kill cat mkdir ln mknod ip insmod poweroff sync \
-                   tr grep rm mkfifo cp)
+                   tr grep rm mkfifo cp dd)
 SYMLINK_APPLETS=(sh mount umount mkdir mknod switch_root ip insmod sleep kill cat ln poweroff sync \
-                  tr grep rm mkfifo cp)
+                  tr grep rm mkfifo cp dd)
 OPTIONAL_RUNTIME_LIBS=(libnss_dns.so.2 libnss_files.so.2 libresolv.so.2)
 # `mkfs.ext2` is not a busybox-static applet on Ubuntu, so a static binary
 # (built by build-cryptsetup.sh from e2fsprogs source) is supplied via
@@ -1547,7 +1547,20 @@ else
     # database between restarts. Verifiers should pin the sealed-mode
     # measurement and reject quotes from this one for production use.
     if ! /bin/mount -t ext4 /dev/sda /mnt/data 2>/dev/null; then
-        fatal_boot "failed to mount /dev/sda (unsealed)"
+        # Distinguish the most common operator error — a sealed (LUKS) disk
+        # booted in unsealed mode — from a genuinely unformatted/corrupt disk,
+        # so the serial log names the real fix instead of a bare mount failure.
+        # A LUKS2 header begins with the ASCII magic "LUKS" at offset 0; read
+        # just those bytes (no blkid/cryptsetup in the unsealed build) and match.
+        if /bin/dd if=/dev/sda bs=4 count=1 2>/dev/null | /bin/grep -aq 'LUKS'; then
+            log "ERROR: /dev/sda holds a LUKS-encrypted (sealed) disk, but this VM"
+            log "       booted in UNSEALED mode (no KATANA_EXPECTED_LUKS_UUID on the"
+            log "       measured kernel cmdline) — storage-mode mismatch."
+            log "       Fix: boot with --sealed (under the same build that sealed the"
+            log "       disk), or provision a fresh disk (delete the old data.img)."
+            fatal_boot "mount /dev/sda failed: sealed (LUKS) disk booted in unsealed mode"
+        fi
+        fatal_boot "failed to mount /dev/sda as ext4 (unsealed) — disk is unformatted or corrupt"
     fi
     log "Unsealed storage mounted at /mnt/data"
 fi
