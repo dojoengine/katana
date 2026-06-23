@@ -80,7 +80,7 @@ use starknet::providers::Provider;
 use starknet::signers::SigningKey;
 use url::Url;
 
-mod deployment;
+pub mod deployment;
 mod prompt;
 #[cfg(feature = "init-slot")]
 mod slot;
@@ -91,6 +91,16 @@ mod slot;
 /// rollup is initialized with the Mock TEE proof on Sepolia.
 const MOCK_TEE_REGISTRY_SEPOLIA: Felt =
     felt!("0x037189b1807f1358074b70b3dc8ab79167bbf72cff1296286052f6dfe31c8f15");
+
+/// The canonical AMD TEE registry (`AMDTEERegistry`) deployed on Starknet Sepolia by the
+/// `cartridge-gg/katana-tee` project. It performs real SEV-SNP / SP1 Groth16 attestation
+/// verification, so it pairs with the real prover (`saya-tee`, non-mock). Used to prefill the TEE
+/// registry address when a rollup is initialized with the AMD SEV-SNP + SP1 Groth16 proof on
+/// Sepolia.
+///
+/// Source: <https://github.com/cartridge-gg/katana-tee/blob/39831d1854fac9b39ea56d9378ad8eeed6c6c193/deployments/sepolia.json#L10>
+const AMD_TEE_REGISTRY_SEPOLIA: Felt =
+    felt!("0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a");
 
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -924,7 +934,6 @@ mod tests {
             )
         );
     }
-
     #[test]
     fn cli_accept_tee_flag_with_registry() {
         #[derive(Parser)]
