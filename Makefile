@@ -57,7 +57,7 @@ SCARB_REQUIRED_VERSIONS := $(sort $(SCARB_VERSION) $(AVNU_SCARB_VERSION) $(OPENZ
 
 .DEFAULT_GOAL := all
 .SILENT: clean
-.PHONY: all usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts tee-sev-snp clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv
+.PHONY: all usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts tee-sev-snp clean deps install-scarb fixtures snos-artifacts db-compat-artifacts generate-db-fixtures install-pyenv bench-rpc
 
 all: fixtures build-explorer
 	@echo "All build artifacts generated successfully."
@@ -72,6 +72,7 @@ usage help:
 	@echo "    fixtures:            	  Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
+	@echo "    bench-rpc:                 Run the JSON-RPC vs gRPC payload (de)serialization benchmark (BENCH_SEED=<u64> for reproducible data)."
 	@echo "    generate-db-fixtures:      Generate spawn-and-move and simple DB fixtures (requires scarb + sozo)."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
@@ -104,6 +105,12 @@ snos-artifacts: $(SNOS_OUTPUT)
 
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
+
+# Run the JSON-RPC vs gRPC payload (de)serialization benchmark.
+# Uses random data each run; pass BENCH_SEED=<u64> for a reproducible run, e.g.
+#   make bench-rpc BENCH_SEED=42
+bench-rpc:
+	cargo bench -p katana-grpc --bench payload
 
 fixtures: $(COMPATIBILITY_DB_DIR) $(SPAWN_AND_MOVE_DB) $(SIMPLE_DB) contracts
 	@echo "All test fixtures prepared successfully."
