@@ -259,7 +259,7 @@ opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
 starknet = "0.17.0"
 starknet-crypto = "0.8.1"
-starknet-types-core = { version = "=0.2.3", features = [ "arbitrary", "hash" ] }
+starknet-types-core = { version = "0.2.4", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
@@ -278,11 +278,11 @@ paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "
 
 
 # AMD SEV-SNP SDKs
-amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16", default-features = false }
-amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
-x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
+amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "f264f1598a2305a23f520efe53916b4a50c6b0ea", default-features = false }
+amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "f264f1598a2305a23f520efe53916b4a50c6b0ea" }
+x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "f264f1598a2305a23f520efe53916b4a50c6b0ea" }
 
-garaga_rs = { git = "https://github.com/keep-starknet-strange/garaga.git", rev = "191ce19" }
+garaga_rs = { git = "https://github.com/cartridge-gg/garaga.git", rev = "061394abce25b1e6e993a7e65ee8eade4f718f96" }
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
