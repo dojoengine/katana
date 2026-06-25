@@ -16,7 +16,8 @@ use starknet::signers::{LocalWallet, SigningKey};
 use tokio::runtime::Handle;
 
 use super::{
-    deployment, PersistentOutcome, ProofImpl, SovereignOutcome, MOCK_TEE_REGISTRY_SEPOLIA,
+    deployment, PersistentOutcome, ProofImpl, SovereignOutcome, AMD_TEE_REGISTRY_SEPOLIA,
+    MOCK_TEE_REGISTRY_SEPOLIA,
 };
 use crate::cli::init::deployment::DeploymentOutcome;
 use crate::cli::init::slot::{self, PaymasterAccountArgs};
@@ -110,12 +111,19 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         let mut prompt = CustomType::<ContractAddress>::new("TEE registry address")
             .with_help_message("Address of the IAMDTeeRegistry contract on the settlement chain.");
 
-        // The mock TEE registry is already deployed on Sepolia, so prefill its address as the
-        // default. It stays editable in case the operator points at their own mock deployment.
-        if matches!(proof_impl, ProofImpl::MockTee)
-            && matches!(network_type, SettlementChainOpt::Sepolia)
-        {
-            prompt = prompt.with_default(ContractAddress::from(MOCK_TEE_REGISTRY_SEPOLIA));
+        // The canonical TEE registries are already deployed on Sepolia, so prefill the matching
+        // address as the default. It stays editable in case the operator points at their own
+        // deployment. The mock registry pairs with the mock prover; the AMD registry performs real
+        // SEV-SNP / SP1 Groth16 verification.
+        if matches!(network_type, SettlementChainOpt::Sepolia) {
+            let sepolia_default = match proof_impl {
+                ProofImpl::MockTee => Some(MOCK_TEE_REGISTRY_SEPOLIA),
+                ProofImpl::AmdSevSnpSp1Groth16 => Some(AMD_TEE_REGISTRY_SEPOLIA),
+                ProofImpl::Stark => None,
+            };
+            if let Some(addr) = sepolia_default {
+                prompt = prompt.with_default(ContractAddress::from(addr));
+            }
         }
 
         Some(prompt.prompt()?)
@@ -251,15 +259,50 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
             "Invalid settlement contract. The contract might have been configured incorrectly.",
         )?;
 
-        let block_number = CustomType::<BlockNumber>::new("Settlement contract deployment block")
-            .with_help_message("The block at which the settlement contract was deployed")
-            .prompt()?;
+        // Offer to reset the existing contract to genesis. This is useful when reusing a
+        // settlement contract for a wiped appchain: it rewinds the message nonce and state
+        // checkpoint so the fresh chain can resume L1->L2 messaging without redeploying.
+        if Confirm::new("Reset settlement contract to genesis?")
+            .with_default(false)
+            .with_help_message(
+                "Rewinds the message nonce and state root. Only do this when starting the \
+                 appchain over from genesis.",
+            )
+            .prompt()?
+        {
+            println!(
+                "WARNING: resetting settlement contract {address} to genesis. This zeroes the \
+                 L1->L2 message nonce and resets the state root; any pending/un-sealed messages \
+                 are abandoned."
+            );
 
-        DeploymentOutcome {
-            contract_address: address,
-            block_number,
-            class_declared: false,
-            config_hash,
+            let reset_block = deployment::reset_settlement_contract(account, address).await?;
+
+            println!(
+                "Settlement contract reset. Messaging will resume from block #{reset_block}. \
+                 Start your next `katana` run with a fresh/in-memory DB, or pass \
+                 `--messaging.force-refetch` once if reusing a persistent --data-dir, so the new \
+                 start block takes effect."
+            );
+
+            DeploymentOutcome {
+                contract_address: address,
+                block_number: reset_block,
+                class_declared: false,
+                config_hash,
+            }
+        } else {
+            let block_number =
+                CustomType::<BlockNumber>::new("Settlement contract deployment block")
+                    .with_help_message("The block at which the settlement contract was deployed")
+                    .prompt()?;
+
+            DeploymentOutcome {
+                contract_address: address,
+                block_number,
+                class_declared: false,
+                config_hash,
+            }
         }
     };
 
