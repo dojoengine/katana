@@ -278,9 +278,9 @@ paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "
 
 
 # AMD SEV-SNP SDKs
-amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "7aeba554536277d8bc93b774320d8ac1ed1d4e09", default-features = false }
-amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "7aeba554536277d8bc93b774320d8ac1ed1d4e09" }
-x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "7aeba554536277d8bc93b774320d8ac1ed1d4e09" }
+amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "a4fdff0037b84c52a5b283e460eb7e26462fe593", default-features = false }
+amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "a4fdff0037b84c52a5b283e460eb7e26462fe593" }
+x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "a4fdff0037b84c52a5b283e460eb7e26462fe593" }
 
 garaga_rs = { git = "https://github.com/cartridge-gg/garaga.git", rev = "061394abce25b1e6e993a7e65ee8eade4f718f96" }
 
@@ -290,3 +290,9 @@ garaga_rs = { git = "https://github.com/cartridge-gg/garaga.git", rev = "061394a
 # This patch fixes an issue where we're unable to correctly evaluate the accurate size
 # for constructing `Felt` from unstructured data (Arbitrary).
 starknet-types-core = { git = "https://github.com/kariy/types-rs", rev = "0f6ae31" }
+
+# coco-provider (automata SEV-SNP attester, via sev-snp/katana-tee tee-snp feature) calls
+# __cpuid in safe fns, which errors on rustc 1.91 (required by sp1 v6). Patched copy wraps
+# the intrinsics in unsafe blocks. Drop once upstream fixes it.
+[patch."https://github.com/automata-network/coco-provider-sdk"]
+coco-provider = { git = "https://github.com/cartridge-gg/coco-provider-sdk", rev = "b0a90d057a8b585de5665d2c6b3fff698130b21e" }
