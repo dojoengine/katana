@@ -212,7 +212,7 @@ if [[ ! -w "$OUTPUT_DIR" ]]; then
     die "Output directory is not writable: $OUTPUT_DIR"
 fi
 
-REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr readelf readlink)
+REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr readelf readlink xargs)
 for tool in "${REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
 done
@@ -1619,6 +1619,40 @@ ethers: files
 rpc: files
 NSS_EOF
 log_ok "/etc files created"
+
+# ------------------------------------------------------------------------------
+# Install CA certificates (/usr/local/ssl/cert.pem)
+# ------------------------------------------------------------------------------
+# katana's openssl is vendored with OPENSSLDIR=/usr/local/ssl, so the in-enclave
+# sequencer reads its default trust store from /usr/local/ssl/cert.pem. Without it,
+# embedded settlement's outbound HTTPS (settlement RPC, the SP1 prover network, AMD
+# KDS) fails with "unable to get local issuer certificate". Pinned + checksum-verified
+# like every other package; the mode/timestamp normalization in SECTION 4 below makes
+# the bundle reproducible and bound into the launch measurement.
+if [[ -n "${CA_CERTIFICATES_PKG_VERSION:-}" ]]; then
+    : "${CA_CERTIFICATES_PKG_SHA256:?CA_CERTIFICATES_PKG_SHA256 required when CA_CERTIFICATES_PKG_VERSION is set}"
+    log_info "Downloading ca-certificates=${CA_CERTIFICATES_PKG_VERSION}"
+    CA_WORK="$WORK_DIR/ca-certificates"
+    mkdir -p "$CA_WORK"
+    ( cd "$CA_WORK" && apt-get download "ca-certificates=${CA_CERTIFICATES_PKG_VERSION}" )
+    CA_DEB="$(find "$CA_WORK" -maxdepth 1 -name 'ca-certificates_*.deb' | head -1)"
+    [[ -f "$CA_DEB" ]] || die "ca-certificates .deb not downloaded"
+    CA_ACTUAL="$(sha256sum "$CA_DEB" | awk '{print $1}')"
+    [[ "$CA_ACTUAL" == "$CA_CERTIFICATES_PKG_SHA256" ]] || \
+        die "ca-certificates checksum mismatch (expected $CA_CERTIFICATES_PKG_SHA256, got $CA_ACTUAL)"
+    log_ok "ca-certificates checksum verified"
+    dpkg-deb -x "$CA_DEB" "$CA_WORK/extracted"
+    mkdir -p usr/local/ssl
+    # Concatenate the trusted Mozilla roots in a deterministic (LC_ALL=C sorted) order
+    # into openssl's compiled-in default cert file.
+    find "$CA_WORK/extracted/usr/share/ca-certificates" -name '*.crt' | LC_ALL=C sort | \
+        xargs cat > usr/local/ssl/cert.pem
+    CA_N="$(grep -c 'BEGIN CERTIFICATE' usr/local/ssl/cert.pem || true)"
+    [[ "$CA_N" -ge 100 ]] || die "assembled CA bundle has too few roots ($CA_N)"
+    log_ok "CA bundle installed (/usr/local/ssl/cert.pem, $CA_N roots)"
+else
+    log_warn "CA_CERTIFICATES_PKG_VERSION not set — enclave will have NO CA bundle (outbound HTTPS will fail)"
+fi
 
 # ==============================================================================
 # SECTION 4: Create CPIO Archive
