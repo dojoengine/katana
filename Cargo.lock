@@ -791,7 +791,7 @@ dependencies = [
 [[package]]
 name = "amd-sev-snp-attestation-prover"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=f264f1598a2305a23f520efe53916b4a50c6b0ea#f264f1598a2305a23f520efe53916b4a50c6b0ea"
+source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=7aeba554536277d8bc93b774320d8ac1ed1d4e09#7aeba554536277d8bc93b774320d8ac1ed1d4e09"
 dependencies = [
  "alloy-network",
  "alloy-primitives",
@@ -819,7 +819,7 @@ dependencies = [
 [[package]]
 name = "amd-sev-snp-attestation-verifier"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=f264f1598a2305a23f520efe53916b4a50c6b0ea#f264f1598a2305a23f520efe53916b4a50c6b0ea"
+source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=7aeba554536277d8bc93b774320d8ac1ed1d4e09#7aeba554536277d8bc93b774320d8ac1ed1d4e09"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -14011,7 +14011,7 @@ dependencies = [
 [[package]]
 name = "sp1-methods"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=f264f1598a2305a23f520efe53916b4a50c6b0ea#f264f1598a2305a23f520efe53916b4a50c6b0ea"
+source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=7aeba554536277d8bc93b774320d8ac1ed1d4e09#7aeba554536277d8bc93b774320d8ac1ed1d4e09"
 dependencies = [
  "lazy_static",
  "sp1-build",
@@ -17456,7 +17456,7 @@ dependencies = [
 [[package]]
 name = "x509-verifier-rust-crypto"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=f264f1598a2305a23f520efe53916b4a50c6b0ea#f264f1598a2305a23f520efe53916b4a50c6b0ea"
+source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=7aeba554536277d8bc93b774320d8ac1ed1d4e09#7aeba554536277d8bc93b774320d8ac1ed1d4e09"
 dependencies = [
  "alloy-primitives",
  "anyhow",
