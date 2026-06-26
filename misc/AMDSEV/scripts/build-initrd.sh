@@ -1460,6 +1460,11 @@ if ! /bin/mount -t devtmpfs devtmpfs /dev 2>/dev/null; then
 fi
 /bin/mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 
+# SP1 core executor uses POSIX shared memory (shm_open) for the guest memory image;
+# without /dev/shm it panics with "create shm file for memory: NotFound".
+mkdir -p /dev/shm
+/bin/mount -t tmpfs tmpfs /dev/shm 2>/dev/null || log "WARNING: failed to mount /dev/shm"
+
 # Create essential device nodes
 [ -c /dev/null ] || /bin/mknod /dev/null c 1 3 || true
 [ -c /dev/console ] || /bin/mknod /dev/console c 5 1 || true
@@ -1517,7 +1522,9 @@ if [ -d /sys/class/net/eth0 ]; then
     /bin/ip link set eth0 up 2>/dev/null || true
     /bin/ip addr add 10.0.2.15/24 dev eth0 2>/dev/null || true
     /bin/ip route add default via 10.0.2.2 2>/dev/null || true
-    echo "nameserver 10.0.2.3" > /etc/resolv.conf
+    printf "nameserver 1.1.1.1\\nnameserver 8.8.8.8\\nnameserver 10.0.2.3\\n" > /etc/resolv.conf
+    # qemu user-net has no IPv6 route; prefer IPv4 so dual-stack hosts (e.g. api.cartridge.gg) connect
+    echo "precedence ::ffff:0:0/96  100" > /etc/gai.conf
     log "Network configured: eth0 = 10.0.2.15"
 else
     log "WARNING: eth0 interface not found; skipping static network setup"
