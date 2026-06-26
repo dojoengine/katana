@@ -259,14 +259,14 @@ opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
 starknet = "0.17.0"
 starknet-crypto = "0.8.1"
-starknet-types-core = { version = "0.2.4", features = [ "arbitrary", "hash" ] }
+starknet-types-core = { version = "0.2.2", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
 # branch: blockifier/v0.16.0-rc.0
-blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "2a241ef0f", default-features = false }
-starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "2a241ef0f" }
+blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "b46dee0084eacc5767d9816497a94bcdac51fa54", default-features = false }
+starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "b46dee0084eacc5767d9816497a94bcdac51fa54" }
 
 cainome = { version = "0.10.1", features = [ "abigen-rs" ] }
 cainome-cairo-serde = "0.4.1"

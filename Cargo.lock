@@ -702,12 +702,12 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-type-parser"
-version = "1.6.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "857b470ecdd2ed38beaf82ad1a38c516a8ff75266750f38b9eeed001d575241b"
+checksum = "954d1b2533b9b2c7959652df3076954ecb1122a28cc740aa84e7b0a49f6ac0a9"
 dependencies = [
  "serde",
- "winnow 1.0.3",
+ "winnow 0.7.15",
 ]
 
 [[package]]
@@ -835,7 +835,7 @@ dependencies = [
  "serde_json",
  "serde_with 1.14.0",
  "starknet-crypto 0.2.0",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "x509-verifier-rust-crypto",
 ]
 
@@ -922,7 +922,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 [[package]]
 name = "apollo_compilation_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "apollo_infra_utils",
  "cairo-lang-sierra",
@@ -931,7 +931,7 @@ dependencies = [
  "rlimit 0.10.2",
  "serde",
  "serde_json",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "starknet_api",
  "tempfile",
  "thiserror 1.0.69",
@@ -940,7 +940,7 @@ dependencies = [
 [[package]]
 name = "apollo_compile_to_native"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "apollo_compilation_utils",
  "apollo_compile_to_native_types",
@@ -953,7 +953,7 @@ dependencies = [
 [[package]]
 name = "apollo_compile_to_native_types"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "apollo_config",
  "serde",
@@ -963,7 +963,7 @@ dependencies = [
 [[package]]
 name = "apollo_config"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "apollo_infra_utils",
  "clap",
@@ -981,7 +981,7 @@ dependencies = [
 [[package]]
 name = "apollo_infra_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "apollo_proc_macros",
  "assert-json-diff",
@@ -999,7 +999,7 @@ dependencies = [
 [[package]]
 name = "apollo_metrics"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "indexmap 2.14.0",
  "metrics",
@@ -1011,7 +1011,7 @@ dependencies = [
 [[package]]
 name = "apollo_proc_macros"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -2566,7 +2566,7 @@ dependencies = [
 [[package]]
 name = "blockifier"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "anyhow",
  "apollo_compilation_utils",
@@ -2607,7 +2607,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "starknet_api",
  "strum 0.25.0",
  "strum_macros 0.25.3",
@@ -2617,7 +2617,7 @@ dependencies = [
 [[package]]
 name = "blockifier_test_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "apollo_infra_utils",
  "cairo-lang-starknet-classes",
@@ -2625,7 +2625,7 @@ dependencies = [
  "pretty_assertions",
  "rstest 0.17.0",
  "serde_json",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "starknet_api",
  "strum 0.25.0",
  "strum_macros 0.25.3",
@@ -2662,7 +2662,7 @@ dependencies = [
  "serde",
  "slotmap",
  "smallvec",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
 ]
 
@@ -2681,7 +2681,7 @@ dependencies = [
  "serde",
  "slotmap",
  "smallvec",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
 ]
 
@@ -2900,7 +2900,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
  "tracing",
  "tracing-subscriber",
@@ -3253,7 +3253,7 @@ dependencies = [
  "rand 0.9.4",
  "sha2 0.10.9",
  "smol_str",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
 ]
 
@@ -3307,7 +3307,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "smol_str",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
 ]
 
@@ -3384,7 +3384,7 @@ dependencies = [
  "itertools 0.14.0",
  "num-bigint 0.4.6",
  "num-traits",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
 ]
 
@@ -3425,7 +3425,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smol_str",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
  "typetag",
 ]
@@ -3449,7 +3449,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "smol_str",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
 ]
 
@@ -3506,7 +3506,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "serde",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
 ]
 
 [[package]]
@@ -3585,7 +3585,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "starknet-curve 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "stats_alloc",
  "tempfile",
  "thiserror 2.0.18",
@@ -3622,7 +3622,7 @@ dependencies = [
  "sha2 0.10.9",
  "sha3",
  "starknet-crypto 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 2.0.18",
  "zip 0.6.6",
 ]
@@ -7597,7 +7597,7 @@ dependencies = [
  "quote",
  "serde_json",
  "starknet-crypto 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "syn 2.0.118",
 ]
 
@@ -7630,7 +7630,7 @@ dependencies = [
  "rand 0.8.6",
  "rayon",
  "rstest 0.18.2",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -7993,7 +7993,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -8110,7 +8110,7 @@ dependencies = [
  "serde_json_pythonic",
  "similar-asserts",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "starknet_api",
  "strum 0.25.0",
  "strum_macros 0.25.3",
@@ -8124,7 +8124,7 @@ dependencies = [
  "alloy-primitives",
  "proc-macro2",
  "quote",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "syn 2.0.118",
 ]
 
@@ -8157,7 +8157,7 @@ dependencies = [
  "serde_json",
  "similar-asserts",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -8175,7 +8175,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-trie",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 1.0.69",
 ]
 
@@ -8425,7 +8425,7 @@ dependencies = [
  "rstest 0.18.2",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -8538,7 +8538,7 @@ dependencies = [
  "serde",
  "slab",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "thiserror 1.0.69",
 ]
 
@@ -8662,11 +8662,11 @@ dependencies = [
 
 [[package]]
 name = "lambdaworks-crypto"
-version = "0.13.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58b1a1c1102a5a7fbbda117b79fb3a01e033459c738a3c1642269603484fd1c1"
+checksum = "fce8f59622ed408c318c9b5eca17f1a1154159e3738b5c4d5a22a0dd3700c906"
 dependencies = [
- "lambdaworks-math 0.13.0",
+ "lambdaworks-math 0.12.0",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "serde",
@@ -8686,6 +8686,18 @@ dependencies = [
 
 [[package]]
 name = "lambdaworks-math"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "405d65a26831650ba348a503a2881ed7a0483ef3ec17f66e0fc8e2f9c97fc7ca"
+dependencies = [
+ "getrandom 0.2.17",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lambdaworks-math"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "018a95aa873eb49896a858dee0d925c33f3978d073c64b08dd4f2c9b35a017c6"
@@ -8694,8 +8706,6 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "rand 0.8.6",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -12501,7 +12511,7 @@ dependencies = [
  "anyhow",
  "piltover",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "tokio",
  "url",
 ]
@@ -12525,7 +12535,7 @@ dependencies = [
  "katana-utils",
  "serde_json",
  "starknet 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "tokio",
  "tracing-subscriber",
  "url",
@@ -13217,26 +13227,6 @@ name = "siphasher"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
-
-[[package]]
-name = "size-of"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4e36eca171fddeda53901b0a436573b3f2391eaa9189d439b2bd8ea8cebd7e3"
-dependencies = [
- "size-of-derive",
-]
-
-[[package]]
-name = "size-of-derive"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eefff4890f5308d477f3da563af8bdb8fbb6fabaec4c974bd211896fa7945e68"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
 
 [[package]]
 name = "sketches-ddsketch"
@@ -14526,7 +14516,7 @@ dependencies = [
  "sha3",
  "starknet-core-derive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "starknet-crypto 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
 ]
 
 [[package]]
@@ -14548,7 +14538,7 @@ dependencies = [
  "sha3",
  "starknet-core-derive 0.1.0 (git+https://github.com/xJonathanLEI/starknet-rs?tag=starknet%2Fv0.17.0)",
  "starknet-crypto 0.8.1 (git+https://github.com/xJonathanLEI/starknet-rs?tag=starknet%2Fv0.17.0)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
 ]
 
 [[package]]
@@ -14628,7 +14618,7 @@ dependencies = [
  "rfc6979 0.4.0",
  "sha2 0.10.9",
  "starknet-curve 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "zeroize",
 ]
 
@@ -14646,7 +14636,7 @@ dependencies = [
  "rfc6979 0.4.0",
  "sha2 0.10.9",
  "starknet-curve 0.6.0 (git+https://github.com/xJonathanLEI/starknet-rs?tag=starknet%2Fv0.17.0)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "zeroize",
 ]
 
@@ -14696,7 +14686,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22c898ae81b6409532374cf237f1bd752d068b96c6ad500af9ebbd0d9bb712f6"
 dependencies = [
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
 ]
 
 [[package]]
@@ -14704,7 +14694,7 @@ name = "starknet-curve"
 version = "0.6.0"
 source = "git+https://github.com/xJonathanLEI/starknet-rs?tag=starknet%2Fv0.17.0#85906137d634c86b07de20fa33071e5cf186ce21"
 dependencies = [
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
 ]
 
 [[package]]
@@ -14832,15 +14822,15 @@ dependencies = [
 
 [[package]]
 name = "starknet-types-core"
-version = "0.2.4"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90d23b1bc014ee4cce40056ab3114bcbcdc2dbc1e845bbfb1f8bd0bab63507d4"
+checksum = "92eb6db1a763c350ffa50ed65ea3a92de9888239357cfbcb633e29a4da77f122"
 dependencies = [
  "arbitrary",
  "blake2",
  "digest 0.10.7",
- "lambdaworks-crypto 0.13.0",
- "lambdaworks-math 0.13.0",
+ "lambdaworks-crypto 0.12.0",
+ "lambdaworks-math 0.12.0",
  "lazy_static",
  "num-bigint 0.4.6",
  "num-integer",
@@ -14867,7 +14857,7 @@ dependencies = [
 [[package]]
 name = "starknet_api"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?rev=2a241ef0f#2a241ef0fffb06696035fe2d69b14b11d71b115a"
+source = "git+https://github.com/dojoengine/sequencer?rev=b46dee0084eacc5767d9816497a94bcdac51fa54#b46dee0084eacc5767d9816497a94bcdac51fa54"
 dependencies = [
  "apollo_infra_utils",
  "base64 0.13.1",
@@ -14890,9 +14880,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha3",
- "size-of",
  "starknet-crypto 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "starknet-types-core 0.2.4",
+ "starknet-types-core 0.2.2",
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "thiserror 1.0.69",
