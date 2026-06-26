@@ -51,7 +51,7 @@ WORKDIR=""
 usage() {
     echo "Usage: $0 TAG [--workdir DIR]"
     echo ""
-    echo "Reproduce release TAG (e.g. katana-v1.8.0-rc.2) from source and"
+    echo "Reproduce release TAG (e.g. tee-vm-v0.1.0+katana-v1.8.0-rc.5) from source and"
     echo "compare against the published artifacts. Run from a clean checkout"
     echo "of the release tag."
     exit 1
@@ -127,8 +127,11 @@ echo "  Work dir:      $WORKDIR"
 # ------------------------------------------------------------------------------
 log "Downloading published build-info"
 BUILD_INFO="$WORKDIR/published-build-info.txt"
+# The tag/asset name carries a '+' (SemVer build metadata); percent-encode it
+# so curl sends a literal '+' in the URL path rather than a space.
+TAG_URL="${TAG//+/%2B}"
 curl -fsSL -o "$BUILD_INFO" \
-    "https://github.com/${VM_REPO}/releases/download/${TAG}/build-info-${TAG}.txt" \
+    "https://github.com/${VM_REPO}/releases/download/${TAG_URL}/build-info-${TAG_URL}.txt" \
     || die "could not download build-info for release $TAG from $VM_REPO"
 
 info_get() {
@@ -145,10 +148,15 @@ echo "  KATANA_BINARY_SHA256: $RECORDED_KATANA_SHA"
 # ------------------------------------------------------------------------------
 # 2. The exact katana binary the release embedded
 # ------------------------------------------------------------------------------
-# Same version-resolution rule as release.yml: strip the "katana-" prefix
-# and any "-pipeline.N" re-release suffix.
-KATANA_VER="${TAG#katana-}"
-KATANA_VER="${KATANA_VER%-pipeline.*}"
+# The embedded katana version is attached to the VM tag as the SemVer build
+# metadata suffix "+katana-<ver>" (and recorded as KATANA_VERSION in
+# build-info); take it from the tag.
+KATANA_VER="${TAG##*+katana-}"
+[[ "$KATANA_VER" != "$TAG" ]] || die "tag '$TAG' has no +katana-<ver> suffix — not a tee-vm-v* release tag"
+RECORDED_KATANA_VER="$(info_get KATANA_VERSION)"
+if [[ -n "$RECORDED_KATANA_VER" && "$RECORDED_KATANA_VER" != "$KATANA_VER" ]]; then
+    die "katana version mismatch: tag says '$KATANA_VER' but build-info records '$RECORDED_KATANA_VER'"
+fi
 
 log "Downloading katana $KATANA_VER (portable linux_amd64 build)"
 KATANA_TARBALL="$WORKDIR/katana_${KATANA_VER}_linux_amd64.tar.gz"

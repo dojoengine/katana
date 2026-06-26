@@ -2,8 +2,11 @@
 
 How a `katana-tee-vm` release is produced, what each artifact is, what makes
 the output reproducible, and how to operate the pipeline. The implementation
-lives in [`.github/workflows/amdsev-release.yml`](../../../.github/workflows/amdsev-release.yml);
-this document explains it.
+lives in two workflows — the human entry point
+[`.github/workflows/amdsev-release-dispatch.yml`](../../../.github/workflows/amdsev-release-dispatch.yml)
+and the reusable build engine it calls,
+[`.github/workflows/amdsev-release.yml`](../../../.github/workflows/amdsev-release.yml);
+this document explains them.
 
 A release bundles everything needed to boot Katana inside an AMD SEV-SNP
 confidential VM — `OVMF.fd`, `vmlinuz`, `initrd.img` (with the katana binary
@@ -11,47 +14,59 @@ embedded) — together with the **sealed launch measurement** that attestation
 verifiers pin against. The measurement is the product; the artifacts exist to
 make it reproducible.
 
+## Dedicated versioning
+
+The TEE VM image is versioned on **its own line**, independent of katana:
+
+```
+tee-vm-v<X.Y.Z>+katana-<katana tag>
+```
+
+- `tee-vm-v<X.Y.Z>` is the **dedicated TEE VM version**. It bumps whenever the
+  VM build changes — a pin bump, a `build-config`/script fix, a new
+  `OVMF_COMMIT`, or a new katana binary. It is plain SemVer and may carry a
+  `-rc.N` pre-release segment.
+- `+katana-<katana tag>` is SemVer **build metadata** attaching the embedded
+  katana release (e.g. `+katana-v1.8.0-rc.5`), so the tag self-documents what
+  it bundles. Build metadata does not affect version precedence — two TEE
+  builds that differ only in the katana they embed are ordered solely by their
+  `tee-vm-v<X.Y.Z>`.
+
+Example: cutting TEE revision `0.1.0` bundling katana `v1.8.0-rc.5` publishes
+the tag `tee-vm-v0.1.0+katana-v1.8.0-rc.5`. The embedded katana version is
+also recorded as `KATANA_VERSION` in `build-info.txt`.
+
 ## Trigger contract
 
-The workflow runs on three triggers:
+TEE VM releases are **cut deliberately**, never automatically off a katana
+release. There are two workflows:
 
-| Trigger | Behavior |
-|---|---|
-| **`release: published`** (primary) | Fires for every katana release. Builds a VM image bundling that release's katana binary, from the release tag's commit, and publishes a `katana-<release tag>` GitHub Release (e.g. `katana-v1.9.0`). Then dispatches the hardware E2E test against it. |
-| Push of a tag matching `katana-v*` | Manual **pipeline re-release** against the same katana version. Same full build + publish, keyed on the pushed tag. |
-| `workflow_dispatch` | Dry run: identical build and measurement, artifacts uploaded to the workflow run, **no GitHub Release created**. |
-
-Because the primary trigger fires on every katana release, a VM image
-follows each katana version automatically — the embedded binary comes from
-the release that fired the workflow, and the VM is built from that release's
-commit so the `misc/AMDSEV` tooling and the binary are a consistent,
-reproducible pair.
-
-**No release→release loop.** The job publishes a `katana-v*` release, which
-is itself a `release: published` event. A job-level guard skips any release
-whose tag already starts with `katana-v`, and — belt and braces — releases
-created with the workflow's `GITHUB_TOKEN` do not re-trigger workflows at
-all. The follow-on hardware test (`amdsev-snp-e2e`) is therefore dispatched
-explicitly (`workflow_dispatch` *is* permitted from `GITHUB_TOKEN`).
-
-The VM tag and embedded katana version:
-
-| Event | VM release tag | Embedded katana version |
+| Workflow | Trigger | Behavior |
 |---|---|---|
-| katana release `v1.9.0` published | `katana-v1.9.0` | `v1.9.0` |
-| katana release `v1.9.0-rc.1` published | `katana-v1.9.0-rc.1` | `v1.9.0-rc.1` |
-| push tag `katana-v1.9.0-pipeline.2` | `katana-v1.9.0-pipeline.2` | `v1.9.0` — the `-pipeline.N` suffix is stripped |
+| [`amdsev-release-dispatch`](../../../.github/workflows/amdsev-release-dispatch.yml) | `workflow_dispatch` | The human entry point. Computes the next dedicated `tee-vm-v*` version from the latest published TEE release, resolves the katana release to embed, then calls `amdsev-release` to build and **publish**. Run it against the branch/tag whose `misc/AMDSEV` tooling you want built. |
+| `amdsev-release` | `workflow_call` | The reusable build engine invoked by the dispatch. Builds OVMF + kernel + initrd, computes the measurement, publishes `tee-vm-v<X.Y.Z>+katana-<tag>`, and dispatches the hardware E2E test against it. |
+| `amdsev-release` | `workflow_dispatch` | Dry run: identical build and measurement, artifacts uploaded to the workflow run, **no GitHub Release created**. Takes only a `katana_version` (the dry run has no dedicated TEE version). |
 
-The `-pipeline.N` push form exists for **pipeline-only re-releases**: cutting
-a new VM image against the *same* katana version, e.g. after a fix to the
-build scripts or a pin bump. Pre-releases propagate — a VM release built from
-a katana pre-release is itself marked pre-release.
+The VM is built from the dispatch's ref — the commit the `workflow_dispatch`
+runs against — so the `misc/AMDSEV` tooling and the embedded binary are a
+consistent, reproducible pair, anchored by `SOURCE_DATE_EPOCH` (below).
 
-`workflow_dispatch` takes two inputs:
+**No release→release loop.** A release created with the workflow's
+`GITHUB_TOKEN` does not re-trigger workflows, so publishing a `tee-vm-v*`
+release fires nothing. The follow-on hardware test (`amdsev-snp-e2e`) is
+therefore dispatched explicitly (`workflow_dispatch` *is* permitted from
+`GITHUB_TOKEN`). Pre-releases propagate — a release whose TEE version or
+embedded katana version is a pre-release is itself marked pre-release.
 
+`amdsev-release-dispatch` inputs:
+
+- `version_type` — `major` / `minor` / `patch` / `rc` / `custom`. Bumps the
+  dedicated `tee-vm-v*` version relative to the latest published TEE release
+  (no prior release → base `0.0.0`, so `minor` cuts the usual `0.1.0`).
+- `custom_version` — exact TEE version, no prefix (when `version_type=custom`).
 - `katana_version` — katana release tag to bundle (or `latest`).
-- `force_rebuild` — set to `true` to bypass artifact reuse (see below) and
-  rebuild OVMF and the kernel from scratch.
+- `force_rebuild` — bypass artifact reuse (see below) and rebuild OVMF and the
+  kernel from scratch.
 
 The runner is stock `ubuntu-latest`. Nothing in the pipeline needs SEV-SNP
 hardware: OVMF is cross-compiled, the kernel comes from a `.deb`, and
@@ -279,23 +294,31 @@ iasl versions, so reproduce on the same OS image the release used
 
 ## Runbook
 
-**Cut a release for a new katana version** — nothing to do. Publishing the
-katana release fires `amdsev-release` automatically: it builds the VM image
-against the release commit, publishes `katana-<ver>`, and dispatches the
-hardware E2E. Watch the `amdsev-release` run; on success, sanity-check the
-release notes and `launch-measurement-<tag>.txt`, then the `amdsev-snp-e2e`
-run it dispatched.
+**Cut a TEE VM release** — run `amdsev-release-dispatch` from the Actions tab
+(or `gh workflow run amdsev-release-dispatch.yml`), choosing the ref whose
+`misc/AMDSEV` tooling you want built. Inputs:
 
-**Re-release the same katana version** (build-script fix, pin bump, broken
-earlier release): push a `katana-<ver>-pipeline.N` tag (N incrementing) at the
-commit you want built — `git tag katana-<ver>-pipeline.N && git push origin
-katana-<ver>-pipeline.N`.
+- `version_type` — usually `patch` (a new katana or pin bump on the same TEE
+  line) or `minor`. `rc` cuts/continues a `-rc.N` pre-release; `custom` sets
+  the version verbatim. The next dedicated `tee-vm-v*` version is computed from
+  the latest published TEE release.
+- `katana_version` — the katana release tag to bundle, or `latest`.
+
+It computes `tee-vm-v<X.Y.Z>+katana-<katana tag>`, builds, publishes, and
+dispatches the hardware E2E. Watch the `amdsev-release` run; on success,
+sanity-check the release notes and `launch-measurement-<tag>.txt`, then the
+`amdsev-snp-e2e` run it dispatched.
+
+**Re-release against the same katana version** (build-script fix, pin bump,
+broken earlier release): same as above — run `amdsev-release-dispatch` with a
+`patch` (or `rc`) bump and the same `katana_version`. The new dedicated TEE
+version distinguishes it from the previous build.
 
 **Bump a pin** (kernel, busybox, glibc runtime, OVMF commit, cryptsetup…):
 update both the version and its SHA-256 in `build-config`. PR CI (the
 `amdsev-initrd-test` workflow) exercises most pins on every PR; OVMF pin bumps are
 only exercised by the release workflow itself, so prefer a `workflow_dispatch`
-dry run before tagging.
+dry run before cutting a release.
 
 **Dry-run the pipeline** without publishing: `gh workflow run amdsev-release.yml -f
 katana_version=<ver>` (optionally `-f force_rebuild=true`). Artifacts land on

@@ -264,7 +264,7 @@ release.
 sudo ./scripts/test-snp-e2e.sh
 
 # Test a specific release
-sudo ./scripts/test-snp-e2e.sh --tag katana-v1.8.0-rc.2
+sudo ./scripts/test-snp-e2e.sh --tag tee-vm-v0.1.0+katana-v1.8.0-rc.5
 
 # Test a local build before tagging (expected measurement computed with
 # snp-digest if built, otherwise the comparison is skipped with a warning)

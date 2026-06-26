@@ -7,8 +7,10 @@ name: amdsev-snp-e2e
 # measurement against the published launch measurement, and prove graceful
 # stop + reboot reseal + state persistence.
 #
-# Only katana-v* releases are TEE-VM releases; katana's own vX.Y.Z release
-# publications are ignored by the job-level guard below.
+# Dispatched by amdsev-release after it publishes a tee-vm-v* release (a
+# release created with GITHUB_TOKEN does not re-trigger workflows, so the
+# hand-off is an explicit workflow_dispatch). Can also be run by hand against
+# any published tee-vm-v* tag.
 #
 # Security
 # --------
@@ -23,12 +25,10 @@ name: amdsev-snp-e2e
 # leave a VM holding the RPC port).
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'TEE-VM release tag to test (e.g. katana-v1.8.0-rc.2)'
+        description: 'TEE-VM release tag to test (e.g. tee-vm-v0.1.0+katana-v1.8.0-rc.5)'
         required: true
 
 concurrency:
@@ -37,13 +37,10 @@ concurrency:
 
 jobs:
   e2e:
-    # Release publications fire for every katana release; only the
-    # katana-v* namespace carries a VM image to test.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'katana-v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      TAG: ${{ inputs.tag }}
       REMOTE_BASE: /tmp/snp-e2e
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +48,7 @@ jobs:
           # The VM-side scripts (start-vm.sh and friends) come from the
           # release tag — they must match the artifacts' CLI and boot
           # behavior, the same pairing a verifier of that release would use.
-          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          ref: ${{ inputs.tag }}
 
       - uses: actions/checkout@v4
         with:
