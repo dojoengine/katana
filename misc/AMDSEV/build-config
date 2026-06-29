@@ -70,3 +70,8 @@ CRYPTSETUP_BUILDER_IMAGE="alpine@sha256:1e42bbe2508154c9126d48c2b8a75420c3544343
 # KATANA_LUKS_UUID); their measurement will differ from the published one and
 # they must recompute it themselves via sealed-cmdline.sh + snp-digest.
 KATANA_CANONICAL_LUKS_UUID="00000000-0000-0000-0000-000000000001"
+
+# CA certificates bundle (ca-certificates .deb), installed into the initrd trust stores.
+# Pinned + checksum-verified like every other package. Matches dojoengine/katana main (#616).
+CA_CERTIFICATES_PKG_VERSION="20260601~24.04.1"
+CA_CERTIFICATES_PKG_SHA256="6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50"

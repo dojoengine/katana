@@ -1627,6 +1627,51 @@ rpc: files
 NSS_EOF
 log_ok "/etc files created"
 
+# ------------------------------------------------------------------------------
+# Install CA certificates (both TLS trust stores)
+# ------------------------------------------------------------------------------
+# Embedded settlement makes outbound HTTPS (settlement RPC, the SP1 prover network,
+# AMD KDS) and katana uses TWO TLS stacks with DIFFERENT trust-store paths, so the
+# bundle must land in both or settlement fails:
+#   - AMD KDS                       -> vendored openssl (OPENSSLDIR=/usr/local/ssl)
+#                                      reads /usr/local/ssl/cert.pem
+#   - Starknet settlement RPC + L1<->L2 messaging -> jsonrpsee/rustls
+#                                      (rustls-native-certs) probes /etc/ssl/certs/
+#                                      ca-certificates.crt, /etc/ssl/cert.pem,
+#                                      /etc/pki/tls/certs/ca-bundle.crt
+# With the bundle only at the openssl path, KDS works but every registry/messaging
+# TLS handshake fails (rustls finds no trust anchors) -> surfaces as
+# "client error (Connect)" -> settlement never lands. Pinned + checksum-verified
+# like every other package; SECTION 4 normalizes mode/timestamps for reproducibility.
+if [[ -n "${CA_CERTIFICATES_PKG_VERSION:-}" ]]; then
+    : "${CA_CERTIFICATES_PKG_SHA256:?CA_CERTIFICATES_PKG_SHA256 required when CA_CERTIFICATES_PKG_VERSION is set}"
+    log_info "Downloading ca-certificates=${CA_CERTIFICATES_PKG_VERSION}"
+    CA_WORK="$WORK_DIR/ca-certificates"
+    mkdir -p "$CA_WORK"
+    ( cd "$CA_WORK" && apt-get download "ca-certificates=${CA_CERTIFICATES_PKG_VERSION}" )
+    CA_DEB="$(find "$CA_WORK" -maxdepth 1 -name 'ca-certificates_*.deb' | head -1)"
+    [[ -f "$CA_DEB" ]] || die "ca-certificates .deb not downloaded"
+    CA_ACTUAL="$(sha256sum "$CA_DEB" | awk '{print $1}')"
+    [[ "$CA_ACTUAL" == "$CA_CERTIFICATES_PKG_SHA256" ]] || \
+        die "ca-certificates checksum mismatch (expected $CA_CERTIFICATES_PKG_SHA256, got $CA_ACTUAL)"
+    log_ok "ca-certificates checksum verified"
+    dpkg-deb -x "$CA_DEB" "$CA_WORK/extracted"
+    # Assemble the trusted Mozilla roots in a deterministic (LC_ALL=C sorted) order.
+    mkdir -p usr/local/ssl
+    find "$CA_WORK/extracted/usr/share/ca-certificates" -name '*.crt' | LC_ALL=C sort | \
+        xargs cat > usr/local/ssl/cert.pem
+    CA_N="$(grep -c 'BEGIN CERTIFICATE' usr/local/ssl/cert.pem || true)"
+    [[ "$CA_N" -ge 100 ]] || die "assembled CA bundle has too few roots ($CA_N)"
+    # Same bundle at the rustls-native-certs probe paths (see comment above).
+    mkdir -p etc/ssl/certs etc/pki/tls/certs
+    cp usr/local/ssl/cert.pem etc/ssl/certs/ca-certificates.crt   # rustls-native-certs (primary)
+    cp usr/local/ssl/cert.pem etc/ssl/cert.pem                    # rustls/alpine fallback
+    cp usr/local/ssl/cert.pem etc/pki/tls/certs/ca-bundle.crt     # rustls/RHEL fallback
+    log_ok "CA bundle installed (openssl + rustls paths, $CA_N roots)"
+else
+    log_warn "CA_CERTIFICATES_PKG_VERSION not set — enclave will have NO CA bundle (outbound HTTPS will fail)"
+fi
+
 # ==============================================================================
 # SECTION 4: Create CPIO Archive
 # ==============================================================================
