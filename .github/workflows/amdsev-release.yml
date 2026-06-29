@@ -101,22 +101,26 @@ jobs:
           # the newest katana release — its own vX.Y.Z namespace, never a
           # tee-vm-v* VM release.
           katana_ver="$IN_KATANA_VERSION"
-          [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$katana_ver" ] && katana_ver="latest"
+          [ -z "$katana_ver" ] && katana_ver="latest"
           if [ "$katana_ver" = "latest" ]; then
             katana_ver="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 50 \
               --json tagName --jq '[.[].tagName | select(test("^v[0-9]"))][0]')"
             [ -n "$katana_ver" ] || { echo "could not resolve latest katana release" >&2; exit 1; }
           fi
 
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          # A workflow_call from amdsev-release-dispatch supplies vm_version and
+          # is a real, dedicatedly-versioned release; a direct workflow_dispatch
+          # of this workflow has no vm_version and is a dry run.
+          #
+          # NOTE: do not key this off github.event_name — a called reusable
+          # workflow reports the CALLER's event, which is itself
+          # workflow_dispatch, so both paths would look identical.
+          if [ -z "$IN_VM_VERSION" ]; then
             # Dry run: build + measure, never publish.
             vm_tag=""
             publish=0
             prerelease=false
           else
-            # workflow_call from amdsev-release-dispatch: a deliberate,
-            # dedicatedly-versioned TEE VM release.
-            [ -n "$IN_VM_VERSION" ] || { echo "vm_version is required for a published release" >&2; exit 1; }
             # tee-vm-v<X.Y.Z>+katana-<katana tag>: the dedicated TEE VM version,
             # with the embedded katana version attached as SemVer build metadata.
             vm_tag="tee-vm-v${IN_VM_VERSION}+katana-${katana_ver}"
