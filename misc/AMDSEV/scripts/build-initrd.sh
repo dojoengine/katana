@@ -212,7 +212,7 @@ if [[ ! -w "$OUTPUT_DIR" ]]; then
     die "Output directory is not writable: $OUTPUT_DIR"
 fi
 
-REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr readelf readlink)
+REQUIRED_TOOLS=(apt-get dpkg-deb sha256sum cpio gzip zstd find sort touch du mktemp awk grep tr readelf readlink xargs)
 for tool in "${REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
 done

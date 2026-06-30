@@ -1,0 +1,146 @@
+name: amdsev-release-dispatch
+
+# Deliberately cut a Katana TEE VM release.
+#
+# The TEE VM image is versioned on its own line (`tee-vm-v<X.Y.Z>`),
+# independent of katana: the dedicated version bumps whenever the VM build
+# changes — a pin bump, a build-script fix, an OVMF commit, or a new katana
+# binary. This workflow computes the next dedicated version, resolves the
+# katana release to embed, and hands off to the reusable `amdsev-release`
+# workflow to build, measure, and publish
+#
+#   tee-vm-v<X.Y.Z>+katana-<katana tag>
+#
+# where the `+katana-...` suffix is SemVer build metadata attaching the
+# embedded katana version, so the tag self-documents what it bundles.
+#
+# Run this against the branch/tag whose misc/AMDSEV tooling you want built
+# (the "Run workflow" ref) — that commit's scripts and pins, paired with the
+# chosen katana binary, define the published launch measurement.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'TEE VM version bump (ignored when custom_version is set)'
+        required: false
+        type: choice
+        default: patch
+        options:
+          - major
+          - minor
+          - patch
+          - rc
+          - custom
+      custom_version:
+        description: "Custom TEE VM version, no prefix (used when version_type = 'custom'); e.g. 0.2.0 or 1.0.0-rc.1"
+        required: false
+        type: string
+      katana_version:
+        description: 'Katana release tag to bundle (e.g. v1.8.0-rc.5, or "latest")'
+        required: true
+        default: 'latest'
+        type: string
+      force_rebuild:
+        description: 'Rebuild OVMF and kernel even when the previous release used identical pins'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      vm_version: ${{ steps.compute.outputs.vm_version }}
+      katana_version: ${{ steps.compute.outputs.katana_version }}
+    steps:
+      - name: Validate inputs
+        run: |
+          if [ "${{ inputs.version_type }}" = "custom" ] && [ -z "${{ inputs.custom_version }}" ]; then
+            echo "error: custom_version is required when version_type is 'custom'" >&2
+            exit 1
+          fi
+          if [ "${{ inputs.version_type }}" != "custom" ] && [ -n "${{ inputs.custom_version }}" ]; then
+            echo "error: custom_version must be empty unless version_type is 'custom'" >&2
+            exit 1
+          fi
+
+      - name: Compute next TEE version and resolve katana
+        id: compute
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_TYPE: ${{ inputs.version_type }}
+          CUSTOM_VERSION: ${{ inputs.custom_version }}
+          KATANA_VERSION: ${{ inputs.katana_version }}
+        run: |
+          set -euo pipefail
+
+          # Resolve `latest` to a concrete katana release tag — katana's own
+          # vX.Y.Z namespace, never a tee-vm-v* VM release.
+          katana_ver="$KATANA_VERSION"
+          if [ "$katana_ver" = "latest" ]; then
+            katana_ver="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 50 \
+              --json tagName --jq '[.[].tagName | select(test("^v[0-9]"))][0]')"
+            [ -n "$katana_ver" ] || { echo "error: could not resolve latest katana release" >&2; exit 1; }
+          fi
+
+          if [ "$VERSION_TYPE" = "custom" ]; then
+            vm_version="${CUSTOM_VERSION#v}"
+          else
+            # Newest published TEE VM version: strip the tee-vm-v prefix and the
+            # +katana-... build metadata down to the bare X.Y.Z[-rc.N].
+            prev="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 \
+              --json tagName --jq '[.[].tagName | select(startswith("tee-vm-v"))][0]')"
+            prev_ver=""
+            if [ -n "$prev" ]; then
+              prev_ver="${prev#tee-vm-v}"
+              prev_ver="${prev_ver%%+*}"
+            fi
+
+            # Split prev_ver into base X.Y.Z and an optional -rc.N pre-release.
+            # No prior release → base 0.0.0 (so `minor` cuts the usual 0.1.0).
+            pre=""
+            if [ -z "$prev_ver" ]; then
+              x=0; y=0; z=0
+            else
+              core="$prev_ver"
+              case "$prev_ver" in
+                *-rc.*) core="${prev_ver%-rc.*}"; pre="${prev_ver##*-rc.}" ;;
+              esac
+              x="${core%%.*}"; core="${core#*.}"; y="${core%%.*}"; z="${core##*.}"
+            fi
+
+            case "$VERSION_TYPE" in
+              major) vm_version="$((x + 1)).0.0" ;;
+              minor) vm_version="$x.$((y + 1)).0" ;;
+              patch)
+                if [ -n "$pre" ]; then vm_version="$x.$y.$z"; else vm_version="$x.$y.$((z + 1))"; fi ;;
+              rc)
+                if [ -n "$pre" ]; then vm_version="$x.$y.$z-rc.$((pre + 1))"; else vm_version="$x.$y.$((z + 1))-rc.1"; fi ;;
+              *) echo "error: unknown version_type '$VERSION_TYPE'" >&2; exit 1 ;;
+            esac
+            echo "Previous TEE version: ${prev_ver:-<none>}"
+          fi
+
+          echo "Katana to embed:      $katana_ver"
+          echo "Next TEE VM version:  $vm_version"
+          echo "Publishing tag:       tee-vm-v${vm_version}+katana-${katana_ver}"
+          {
+            echo "vm_version=$vm_version"
+            echo "katana_version=$katana_ver"
+          } >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: prepare
+    permissions:
+      contents: write
+      actions: write
+    uses: ./.github/workflows/amdsev-release.yml
+    with:
+      vm_version: ${{ needs.prepare.outputs.vm_version }}
+      katana_version: ${{ needs.prepare.outputs.katana_version }}
+      publish: true
+      force_rebuild: ${{ inputs.force_rebuild }}
+    secrets: inherit

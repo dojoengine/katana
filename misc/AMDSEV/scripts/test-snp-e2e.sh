@@ -45,7 +45,8 @@ usage() {
 Usage: sudo $0 [--tag TAG | --boot-dir DIR] [--workdir DIR]
 
   (no arguments)    test the LATEST published release
-  --tag TAG         test a specific published release (e.g. katana-v1.8.0-rc.2)
+  --tag TAG         test a specific published release
+                    (e.g. tee-vm-v0.1.0+katana-v1.8.0-rc.5)
   --boot-dir DIR    test a LOCAL build: DIR must contain OVMF.fd, vmlinuz,
                     initrd.img and build-info.txt (a build.sh output dir,
                     e.g. output/qemu). Local builds have no recorded
@@ -197,16 +198,19 @@ if [[ -n "$BOOT_DIR" ]]; then
     UNDER_TEST="local build $BOOT_DIR"
 else
     if [[ -z "$TAG" ]]; then
-        # Only katana-v* tags are TEE-VM releases; the repo also publishes
+        # Only tee-vm-v* tags are TEE-VM releases; the repo also publishes
         # katana's own vX.Y.Z releases, which carry no VM image.
-        log "Resolving latest TEE-VM release (katana-v*)"
+        log "Resolving latest TEE-VM release (tee-vm-v*)"
         TAG="$(curl -fsSL "https://api.github.com/repos/${VM_REPO}/releases?per_page=30" \
-            | python3 -c 'import json,sys; rs=[r["tag_name"] for r in json.load(sys.stdin) if r["tag_name"].startswith("katana-v")]; print(rs[0] if rs else "")')"
-        [[ -n "$TAG" ]] || fail "no published katana-v* releases found in $VM_REPO"
+            | python3 -c 'import json,sys; rs=[r["tag_name"] for r in json.load(sys.stdin) if r["tag_name"].startswith("tee-vm-v")]; print(rs[0] if rs else "")')"
+        [[ -n "$TAG" ]] || fail "no published tee-vm-v* releases found in $VM_REPO"
     fi
     log "Downloading release $TAG"
+    # The tag/asset name carries a '+' (SemVer build metadata); percent-encode
+    # it so curl sends a literal '+' in the URL path rather than a space.
+    TAG_URL="${TAG//+/%2B}"
     curl -fsSL -o "$WORKDIR/release.tar.gz" \
-        "https://github.com/${VM_REPO}/releases/download/${TAG}/katana-tee-vm-${TAG}.tar.gz" \
+        "https://github.com/${VM_REPO}/releases/download/${TAG_URL}/katana-tee-vm-${TAG_URL}.tar.gz" \
         || fail "could not download release tarball for $TAG"
     mkdir -p "$WORKDIR/boot"
     tar xzf "$WORKDIR/release.tar.gz" -C "$WORKDIR/boot"

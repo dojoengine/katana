@@ -2,28 +2,32 @@ name: amdsev-release
 
 # Builds the Katana TEE VM image (OVMF + kernel + initrd, with a katana
 # binary embedded in the initrd) from misc/AMDSEV, computes the
-# sealed-storage SEV-SNP launch measurement, and publishes a `katana-v*`
-# GitHub Release with the artifacts.
+# sealed-storage SEV-SNP launch measurement, and publishes a
+# `tee-vm-v<X.Y.Z>+katana-<katana tag>` GitHub Release with the artifacts.
+#
+# This is the reusable build engine. It is NOT triggered by katana releases:
+# TEE VM releases are cut deliberately, with their own dedicated version,
+# through the `amdsev-release-dispatch` workflow.
 #
 # Trigger contract
 # ----------------
-# 1. `release: published` (primary) — fires for every katana release. The
-#    job builds a VM image bundling that release's katana binary and
-#    publishes `katana-<release tag>` (e.g. katana-v1.9.0). The VM is built
-#    from the *release tag's* commit, so the misc/AMDSEV tooling and the
-#    embedded binary are a consistent, reproducible pair. Releases whose tag
-#    already starts with `katana-v` (our own VM releases) are skipped by the
-#    job guard below — and GITHUB_TOKEN-created releases do not re-trigger
-#    workflows anyway, so there is no release→release loop.
-# 2. `push` of a `katana-v*` tag — manual pipeline re-release against the
-#    same katana version (katana-v1.9.0-pipeline.2). The katana version is
-#    parsed from the tag (strip `katana-` and any `-pipeline.N`).
-# 3. `workflow_dispatch` — dry run: builds and uploads workflow artifacts
-#    but creates no GitHub Release.
+# 1. `workflow_call` (primary) — invoked by amdsev-release-dispatch. The
+#    caller supplies the dedicated TEE VM version (`vm_version`) and the
+#    katana release tag to bundle (`katana_version`). The published tag is
+#    `tee-vm-v<vm_version>+katana-<katana_version>`: the dedicated TEE VM
+#    version, with the embedded katana version attached as SemVer build
+#    metadata so the tag self-documents what it bundles. The VM is built
+#    from the dispatch's ref (the workflow_dispatch runs against a chosen
+#    branch/tag), so the misc/AMDSEV tooling and the embedded binary are a
+#    consistent pair.
+# 2. `workflow_dispatch` — dry run: identical build + measurement, artifacts
+#    uploaded to the workflow run, but no GitHub Release created. Takes only
+#    a katana version (the dry run has no dedicated TEE version).
 #
 # After publishing, the hardware end-to-end test (amdsev-snp-e2e) is
-# dispatched against the new VM release (GITHUB_TOKEN cannot re-trigger it
-# via the release event, but workflow_dispatch from GITHUB_TOKEN is allowed).
+# dispatched against the new VM release (a release created with GITHUB_TOKEN
+# does not re-trigger workflows, but workflow_dispatch from GITHUB_TOKEN is
+# allowed).
 #
 # Runner
 # ------
@@ -33,16 +37,33 @@ name: amdsev-release
 # VM-boot time, which is outside this workflow.
 
 on:
-  release:
-    types: [published]
-  push:
-    tags: ['katana-v*']
+  workflow_call:
+    inputs:
+      vm_version:
+        description: 'Dedicated TEE VM version to publish (SemVer, no prefix; e.g. 0.1.0 or 1.0.0-rc.1)'
+        required: true
+        type: string
+      katana_version:
+        description: 'Katana release tag to bundle and attach to the VM tag (e.g. v1.8.0-rc.5)'
+        required: true
+        type: string
+      publish:
+        description: 'Create the GitHub Release (false = build + measure only)'
+        required: false
+        type: boolean
+        default: true
+      force_rebuild:
+        description: 'Rebuild OVMF and kernel even when the previous release used identical pins'
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       katana_version:
-        description: 'Katana release tag to bundle (used only for workflow_dispatch; e.g. v1.0.0, or "latest")'
+        description: 'Katana release tag to bundle (dry run only; e.g. v1.0.0, or "latest")'
         required: true
         default: 'latest'
+        type: string
       force_rebuild:
         description: 'Rebuild OVMF and kernel even when the previous release used identical pins'
         required: false
@@ -55,50 +76,63 @@ defaults:
 
 jobs:
   build:
-    # Skip our own VM releases (the release event would otherwise loop on
-    # the katana-v* release this job creates). Defense in depth: a release
-    # created with GITHUB_TOKEN does not re-trigger workflows regardless.
-    if: github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'katana-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: write
     steps:
+      # Builds from the workflow's ref. For a published release that is the
+      # ref the dispatch was run against (default branch, or a chosen
+      # branch/tag); for a dry run it is whatever was dispatched. The
+      # misc/AMDSEV tooling and the embedded binary are thus paired by that
+      # commit, recorded via SOURCE_DATE_EPOCH below.
       - uses: actions/checkout@v4
-        with:
-          # On a katana release, build from that release's commit so the
-          # misc/AMDSEV tooling matches the embedded binary. Empty ref (push
-          # / workflow_dispatch) checks out the triggering ref as usual.
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
 
       - name: Resolve release context
         id: ctx
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IN_VM_VERSION: ${{ inputs.vm_version }}
+          IN_KATANA_VERSION: ${{ inputs.katana_version }}
+          IN_PUBLISH: ${{ inputs.publish }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          case "${{ github.event_name }}" in
-            release)
-              # The katana release tag IS the katana version.
-              katana_ver="${{ github.event.release.tag_name }}"
-              vm_tag="katana-${katana_ver}"
-              publish=1
-              prerelease="${{ github.event.release.prerelease }}"
-              ;;
-            push)
-              # Manual katana-v* tag push (pipeline re-release).
-              vm_tag="${GITHUB_REF_NAME}"
-              katana_ver="${vm_tag#katana-}"
-              katana_ver="${katana_ver%-pipeline.*}"
-              publish=1
+          # Resolve the katana version. `latest` (dry-run convenience) maps to
+          # the newest katana release — its own vX.Y.Z namespace, never a
+          # tee-vm-v* VM release.
+          katana_ver="$IN_KATANA_VERSION"
+          [ -z "$katana_ver" ] && katana_ver="latest"
+          if [ "$katana_ver" = "latest" ]; then
+            katana_ver="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 50 \
+              --json tagName --jq '[.[].tagName | select(test("^v[0-9]"))][0]')"
+            [ -n "$katana_ver" ] || { echo "could not resolve latest katana release" >&2; exit 1; }
+          fi
+
+          # A workflow_call from amdsev-release-dispatch supplies vm_version and
+          # is a real, dedicatedly-versioned release; a direct workflow_dispatch
+          # of this workflow has no vm_version and is a dry run.
+          #
+          # NOTE: do not key this off github.event_name — a called reusable
+          # workflow reports the CALLER's event, which is itself
+          # workflow_dispatch, so both paths would look identical.
+          if [ -z "$IN_VM_VERSION" ]; then
+            # Dry run: build + measure, never publish.
+            vm_tag=""
+            publish=0
+            prerelease=false
+          else
+            # tee-vm-v<X.Y.Z>+katana-<katana tag>: the dedicated TEE VM version,
+            # with the embedded katana version attached as SemVer build metadata.
+            vm_tag="tee-vm-v${IN_VM_VERSION}+katana-${katana_ver}"
+            if [ "$IN_PUBLISH" = "false" ]; then publish=0; else publish=1; fi
+            # Pre-release if either the TEE version or the embedded katana
+            # version carries a pre-release segment.
+            if printf '%s\n%s\n' "$IN_VM_VERSION" "$katana_ver" | grep -qiE -- '-(rc|alpha|beta|preview|dev)'; then
+              prerelease=true
+            else
               prerelease=false
-              ;;
-            *)
-              # workflow_dispatch — dry run, no release published.
-              katana_ver="${{ github.event.inputs.katana_version }}"
-              [ -z "$katana_ver" ] && katana_ver="latest"
-              vm_tag=""
-              publish=0
-              prerelease=false
-              ;;
-          esac
+            fi
+          fi
           {
             echo "katana_ver=$katana_ver"
             echo "vm_tag=$vm_tag"
@@ -106,7 +140,7 @@ jobs:
             echo "prerelease=$prerelease"
             echo "sha=$(git rev-parse HEAD)"
           } >> "$GITHUB_OUTPUT"
-          echo "event=${{ github.event_name }} katana_ver=$katana_ver vm_tag=${vm_tag:-<none>} publish=$publish"
+          echo "event=$EVENT_NAME katana_ver=$katana_ver vm_tag=${vm_tag:-<none>} publish=$publish prerelease=$prerelease"
 
       - name: Pin SOURCE_DATE_EPOCH to HEAD commit time
         # Without this, build.sh falls back to `date +%s` and embeds the
@@ -142,26 +176,18 @@ jobs:
           KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
         run: |
           mkdir -p .katana-dl
-          # On a release trigger this downloads from the release that fired
-          # the workflow ($KATANA_VER == the release tag). katana releases
-          # ship several products per tag: katana_*, paymaster-service_*,
+          # $KATANA_VER is the concrete katana release tag resolved in the ctx
+          # step (`latest` is already mapped to a real tag there). katana
+          # releases ship several products per tag: katana_*, paymaster-service_*,
           # vrf-server_* — each with portable (_linux_amd64.tar.gz) and
           # CPU-tuned (_linux_amd64_native.tar.gz) variants. The `katana_`
           # prefix selects the product; the anchored suffix selects the
           # portable build over `_native`. A looser `*_linux_amd64.tar.gz`
           # matches three tarballs and breaks the single-file `tar -xzf`.
-          if [ "$KATANA_VER" = "latest" ]; then
-            # workflow_dispatch convenience: no positional tag → latest.
-            gh release download \
-              --repo dojoengine/katana \
-              --pattern 'katana_*_linux_amd64.tar.gz' \
-              --dir .katana-dl/
-          else
-            gh release download "$KATANA_VER" \
-              --repo dojoengine/katana \
-              --pattern 'katana_*_linux_amd64.tar.gz' \
-              --dir .katana-dl/
-          fi
+          gh release download "$KATANA_VER" \
+            --repo dojoengine/katana \
+            --pattern 'katana_*_linux_amd64.tar.gz' \
+            --dir .katana-dl/
           tar -xzf .katana-dl/*.tar.gz -C .katana-dl/
           KATANA_BIN="$(find "$PWD/.katana-dl" -type f -name katana -perm -u+x | head -n1)"
           if [ -z "$KATANA_BIN" ]; then
@@ -178,7 +204,7 @@ jobs:
         # katana moved. Every reused artifact is verified against the
         # SHA-256 recorded in the previous release's build-info.txt; any
         # mismatch or missing data falls back to a full rebuild of that
-        # component. Only katana-v* releases are considered — katana's own
+        # component. Only tee-vm-v* releases are considered — katana's own
         # vX.Y.Z releases carry no VM build-info.
         if: github.event.inputs.force_rebuild != 'true'
         env:
@@ -192,12 +218,12 @@ jobs:
           REUSE_KERNEL=0
           PREV_TAG=""
 
-          # Latest published VM release (katana-v* namespace only), excluding
+          # Latest published VM release (tee-vm-v* namespace only), excluding
           # the tag being built (relevant on re-runs after the release object
           # already exists). VM_TAG is empty on dry runs, which excludes
           # nothing.
           PREV_TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 50 --json tagName --jq '.[].tagName' \
-            | grep '^katana-v' | grep -vFx "${VM_TAG}" | head -n1 || true)"
+            | grep '^tee-vm-v' | grep -vFx "${VM_TAG}" | head -n1 || true)"
 
           if [ -z "$PREV_TAG" ]; then
             echo "No previous VM release found — building all components."
@@ -288,6 +314,15 @@ jobs:
           if [ "${REUSE_KERNEL:-0}" -eq 1 ]; then
             echo "KERNEL_REUSED_FROM=$PREV_RELEASE_TAG" >> output/qemu/build-info.txt
           fi
+
+      - name: Record embedded katana version
+        # build-info only records the binary's sha256; pin the human-readable
+        # katana release tag too, so the provenance is self-describing and
+        # reproduce-release.sh can cross-check it against the +katana- tag
+        # suffix.
+        env:
+          KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
+        run: echo "KATANA_VERSION=${KATANA_VER}" >> output/qemu/build-info.txt
 
       - name: Build snp-tools
         # snp-tools binaries are NOT shipped as release artifacts (separate
@@ -442,10 +477,9 @@ jobs:
         if: steps.ctx.outputs.publish == '1'
         uses: softprops/action-gh-release@v2
         with:
-          # On a release trigger the katana-v* tag does not exist yet;
-          # action-gh-release creates it at the release commit. On a
-          # katana-v* tag push it already exists and target_commitish is
-          # ignored. prerelease mirrors the upstream katana release.
+          # The tee-vm-v* tag does not exist yet; action-gh-release creates it
+          # at the built commit (target_commitish). prerelease is set when the
+          # TEE version or the embedded katana version is a pre-release.
           tag_name: ${{ steps.ctx.outputs.vm_tag }}
           target_commitish: ${{ steps.ctx.outputs.sha }}
           prerelease: ${{ steps.ctx.outputs.prerelease }}
