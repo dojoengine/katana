@@ -1460,6 +1460,11 @@ if ! /bin/mount -t devtmpfs devtmpfs /dev 2>/dev/null; then
 fi
 /bin/mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 
+# SP1 core executor uses POSIX shared memory (shm_open) for the guest memory image;
+# without /dev/shm it panics with "create shm file for memory: NotFound".
+mkdir -p /dev/shm
+/bin/mount -t tmpfs tmpfs /dev/shm 2>/dev/null || log "WARNING: failed to mount /dev/shm"
+
 # Create essential device nodes
 [ -c /dev/null ] || /bin/mknod /dev/null c 1 3 || true
 [ -c /dev/console ] || /bin/mknod /dev/console c 5 1 || true
@@ -1517,7 +1522,9 @@ if [ -d /sys/class/net/eth0 ]; then
     /bin/ip link set eth0 up 2>/dev/null || true
     /bin/ip addr add 10.0.2.15/24 dev eth0 2>/dev/null || true
     /bin/ip route add default via 10.0.2.2 2>/dev/null || true
-    echo "nameserver 10.0.2.3" > /etc/resolv.conf
+    printf "nameserver 1.1.1.1\\nnameserver 8.8.8.8\\nnameserver 10.0.2.3\\n" > /etc/resolv.conf
+    # qemu user-net has no IPv6 route; prefer IPv4 so dual-stack hosts (e.g. api.cartridge.gg) connect
+    echo "precedence ::ffff:0:0/96  100" > /etc/gai.conf
     log "Network configured: eth0 = 10.0.2.15"
 else
     log "WARNING: eth0 interface not found; skipping static network setup"
@@ -1621,14 +1628,21 @@ NSS_EOF
 log_ok "/etc files created"
 
 # ------------------------------------------------------------------------------
-# Install CA certificates (/usr/local/ssl/cert.pem)
+# Install CA certificates (both TLS trust stores)
 # ------------------------------------------------------------------------------
-# katana's openssl is vendored with OPENSSLDIR=/usr/local/ssl, so the in-enclave
-# sequencer reads its default trust store from /usr/local/ssl/cert.pem. Without it,
-# embedded settlement's outbound HTTPS (settlement RPC, the SP1 prover network, AMD
-# KDS) fails with "unable to get local issuer certificate". Pinned + checksum-verified
-# like every other package; the mode/timestamp normalization in SECTION 4 below makes
-# the bundle reproducible and bound into the launch measurement.
+# Embedded settlement makes outbound HTTPS (settlement RPC, the SP1 prover network,
+# AMD KDS) and katana uses TWO TLS stacks with DIFFERENT trust-store paths, so the
+# bundle must land in both or settlement fails:
+#   - AMD KDS                       -> vendored openssl (OPENSSLDIR=/usr/local/ssl)
+#                                      reads /usr/local/ssl/cert.pem
+#   - Starknet settlement RPC + L1<->L2 messaging -> jsonrpsee/rustls
+#                                      (rustls-native-certs) probes /etc/ssl/certs/
+#                                      ca-certificates.crt, /etc/ssl/cert.pem,
+#                                      /etc/pki/tls/certs/ca-bundle.crt
+# With the bundle only at the openssl path, KDS works but every registry/messaging
+# TLS handshake fails (rustls finds no trust anchors) -> surfaces as
+# "client error (Connect)" -> settlement never lands. Pinned + checksum-verified
+# like every other package; SECTION 4 normalizes mode/timestamps for reproducibility.
 if [[ -n "${CA_CERTIFICATES_PKG_VERSION:-}" ]]; then
     : "${CA_CERTIFICATES_PKG_SHA256:?CA_CERTIFICATES_PKG_SHA256 required when CA_CERTIFICATES_PKG_VERSION is set}"
     log_info "Downloading ca-certificates=${CA_CERTIFICATES_PKG_VERSION}"
@@ -1642,14 +1656,18 @@ if [[ -n "${CA_CERTIFICATES_PKG_VERSION:-}" ]]; then
         die "ca-certificates checksum mismatch (expected $CA_CERTIFICATES_PKG_SHA256, got $CA_ACTUAL)"
     log_ok "ca-certificates checksum verified"
     dpkg-deb -x "$CA_DEB" "$CA_WORK/extracted"
+    # Assemble the trusted Mozilla roots in a deterministic (LC_ALL=C sorted) order.
     mkdir -p usr/local/ssl
-    # Concatenate the trusted Mozilla roots in a deterministic (LC_ALL=C sorted) order
-    # into openssl's compiled-in default cert file.
     find "$CA_WORK/extracted/usr/share/ca-certificates" -name '*.crt' | LC_ALL=C sort | \
         xargs cat > usr/local/ssl/cert.pem
     CA_N="$(grep -c 'BEGIN CERTIFICATE' usr/local/ssl/cert.pem || true)"
     [[ "$CA_N" -ge 100 ]] || die "assembled CA bundle has too few roots ($CA_N)"
-    log_ok "CA bundle installed (/usr/local/ssl/cert.pem, $CA_N roots)"
+    # Same bundle at the rustls-native-certs probe paths (see comment above).
+    mkdir -p etc/ssl/certs etc/pki/tls/certs
+    cp usr/local/ssl/cert.pem etc/ssl/certs/ca-certificates.crt   # rustls-native-certs (primary)
+    cp usr/local/ssl/cert.pem etc/ssl/cert.pem                    # rustls/alpine fallback
+    cp usr/local/ssl/cert.pem etc/pki/tls/certs/ca-bundle.crt     # rustls/RHEL fallback
+    log_ok "CA bundle installed (openssl + rustls paths, $CA_N roots)"
 else
     log_warn "CA_CERTIFICATES_PKG_VERSION not set — enclave will have NO CA bundle (outbound HTTPS will fail)"
 fi

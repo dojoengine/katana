@@ -172,6 +172,9 @@ where
             None
         };
 
+        // TimeoutLayer::new is deprecated in tower-http >=0.6.8 (pulled transitively by the
+        // SP1 v6 dependency bump); behaviour is unchanged — it defaults to 408 Request Timeout.
+        #[allow(deprecated)]
         let middleware = ServiceBuilder::new()
             .option_layer(metrics_layer)
             .layer(TraceLayer::new_for_http())

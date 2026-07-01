@@ -259,14 +259,14 @@ opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
 starknet = "0.17.0"
 starknet-crypto = "0.8.1"
-starknet-types-core = { version = "=0.2.3", features = [ "arbitrary", "hash" ] }
+starknet-types-core = { version = "=0.2.2", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
 # branch: blockifier/v0.16.0-rc.0
-blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "2a241ef0f", default-features = false }
-starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "2a241ef0f" }
+blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "b46dee0084eacc5767d9816497a94bcdac51fa54", default-features = false }
+starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "b46dee0084eacc5767d9816497a94bcdac51fa54" }
 
 cainome = { version = "0.10.1", features = [ "abigen-rs" ] }
 cainome-cairo-serde = "0.4.1"
@@ -278,11 +278,11 @@ paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "
 
 
 # AMD SEV-SNP SDKs
-amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16", default-features = false }
-amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
-x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "1420a16" }
+amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "a4fdff0037b84c52a5b283e460eb7e26462fe593", default-features = false }
+amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "a4fdff0037b84c52a5b283e460eb7e26462fe593" }
+x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "a4fdff0037b84c52a5b283e460eb7e26462fe593" }
 
-garaga_rs = { git = "https://github.com/keep-starknet-strange/garaga.git", rev = "191ce19" }
+garaga_rs = { git = "https://github.com/cartridge-gg/garaga.git", rev = "061394abce25b1e6e993a7e65ee8eade4f718f96" }
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
@@ -290,3 +290,39 @@ garaga_rs = { git = "https://github.com/keep-starknet-strange/garaga.git", rev =
 # This patch fixes an issue where we're unable to correctly evaluate the accurate size
 # for constructing `Felt` from unstructured data (Arbitrary).
 starknet-types-core = { git = "https://github.com/kariy/types-rs", rev = "0f6ae31" }
+
+# ---------------------------------------------------------------------------
+# coco-provider — rustc 1.91 compatibility patch (kept scoped to this repo)
+# ---------------------------------------------------------------------------
+# What it is: `coco-provider` (automata-network) is the low-level SEV-SNP/TDX
+# attester. katana never depends on it directly — it is pulled in *transitively*,
+# and only into TEE builds, via the `tee-snp` feature:
+#     katana (tee-snp) -> katana-tee -> sev-snp
+#       (automata-network/amd-sev-snp-attestation-sdk) -> coco-provider
+# So this patch only affects builds that enable `tee-snp`; default builds are
+# untouched.
+#
+# Why it is needed: the SP1 v6 prover toolchain forces rustc >= 1.91 (see
+# rust-toolchain.toml). On that toolchain `core::arch::x86_64::__cpuid` is an
+# `unsafe` intrinsic, and calling an unsafe fn from a *safe* fn is a hard compile
+# error (E0133) — not a lint, so it can NOT be silenced with a RUSTFLAGS allow
+# (e.g. `-A unsafe_op_in_unsafe_fn`, which only governs unsafe ops inside unsafe
+# *fns*). Upstream coco-provider 0.3.0 calls `__cpuid` unwrapped from 9 safe fns
+# in src/cpu.rs (3) and src/hypervisor.rs (6), so any `tee-snp` build fails to
+# compile on rustc 1.91 with:
+#     error[E0133]: call to unsafe function `__cpuid` is unsafe and requires
+#                   an unsafe function or block
+#
+# What the fork changes: it is upstream `cc355bc` plus a single commit that wraps
+# each of those 9 call sites in an `unsafe { __cpuid(..) }` block. This is purely
+# a compile-time fix with no behavioural change — `__cpuid` has no runtime safety
+# preconditions on a CPU that supports CPUID; the wraps only satisfy the 1.91
+# borrow/safety checker.
+#     fork:   cartridge-gg/coco-provider-sdk  (branch rustc-1.91-unsafe-cpuid)
+#     commit: b0a90d0  —  9x  `__cpuid(..)` -> `unsafe { __cpuid(..) }`
+#
+# Why a [patch] and not an upstream PR: deliberately kept local/scoped for now.
+# Remove this whole block once automata-network/coco-provider-sdk ships an
+# equivalent fix AND the `sev-snp` SDK bumps to a release that includes it.
+[patch."https://github.com/automata-network/coco-provider-sdk"]
+coco-provider = { git = "https://github.com/cartridge-gg/coco-provider-sdk", rev = "b0a90d057a8b585de5665d2c6b3fff698130b21e" }
