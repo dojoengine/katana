@@ -229,6 +229,73 @@ async fn test_messaging() {
         }
     }
 
+    // Regression for the global-message-nonce vs per-target-account-nonce bug: the L1 core
+    // contract assigns a single monotonic nonce across ALL messages, so a message to a *second*
+    // target contract carries a nonce that is non-contiguous for that target (its L2 account
+    // nonce is still 0). The pool must not treat the L1-handler nonce as a per-target account
+    // nonce and reject it — every subsequent L1->L2 message would then stall permanently.
+    {
+        // Deploy a second instance of the already-declared L2 contract (different salt => new
+        // address) to act as a distinct message target.
+        let class_hash = rpc_client
+            .get_class_hash_at(BlockIdOrTag::Latest, l2_test_contract.into())
+            .await
+            .expect("get class hash of first target");
+
+        let target_b_address = get_contract_address(Felt::ONE, class_hash, &[], Felt::ZERO);
+        let deploy = ContractFactory::new_with_udc(class_hash, &katana_account, UdcSelector::New)
+            .deploy_v3(Vec::new(), Felt::ONE, false)
+            .send()
+            .await
+            .expect("deploy second target contract");
+        TxWaiter::new(deploy.transaction_hash, &rpc_client).await.expect("deploy B tx failed");
+
+        let sender = l1_test_contract.address();
+        let recipient = ContractAddress::from(target_b_address);
+        let selector = selector!("msg_handler_value");
+        // `msg_handler_value` only accepts this specific value; the point of this case is the
+        // distinct `to` target, not the payload.
+        let calldata = [123u8];
+        // Global nonce has advanced past the first message, so this is > 0 while target B's
+        // account nonce is still 0 — the exact gap that used to be rejected as InvalidNonce.
+        let nonce = core_contract.l1ToL2MessageNonce().call().await.expect("get nonce");
+
+        let receipt = l1_test_contract
+            .sendMessage(
+                recipient.into(),
+                U256::from_be_bytes(selector.to_bytes_be()),
+                calldata.iter().map(|x| U256::from(*x)).collect::<Vec<_>>(),
+            )
+            .gas(12000000)
+            .value(Uint::from(1))
+            .send()
+            .await
+            .expect("failed to send tx")
+            .get_receipt()
+            .await
+            .expect("error getting transaction receipt");
+        assert!(receipt.status(), "failed to send L1 -> L2 message to second target");
+
+        let mut l1_tx_calldata = vec![Felt::from_bytes_be_slice(sender.as_slice())];
+        l1_tx_calldata.extend(calldata.iter().map(|x| Felt::from(*x)));
+
+        let tx_hash = compute_l1_handler_tx_hash(
+            Felt::ZERO,
+            recipient,
+            selector,
+            &l1_tx_calldata,
+            sequencer.starknet_provider().chain_id().await.unwrap(),
+            nonce.to::<u64>().into(),
+        );
+
+        // The message to the second target must be mined on L2. Before the fix this L1-handler
+        // was rejected with InvalidNonce (nonce ahead of target B's account nonce) and this wait
+        // would time out.
+        TxWaiter::new(tx_hash, &rpc_client)
+            .await
+            .expect("second-target L1 handler must be mined despite the global-nonce gap");
+    }
+
     // Send message from L2 to L1 testing must be done using Saya or part of
     // it to ensure the settlement contract is test on piltover and its `update_state` method.
 }

@@ -140,6 +140,20 @@ impl Validator for TxValidator {
                 }
             }
 
+            // L1-handler txs carry the settlement chain's GLOBAL message nonce, which is not an
+            // L2 account nonce: it is not sequential per target contract, the executor never
+            // increments it, and it has no bearing on execution (blockifier treats it as metadata).
+            //
+            // Gating it through `pool_nonces` (account-nonce machinery) permanently rejects messages
+            // whenever the per-target sequence isn't contiguous — multiple target contracts, a
+            // restart (`pool_nonces` is wiped), or a single dropped message. Accept them
+            // unconditionally and leave `pool_nonces` untouched.
+            //
+            // This mirrors the official sequencer, which keeps L1-handler txs out of the account-nonce mempool entirely.
+            if matches!(tx.transaction, ExecutableTx::L1Handler(_)) {
+                return Ok(ValidationOutcome::Valid(tx));
+            }
+
             // Get the current nonce of the account from the pool or the state
             let current_nonce = if let Some(nonce) = this.pool_nonces.get(&address) {
                 *nonce
@@ -343,5 +357,107 @@ fn map_pre_validation_err(
             let tx_nonce = incoming_tx_nonce.0;
             Ok(InvalidTransactionError::InvalidNonce { address, current_nonce, tx_nonce })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use katana_primitives::transaction::{InvokeTx, InvokeTxV1, L1HandlerTx};
+    use katana_provider::providers::EmptyStateProvider;
+
+    use super::*;
+
+    /// A validator over an empty state (every account nonce reads as 0) with default
+    /// envs. The assertions here all resolve before `prepare()` / blockifier, so no
+    /// real chain state is needed.
+    fn test_validator() -> TxValidator {
+        let state: Box<dyn StateProvider> = Box::new(EmptyStateProvider);
+        TxValidator::new(
+            state,
+            ExecutionFlags::new(),
+            None,
+            BlockEnv::default(),
+            Arc::new(Mutex::new(())),
+            Arc::new(ChainSpec::dev()),
+            ClassCache::new().expect("class cache"),
+        )
+    }
+
+    fn l1_handler(target: ContractAddress, nonce: u64) -> ExecutableTxWithHash {
+        ExecutableTxWithHash::new(ExecutableTx::L1Handler(L1HandlerTx {
+            nonce: Felt::from(nonce),
+            contract_address: target,
+            entry_point_selector: Felt::from(0x1234_u32),
+            ..Default::default()
+        }))
+    }
+
+    fn invoke(sender: ContractAddress, nonce: u64) -> ExecutableTxWithHash {
+        ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V1(InvokeTxV1 {
+            sender_address: sender,
+            nonce: Felt::from(nonce),
+            ..Default::default()
+        })))
+    }
+
+    // An L1-handler carries the settlement chain's global message nonce, not an account
+    // nonce. A non-contiguous sequence to the same target (a gap) must NOT be rejected —
+    // otherwise a single dropped message permanently stalls all later ones.
+    #[tokio::test]
+    async fn l1_handler_nonce_gap_is_accepted() {
+        let validator = test_validator();
+        let target = ContractAddress::from(Felt::from(0xbeef_u64));
+
+        for nonce in [0u64, 2, 5] {
+            let outcome = validator.validate(l1_handler(target, nonce)).await.unwrap();
+            assert!(
+                matches!(outcome, ValidationOutcome::Valid(_)),
+                "gapped L1-handler nonce {nonce} must be accepted, got {outcome:?}",
+            );
+        }
+    }
+
+    // Global message nonce interleaved across two target contracts (0 -> A, 1 -> B, 2 -> A)
+    // leaves each target with a gapped subsequence; all must still be accepted.
+    #[tokio::test]
+    async fn l1_handler_interleaved_targets_all_accepted() {
+        let validator = test_validator();
+        let a = ContractAddress::from(Felt::from(0xa_u64));
+        let b = ContractAddress::from(Felt::from(0xb_u64));
+
+        for (target, nonce) in [(a, 0u64), (b, 1), (a, 2), (b, 3), (a, 6)] {
+            let outcome = validator.validate(l1_handler(target, nonce)).await.unwrap();
+            assert!(
+                matches!(outcome, ValidationOutcome::Valid(_)),
+                "interleaved L1-handler (target {target:?}, nonce {nonce}) must be accepted",
+            );
+        }
+    }
+
+    // Simulates a restart: a fresh validator (empty `pool_nonces`) receives a message whose
+    // nonce is already high because the settlement chain's counter kept climbing. It must be
+    // accepted, not rejected as `InvalidNonce`.
+    #[tokio::test]
+    async fn l1_handler_high_first_nonce_accepted_after_restart() {
+        let validator = test_validator();
+        let target = ContractAddress::from(Felt::from(0xbeef_u64));
+
+        let outcome = validator.validate(l1_handler(target, 30)).await.unwrap();
+        assert!(matches!(outcome, ValidationOutcome::Valid(_)), "got {outcome:?}");
+    }
+
+    // Regression: ungating L1-handlers must NOT weaken account-tx nonce gating. An invoke
+    // whose nonce is ahead of the account nonce is still tagged `Dependent`.
+    #[tokio::test]
+    async fn account_tx_nonce_gap_still_gated() {
+        let validator = test_validator();
+        let sender = ContractAddress::from(Felt::from(0xacc_u64));
+
+        // account nonce in the empty state is 0; nonce 3 is a gap.
+        let outcome = validator.validate(invoke(sender, 3)).await.unwrap();
+        assert!(
+            matches!(outcome, ValidationOutcome::Dependent { .. }),
+            "account tx with a nonce gap must be gated as Dependent, got {outcome:?}",
+        );
     }
 }
