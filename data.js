@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782886611151,
+  "lastUpdate": 1782926718047,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -34907,6 +34907,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 309,
             "range": "± 12",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bbe257606f44a81412fa42880632edf0f738464b",
+          "message": "fix(pool): don't gate L1-handler txs on account nonce (#623)\n\n## Problem\n\nL1→L2 messages sent through the settlement contract (Piltover / Ethereum\ncore) would, after a while, **all** start getting rejected with\n`InvalidNonce` — the settlement chain's current message nonce diverging\nfrom what Katana's state expects.\n\nRoot cause: the pool validates the settlement chain's **global,\nmonotonic** L1→L2 message nonce as if it were a **per-target-contract\nsequential account nonce** (`TxId { sender: contract_address, nonce:\nmessage_nonce }`), and the pool has **no future/queued tier** — a\n`Dependent` (nonce-too-high) outcome is returned as `InvalidNonce` and\nthe tx is dropped, not parked (`crates/pool/pool/src/pool.rs`). The\nexpected-nonce counter (`pool_nonces`) is in-memory only, is never\nreconciled, and the executor never increments the target's account\nnonce.\n\nSo the scheme only worked while every message targeted a single contract\nwith a contiguous `0,1,2,…` sequence and the process never restarted.\nThe first hole — **a second target contract** (global nonce\ninterleaves), a **restart** (wipes `pool_nonces`), or a **single dropped\nmessage** — permanently rejects that message and every later one.\n\nThis is not how the L1-handler nonce is meant to work: it's\nglobal/monotonic, the executor doesn't treat it as an account nonce, and\nblockifier treats it as metadata (no nonce check, no increment). The\nofficial Starknet sequencer keeps L1-handler txs out of the\naccount-nonce mempool entirely and orders them FIFO from a dedicated\nprovider.\n\n## Fix\n\nShort-circuit L1-handler txs to `Valid` **before** the nonce-dependency\ngate in `TxValidator::validate`, and leave `pool_nonces` untouched:\n\n```rust\nif matches!(tx.transaction, ExecutableTx::L1Handler(_)) {\n    return Ok(ValidationOutcome::Valid(tx));\n}\n```\n\nOrdering and execution are unaffected — L1-handlers still sort by\n`(contract_address, nonce)` and blockifier already skips nonce checks\nfor them; gaps simply no longer stall.\n\n## Tests\n\n- **Pool unit tests** (`validation::stateful::tests`) against the real\n`TxValidator`: gapped single-target nonces `(0,2,5)`, **interleaved\ntwo-target** global nonce, high-first-nonce (restart) case, and a\nregression asserting account-tx nonce gaps are **still** gated.\n- **e2e** (`crates/messaging/tests/e2e.rs`): extended `test_messaging`\nto send a message to a **second target contract**. Verified it **times\nout (`InvalidNonce`) without this fix** and passes with it.\n\n## Follow-ups (silent single-message loss, out of scope here)\n\nFiled separately — with the nonce cascade gone, these no longer stall\neverything, but a single message can still be silently skipped:\n\n- dojoengine/katana#620 — rejected/uncommitted message skipped until\nrestart (stream cursor vs checkpoint)\n- dojoengine/katana#621 — collector silently drops malformed messages\n- dojoengine/katana#622 — `confirmation_depth` defaults to 0\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-02T00:51:58+08:00",
+          "tree_id": "20c073564919a748278033c35832ba4e0220e3ca",
+          "url": "https://github.com/dojoengine/katana/commit/bbe257606f44a81412fa42880632edf0f738464b"
+        },
+        "date": 1782926716894,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2485031,
+            "range": "± 72656",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2624721,
+            "range": "± 42576",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 27,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 23,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 27,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 23,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 623,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 744,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 70,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 36,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 122,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 118,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 123,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 204,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 167,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 219,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 131,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 281,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 116,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 83,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 69,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 45,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 69,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 45,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 72,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 46,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 70,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 45,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 69,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 45,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 43,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 23,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 42,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 23,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 9,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 14558,
+            "range": "± 104",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 2673,
+            "range": "± 149",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 366,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 654,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 117,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 117,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1490,
+            "range": "± 108",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2050,
+            "range": "± 364",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 645,
+            "range": "± 51",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 844,
+            "range": "± 154",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 25381,
+            "range": "± 1257",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 5335,
+            "range": "± 437",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 138,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 229,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 248,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 183,
+            "range": "± 16",
             "unit": "ns/iter"
           }
         ]
