@@ -167,7 +167,7 @@ The reproducible Linux amd64 release is dynamically linked against glibc; the ve
 |-------|---------------|
 | `GLIBC_BUILD_VERSION` (libc6 in the build environment) | `2.36-9+deb12u13` |
 | `GLIBC_MIN_REQUIRED` (highest `GLIBC_X.Y` symbol in the binary) | `2.36` |
-| Pinned via | `RUST_IMAGE` arg in [`reproducible.Dockerfile`](../reproducible.Dockerfile) → `rust:1.89.0-bookworm@sha256:948f9b08…` |
+| Pinned via | `RUST_IMAGE` arg in [`reproducible.Dockerfile`](../reproducible.Dockerfile) → `rust:1.91.1-bookworm@sha256:c1e5f19e…` |
 
 The published binary therefore needs glibc ≥ 2.36 at runtime (Debian 12, Ubuntu 22.04+, RHEL 9+, or any newer distribution). Bumping `RUST_IMAGE` to a newer base is what re-rolls these values; the change is intentional and surfaces in the published `build-info.txt` and the workflow run summary.
 
@@ -177,7 +177,7 @@ Reproducible bytes apply to the `release-reproducible-linux-amd64` job only. The
 
 The reproducible job pins:
 
-- **Base image** by digest: `RUST_IMAGE=rust:1.89.0-bookworm@sha256:…` in [`reproducible.Dockerfile`](../reproducible.Dockerfile).
+- **Base image** by digest: `RUST_IMAGE=rust:1.91.1-bookworm@sha256:…` in [`reproducible.Dockerfile`](../reproducible.Dockerfile).
 - **`SOURCE_DATE_EPOCH`** to the release commit's `git log -1 --format=%ct`.
 - **Build context** to the repo working tree at the release commit.
 
@@ -197,7 +197,7 @@ The current pipeline is reproducible *given an intact upstream supply chain*. It
 
 - **`crates.io` registry.** `Cargo.lock` pins versions but the build still fetches crate tarballs at build time. Reproducibility depends on the registry serving the same bytes for each `(name, version)` pair (which crates.io guarantees for published versions, but is an external dependency on its availability and policy).
 - **Git submodules.** Pinned by commit SHA in the parent repo, but the actual contents are fetched from third-party Git hosts (`github.com/cartridge-gg/*`, `github.com/avnu-labs/*`, etc.) during `git submodule update`. A force-push or repo deletion at the upstream invalidates reproducibility for that tag.
-- **APT packages inside `reproducible.Dockerfile`.** Build-tool versions are recorded in `build-info.txt` after the fact (via `dpkg-query`) but are not pinned by SHA at install time; the `apt-get install` command resolves whatever the image's package indices currently expose. The base image digest pin keeps this stable in practice (the indices baked into `rust:1.89.0-bookworm@sha256:…` don't change), but a rebuild that bumps `RUST_IMAGE` re-rolls these.
+- **APT packages inside `reproducible.Dockerfile`.** Build-tool versions are recorded in `build-info.txt` after the fact (via `dpkg-query`) but are not pinned by SHA at install time; the `apt-get install` command resolves whatever the image's package indices currently expose. The base image digest pin keeps this stable in practice (the indices baked into `rust:1.91.1-bookworm@sha256:…` don't change), but a rebuild that bumps `RUST_IMAGE` re-rolls these.
 
 Closing these gaps means: `cargo vendor` checked in (or stored in a content-addressed cache), submodule contents mirrored to a controlled location, and `apt` package downloads pinned by `${Package}=${Version}` with SHA verification (the pattern used in [`misc/AMDSEV/build-config`](../misc/AMDSEV/build-config) for the TEE initrd build). Worth flagging when a downstream consumer needs verifiable supply-chain reproducibility, not just deterministic-output reproducibility.
 
