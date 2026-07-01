@@ -74,12 +74,14 @@ jobs:
       NATIVE_BUILD: ${{ matrix.job.native_build }}
       # The aarch64-linux `--features native` binary statically links cairo-native's
       # LLVM/MLIR; with fat LTO + one codegen unit its `.text` exceeds AArch64's +/-128 MB
-      # `bl` (R_AARCH64_CALL26) range, so calls to the compiler-builtins LSE outline-atomics
-      # helpers overflow ("relocation truncated to fit ... __aarch64_cas*") and the linker
-      # can't place stubs in the single giant section. Emit those atomics inline instead.
-      # Target-scoped, so it only affects aarch64-linux (not x86_64/darwin) and raises that
-      # binary's baseline to ARMv8.1 (all server/cloud ARM: Graviton2+, Ampere, Apple Silicon).
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -Ctarget-feature=+lse
+      # `bl` (R_AARCH64_CALL26) range, so calls to the compiler-builtins outline-atomics
+      # helpers (`__aarch64_cas*`, `__aarch64_ldadd*`) overflow ("relocation truncated to
+      # fit") and the linker can't place stubs in the single giant section. Disabling
+      # outline-atomics makes atomics emit inline (LL/SC at the v8.0 baseline) with no far
+      # call to those helpers. `+lse` alone does NOT help: outline-atomics still routes
+      # through the helpers. Target-scoped, so only aarch64-linux is affected; ARMv8.0
+      # compatibility is preserved.
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -Ctarget-feature=-outline-atomics
     strategy:
       fail-fast: false
       matrix:
