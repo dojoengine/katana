@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782334450391,
+  "lastUpdate": 1782886611151,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -34571,6 +34571,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 276,
             "range": "± 13",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7b2907df946ea15b5c3f94ba34680aeaa83a770",
+          "message": "feat(tee): SP1 v6.1.0 migration for embedded SEV-SNP settlement (#618)\n\n## SP1 v6.1.0 migration for embedded SEV-SNP TEE settlement\n\nMigrates katana's embedded-TEE settlement to the SP1 **v6.1.0** circuit\n(the Succinct prover network deprecated v5 on 2026-05-19) and fixes the\nenclave-runtime issues that blocked the first real proof. **Validated\nend-to-end:** the SEV-SNP enclave landed its first real Groth16-proved\n`update_state` — tx `0x41eb6be3…`, SUCCEEDED/ACCEPTED_ON_L2 (Sepolia\nblock 11249162).\n\nThe PR has two distinct parts — please review them as such.\n\n### Part 1 — the SP1 v6 upgrade (dependencies / toolchain)\n- Re-pin `amd-sev-snp-attestation-{prover,verifier}` +\n`x509-verifier-rust-crypto` →\n`cartridge-gg/amd-sev-snp-attestation-sdk@a4fdff0`; `garaga_rs` →\n`cartridge-gg/garaga@061394a`; sequencer bump; `rust-toolchain` →\n**1.91.1** (sp1 v6 requires ≥1.91).\n- ⚠️ The SDK pin is the **rebuilt-ELF** commit `a4fdff0`, *not* the\nsource-restructure commit — `sp1-methods/build.rs` skips the guest\nrebuild when the ELF already exists, so pinning the restructure commit\nembeds a **stale guest** (wrong vkey → every `update_state` reverts with\n`Wrong program`).\n- `[patch]` for `coco-provider` → a cartridge-gg fork wrapping `__cpuid`\nin `unsafe{}` (a rustc-1.91 hard error). Fully documented inline in\n`Cargo.toml`; temporary, scoped to this repo *(see caveat below)*.\n\n### Part 2 — enclave-environment fixes that are NOT specific to SP1 v6\nThese three `misc/AMDSEV` changes are general correctness fixes for\nrunning *any* embedded-TEE settlement inside the minimal SEV-SNP initrd\n— an enclave without them cannot reach the network or run the prover\n**regardless of SP1 version**. They live in the same `build-initrd.sh`\npath, so they ride along here rather than in a separate PR.\n\n**(a) CA bundle at the rustls trust-store paths, not just openssl.**\nkatana makes outbound HTTPS over **two TLS stacks that read different\ntrust stores**:\n- AMD KDS → vendored **openssl** (`OPENSSLDIR=/usr/local/ssl`) →\n`/usr/local/ssl/cert.pem`\n- Starknet settlement RPC + L1↔L2 messaging → **jsonrpsee/rustls**\n(`rustls-native-certs`), which probes\n`/etc/ssl/certs/ca-certificates.crt`, `/etc/ssl/cert.pem`,\n`/etc/pki/tls/certs/ca-bundle.crt`.\n\n#616 (already on `main`) installs the bundle only at the openssl path,\nso KDS works but **every registry/messaging TLS handshake fails** —\nrustls finds no trust anchors and it surfaces, misleadingly, as `client\nerror (Connect)`, so settlement never lands. This PR installs the same\npinned, checksum-verified bundle at **all four** paths (verified: 121\nroots at each).\n\n**(b) IPv4 preference.** qemu user-mode networking (SLIRP, used by\n`start-vm.sh`) has **no IPv6 route**. A dual-stack settlement RPC host\n(e.g. `api.cartridge.gg`, which publishes both A and AAAA) is otherwise\ntried over IPv6 first and hangs, while IPv4-only hosts (AMD KDS) work —\nmaking the failure look host-specific. `/init` now writes direct public\nresolvers plus a `gai.conf` `precedence ::ffff:0:0/96 100` rule so glibc\nreturns IPv4 first. Harmless on networks that route IPv6; purely defends\nagainst SLIRP being IPv4-only.\n\n**(c) `/dev/shm` tmpfs.** SP1's executor `shm_open`s the guest memory\nimage even when proving on the *network*; the minimal initrd mounts no\n`/dev/shm`, so it panics with `create shm file for memory: NotFound`.\n`/init` now mounts a tmpfs there. (Exercised by SP1, but it's an\ninitrd-runtime gap, not a v5-vs-v6 difference.)\n\n### Caveat — not a clean upstream merge (kept as draft)\nThe `coco-provider` `[patch]` targets a cartridge-gg fork (temporary\nrustc-1.91 workaround, removable once upstream ships the fix). The\nbranch is also behind `main` and pins cartridge-gg forks for the AMD-TEE\nstack.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Ubuntu <ubuntu@m4-metal-medium-tee.maas>\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T08:43:48+03:00",
+          "tree_id": "7bdd07c2b25fe47f5e58de8a0bfb7d835c5ca571",
+          "url": "https://github.com/dojoengine/katana/commit/c7b2907df946ea15b5c3f94ba34680aeaa83a770"
+        },
+        "date": 1782886609895,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2650502,
+            "range": "± 87270",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2798562,
+            "range": "± 55786",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 33,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 25,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 33,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 25,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 631,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 887,
+            "range": "± 15",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 78,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 38,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 155,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 156,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 172,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 264,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 201,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 307,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 169,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 371,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 130,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 108,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 89,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 62,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 89,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 62,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 89,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 62,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 89,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 62,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 89,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 62,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 51,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 24,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 51,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 25,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 10,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 14377,
+            "range": "± 140",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3737,
+            "range": "± 437",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 381,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 839,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 161,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 158,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1414,
+            "range": "± 86",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2297,
+            "range": "± 395",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 616,
+            "range": "± 51",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 918,
+            "range": "± 149",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 26835,
+            "range": "± 689",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 6454,
+            "range": "± 695",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 152,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 263,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 271,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 309,
+            "range": "± 12",
             "unit": "ns/iter"
           }
         ]
