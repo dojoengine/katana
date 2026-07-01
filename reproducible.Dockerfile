@@ -25,6 +25,7 @@ RUN apt-get update && \
         gcc \
         git \
         libclang-dev \
+        libprotobuf-dev \
         make \
         pkg-config \
         protobuf-compiler \
@@ -58,6 +59,7 @@ RUN cp target/x86_64-unknown-linux-gnu/performance/katana /katana && \
             git \
             libc6 \
             libclang-dev \
+            libprotobuf-dev \
             make \
             pkg-config \
             protobuf-compiler \
