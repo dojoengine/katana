@@ -72,6 +72,14 @@ jobs:
       TARGET: ${{ matrix.job.target }}
       ARCH: ${{ matrix.job.arch }}
       NATIVE_BUILD: ${{ matrix.job.native_build }}
+      # The aarch64-linux `--features native` binary statically links cairo-native's
+      # LLVM/MLIR; with fat LTO + one codegen unit its `.text` exceeds AArch64's +/-128 MB
+      # `bl` (R_AARCH64_CALL26) range, so calls to the compiler-builtins LSE outline-atomics
+      # helpers overflow ("relocation truncated to fit ... __aarch64_cas*") and the linker
+      # can't place stubs in the single giant section. Emit those atomics inline instead.
+      # Target-scoped, so it only affects aarch64-linux (not x86_64/darwin) and raises that
+      # binary's baseline to ARMv8.1 (all server/cloud ARM: Graviton2+, Ampere, Apple Silicon).
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -Ctarget-feature=+lse
     strategy:
       fail-fast: false
       matrix:
