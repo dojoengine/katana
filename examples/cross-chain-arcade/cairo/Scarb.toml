@@ -1,0 +1,19 @@
+[package]
+name = "arcade"
+version = "0.1.0"
+edition = "2024_07"
+
+# Plain Starknet contracts (no Dojo). Two contracts live in this one package:
+#   - `arcade`  : the L1/settlement "coin dispenser" that fans a single action
+#                 out to every machine via the piltover core's
+#                 `send_message_to_appchain`.
+#   - `machine` : the L2/appchain target — one instance per arcade machine,
+#                 each with an `insert_coin` `#[l1_handler]`.
+# `scarb build` emits `target/dev/arcade_arcade.*` and `target/dev/arcade_machine.*`.
+
+[dependencies]
+starknet = ">=2.11.0"
+
+[[target.starknet-contract]]
+sierra = true
+casm = true
