@@ -55,8 +55,8 @@ LVM2_SHA256="74e794a9e9dee1bcf8a2065f65b9196c44fdf321e22d63b98ed7de8c9aa17a5d"
 # Build a static `mke2fs` from upstream source inside the same container
 # and ship it as /bin/mkfs.ext2 in the initrd; the unseal flow uses it to
 # format the decrypted mapper on first boot.
-E2FSPROGS_VERSION="1.47.0"
-E2FSPROGS_SHA256="144af53f2bbd921cef6f8bea88bb9faddca865da3fbc657cc9b4d2001097d5db"
+E2FSPROGS_VERSION="1.47.2"
+E2FSPROGS_SHA256="6dcd67ff9d8b13274ba3f088e4318be4f5b71412cd863524423fc49d39a6371f"
 
 # Container image used to build static cryptsetup. Pinned by sha256 digest so
 # the build matches across hosts. Bump when upgrading Alpine.
