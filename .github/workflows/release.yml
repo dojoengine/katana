@@ -72,16 +72,18 @@ jobs:
       TARGET: ${{ matrix.job.target }}
       ARCH: ${{ matrix.job.arch }}
       NATIVE_BUILD: ${{ matrix.job.native_build }}
-      # The aarch64-linux `--features native` binary statically links cairo-native's
-      # LLVM/MLIR; with fat LTO + one codegen unit its `.text` exceeds AArch64's +/-128 MB
-      # `bl` (R_AARCH64_CALL26) range, so calls to the compiler-builtins outline-atomics
-      # helpers (`__aarch64_cas*`, `__aarch64_ldadd*`) overflow ("relocation truncated to
-      # fit") and the linker can't place stubs in the single giant section. Disabling
-      # outline-atomics makes atomics emit inline (LL/SC at the v8.0 baseline) with no far
-      # call to those helpers. `+lse` alone does NOT help: outline-atomics still routes
-      # through the helpers. Target-scoped, so only aarch64-linux is affected; ARMv8.0
-      # compatibility is preserved.
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -Ctarget-feature=-outline-atomics
+      # aarch64-linux `--features native`: the fat-LTO cairo-native/LLVM binary's single
+      # `.text` exceeds AArch64's +/-128 MB `bl` (R_AARCH64_CALL26) range, so calls to the
+      # compiler-builtins outline-atomics helpers (`__aarch64_cas*`/`__aarch64_ldadd*`)
+      # overflow ("relocation truncated to fit"). `-outline-atomics` makes atomics emit
+      # inline (LL/SC, ARMv8.0-compatible) with no far call to those helpers.
+      #
+      # This MUST be on RUSTFLAGS, not CARGO_TARGET_<triple>_RUSTFLAGS: setup-rust-toolchain
+      # exports RUSTFLAGS (default `-D warnings`), which outranks the target-scoped var and
+      # silently discards it. Setting RUSTFLAGS at job level also makes the action keep our
+      # value (it only sets RUSTFLAGS when unset). Keep `-D warnings` for every target;
+      # add `-outline-atomics` only for aarch64-linux.
+      RUSTFLAGS: ${{ matrix.job.target == 'aarch64-unknown-linux-gnu' && '-D warnings -Ctarget-feature=-outline-atomics' || '-D warnings' }}
     strategy:
       fail-fast: false
       matrix:
