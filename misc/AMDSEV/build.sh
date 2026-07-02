@@ -26,6 +26,10 @@ export CRYPTSETUP_VERSION CRYPTSETUP_SHA256 CRYPTSETUP_BUILDER_IMAGE
 export LVM2_VERSION LVM2_SHA256
 export E2FSPROGS_VERSION E2FSPROGS_SHA256
 export GLIBC_RUNTIME_PACKAGES GLIBC_RUNTIME_PACKAGE_SHA256S
+# CA certificates bundle — consumed by build-initrd.sh to populate the enclave trust
+# stores (openssl + rustls paths). Without this export the cert step silently skips
+# and the released image ships NO CA bundle (outbound HTTPS fails).
+export CA_CERTIFICATES_PKG_VERSION CA_CERTIFICATES_PKG_SHA256
 
 # SOURCE_DATE_EPOCH controls timestamps embedded in OVMF and the initrd cpio
 # archive — directly affects launch-measurement reproducibility. If unset, fall
