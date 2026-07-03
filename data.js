@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782926718047,
+  "lastUpdate": 1783101427809,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -35243,6 +35243,342 @@ window.BENCHMARK_DATA = {
             "name": "TrieHistoryEntry/decompress",
             "value": 183,
             "range": "± 16",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18caf9e78e943791fae2b0ff450cbc0694491772",
+          "message": "feat(settlement): add metrics + Grafana panels for the settlement service (#625)\n\n## Summary\n\nAdds Prometheus metrics to the embedded settlement service, plus a\n**Settlement** row on the Grafana overview dashboard. The headline\nmetric is proof-generation time, with other settlement stages and\noutcomes tracked alongside.\n\n## Metrics (`katana_settlement_*`)\n\nInstrumented at the service layer so they are agnostic to the proving\nbackend:\n\n| Metric | Type | Measures |\n|---|---|---|\n| `proof_generation_seconds` | Histogram | Backend `prove()` —\nattestation build + proving (the dominant cost) |\n| `settle_batch_seconds` | Histogram | End-to-end settle (prove +\nsubmit) |\n| `state_update_seconds` | Histogram | `update_state` tx submit +\nconfirmation |\n| `blocks_per_batch` | Histogram | Blocks per settled batch |\n| `batches_settled_total` / `blocks_settled_total` | Counter |\nSettlement throughput |\n| `settlement_failures_total` | Counter | Failed attempts (each triggers\nbackoff + retry) |\n| `settled_block` | Gauge | Current on-chain settlement cursor |\n\nThe two proof-related timings carry a `proof_type` label (`sp1` /\n`mock`) via a new `ProvingBackend::proof_type()`, so they can be broken\ndown and compared across backends.\n\nBecause the global Prometheus recorder is already installed at node\nstartup, these auto-register on the existing metrics endpoint — no\nadditional wiring.\n\n## Dashboard\n\nA 7-panel **Settlement** row in\n`monitoring/grafana/dashboards/overview.json`. Duration panels read the\nexporter's summary `quantile` labels directly (p50/p90/p99), matching\nthe existing RPC-latency panels. Inserted as pure additions with no\nreformatting of existing panels.\n\n## Checks\n\n- `cargo +nightly-2025-02-20 fmt --all` — clean\n- clippy (`-p katana-settlement --all-targets` with the repo's deny\nflags) — clean\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T13:23:20-04:00",
+          "tree_id": "3c30fdfe278d88cb5d457c7949e9642662c76338",
+          "url": "https://github.com/dojoengine/katana/commit/18caf9e78e943791fae2b0ff450cbc0694491772"
+        },
+        "date": 1783101426510,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2716431,
+            "range": "± 160722",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2805889,
+            "range": "± 12285",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 31,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 24,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 30,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 24,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 605,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 845,
+            "range": "± 16",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 73,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 34,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 153,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 147,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 146,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 254,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 191,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 265,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 154,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 340,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 129,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 105,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 80,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 55,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 80,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 56,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 80,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 55,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 79,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 55,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 80,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 55,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 47,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 24,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 47,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 24,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 10,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 18253,
+            "range": "± 121",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3557,
+            "range": "± 79",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 384,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 806,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 144,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 138,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1366,
+            "range": "± 45",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2146,
+            "range": "± 363",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 588,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 859,
+            "range": "± 138",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 28103,
+            "range": "± 1239",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 5959,
+            "range": "± 191",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 166,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 234,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 290,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 263,
+            "range": "± 10",
             "unit": "ns/iter"
           }
         ]
