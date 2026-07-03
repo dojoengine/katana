@@ -29,6 +29,10 @@ pub trait ProvingBackend: Send + Sync {
     /// Human-readable backend name, for logs.
     fn name(&self) -> &'static str;
 
+    /// Short, label-friendly identifier of the proof system (e.g. `sp1`,
+    /// `mock`), used as a metric label.
+    fn proof_type(&self) -> &'static str;
+
     /// Builds the `update_state` payload settling the state transition
     /// `(prev_block, block]`.
     ///

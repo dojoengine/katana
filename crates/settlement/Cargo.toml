@@ -8,6 +8,7 @@ version.workspace = true
 
 [dependencies]
 katana-chain-spec.workspace = true
+katana-metrics.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-provider-api.workspace = true
@@ -23,6 +24,7 @@ x509-verifier-rust-crypto.workspace = true
 
 alloy-primitives.workspace = true
 async-trait.workspace = true
+metrics.workspace = true
 cainome.workspace = true
 hex.workspace = true
 starknet.workspace = true

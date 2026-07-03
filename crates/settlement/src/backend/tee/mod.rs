@@ -70,6 +70,13 @@ where
         }
     }
 
+    fn proof_type(&self) -> &'static str {
+        match self.prover {
+            TeeProver::Mock => "mock",
+            TeeProver::Sp1 { .. } => "sp1",
+        }
+    }
+
     async fn prove(
         &self,
         prev_block: Option<BlockNumber>,
