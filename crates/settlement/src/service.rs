@@ -20,6 +20,7 @@ use tracing::{error, info, warn};
 
 use crate::backend::ProvingBackend;
 use crate::error::SettlementError;
+use crate::metrics::{SettlementMetrics, SettlementProofMetrics};
 use crate::piltover::PiltoverClient;
 use crate::SettlementConfig;
 
@@ -90,6 +91,11 @@ where
             provider: self.provider.clone(),
             batch_size: self.config.batch_size.max(1) as u64,
             idle_flush_interval: self.config.idle_flush_interval,
+            metrics: SettlementMetrics::default(),
+            proof_metrics: SettlementProofMetrics::new_with_labels(&[(
+                "proof_type",
+                self.backend.proof_type(),
+            )]),
         };
 
         let notify_rx = self.block_notify.subscribe();
@@ -147,6 +153,8 @@ struct Worker<P> {
     idle_flush_interval: tokio::time::Duration,
     /// Last settled block, from Piltover's `get_state()`. `None` = nothing settled yet.
     cursor: Option<BlockNumber>,
+    metrics: SettlementMetrics,
+    proof_metrics: SettlementProofMetrics,
 }
 
 /// Persists the settled-block cursor to the durable [`tables::SettlementCheckpoints`] index, read
@@ -231,8 +239,18 @@ where
 
             match next_action(self.cursor, head, self.batch_size, idle_elapsed) {
                 Action::Settle { first, last } => {
+                    let batch_start = Instant::now();
                     match self.settle_batch(first, last).await {
                         Ok(tx_hash) => {
+                            let blocks = last - first + 1;
+                            self.proof_metrics
+                                .settle_batch_seconds
+                                .record(batch_start.elapsed().as_secs_f64());
+                            self.metrics.blocks_per_batch.record(blocks as f64);
+                            self.metrics.batches_settled_total.increment(1);
+                            self.metrics.blocks_settled_total.increment(blocks);
+                            self.metrics.settled_block.set(last as f64);
+
                             info!(
                                 first,
                                 last,
@@ -248,6 +266,7 @@ where
                         }
 
                         Err(error) => {
+                            self.metrics.settlement_failures_total.increment(1);
                             consecutive_failures += 1;
                             error!(
                                 first,
@@ -354,8 +373,16 @@ where
         last: BlockNumber,
     ) -> Result<TxHash, SettlementError> {
         let prev_block = if first == 0 { None } else { Some(first - 1) };
+
+        let proof_start = Instant::now();
         let update = self.backend.prove(prev_block, last).await?;
-        self.piltover.update_state(update).await.map_err(Into::into)
+        self.proof_metrics.proof_generation_seconds.record(proof_start.elapsed().as_secs_f64());
+
+        let update_start = Instant::now();
+        let tx_hash = self.piltover.update_state(update).await?;
+        self.metrics.state_update_seconds.record(update_start.elapsed().as_secs_f64());
+
+        Ok(tx_hash)
     }
 }
 

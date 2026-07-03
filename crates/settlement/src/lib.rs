@@ -20,6 +20,7 @@
 pub mod backend;
 mod config;
 pub mod error;
+mod metrics;
 mod piltover;
 mod service;
 
