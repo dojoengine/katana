@@ -99,6 +99,7 @@ impl TeeProver {
                 .await
                 .map_err(|_| TeeProverError::Timeout(PROOF_GENERATION_TIMEOUT))??;
 
+                record_proof_cost(&proof, attestation);
                 onchain_proof_to_calldata(&proof)
             }
         }
@@ -214,6 +215,63 @@ impl TeeProver {
             TeeProverError::ProofGenerationFailed(format!("SP1 proof task panicked: {e}"))
         })?
     }
+}
+
+/// Records the proof-generation cost, when the SP1 prover network reported it (the mock prover and
+/// off-network proving report no cost, so this is a no-op there). Recorded here — the only place
+/// the [`OnchainProof`] and its cost are in scope — rather than in the backend-agnostic settlement
+/// service.
+///
+/// The cost is emitted two ways: as aggregate `katana_settlement_sp1_proof_*` histograms (for
+/// dashboards and alerting), and as a per-proof `info` log carrying the settled block range. The
+/// metrics carry no block label on purpose — a block number is unbounded cardinality — so the log
+/// is how you attribute a specific cost to the batch `(prev_block, block]` that incurred it.
+fn record_proof_cost(proof: &OnchainProof, attestation: &BlockAttestation) {
+    use std::sync::Once;
+
+    use metrics::{describe_histogram, histogram};
+
+    static DESCRIBE: Once = Once::new();
+    DESCRIBE.call_once(|| {
+        describe_histogram!(
+            "settlement.sp1_proof_cycles",
+            "RISC-V cycles executed to generate an SP1 settlement proof."
+        );
+        describe_histogram!(
+            "settlement.sp1_proof_gas_used",
+            "Prover-network gas (PGU) billed for an SP1 settlement proof."
+        );
+        describe_histogram!(
+            "settlement.sp1_proof_gas_price",
+            "Prover-network gas price (PROVE base units per PGU) at settlement time."
+        );
+    });
+
+    let Some(cost) = &proof.raw_proof.cost else { return };
+
+    if let Some(cycles) = cost.cycles {
+        histogram!("settlement.sp1_proof_cycles").record(cycles as f64);
+    }
+    if let Some(gas_used) = cost.gas_used {
+        histogram!("settlement.sp1_proof_gas_used").record(gas_used as f64);
+    }
+    if let Some(gas_price) = cost.gas_price {
+        histogram!("settlement.sp1_proof_gas_price").record(gas_price as f64);
+    }
+
+    // Per-range attribution: `prev_block` is `None` for the genesis batch (its `Felt::MAX`
+    // sentinel does not fit a `u64`).
+    let block = u64::try_from(attestation.block_number).unwrap_or_default();
+    let prev_block = u64::try_from(attestation.prev_block_number).ok();
+    info!(
+        ?prev_block,
+        block,
+        cycles = ?cost.cycles,
+        gas_used = ?cost.gas_used,
+        gas_price = ?cost.gas_price,
+        deduction_amount = ?cost.deduction_amount,
+        "SP1 proof generation cost."
+    );
 }
 
 /// Converts an [`OnchainProof`] into the Garaga Groth16 calldata felts that Piltover's SP1
