@@ -791,7 +791,7 @@ dependencies = [
 [[package]]
 name = "amd-sev-snp-attestation-prover"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=a4fdff0037b84c52a5b283e460eb7e26462fe593#a4fdff0037b84c52a5b283e460eb7e26462fe593"
+source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=6d5d610ff458c358bcbbc0a751a53e9f3472500c#6d5d610ff458c358bcbbc0a751a53e9f3472500c"
 dependencies = [
  "alloy-network",
  "alloy-primitives",
@@ -819,7 +819,7 @@ dependencies = [
 [[package]]
 name = "amd-sev-snp-attestation-verifier"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=a4fdff0037b84c52a5b283e460eb7e26462fe593#a4fdff0037b84c52a5b283e460eb7e26462fe593"
+source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=6d5d610ff458c358bcbbc0a751a53e9f3472500c#6d5d610ff458c358bcbbc0a751a53e9f3472500c"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -3979,7 +3979,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5058,7 +5058,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5327,7 +5327,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6472,7 +6472,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -6877,7 +6877,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9346,7 +9346,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9558,7 +9558,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 1.3.1",
+ "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.118",
@@ -11159,7 +11159,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls 0.23.41",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -11196,7 +11196,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tracing",
  "windows-sys 0.59.0",
 ]
@@ -12298,7 +12298,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -14003,7 +14003,7 @@ dependencies = [
 [[package]]
 name = "sp1-methods"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=a4fdff0037b84c52a5b283e460eb7e26462fe593#a4fdff0037b84c52a5b283e460eb7e26462fe593"
+source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=6d5d610ff458c358bcbbc0a751a53e9f3472500c#6d5d610ff458c358bcbbc0a751a53e9f3472500c"
 dependencies = [
  "lazy_static",
  "sp1-build",
@@ -15258,7 +15258,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -15267,7 +15267,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8c27177b12a6399ffc08b98f76f7c9a1f4fe9fc967c784c5a071fa8d93cf7e1"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -16746,7 +16746,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -17294,7 +17294,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -17362,7 +17362,7 @@ dependencies = [
 [[package]]
 name = "x509-verifier-rust-crypto"
 version = "0.1.0"
-source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=a4fdff0037b84c52a5b283e460eb7e26462fe593#a4fdff0037b84c52a5b283e460eb7e26462fe593"
+source = "git+https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk?rev=6d5d610ff458c358bcbbc0a751a53e9f3472500c#6d5d610ff458c358bcbbc0a751a53e9f3472500c"
 dependencies = [
  "alloy-primitives",
  "anyhow",
