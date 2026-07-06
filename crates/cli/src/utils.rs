@@ -63,12 +63,16 @@ pub fn prompt_db_migration(path: &PathBuf) -> Result<bool> {
 }
 
 /// Default per-target log levels used when `RUST_LOG` is unset.
+///
+/// The `sp1_sdk::network::prover=info` entry keeps the Succinct prover-network submit log
+/// — `Created request <request_id> in transaction <tx_hash>` — captured for every SP1
+/// settlement proof, independent of the trailing global default.
 pub const DEFAULT_LOG_FILTER: &str =
     "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
      executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
      node=error,explorer=info,rpc=trace,pool=trace,katana_stage::downloader=trace,\
      katana_paymaster=trace,middleware::cartridge=trace,middleware::cartridge::vrf=trace,\
-     rpc::cartridge=debug,info";
+     rpc::cartridge=debug,sp1_sdk::network::prover=info,info";
 
 /// Builds the [`EnvFilter`] used by the node binaries: honors `RUST_LOG` when set,
 /// otherwise falls back to [`DEFAULT_LOG_FILTER`].
@@ -414,6 +418,12 @@ mod tests {
     fn parse_genesis_file() {
         let path = "./test-data/genesis.json";
         parse_genesis(path).unwrap();
+    }
+
+    #[test]
+    fn default_log_filter_parses() {
+        // A malformed directive would otherwise only surface at node startup.
+        EnvFilter::try_new(DEFAULT_LOG_FILTER).unwrap();
     }
 
     #[test]

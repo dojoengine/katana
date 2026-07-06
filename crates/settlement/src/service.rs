@@ -9,9 +9,10 @@
 use std::sync::Arc;
 
 use katana_primitives::block::BlockNumber;
+use katana_primitives::settlement::ProofId;
 use katana_primitives::transaction::TxHash;
 use katana_provider::api::block::BlockNumberProvider;
-use katana_provider::api::settlement::SettlementCheckpointWriter;
+use katana_provider::api::settlement::{SettlementCheckpointWriter, SettlementProofWriter};
 use katana_provider::{MutableProvider, ProviderFactory};
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
@@ -58,7 +59,8 @@ impl<P, N> SettlementService<P, N>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
     <P as ProviderFactory>::Provider: BlockNumberProvider,
-    <P as ProviderFactory>::ProviderMut: SettlementCheckpointWriter + MutableProvider,
+    <P as ProviderFactory>::ProviderMut:
+        SettlementCheckpointWriter + SettlementProofWriter + MutableProvider,
     N: Clone + Send + 'static,
 {
     /// Start the settlement service.
@@ -174,6 +176,26 @@ where
     }
 }
 
+/// Persists the block -> proof mapping for the settled range `[first, last]` to the durable
+/// [`tables::SettlementProofs`] index, read back by the `katana_getBlockProof` RPC. Every block in
+/// the batch was settled by the same proof, so they all map to `proof`. Best-effort, matching
+/// [`persist_settled_block`]: a failed write is logged but never stalls settlement.
+///
+/// [`tables::SettlementProofs`]: katana_db::tables::SettlementProofs
+fn persist_block_proofs<P>(provider: &P, first: BlockNumber, last: BlockNumber, proof: ProofId)
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: SettlementProofWriter + MutableProvider,
+{
+    let db = provider.provider_mut();
+    let result = (first..=last)
+        .try_for_each(|block| db.set_block_proof(block, proof.clone()))
+        .and_then(|()| db.commit());
+    if let Err(error) = result {
+        warn!(%error, first, last, "Failed to persist block -> proof mapping.");
+    }
+}
+
 /// What the settle loop should do next, given the current durable state.
 #[derive(Debug, PartialEq, Eq)]
 enum Action {
@@ -212,7 +234,8 @@ impl<P> Worker<P>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: BlockNumberProvider,
-    <P as ProviderFactory>::ProviderMut: SettlementCheckpointWriter + MutableProvider,
+    <P as ProviderFactory>::ProviderMut:
+        SettlementCheckpointWriter + SettlementProofWriter + MutableProvider,
 {
     async fn run<N: Clone>(
         mut self,
@@ -241,7 +264,7 @@ where
                 Action::Settle { first, last } => {
                     let batch_start = Instant::now();
                     match self.settle_batch(first, last).await {
-                        Ok(tx_hash) => {
+                        Ok((tx_hash, proof)) => {
                             let blocks = last - first + 1;
                             self.proof_metrics
                                 .settle_batch_seconds
@@ -255,10 +278,17 @@ where
                                 first,
                                 last,
                                 tx_hash = %format!("{tx_hash:#x}"),
+                                proof = ?proof,
                                 "Settled block range."
                             );
                             self.cursor = Some(last);
                             persist_settled_block(&self.provider, last);
+                            // Record which proof settled each block in the batch. Backends without
+                            // a proof reference (e.g. mock proving)
+                            // report `None`.
+                            if let Some(proof) = proof {
+                                persist_block_proofs(&self.provider, first, last, proof);
+                            }
                             idle_deadline = Instant::now() + self.idle_flush_interval;
                             backoff = RETRY_BACKOFF_MIN;
                             consecutive_failures = 0;
@@ -367,28 +397,51 @@ where
     }
 
     /// Prove and settle the inclusive block range `[first, last]`.
+    ///
+    /// Returns the settlement-chain transaction hash and a reference to the proof that settled the
+    /// batch (`None` for mock / off-network proving).
     async fn settle_batch(
         &self,
         first: BlockNumber,
         last: BlockNumber,
-    ) -> Result<TxHash, SettlementError> {
+    ) -> Result<(TxHash, Option<ProofId>), SettlementError> {
         let prev_block = if first == 0 { None } else { Some(first - 1) };
 
         let proof_start = Instant::now();
-        let update = self.backend.prove(prev_block, last).await?;
+        let (update, proof) = self.backend.prove(prev_block, last).await?;
         self.proof_metrics.proof_generation_seconds.record(proof_start.elapsed().as_secs_f64());
 
         let update_start = Instant::now();
         let tx_hash = self.piltover.update_state(update).await?;
         self.metrics.state_update_seconds.record(update_start.elapsed().as_secs_f64());
 
-        Ok(tx_hash)
+        Ok((tx_hash, proof))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{next_action, Action};
+    use super::{next_action, persist_block_proofs, Action};
+
+    #[test]
+    fn persist_block_proofs_maps_every_block_in_range() {
+        use katana_primitives::settlement::ProofId;
+        use katana_provider::api::settlement::SettlementProofProvider;
+        use katana_provider::{DbProviderFactory, ProviderFactory};
+
+        let factory = DbProviderFactory::new_in_memory();
+        let proof = ProofId::new(vec![0x11; 32]);
+
+        // A batch settling blocks 5..=8 maps every block to the same proof.
+        persist_block_proofs(&factory, 5, 8, proof.clone());
+
+        for block in 5..=8 {
+            assert_eq!(factory.provider().block_proof(block).unwrap(), Some(proof.clone()));
+        }
+        // Blocks outside the settled range stay unmapped.
+        assert_eq!(factory.provider().block_proof(4).unwrap(), None);
+        assert_eq!(factory.provider().block_proof(9).unwrap(), None);
+    }
 
     #[test]
     fn nothing_settled() {

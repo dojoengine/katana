@@ -1,6 +1,7 @@
 use katana_primitives::contract::GenericContractInfo;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
+use katana_primitives::settlement::ProofId;
 use katana_primitives::state::StateUpdates;
 use katana_primitives::Felt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -108,6 +109,7 @@ impl_compress_and_decompress_for_table_values!(
     MigrationCheckpoint,
     PruningCheckpoint,
     SettlementCheckpoint,
+    ProofId,
     HistoricalStateRetention,
     GenericContractInfo,
     StoredBlockBodyIndices,
@@ -144,6 +146,17 @@ mod tests {
             <Receipt as Decompress>::decompress(compressed).expect("failed to decompress receipt");
 
         assert_eq!(decompressed, receipt);
+    }
+
+    #[test]
+    fn proof_id_roundtrip() {
+        use katana_primitives::settlement::ProofId;
+
+        let proof = ProofId::new(vec![0xab; 32]);
+        let compressed = proof.clone().compress().expect("failed to compress proof id");
+        let decompressed =
+            <ProofId as Decompress>::decompress(compressed).expect("failed to decompress proof id");
+        assert_eq!(decompressed, proof);
     }
 
     #[test]

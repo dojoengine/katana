@@ -29,6 +29,7 @@ use katana_primitives::contract::{ContractAddress, GenericContractInfo};
 use katana_primitives::env::BlockEnv;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
+use katana_primitives::settlement::ProofId;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_provider_api::block::{
@@ -39,7 +40,10 @@ use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::messaging::{
     self, MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
 };
-use katana_provider_api::settlement::{SettlementCheckpointProvider, SettlementCheckpointWriter};
+use katana_provider_api::settlement::{
+    SettlementCheckpointProvider, SettlementCheckpointWriter, SettlementProofProvider,
+    SettlementProofWriter,
+};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::state::HistoricalStateRetentionProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
@@ -993,6 +997,19 @@ impl<Tx: DbTxMut> SettlementCheckpointWriter for DbProvider<Tx> {
     }
 }
 
+impl<Tx: DbTx> SettlementProofProvider for DbProvider<Tx> {
+    fn block_proof(&self, block: BlockNumber) -> ProviderResult<Option<ProofId>> {
+        Ok(self.0.get::<tables::SettlementProofs>(block)?)
+    }
+}
+
+impl<Tx: DbTxMut> SettlementProofWriter for DbProvider<Tx> {
+    fn set_block_proof(&self, block: BlockNumber, proof: ProofId) -> ProviderResult<()> {
+        self.0.put::<tables::SettlementProofs>(block, proof)?;
+        Ok(())
+    }
+}
+
 pub const STATE_HISTORY_RETENTION_KEY: u64 = 0;
 pub const STATE_TRIE_HISTORY_RETENTION_KEY: u64 = 1;
 
@@ -1046,6 +1063,7 @@ mod tests {
     use katana_primitives::execution::TypedTransactionExecutionInfo;
     use katana_primitives::fee::FeeInfo;
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
+    use katana_primitives::settlement::ProofId;
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxWithHash};
     use katana_primitives::{address, felt};
@@ -1053,7 +1071,8 @@ mod tests {
         BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     };
     use katana_provider_api::settlement::{
-        SettlementCheckpointProvider, SettlementCheckpointWriter,
+        SettlementCheckpointProvider, SettlementCheckpointWriter, SettlementProofProvider,
+        SettlementProofWriter,
     };
     use katana_provider_api::state::StateFactoryProvider;
     use katana_provider_api::transaction::TransactionProvider;
@@ -1143,6 +1162,28 @@ mod tests {
         writer.set_settled_block(42).unwrap();
         writer.commit().unwrap();
         assert_eq!(factory.provider().settled_block().unwrap(), Some(42));
+    }
+
+    #[test]
+    fn settlement_proof_roundtrip() {
+        let factory = create_db_provider();
+
+        // Absent until the settlement service writes.
+        assert_eq!(factory.provider().block_proof(5).unwrap(), None);
+
+        // A batch settling blocks 5..=7 writes the same proof reference for every block.
+        let proof = ProofId::new(vec![0xcd; 32]);
+        let writer = factory.provider_mut();
+        for block in 5..=7 {
+            writer.set_block_proof(block, proof.clone()).unwrap();
+        }
+        writer.commit().unwrap();
+
+        for block in 5..=7 {
+            assert_eq!(factory.provider().block_proof(block).unwrap(), Some(proof.clone()));
+        }
+        // Unsettled blocks stay absent.
+        assert_eq!(factory.provider().block_proof(8).unwrap(), None);
     }
 
     #[test]

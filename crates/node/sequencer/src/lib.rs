@@ -38,7 +38,10 @@ use katana_primitives::Felt;
 use katana_provider::api::messaging::{
     MessagingCheckpointProvider, MessagingL1ToL2IndexProvider, MessagingL1ToL2IndexWriter,
 };
-use katana_provider::api::settlement::{SettlementCheckpointProvider, SettlementCheckpointWriter};
+use katana_provider::api::settlement::{
+    SettlementCheckpointProvider, SettlementCheckpointWriter, SettlementProofProvider,
+    SettlementProofWriter,
+};
 use katana_provider::{
     DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory, ProviderRO,
     ProviderRW,
@@ -124,12 +127,15 @@ where
 impl<P> Node<P>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
-    <P as ProviderFactory>::Provider:
-        ProviderRO + MessagingL1ToL2IndexProvider + SettlementCheckpointProvider,
+    <P as ProviderFactory>::Provider: ProviderRO
+        + MessagingL1ToL2IndexProvider
+        + SettlementCheckpointProvider
+        + SettlementProofProvider,
     <P as ProviderFactory>::ProviderMut: ProviderRW
         + MessagingCheckpointProvider
         + MessagingL1ToL2IndexWriter
         + SettlementCheckpointWriter
+        + SettlementProofWriter
         + MutableProvider,
 {
     /// Build the node components from the given [`Config`].
@@ -798,6 +804,7 @@ where
         + MessagingCheckpointProvider
         + MessagingL1ToL2IndexWriter
         + SettlementCheckpointWriter
+        + SettlementProofWriter
         + MutableProvider,
 {
     /// Start the node.
