@@ -278,9 +278,9 @@ paymaster-service = { git = "https://github.com/cartridge-gg/paymaster", rev = "
 
 
 # AMD SEV-SNP SDKs
-amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "6d5d610ff458c358bcbbc0a751a53e9f3472500c", default-features = false }
-amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "6d5d610ff458c358bcbbc0a751a53e9f3472500c" }
-x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "6d5d610ff458c358bcbbc0a751a53e9f3472500c" }
+amd-sev-snp-attestation-prover = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "4ce5017721f03a199e922d989476ed3f2d071a90", default-features = false }
+amd-sev-snp-attestation-verifier = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "4ce5017721f03a199e922d989476ed3f2d071a90" }
+x509-verifier-rust-crypto = { git = "https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk", rev = "4ce5017721f03a199e922d989476ed3f2d071a90" }
 
 garaga_rs = { git = "https://github.com/cartridge-gg/garaga.git", rev = "061394abce25b1e6e993a7e65ee8eade4f718f96" }
 

@@ -2,6 +2,7 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
+use katana_primitives::settlement::ProofId;
 use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
@@ -59,7 +60,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 40;
+pub const NUM_TABLES: usize = 41;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -199,7 +200,8 @@ define_tables_enum! {[
     (MigrationCheckpoints, TableType::Table),
     (MessagingCheckpoints, TableType::Table),
     (MessagingL1ToL2, TableType::DupSort),
-    (SettlementCheckpoints, TableType::Table)
+    (SettlementCheckpoints, TableType::Table),
+    (SettlementProofs, TableType::Table)
 ]}
 
 tables! {
@@ -300,7 +302,11 @@ tables! {
 
     /// Embedded settlement service progress: the most recent block settled to the settlement
     /// chain. A singleton, keyed by a constant (see `SETTLEMENT_CHECKPOINT_KEY`).
-    SettlementCheckpoints: (u64) => SettlementCheckpoint
+    SettlementCheckpoints: (u64) => SettlementCheckpoint,
+
+    /// Maps each settled block to a prover-agnostic reference to the proof that settled it. Every
+    /// block in a settled batch maps to that batch's single proof.
+    SettlementProofs: (u64) => ProofId
 }
 
 impl Trie for ClassesTrie {
@@ -366,6 +372,7 @@ mod tests {
         assert_eq!(Tables::ALL[37].name(), MessagingCheckpoints::NAME);
         assert_eq!(Tables::ALL[38].name(), MessagingL1ToL2::NAME);
         assert_eq!(Tables::ALL[39].name(), SettlementCheckpoints::NAME);
+        assert_eq!(Tables::ALL[40].name(), SettlementProofs::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockStateUpdates.table_type(), TableType::Table);
@@ -407,6 +414,7 @@ mod tests {
         assert_eq!(Tables::MessagingCheckpoints.table_type(), TableType::Table);
         assert_eq!(Tables::MessagingL1ToL2.table_type(), TableType::DupSort);
         assert_eq!(Tables::SettlementCheckpoints.table_type(), TableType::Table);
+        assert_eq!(Tables::SettlementProofs.table_type(), TableType::Table);
     }
 
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};

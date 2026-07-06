@@ -1,10 +1,11 @@
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
+use katana_primitives::block::BlockNumber;
 use katana_rpc_types::broadcasted::{
     BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx,
 };
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::settlement::SettlementStatus;
+use katana_rpc_types::settlement::{BlockProof, SettlementStatus};
 
 /// Katana-specific JSON-RPC methods.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "katana"))]
@@ -57,4 +58,9 @@ pub trait KatanaSettlementApi {
     /// Always succeeds: on a node that does not settle, both are `0`.
     #[method(name = "settlementStatus")]
     async fn settlement_status(&self) -> RpcResult<SettlementStatus>;
+
+    /// Returns the SP1 proof that settled the given block, identified by its Succinct
+    /// prover-network request ID, or `null` if the block has not been settled with a network proof.
+    #[method(name = "getBlockProof")]
+    async fn get_block_proof(&self, block: BlockNumber) -> RpcResult<Option<BlockProof>>;
 }

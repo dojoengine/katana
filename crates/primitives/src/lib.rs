@@ -13,6 +13,7 @@ pub mod execution;
 pub mod fee;
 pub mod message;
 pub mod receipt;
+pub mod settlement;
 pub mod transaction;
 pub mod version;
 

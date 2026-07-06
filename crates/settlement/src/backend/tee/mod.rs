@@ -17,6 +17,7 @@ use cainome::cairo_serde::ContractAddress as CainomeContractAddress;
 use katana_chain_spec::tee::compute_katana_tee_config_hash;
 use katana_chain_spec::ChainSpec;
 use katana_primitives::block::BlockNumber;
+use katana_primitives::settlement::ProofId;
 use katana_primitives::utils::transaction::compute_starknet_to_appchain_message_hash;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, HeaderProvider};
@@ -81,7 +82,7 @@ where
         &self,
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
-    ) -> Result<PiltoverInput, SettlementError> {
+    ) -> Result<(PiltoverInput, Option<ProofId>), SettlementError> {
         let attestation = {
             let provider = self.provider.provider();
             build_block_attestation(
@@ -94,9 +95,13 @@ where
             )?
         };
 
-        let sp1_proof = self.prover.prove(&attestation).await?;
+        let (sp1_proof, request_id) = self.prover.prove(&attestation).await?;
 
-        Ok(build_tee_input(&attestation, sp1_proof))
+        // The settlement service persists this opaque id without knowing any SP1 specifics; the
+        // prover type is a node-level constant, inferable from config.
+        let proof = request_id.map(|id| ProofId::new(id.as_slice().to_vec()));
+
+        Ok((build_tee_input(&attestation, sp1_proof), proof))
     }
 }
 

@@ -15,6 +15,7 @@ pub mod tee;
 
 use async_trait::async_trait;
 use katana_primitives::block::BlockNumber;
+use katana_primitives::settlement::ProofId;
 use piltover::PiltoverInput;
 
 use crate::error::SettlementError;
@@ -34,7 +35,8 @@ pub trait ProvingBackend: Send + Sync {
     fn proof_type(&self) -> &'static str;
 
     /// Builds the `update_state` payload settling the state transition
-    /// `(prev_block, block]`.
+    /// `(prev_block, block]`, along with an optional [`ProofId`] to the
+    /// generated proof (`None` for backends/modes without one, e.g. mock).
     ///
     /// `prev_block = None` is the genesis case: nothing has been settled yet
     /// and the range starts at block 0.
@@ -42,5 +44,5 @@ pub trait ProvingBackend: Send + Sync {
         &self,
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
-    ) -> Result<PiltoverInput, SettlementError>;
+    ) -> Result<(PiltoverInput, Option<ProofId>), SettlementError>;
 }

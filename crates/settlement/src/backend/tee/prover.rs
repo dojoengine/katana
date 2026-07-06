@@ -15,7 +15,7 @@ use amd_sev_snp_attestation_prover::{
 };
 use amd_sev_snp_attestation_verifier::stub::ProcessorType;
 use amd_sev_snp_attestation_verifier::AttestationReport;
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::{ContractAddress, Felt, B256};
 use katana_rpc_types::tee::BlockAttestation;
 use katana_tee::amd::report::AttestationReportBytes;
 use katana_tee::amd::{prepare_verifier_input_with_storage, OnchainProof, StarknetRegistryClient};
@@ -69,8 +69,12 @@ pub enum TeeProver {
 }
 
 impl TeeProver {
-    /// Produces the felts for `TEEInput.sp1_proof` from the given attestation.
-    pub async fn prove(&self, attestation: &BlockAttestation) -> Result<Vec<Felt>, TeeProverError> {
+    /// Produces the felts for `TEEInput.sp1_proof` from the given attestation, along with the
+    /// Succinct prover-network request ID of the proof (`None` for mock / off-network proving).
+    pub async fn prove(
+        &self,
+        attestation: &BlockAttestation,
+    ) -> Result<(Vec<Felt>, Option<B256>), TeeProverError> {
         match self {
             Self::Mock => {
                 // The mock journal carries the exact v1 commitment Piltover recomputes from the
@@ -88,7 +92,10 @@ impl TeeProver {
 
                 debug!(%commitment, "Synthesized mock proof journal.");
 
-                Ok(mock::serialize_mock_journal(commitment, attestation.katana_tee_config_hash))
+                Ok((
+                    mock::serialize_mock_journal(commitment, attestation.katana_tee_config_hash),
+                    None,
+                ))
             }
 
             Self::Sp1 { settlement_rpc, tee_registry, prover_key } => {
@@ -100,7 +107,9 @@ impl TeeProver {
                 .map_err(|_| TeeProverError::Timeout(PROOF_GENERATION_TIMEOUT))??;
 
                 record_proof_cost(&proof, attestation);
-                onchain_proof_to_calldata(&proof)
+                let request_id = proof.raw_proof.request_id;
+                let calldata = onchain_proof_to_calldata(&proof)?;
+                Ok((calldata, request_id))
             }
         }
     }
