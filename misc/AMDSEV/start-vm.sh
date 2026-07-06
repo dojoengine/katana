@@ -9,7 +9,8 @@
 #    disk packed from --chain-dir
 # 2. Creates and attaches a data disk as /dev/sda
 # 3. Optionally starts Katana asynchronously via a virtio-serial control channel
-# 4. Forwards RPC port to host
+# 4. Forwards the RPC port, and the metrics port when --katana-args carries
+#    --metrics.port, to the host
 #
 # ==============================================================================
 # LAUNCH MEASUREMENT INPUTS
@@ -71,7 +72,12 @@ usage() {
     echo "Options:"
     echo "  --katana-args CSV     Comma-separated Katana CLI args, delivered to the"
     echo "                        guest via QEMU fw_cfg (opt/org.katana/args). NOT part"
-    echo "                        of the launch measurement."
+    echo "                        of the launch measurement. These args are also the"
+    echo "                        single source of truth for the metrics forward: if"
+    echo "                        they carry --metrics.port PORT (with --metrics.addr"
+    echo "                        0.0.0.0), start-vm forwards that metrics port to the"
+    echo "                        host. Metrics are on by default; drop --metrics.port"
+    echo "                        to skip the forward."
     echo "  --chain-dir DIR       Directory with chain config files. Packed into a"
     echo "                        small ext2 image at boot and attached as a read-only"
     echo "                        virtio-blk disk; the guest mounts it and passes the"
@@ -80,6 +86,10 @@ usage() {
     echo "                        path is prohibitively slow under SEV-SNP for multi-MB"
     echo "                        blobs (e.g., a Cartridge-Controller-enabled genesis"
     echo "                        ~18 MB). NOT part of the launch measurement."
+    echo "  --rpc-host-port PORT  Host port forwarded to the guest RPC port (5050)."
+    echo "                        Default: 15051. Env: HOST_RPC_PORT."
+    echo "                        (Metrics forwarding is not a flag — it is derived from"
+    echo "                        --metrics.port in --katana-args; see above.)"
     echo "  --no-start            Boot VM without sending Katana start command"
     echo "  --data-disk PATH      Persistent data disk file attached as /dev/sda"
     echo "                        (default: ~/.katana/data.img, auto-created if absent)"
@@ -114,7 +124,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OVMF_FILE=""
 KERNEL_FILE=""
 INITRD_FILE=""
-KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp"
+# Metrics are enabled by default (the enclave serves Prometheus metrics). The
+# --metrics.port here is also what drives the host port forward below — drop it
+# (or override via --katana-args) to disable the forward. --metrics.addr must be
+# 0.0.0.0 so the host forward can reach the in-guest server.
+KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,9100"
 CHAIN_DIR=""
 AUTO_START_KATANA=1
 DATA_DISK="${KATANA_DATA_DISK:-}"
@@ -127,6 +141,16 @@ LUKS_UUID_FILE="${HOME}/.katana/luks-uuid"
 # Sealed storage section of docs/amdsev.md). Opt in with --sealed.
 UNSEALED=1
 SEAL_MODE_EXPLICIT=""
+
+# Networking. KATANA_RPC_PORT is the guest port Katana serves RPC on (matches
+# --http.port in --katana-args, 5050 by convention); HOST_RPC_PORT is the host
+# port QEMU forwards it to (overridable by flag or env). The metrics forward is
+# NOT configured here — it is derived from --metrics.port in --katana-args (see
+# the metrics port-forward block below), keeping the Katana args the single
+# source of truth. None of this affects the launch measurement — Katana args
+# ride fw_cfg (unmeasured) and port forwards are host networking.
+KATANA_RPC_PORT=5050
+HOST_RPC_PORT="${HOST_RPC_PORT:-15051}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -218,6 +242,15 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
 
+        --rpc-host-port)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --rpc-host-port requires a value"
+                exit 1
+            }
+            HOST_RPC_PORT="$2"
+            shift 2
+            ;;
+
         -h|--help)
             usage
             exit 0
@@ -307,9 +340,9 @@ REDUCED_PHYS_BITS=1
 MEMORY="512M"
 CPU_TYPE="EPYC-v4"
 
-# Networking
-KATANA_RPC_PORT=5050
-HOST_RPC_PORT=15051
+# The RPC networking ports (KATANA_RPC_PORT / HOST_RPC_PORT) are initialised with
+# the other defaults above — before flag parsing — so --rpc-host-port can
+# override the host side. The metrics port is derived from --katana-args, below.
 
 # Katana control channel
 CONTROL_PORT_NAME="org.katana.control.0"
@@ -336,6 +369,41 @@ DISK_SIZE_MB=1024
 
 # Logs
 SERIAL_LOG="$(mktemp /tmp/katana-tee-vm-serial.XXXXXX.log)"
+
+# ------------------------------------------------------------------------------
+# Metrics port forward — DERIVED from --katana-args, not configured on this
+# script. The Katana CLI args are the single source of truth: if they carry
+# --metrics.port PORT, start-vm forwards that guest port to the same host port so
+# the enclave's Prometheus endpoint is reachable. No --metrics.port => no
+# forward. (For the forward to actually reach the server, the args must also set
+# --metrics.addr 0.0.0.0 — the guest default binds loopback, unreachable through
+# QEMU's user networking.) This touches neither fw_cfg nor the launch measurement.
+# ------------------------------------------------------------------------------
+valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
+valid_port "$HOST_RPC_PORT" || { echo "Error: invalid RPC host port: '$HOST_RPC_PORT'"; exit 1; }
+
+# Echo the --metrics.port value from a comma-separated Katana args string
+# (supports "--metrics.port,N" and "--metrics.port=N"), or nothing if absent.
+# Uses `read -ra` rather than `set --` so operator glob values (e.g. the `*` in
+# --http.cors-origins,*) are never pathname-expanded. Kept a standalone function
+# so scripts/test-parse-metrics-port.sh can exercise it directly, without QEMU.
+parse_metrics_port() {
+    local prev="" arg port=""
+    local -a args
+    IFS=',' read -ra args <<< "$1"
+    for arg in "${args[@]}"; do
+        case "$arg" in --metrics.port=*) port="${arg#*=}" ;; esac
+        [[ "$prev" == "--metrics.port" ]] && port="$arg"
+        prev="$arg"
+    done
+    printf '%s' "$port"
+}
+
+# Empty => the metrics forward is skipped.
+METRICS_PORT="$(parse_metrics_port "$KATANA_ARGS_CSV")"
+if [[ -n "$METRICS_PORT" ]]; then
+    valid_port "$METRICS_PORT" || { echo "Error: invalid --metrics.port in --katana-args: '$METRICS_PORT'"; exit 1; }
+fi
 
 # ------------------------------------------------------------------------------
 # Katana launch configuration: fw_cfg (args) + virtio-blk ext2 disk (chain dir)
@@ -563,10 +631,22 @@ else
     echo "  Chain dir:      <none>"
 fi
 echo "  RPC:            localhost:$HOST_RPC_PORT -> VM:$KATANA_RPC_PORT"
+if [[ -n "$METRICS_PORT" ]]; then
+    echo "  Metrics:        localhost:$METRICS_PORT -> VM:$METRICS_PORT"
+else
+    echo "  Metrics:        not forwarded (no --metrics.port in --katana-args)"
+fi
 echo ""
 echo "To compute expected launch measurement:"
 echo "  snp-digest --ovmf=$OVMF_FILE --kernel=$KERNEL_FILE --initrd=$INITRD_FILE \\"
 echo "      --append='$KERNEL_CMDLINE' --vcpus=$VCPU_COUNT --cpu=epyc-v4 --vmm=qemu --guest-features=0x1"
+
+# Assemble the guest->host port forwards for the user netdev: RPC always, plus
+# the metrics port when --katana-args carried a --metrics.port.
+HOSTFWD="hostfwd=tcp::${HOST_RPC_PORT}-:${KATANA_RPC_PORT}"
+if [[ -n "$METRICS_PORT" ]]; then
+    HOSTFWD="${HOSTFWD},hostfwd=tcp::${METRICS_PORT}-:${METRICS_PORT}"
+fi
 
 qemu-system-x86_64 \
     -enable-kvm \
@@ -591,7 +671,7 @@ qemu-system-x86_64 \
     -device virtio-scsi-pci,id=scsi0 \
     -drive file="$DISK_IMAGE",format=raw,if=none,id=disk0,cache=none \
     -device scsi-hd,drive=disk0,bus=scsi0.0 \
-    -netdev user,id=net0,hostfwd=tcp::${HOST_RPC_PORT}-:${KATANA_RPC_PORT} \
+    -netdev "user,id=net0,${HOSTFWD}" \
     -device virtio-net-pci,disable-legacy=on,iommu_platform=true,netdev=net0,romfile= \
     &
 

@@ -60,6 +60,14 @@ jobs:
         # same path end to end but only in the slow amdsev-initrd-test job.
         run: ./scripts/test-strip-reserved-args.sh
 
+      - name: Unit test parse_metrics_port
+        # Fast, no-QEMU regression test for start-vm.sh's metrics port-forward
+        # derivation: extracts parse_metrics_port and asserts it reads
+        # --metrics.port out of --katana-args across forms (word/=, absent,
+        # trailing, duplicate, glob-adjacent). The forward is otherwise only
+        # observable by booting the enclave and scraping /metrics.
+        run: ./scripts/test-parse-metrics-port.sh
+
       - name: actionlint (amdsev workflows only)
         working-directory: .
         run: |
