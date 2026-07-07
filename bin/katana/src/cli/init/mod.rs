@@ -92,15 +92,25 @@ mod slot;
 const MOCK_TEE_REGISTRY_SEPOLIA: Felt =
     felt!("0x037189b1807f1358074b70b3dc8ab79167bbf72cff1296286052f6dfe31c8f15");
 
-/// The canonical AMD TEE registry (`AMDTEERegistry`) deployed on Starknet Sepolia by the
-/// `cartridge-gg/katana-tee` project. It performs real SEV-SNP / SP1 Groth16 attestation
-/// verification, so it pairs with the real prover (`saya-tee`, non-mock). Used to prefill the TEE
-/// registry address when a rollup is initialized with the AMD SEV-SNP + SP1 Groth16 proof on
-/// Sepolia.
+/// The canonical AMD TEE registry (`AMDTEERegistry`) on Starknet Sepolia — the **settling**
+/// registry that pins the production TEE-VM image's SP1 program
+/// `0x0019e70e8ab3f5d697cf5a3194cbb4bcd3e77d1075f1ac53a7db7d90e088363b`. It performs real
+/// SEV-SNP / SP1 Groth16 verification, so it pairs with the real prover (`saya-tee`, non-mock).
+/// Used to prefill the TEE registry address when a rollup is initialized with the AMD SEV-SNP +
+/// SP1 Groth16 proof on Sepolia.
 ///
-/// Source: <https://github.com/cartridge-gg/katana-tee/blob/5b1316cfa4db36954e92241845aaa01d1956fc3b/deployments/sepolia.json#L10>
+/// Source: <https://github.com/cartridge-gg/katana-tee/blob/99b4096cf8f6945d978f6ea95338aa4ffd71c4aa/README.md#sepolia>
 const AMD_TEE_REGISTRY_SEPOLIA: Felt =
-    felt!("0x06ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b");
+    felt!("0x06616163a5221890df1772a504f94d02122a12ed5b4c35ef7480b19b04c73761");
+
+/// The canonical AMD TEE registry (`AMDTEERegistry`) on Starknet mainnet — pins the same
+/// production SP1 program `0x0019e70e…` as the Sepolia settling registry above. Used to prefill
+/// the TEE registry address when a rollup is initialized with the AMD SEV-SNP + SP1 Groth16 proof
+/// on mainnet.
+///
+/// Source: <https://github.com/cartridge-gg/katana-tee/blob/99b4096cf8f6945d978f6ea95338aa4ffd71c4aa/deployments/mainnet.json#L11>
+const AMD_TEE_REGISTRY_MAINNET: Felt =
+    felt!("0x04ec71aee9b92315ec2a7368eace15fd82fd816dd74ce9d0afcfc7077cf9fe2d");
 
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]

@@ -16,8 +16,8 @@ use starknet::signers::{LocalWallet, SigningKey};
 use tokio::runtime::Handle;
 
 use super::{
-    deployment, PersistentOutcome, ProofImpl, SovereignOutcome, AMD_TEE_REGISTRY_SEPOLIA,
-    MOCK_TEE_REGISTRY_SEPOLIA,
+    deployment, PersistentOutcome, ProofImpl, SovereignOutcome, AMD_TEE_REGISTRY_MAINNET,
+    AMD_TEE_REGISTRY_SEPOLIA, MOCK_TEE_REGISTRY_SEPOLIA,
 };
 use crate::cli::init::deployment::DeploymentOutcome;
 use crate::cli::init::slot::{self, PaymasterAccountArgs};
@@ -111,19 +111,22 @@ pub async fn prompt_rollup() -> Result<PersistentOutcome> {
         let mut prompt = CustomType::<ContractAddress>::new("TEE registry address")
             .with_help_message("Address of the IAMDTeeRegistry contract on the settlement chain.");
 
-        // The canonical TEE registries are already deployed on Sepolia, so prefill the matching
-        // address as the default. It stays editable in case the operator points at their own
-        // deployment. The mock registry pairs with the mock prover; the AMD registry performs real
-        // SEV-SNP / SP1 Groth16 verification.
-        if matches!(network_type, SettlementChainOpt::Sepolia) {
-            let sepolia_default = match proof_impl {
-                ProofImpl::MockTee => Some(MOCK_TEE_REGISTRY_SEPOLIA),
-                ProofImpl::AmdSevSnpSp1Groth16 => Some(AMD_TEE_REGISTRY_SEPOLIA),
-                ProofImpl::Stark => None,
-            };
-            if let Some(addr) = sepolia_default {
-                prompt = prompt.with_default(ContractAddress::from(addr));
+        // The canonical TEE registries are already deployed, so prefill the matching address as
+        // the default. It stays editable in case the operator points at their own deployment. The
+        // mock registry pairs with the mock prover; the AMD registries perform real SEV-SNP / SP1
+        // Groth16 verification and pin the production TEE-VM image's SP1 program.
+        let registry_default = match (&network_type, proof_impl) {
+            (SettlementChainOpt::Sepolia, ProofImpl::MockTee) => Some(MOCK_TEE_REGISTRY_SEPOLIA),
+            (SettlementChainOpt::Sepolia, ProofImpl::AmdSevSnpSp1Groth16) => {
+                Some(AMD_TEE_REGISTRY_SEPOLIA)
             }
+            (SettlementChainOpt::Mainnet, ProofImpl::AmdSevSnpSp1Groth16) => {
+                Some(AMD_TEE_REGISTRY_MAINNET)
+            }
+            _ => None,
+        };
+        if let Some(addr) = registry_default {
+            prompt = prompt.with_default(ContractAddress::from(addr));
         }
 
         Some(prompt.prompt()?)
