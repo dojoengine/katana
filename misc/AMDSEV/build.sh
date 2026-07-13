@@ -78,6 +78,13 @@ function usage()
 	echo "  --mkfs-ext2 PATH        Path to a static mkfs.ext2 binary (optional; auto-built"
 	echo "                          via build-cryptsetup.sh if not provided). Required for"
 	echo "                          sealed-mode initrd."
+	echo "  --paymaster-bin PATH    Path to a prebuilt paymaster-service binary (optional;"
+	echo "                          katana release asset). Bundled into the initrd so the"
+	echo "                          guest supports --paymaster. Release images always"
+	echo "                          bundle it. Both-or-neither with --vrf-bin."
+	echo "  --vrf-bin PATH          Path to a prebuilt vrf-server binary (optional; katana"
+	echo "                          release asset). Bundled into the initrd so the guest"
+	echo "                          supports --vrf. Both-or-neither with --paymaster-bin."
 	echo "  -h|--help               Usage information"
 	echo ""
 	echo "COMPONENTS (if none specified, builds all):"
@@ -126,6 +133,20 @@ while [ -n "$1" ]; do
 	--mkfs-ext2)
 		[ -z "$2" ] && usage
 		export MKFS_EXT2_BINARY="$2"
+		shift; shift
+		;;
+	--paymaster-bin)
+		[ -z "$2" ] && usage
+		# Same export rationale as --snp-derivekey: build-initrd.sh runs
+		# as a child process and reads PAYMASTER_BINARY from the env. No
+		# auto-build fallback — the sidecars are prebuilt katana release
+		# assets, not vendored source.
+		export PAYMASTER_BINARY="$2"
+		shift; shift
+		;;
+	--vrf-bin)
+		[ -z "$2" ] && usage
+		export VRF_BINARY="$2"
 		shift; shift
 		;;
 	-h|--help)
@@ -314,6 +335,8 @@ INFO_GLIBC_RUNTIME_PACKAGE_SHA256S=""
 INFO_GLIBC_VERSION=""
 INFO_KERNEL_MODULES_EXTRA_PKG_SHA256=""
 INFO_KATANA_BINARY_SHA256=""
+INFO_PAYMASTER_BINARY_SHA256=""
+INFO_VRF_BINARY_SHA256=""
 INFO_OVMF_SHA256=""
 INFO_KERNEL_SHA256=""
 INFO_INITRD_SHA256=""
@@ -336,6 +359,8 @@ if [ -f "$BUILD_INFO" ]; then
 			GLIBC_VERSION) INFO_GLIBC_VERSION="$value" ;;
 			KERNEL_MODULES_EXTRA_PKG_SHA256) INFO_KERNEL_MODULES_EXTRA_PKG_SHA256="$value" ;;
 			KATANA_BINARY_SHA256) INFO_KATANA_BINARY_SHA256="$value" ;;
+			PAYMASTER_BINARY_SHA256) INFO_PAYMASTER_BINARY_SHA256="$value" ;;
+			VRF_BINARY_SHA256) INFO_VRF_BINARY_SHA256="$value" ;;
 			OVMF_SHA256) INFO_OVMF_SHA256="$value" ;;
 			KERNEL_SHA256) INFO_KERNEL_SHA256="$value" ;;
 			INITRD_SHA256) INFO_INITRD_SHA256="$value" ;;
@@ -371,6 +396,8 @@ if [ $BUILD_INITRD -eq 1 ]; then
 	INFO_GLIBC_RUNTIME_PACKAGE_SHA256S="$GLIBC_RUNTIME_PACKAGE_SHA256S"
 	[ -f "$INSTALL_DIR/glibc-version.txt" ] && INFO_GLIBC_VERSION="$(cat "$INSTALL_DIR/glibc-version.txt")"
 	[ -n "$KATANA_BINARY" ] && [ -f "$KATANA_BINARY" ] && INFO_KATANA_BINARY_SHA256="$(sha256sum "$KATANA_BINARY" | awk '{print $1}')"
+	[ -n "${PAYMASTER_BINARY:-}" ] && [ -f "$PAYMASTER_BINARY" ] && INFO_PAYMASTER_BINARY_SHA256="$(sha256sum "$PAYMASTER_BINARY" | awk '{print $1}')"
+	[ -n "${VRF_BINARY:-}" ] && [ -f "$VRF_BINARY" ] && INFO_VRF_BINARY_SHA256="$(sha256sum "$VRF_BINARY" | awk '{print $1}')"
 	[ -f "$INSTALL_DIR/initrd.img" ] && INFO_INITRD_SHA256="$(sha256sum "$INSTALL_DIR/initrd.img" | awk '{print $1}')"
 fi
 
@@ -395,6 +422,8 @@ fi
 	[ -n "$INFO_GLIBC_RUNTIME_PACKAGE_SHA256S" ] && echo "GLIBC_RUNTIME_PACKAGE_SHA256S=$INFO_GLIBC_RUNTIME_PACKAGE_SHA256S"
 	[ -n "$INFO_KERNEL_MODULES_EXTRA_PKG_SHA256" ] && echo "KERNEL_MODULES_EXTRA_PKG_SHA256=$INFO_KERNEL_MODULES_EXTRA_PKG_SHA256"
 	[ -n "$INFO_KATANA_BINARY_SHA256" ] && echo "KATANA_BINARY_SHA256=$INFO_KATANA_BINARY_SHA256"
+	[ -n "$INFO_PAYMASTER_BINARY_SHA256" ] && echo "PAYMASTER_BINARY_SHA256=$INFO_PAYMASTER_BINARY_SHA256"
+	[ -n "$INFO_VRF_BINARY_SHA256" ] && echo "VRF_BINARY_SHA256=$INFO_VRF_BINARY_SHA256"
 	echo ""
 	echo "# Output Checksums (SHA256)"
 	[ -n "$INFO_OVMF_SHA256" ] && echo "OVMF_SHA256=$INFO_OVMF_SHA256"

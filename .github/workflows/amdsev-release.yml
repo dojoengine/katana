@@ -179,11 +179,12 @@ jobs:
           # $KATANA_VER is the concrete katana release tag resolved in the ctx
           # step (`latest` is already mapped to a real tag there). katana
           # releases ship several products per tag: katana_*, paymaster-service_*,
-          # vrf-server_* — each with portable (_linux_amd64.tar.gz) and
+          # vrf-server_* — katana with portable (_linux_amd64.tar.gz) and
           # CPU-tuned (_linux_amd64_native.tar.gz) variants. The `katana_`
-          # prefix selects the product; the anchored suffix selects the
-          # portable build over `_native`. A looser `*_linux_amd64.tar.gz`
-          # matches three tarballs and breaks the single-file `tar -xzf`.
+          # prefix selects the product (the sidecars are fetched by the next
+          # step); the anchored suffix selects the portable build over
+          # `_native`. A looser `*_linux_amd64.tar.gz` matches three tarballs
+          # and breaks the single-file `tar -xzf`.
           gh release download "$KATANA_VER" \
             --repo dojoengine/katana \
             --pattern 'katana_*_linux_amd64.tar.gz' \
@@ -195,6 +196,40 @@ jobs:
             exit 1
           fi
           echo "KATANA_BIN=$KATANA_BIN" >> "$GITHUB_ENV"
+
+      - name: Download sidecar binaries (paymaster-service, vrf-server)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
+        run: |
+          mkdir -p .sidecar-dl
+          # The sidecars ship on the same katana release (release.yml's
+          # build-sidecars job). No `_native` variants exist for them, so each
+          # pattern matches exactly one asset. Bundled into the initrd so the
+          # guest supports --paymaster/--vrf without the (non-interactive,
+          # enclave-fatal) auto-install path.
+          gh release download "$KATANA_VER" \
+            --repo dojoengine/katana \
+            --pattern 'paymaster-service_*_linux_amd64.tar.gz' \
+            --pattern 'vrf-server_*_linux_amd64.tar.gz' \
+            --pattern 'checksums.txt' \
+            --dir .sidecar-dl/
+          # checksums.txt (release.yml's generate-checksums job) covers every
+          # release artifact including the sidecar tarballs — verify before use.
+          (cd .sidecar-dl && grep -E ' (paymaster-service|vrf-server)_[^ ]*_linux_amd64\.tar\.gz$' checksums.txt | sha256sum -c -)
+          tar -xzf .sidecar-dl/paymaster-service_*_linux_amd64.tar.gz -C .sidecar-dl/
+          tar -xzf .sidecar-dl/vrf-server_*_linux_amd64.tar.gz -C .sidecar-dl/
+          PAYMASTER_BIN="$(find "$PWD/.sidecar-dl" -type f -name paymaster-service | head -n1)"
+          VRF_BIN="$(find "$PWD/.sidecar-dl" -type f -name vrf-server | head -n1)"
+          if [ -z "$PAYMASTER_BIN" ] || [ -z "$VRF_BIN" ]; then
+            echo "sidecar binary missing after extract" >&2
+            exit 1
+          fi
+          chmod +x "$PAYMASTER_BIN" "$VRF_BIN"
+          {
+            echo "PAYMASTER_BIN=$PAYMASTER_BIN"
+            echo "VRF_BIN=$VRF_BIN"
+          } >> "$GITHUB_ENV"
 
       - name: Reuse OVMF/kernel from previous release when pins are unchanged
         # Only the initrd actually changes between releases when the OVMF
@@ -304,7 +339,9 @@ jobs:
           [ "${REUSE_OVMF:-0}" -eq 1 ] || COMPONENTS="ovmf $COMPONENTS"
           echo "Building components: $COMPONENTS"
           # shellcheck disable=SC2086
-          ./build.sh --katana "$KATANA_BIN" $COMPONENTS
+          ./build.sh --katana "$KATANA_BIN" \
+            --paymaster-bin "$PAYMASTER_BIN" --vrf-bin "$VRF_BIN" \
+            $COMPONENTS
 
           # Record artifact reuse in the build provenance (flows into the
           # release notes via the embedded build-info.txt).
@@ -402,6 +439,15 @@ jobs:
           KERNEL_SHA="$(info_get KERNEL_SHA256)"
           INITRD_SHA="$(info_get INITRD_SHA256)"
           KATANA_SHA="$(info_get KATANA_BINARY_SHA256)"
+          PAYMASTER_SHA="$(info_get PAYMASTER_BINARY_SHA256)"
+          VRF_SHA="$(info_get VRF_BINARY_SHA256)"
+          # Sidecar source pins, from the same file release.yml's
+          # build-sidecars job builds them from.
+          sidecar_rev() {
+            awk -v section="[$1]" '$0 == section {in_s=1; next} /^\[/ {in_s=0} in_s && $1 == "rev" {gsub(/"/, "", $3); print $3; exit}' ../../sidecar-versions.toml
+          }
+          PAYMASTER_REV="$(sidecar_rev paymaster-service)"
+          VRF_REV="$(sidecar_rev vrf-server)"
           LUKS_UUID="$(info_get LUKS_UUID)"
           LAUNCH_MEASUREMENT="$(info_get LAUNCH_MEASUREMENT)"
           OVMF_GIT_URL="$(info_get OVMF_GIT_URL)"
@@ -434,6 +480,8 @@ jobs:
             echo "| \`vmlinuz\` (kernel)              | \`${KERNEL_SHA}\` |"
             echo "| \`initrd.img\`                    | \`${INITRD_SHA}\` |"
             echo "| \`katana\`                        | \`${KATANA_SHA}\` |"
+            echo "| \`paymaster-service\` (embedded in \`initrd.img\`) | \`${PAYMASTER_SHA}\` |"
+            echo "| \`vrf-server\` (embedded in \`initrd.img\`)        | \`${VRF_SHA}\` |"
             echo
             echo "## Pinned upstream sources"
             echo
@@ -442,6 +490,8 @@ jobs:
             echo "| OVMF (guest BIOS) | [\`${OVMF_GIT_URL}\`](${OVMF_GIT_URL%.git}/tree/${OVMF_COMMIT}) (branch \`${OVMF_BRANCH}\`) | \`${OVMF_COMMIT}\` |"
             echo "| Linux kernel      | Ubuntu \`linux-image-unsigned-${KERNEL_VERSION}-generic\` .deb | sha256 \`$(info_get KERNEL_PKG_SHA256)\` |"
             echo "| Katana            | [\`dojoengine/katana\`](https://github.com/dojoengine/katana/releases/tag/${katana_ver}) | \`${katana_ver}\` |"
+            echo "| paymaster-service | [\`cartridge-gg/paymaster\`](https://github.com/cartridge-gg/paymaster) (prebuilt \`${katana_ver}\` release asset) | \`${PAYMASTER_REV}\` |"
+            echo "| vrf-server        | [\`cartridge-gg/vrf\`](https://github.com/cartridge-gg/vrf) (prebuilt \`${katana_ver}\` release asset) | \`${VRF_REV}\` |"
             echo
             echo "## Verify before booting"
             echo
