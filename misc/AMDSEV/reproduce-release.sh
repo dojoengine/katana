@@ -180,11 +180,54 @@ fi
 echo "  katana binary verified: $ACTUAL_KATANA_SHA"
 
 # ------------------------------------------------------------------------------
+# 2b. The exact sidecar binaries the release embedded (if any)
+# ------------------------------------------------------------------------------
+# Releases from tee-vm-v0.2.0 bundle paymaster-service + vrf-server into the
+# initrd and record their input sha256s in build-info. Earlier releases have
+# no sidecar keys and reproduce without them.
+RECORDED_PAYMASTER_SHA="$(info_get PAYMASTER_BINARY_SHA256)"
+RECORDED_VRF_SHA="$(info_get VRF_BINARY_SHA256)"
+SIDECAR_FLAGS=()
+if [[ -n "$RECORDED_PAYMASTER_SHA" && -n "$RECORDED_VRF_SHA" ]]; then
+    for sidecar in paymaster-service vrf-server; do
+        log "Downloading $sidecar $KATANA_VER (linux_amd64 build)"
+        curl -fsSL -o "$WORKDIR/${sidecar}.tar.gz" \
+            "https://github.com/${KATANA_REPO}/releases/download/${KATANA_VER}/${sidecar}_${KATANA_VER}_linux_amd64.tar.gz" \
+            || die "could not download $sidecar $KATANA_VER from $KATANA_REPO"
+        mkdir -p "$WORKDIR/${sidecar}-bin"
+        tar -xzf "$WORKDIR/${sidecar}.tar.gz" -C "$WORKDIR/${sidecar}-bin"
+    done
+    PAYMASTER_BIN="$(find "$WORKDIR/paymaster-service-bin" -type f -name paymaster-service | head -n1)"
+    VRF_BIN="$(find "$WORKDIR/vrf-server-bin" -type f -name vrf-server | head -n1)"
+    [[ -n "$PAYMASTER_BIN" ]] || die "paymaster-service binary not found in downloaded tarball"
+    [[ -n "$VRF_BIN" ]] || die "vrf-server binary not found in downloaded tarball"
+    ACTUAL_PAYMASTER_SHA="$(sha256sum "$PAYMASTER_BIN" | awk '{print $1}')"
+    [[ "$ACTUAL_PAYMASTER_SHA" == "$RECORDED_PAYMASTER_SHA" ]] || die "paymaster-service sha256 mismatch:
+  downloaded: $ACTUAL_PAYMASTER_SHA
+  recorded:   $RECORDED_PAYMASTER_SHA
+The release asset has changed since this release was built — the initrd
+cannot be reproduced from it."
+    ACTUAL_VRF_SHA="$(sha256sum "$VRF_BIN" | awk '{print $1}')"
+    [[ "$ACTUAL_VRF_SHA" == "$RECORDED_VRF_SHA" ]] || die "vrf-server sha256 mismatch:
+  downloaded: $ACTUAL_VRF_SHA
+  recorded:   $RECORDED_VRF_SHA
+The release asset has changed since this release was built — the initrd
+cannot be reproduced from it."
+    chmod +x "$PAYMASTER_BIN" "$VRF_BIN"
+    SIDECAR_FLAGS=(--paymaster-bin "$PAYMASTER_BIN" --vrf-bin "$VRF_BIN")
+    echo "  sidecar binaries verified: $ACTUAL_PAYMASTER_SHA / $ACTUAL_VRF_SHA"
+elif [[ -n "$RECORDED_PAYMASTER_SHA" || -n "$RECORDED_VRF_SHA" ]]; then
+    die "published build-info records only one sidecar sha256 — corrupt provenance"
+else
+    echo "  build-info records no sidecar sha256s — pre-sidecar release, building without them"
+fi
+
+# ------------------------------------------------------------------------------
 # 3. Rebuild everything from source
 # ------------------------------------------------------------------------------
 log "Building OVMF + kernel + initrd (SOURCE_DATE_EPOCH=$RECORDED_EPOCH; expect ~15 minutes)"
 export SOURCE_DATE_EPOCH="$RECORDED_EPOCH"
-"$SCRIPT_DIR/build.sh" --katana "$KATANA_BIN" --install "$OUTPUT_DIR"
+"$SCRIPT_DIR/build.sh" --katana "$KATANA_BIN" ${SIDECAR_FLAGS[@]+"${SIDECAR_FLAGS[@]}"} --install "$OUTPUT_DIR"
 
 # ------------------------------------------------------------------------------
 # 4. Compare against the published release

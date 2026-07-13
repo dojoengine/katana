@@ -144,12 +144,59 @@ jobs:
           chmod +x .katana-bin/katana
           echo "KATANA_BIN=$PWD/.katana-bin/katana" >> "$GITHUB_ENV"
 
+      - name: Download sidecar binaries (paymaster-service, vrf-server)
+        # The PR ref has no matching katana release, so pull the sidecars
+        # from the latest published katana release — this test exercises the
+        # bundling path (preflight, multi-root dynamic-lib walk incl. the
+        # libssl pin, cpio modes, reproducibility), not sidecar behavior, so
+        # exact sidecar bytes don't matter here.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          KATANA_VER="$(gh release list --repo dojoengine/katana --exclude-drafts --limit 50 \
+            --json tagName --jq '[.[].tagName | select(test("^v[0-9]"))][0]')"
+          [ -n "$KATANA_VER" ] || { echo "could not resolve latest katana release" >&2; exit 1; }
+          echo "Using sidecars from katana release: $KATANA_VER"
+          mkdir -p .sidecar-dl
+          gh release download "$KATANA_VER" \
+            --repo dojoengine/katana \
+            --pattern 'paymaster-service_*_linux_amd64.tar.gz' \
+            --pattern 'vrf-server_*_linux_amd64.tar.gz' \
+            --dir .sidecar-dl/
+          tar -xzf .sidecar-dl/paymaster-service_*_linux_amd64.tar.gz -C .sidecar-dl/
+          tar -xzf .sidecar-dl/vrf-server_*_linux_amd64.tar.gz -C .sidecar-dl/
+          PAYMASTER_BIN="$(find "$PWD/.sidecar-dl" -type f -name paymaster-service | head -n1)"
+          VRF_BIN="$(find "$PWD/.sidecar-dl" -type f -name vrf-server | head -n1)"
+          if [ -z "$PAYMASTER_BIN" ] || [ -z "$VRF_BIN" ]; then
+            echo "sidecar binary missing after extract" >&2
+            exit 1
+          fi
+          chmod +x "$PAYMASTER_BIN" "$VRF_BIN"
+          {
+            echo "PAYMASTER_BIN=$PAYMASTER_BIN"
+            echo "VRF_BIN=$VRF_BIN"
+          } >> "$GITHUB_ENV"
+
       - name: Build kernel + sealed initrd
         # Skips OVMF — the EDK2 build takes far longer than everything else
         # combined and the plain-QEMU boot test doesn't load firmware. The
         # kernel component just downloads the pinned Ubuntu .deb (vmlinuz is
         # needed for direct kernel boot below).
-        run: ./build.sh --katana "$KATANA_BIN" kernel initrd
+        run: |
+          ./build.sh --katana "$KATANA_BIN" \
+            --paymaster-bin "$PAYMASTER_BIN" --vrf-bin "$VRF_BIN" \
+            kernel initrd
+
+      - name: Assert sidecars are bundled in the initrd
+        run: |
+          zcat output/qemu/initrd.img | cpio -t 2>/dev/null > /tmp/initrd-list
+          rc=0
+          for f in bin/paymaster-service bin/vrf-server usr/lib/ssl/cert.pem; do
+            grep -q "^\.\?/\?$f\$" /tmp/initrd-list || { echo "::error::$f missing from initrd"; rc=1; }
+          done
+          grep -q 'libssl\.so\.3' /tmp/initrd-list || { echo "::error::libssl.so.3 missing from initrd"; rc=1; }
+          grep -q 'libcrypto\.so\.3' /tmp/initrd-list || { echo "::error::libcrypto.so.3 missing from initrd"; rc=1; }
+          exit "$rc"
 
       - name: Reproducibility check — rebuild initrd, compare digests
         # Byte-identical initrds are the core promise: the SEV-SNP launch
@@ -162,7 +209,9 @@ jobs:
         # the deb downloads and cpio packaging.
         run: |
           first="$(sha256sum output/qemu/initrd.img | awk '{print $1}')"
-          ./build.sh --katana "$KATANA_BIN" --install output/repro initrd
+          ./build.sh --katana "$KATANA_BIN" \
+            --paymaster-bin "$PAYMASTER_BIN" --vrf-bin "$VRF_BIN" \
+            --install output/repro initrd
           second="$(sha256sum output/repro/initrd.img | awk '{print $1}')"
           echo "first build:  $first"
           echo "second build: $second"

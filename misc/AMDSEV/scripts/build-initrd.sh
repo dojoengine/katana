@@ -94,6 +94,13 @@ usage() {
     echo "misc/AMDSEV/build-config and run build.sh, not this script directly."
     echo ""
     echo "OPTIONAL ENVIRONMENT VARIABLES:"
+    echo "  PAYMASTER_BINARY                 Path to a prebuilt paymaster-service binary"
+    echo "                                   (katana release asset). Bundled at /bin in"
+    echo "                                   the initrd so the guest supports --paymaster."
+    echo "  VRF_BINARY                       Path to a prebuilt vrf-server binary (katana"
+    echo "                                   release asset). Bundled at /bin so the guest"
+    echo "                                   supports --vrf. Both-or-neither with"
+    echo "                                   PAYMASTER_BINARY."
     echo "  KATANA_UNSEALED_BUILD            Set to 1 to opt OUT of the sealed build."
     echo "                                   Produces an unsealed-only initrd that mounts"
     echo "                                   /dev/sda as plain ext4: no cryptsetup, no"
@@ -193,6 +200,9 @@ echo "Static binaries (sealed-mode only):"
 echo "  cryptsetup binary:     ${CRYPTSETUP_BINARY:-<not set>}"
 echo "  mkfs.ext2 binary:      ${MKFS_EXT2_BINARY:-<not set>}"
 echo "  snp-derivekey binary:  ${SNP_DERIVEKEY_BINARY:-<not set>}"
+echo "Sidecar binaries (optional):"
+echo "  paymaster-service:     ${PAYMASTER_BINARY:-<not set>}"
+echo "  vrf-server:            ${VRF_BINARY:-<not set>}"
 
 if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
     die "SOURCE_DATE_EPOCH must be set for reproducible builds"
@@ -275,6 +285,29 @@ if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
         || die "SNP_DERIVEKEY_BINARY=$SNP_DERIVEKEY_BINARY does not exist or is not executable"
 fi
 
+# Cartridge sidecar binaries (paymaster-service + vrf-server), prebuilt release
+# assets supplied via PAYMASTER_BINARY / VRF_BINARY (build.sh --paymaster-bin /
+# --vrf-bin). Optional: when unset the image builds WITHOUT sidecars and
+# katana's --paymaster/--vrf flags fail in the guest (the sidecar resolver
+# falls through to an interactive download prompt that dies on the enclave's
+# non-TTY stdin). Release builds always supply both (amdsev-release.yml).
+# Both-or-neither: --vrf uses the paymaster as relayer/forwarder, so a
+# half-bundled image is always a misconfiguration.
+PAYMASTER_BINARY="${PAYMASTER_BINARY:-}"
+VRF_BINARY="${VRF_BINARY:-}"
+if [[ -n "$PAYMASTER_BINARY" || -n "$VRF_BINARY" ]]; then
+    [[ -n "$PAYMASTER_BINARY" && -n "$VRF_BINARY" ]] \
+        || die "PAYMASTER_BINARY and VRF_BINARY must be supplied together (got only one)"
+    PAYMASTER_BINARY="$(to_abs_path "$PAYMASTER_BINARY")"
+    VRF_BINARY="$(to_abs_path "$VRF_BINARY")"
+    [[ -x "$PAYMASTER_BINARY" ]] \
+        || die "PAYMASTER_BINARY=$PAYMASTER_BINARY does not exist or is not executable"
+    [[ -x "$VRF_BINARY" ]] \
+        || die "VRF_BINARY=$VRF_BINARY does not exist or is not executable"
+else
+    log_warn "PAYMASTER_BINARY/VRF_BINARY not set — image will NOT support --paymaster/--vrf in the guest"
+fi
+
 log_ok "Preflight validation complete (sealed-storage build: $([ "$SEALED_STORAGE_BUILD" -eq 1 ] && echo yes || echo no))"
 
 elf_interpreter() {
@@ -288,6 +321,21 @@ if [[ -n "$KATANA_INTERPRETER" ]]; then
 else
     log_warn "Katana has no ELF interpreter; treating it as statically linked"
 fi
+
+# All bundled dynamic ELF executables must share one interpreter — the dynamic
+# runtime installer walks a single pinned-glibc package pool. Static binaries
+# (no interpreter) are fine alongside dynamic ones.
+RUNTIME_INTERPRETER="$KATANA_INTERPRETER"
+for extra_bin in "$PAYMASTER_BINARY" "$VRF_BINARY"; do
+    [[ -n "$extra_bin" ]] || continue
+    extra_interp="$(elf_interpreter "$extra_bin" || true)"
+    [[ -n "$extra_interp" ]] || continue
+    if [[ -z "$RUNTIME_INTERPRETER" ]]; then
+        RUNTIME_INTERPRETER="$extra_interp"
+    elif [[ "$extra_interp" != "$RUNTIME_INTERPRETER" ]]; then
+        die "interpreter mismatch: $extra_bin wants $extra_interp, other binaries use $RUNTIME_INTERPRETER"
+    fi
+done
 
 WORK_DIR="$(mktemp -d)"
 cleanup() {
@@ -356,9 +404,9 @@ pushd "$PACKAGES_DIR" >/dev/null
 
 : "${BUSYBOX_PKG_VERSION:?BUSYBOX_PKG_VERSION not set - required for reproducible builds}"
 : "${KERNEL_MODULES_EXTRA_PKG_VERSION:?KERNEL_MODULES_EXTRA_PKG_VERSION not set - required for reproducible builds}"
-if [[ -n "$KATANA_INTERPRETER" ]]; then
-    : "${GLIBC_RUNTIME_PACKAGES:?GLIBC_RUNTIME_PACKAGES not set - required for reproducible dynamic Katana builds}"
-    : "${GLIBC_RUNTIME_PACKAGE_SHA256S:?GLIBC_RUNTIME_PACKAGE_SHA256S not set - required for reproducible dynamic Katana builds}"
+if [[ -n "$RUNTIME_INTERPRETER" ]]; then
+    : "${GLIBC_RUNTIME_PACKAGES:?GLIBC_RUNTIME_PACKAGES not set - required for reproducible dynamic binary builds}"
+    : "${GLIBC_RUNTIME_PACKAGE_SHA256S:?GLIBC_RUNTIME_PACKAGE_SHA256S not set - required for reproducible dynamic binary builds}"
 fi
 
 log_info "Downloading busybox-static=${BUSYBOX_PKG_VERSION}"
@@ -372,7 +420,7 @@ fi
 log_info "Downloading linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}"
 
-if [[ -n "$KATANA_INTERPRETER" ]]; then
+if [[ -n "$RUNTIME_INTERPRETER" ]]; then
     for package_spec in $GLIBC_RUNTIME_PACKAGES; do
         package_name="${package_spec%%=*}"
         [[ "$package_name" != "$package_spec" ]] || die "invalid GLIBC_RUNTIME_PACKAGES entry: $package_spec"
@@ -407,7 +455,7 @@ fi
 log_info "Verifying linux-modules-extra checksum"
 verify_package_sha256 "linux-modules-extra-${KERNEL_VERSION}-generic" "$KERNEL_MODULES_EXTRA_PKG_SHA256"
 
-if [[ -n "$KATANA_INTERPRETER" ]]; then
+if [[ -n "$RUNTIME_INTERPRETER" ]]; then
     for package_spec in $GLIBC_RUNTIME_PACKAGES; do
         package_name="${package_spec%%=*}"
         expected_sha="$(expected_runtime_sha256 "$package_name" || true)"
@@ -439,7 +487,7 @@ fi
 log_info "Extracting linux-modules-extra"
 dpkg-deb -x "$PACKAGES_DIR"/linux-modules-extra-*.deb "$EXTRACTED_DIR"
 
-if [[ -n "$KATANA_INTERPRETER" ]]; then
+if [[ -n "$RUNTIME_INTERPRETER" ]]; then
     for package_spec in $GLIBC_RUNTIME_PACKAGES; do
         package_name="${package_spec%%=*}"
         package_deb="$(find_downloaded_deb "$package_name")"
@@ -526,6 +574,25 @@ if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     cp "$SNP_DERIVEKEY_BINARY" bin/snp-derivekey
     chmod +x bin/snp-derivekey
     log_ok "snp-derivekey installed"
+fi
+
+# ------------------------------------------------------------------------------
+# Install Cartridge sidecar binaries (paymaster-service + vrf-server)
+# ------------------------------------------------------------------------------
+# Installed at /bin so katana's sidecar resolution finds them at the $PATH
+# step (the init exports PATH=/bin) — the later resolution steps (katana home
+# dir, interactive GitHub download) never run in the enclave.
+if [[ -n "$PAYMASTER_BINARY" ]]; then
+    log_info "Installing paymaster-service from $PAYMASTER_BINARY"
+    cp "$PAYMASTER_BINARY" bin/paymaster-service
+    chmod +x bin/paymaster-service
+    log_ok "paymaster-service installed"
+fi
+if [[ -n "$VRF_BINARY" ]]; then
+    log_info "Installing vrf-server from $VRF_BINARY"
+    cp "$VRF_BINARY" bin/vrf-server
+    chmod +x bin/vrf-server
+    log_ok "vrf-server installed"
 fi
 
 # ------------------------------------------------------------------------------
@@ -764,7 +831,15 @@ install_dynamic_runtime() {
     local optional_lib=""
 
     declare -A copied_runtime=()
-    local elf_queue=("$INITRD_DIR/bin/katana")
+    # Seed the DT_NEEDED walk with every dynamic executable in the image
+    # (katana + any bundled sidecars) — a lib needed only by a sidecar (e.g.
+    # paymaster-service's libssl.so.3) must be copied too. Static roots are
+    # harmless: elf_needed yields nothing for them.
+    local elf_queue=()
+    local root_rel
+    for root_rel in "${DYNAMIC_ELF_ROOTS[@]}"; do
+        elf_queue+=("$INITRD_DIR/$root_rel")
+    done
 
     install_runtime_elf() {
         runtime_source="$1"
@@ -847,8 +922,12 @@ cp "$KATANA_BINARY" bin/katana
 chmod +x bin/katana
 log_ok "Katana installed"
 
-if [[ -n "$KATANA_INTERPRETER" ]]; then
-    install_dynamic_runtime "$KATANA_INTERPRETER"
+DYNAMIC_ELF_ROOTS=(bin/katana)
+[[ -n "$PAYMASTER_BINARY" ]] && DYNAMIC_ELF_ROOTS+=(bin/paymaster-service)
+[[ -n "$VRF_BINARY" ]] && DYNAMIC_ELF_ROOTS+=(bin/vrf-server)
+
+if [[ -n "$RUNTIME_INTERPRETER" ]]; then
+    install_dynamic_runtime "$RUNTIME_INTERPRETER"
 
     # Record the actual glibc version from the installed libc.so.6. The package
     # version (e.g. 2.39-0ubuntu8.7) sits in GLIBC_RUNTIME_PACKAGES already; this
@@ -882,6 +961,13 @@ cat > init <<'INIT_EOF'
 set -eu
 export PATH=/bin
 export LD_LIBRARY_PATH=/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/lib:/usr/lib
+# SSL_CERT_FILE: belt-and-braces for OpenSSL-linked sidecars (the CA bundle is
+# also installed at each stack's compiled-in default path). HOME: katana's
+# sidecar resolver eagerly derives ~/.katana even when the $PATH lookup will
+# hit; /etc/passwd already resolves root's home to / via nss_files — this
+# export just removes the passwd-lookup dependency.
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export HOME=/
 
 # log writes to stderr so command substitution like `$(strip_reserved_args ...)`
 # captures only the function's real output. Both stdout and stderr are
@@ -1667,7 +1753,13 @@ if [[ -n "${CA_CERTIFICATES_PKG_VERSION:-}" ]]; then
     cp usr/local/ssl/cert.pem etc/ssl/certs/ca-certificates.crt   # rustls-native-certs (primary)
     cp usr/local/ssl/cert.pem etc/ssl/cert.pem                    # rustls/alpine fallback
     cp usr/local/ssl/cert.pem etc/pki/tls/certs/ca-bundle.crt     # rustls/RHEL fallback
-    log_ok "CA bundle installed (openssl + rustls paths, $CA_N roots)"
+    # Ubuntu-built libssl3 consumers (the paymaster-service sidecar): the
+    # system OpenSSL's compiled-in OPENSSLDIR is /usr/lib/ssl, so its default
+    # cert file is /usr/lib/ssl/cert.pem. (The /usr/local/ssl path above
+    # serves katana's VENDORED openssl only.)
+    mkdir -p usr/lib/ssl
+    cp usr/local/ssl/cert.pem usr/lib/ssl/cert.pem
+    log_ok "CA bundle installed (vendored openssl + rustls + system openssl paths, $CA_N roots)"
 else
     log_warn "CA_CERTIFICATES_PKG_VERSION not set — enclave will have NO CA bundle (outbound HTTPS will fail)"
 fi
@@ -1688,17 +1780,19 @@ log_info "Normalizing file modes"
 find . -type d -exec chmod 0755 {} +
 find . -type f -exec chmod 0644 {} +
 chmod 0755 bin/busybox bin/katana init
+[[ -n "$PAYMASTER_BINARY" ]] && chmod 0755 bin/paymaster-service
+[[ -n "$VRF_BINARY" ]] && chmod 0755 bin/vrf-server
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     chmod 0755 bin/cryptsetup bin/mkfs.ext2
     [[ -n "$SNP_DERIVEKEY_BINARY" ]] && chmod 0755 bin/snp-derivekey
 fi
-# The ELF interpreter is execve'd by the kernel when launching katana, so it
-# must keep its execute bit through the 0644 sweep above — a non-executable
-# interpreter makes every dynamic exec fail with EACCES ("Permission
-# denied", exit 126). Shared libraries stay 0644: the loader only opens and
-# mmaps them, which needs read permission, not execute.
-if [[ -n "$KATANA_INTERPRETER" ]]; then
-    chmod 0755 "${KATANA_INTERPRETER#/}"
+# The ELF interpreter is execve'd by the kernel when launching katana (and
+# the sidecars), so it must keep its execute bit through the 0644 sweep above
+# — a non-executable interpreter makes every dynamic exec fail with EACCES
+# ("Permission denied", exit 126). Shared libraries stay 0644: the loader
+# only opens and mmaps them, which needs read permission, not execute.
+if [[ -n "$RUNTIME_INTERPRETER" ]]; then
+    chmod 0755 "${RUNTIME_INTERPRETER#/}"
 fi
 chmod 1777 tmp
 
