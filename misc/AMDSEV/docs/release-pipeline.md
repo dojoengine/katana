@@ -257,6 +257,16 @@ Key facts:
 | `build-info-<tag>.txt` | Full provenance: pins, package checksums, artifact SHA-256s, `SOURCE_DATE_EPOCH`, reuse markers, measurement |
 | `launch-measurement-<tag>.txt` | The sealed launch measurement, bare hex, one line |
 
+The tarball carries boot artifacts only. `install.sh` (the operator
+installer, [docs/install.md](install.md)) pairs it with the launcher scripts
+fetched from the **repo source at the same tag**
+(`archive/refs/tags/<tag>.tar.gz` → `misc/AMDSEV/`). That makes the tag's
+`misc/AMDSEV` tree part of the published interface: renaming `start-vm.sh`,
+its flags/env vars (`KATANA_VCPUS`, `KATANA_MEMORY`, `HOST_RPC_PORT`, ...),
+`scripts/sealed-cmdline.sh`, `verify-build.sh`, the `snp-tools` crate path,
+or the tarball layout changes what installed hosts download on upgrade — the
+installer feature-detects where it can, but treat such renames as breaking.
+
 ## What moves the measurement between releases
 
 | Change | Measurement effect |

@@ -2,6 +2,16 @@
 
 Build scripts for creating TEE (Trusted Execution Environment) components to run Katana inside AMD SEV-SNP confidential VMs.
 
+## Install (run a published release)
+
+Operators standing up a host to *run* the TEE VM (rather than build it) can use the one-command installer. It preflights the SEV-SNP host, downloads and verifies the latest `tee-vm-v*` release together with its matching launcher scripts, builds the pinned QEMU when the host lacks it, walks through vCPU/memory/disk/port configuration, and recomputes the expected launch measurement for the chosen config:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dojoengine/katana/main/misc/AMDSEV/install.sh | bash
+```
+
+See [docs/install.md](docs/install.md) for prerequisites, the wizard walkthrough, non-interactive usage, upgrades, and persistence recipes.
+
 ## Requirements
 
 - **QEMU 10.2.0** - Only tested with this version. Earlier versions may lack required SEV-SNP features.
@@ -34,6 +44,7 @@ For reproducibility, the initrd does not copy glibc or shared libraries from the
 |------|-------------|
 | `build.sh` | Orchestrator entry point — builds OVMF, kernel, initrd; writes `build-info.txt` |
 | `start-vm.sh` | Starts a TEE VM with SEV-SNP and launches Katana asynchronously (consumer-facing) |
+| `install.sh` | One-command operator installer: preflight, release download + verification, wizard, run.sh generation — see [docs/install.md](docs/install.md) |
 | `verify-build.sh` | Verifies sha256s + sealed launch measurement of a build / downloaded release |
 | `reproduce-release.sh` | Rebuilds a published release from source and compares it byte-for-byte against the published artifacts |
 | `build-config` | Pinned versions and checksums for reproducible builds |
@@ -46,6 +57,7 @@ For reproducibility, the initrd does not copy glibc or shared libraries from the
 | `scripts/sealed-cmdline.sh` | Single source of truth for the measured kernel cmdline |
 | `scripts/test-initrd.sh` | Isolated initrd boot smoke test in plain QEMU |
 | `scripts/test-snp-e2e.sh` | End-to-end test on SEV-SNP hardware: sealed boot, attestation vs expected measurement, reboot reseal |
+| `scripts/test-install.sh` | Unit tests for install.sh's helpers (no network); full download dry-run under `KATANA_INSTALL_TEST_NETWORK=1` |
 | `snp-tools/` | Cargo crate with `snp-digest`, `snp-report`, `ovmf-metadata`, `snp-derivekey` |
 | `docs/release-pipeline.md` | How releases are built, measured, and published — see [Release Pipeline](docs/release-pipeline.md) |
 

@@ -35,7 +35,7 @@ jobs:
 
       - name: shellcheck scripts
         # shellcheck is preinstalled on ubuntu-latest runners.
-        run: shellcheck -S warning build.sh start-vm.sh verify-build.sh reproduce-release.sh scripts/*.sh
+        run: shellcheck -S warning build.sh start-vm.sh install.sh verify-build.sh reproduce-release.sh scripts/*.sh
 
       - name: shellcheck guest init (POSIX sh)
         # The init script ships inside the initrd and runs under busybox sh.
@@ -67,6 +67,15 @@ jobs:
         # trailing, duplicate, glob-adjacent). The forward is otherwise only
         # observable by booting the enclave and scraping /metrics.
         run: ./scripts/test-parse-metrics-port.sh
+
+      - name: Unit test install.sh helpers
+        # Fast, no-network tests for the operator installer: validators, tag
+        # URL-encoding, source-tarball subtree extraction, checksum gating,
+        # config.env round-trip, and that install.sh's parse_metrics_port copy
+        # stays in sync with start-vm.sh. The full download path is covered by
+        # the same script under KATANA_INSTALL_TEST_NETWORK=1 (manual — the
+        # release tarball is too heavy for every PR).
+        run: ./scripts/test-install.sh
 
       - name: actionlint (amdsev workflows only)
         working-directory: .
