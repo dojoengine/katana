@@ -103,3 +103,15 @@ LIBC6_DEV_PKG_SHA256="bbf5a155039042634961a61276650631ee47b9e721f91f8dbb731b0bbe
 # KATANA_LUKS_UUID); their measurement will differ from the published one and
 # they must recompute it themselves via sealed-cmdline.sh + snp-digest.
 KATANA_CANONICAL_LUKS_UUID="00000000-0000-0000-0000-000000000001"
+
+# Prebuilt snp-digest — a snp-tools-v* GitHub release cut by the
+# amdsev-snp-tools-release workflow. The tee-vm release pipeline downloads it
+# (instead of rebuilding the crate) to compute the published measurement, and
+# install.sh downloads it on SNP hosts so measurement verification needs no
+# Rust toolchain; both verify the download against SNP_DIGEST_SHA256, which
+# is trusted because THIS file is versioned in git at the consuming tag.
+# Empty pins = build snp-digest from source (the prebuilt is a convenience
+# copy, never the trust root). Bump both together, from the values printed
+# in the snp-tools release notes.
+SNP_DIGEST_RELEASE=""
+SNP_DIGEST_SHA256=""
