@@ -30,7 +30,9 @@
 #
 # SEV-SNP guest configuration:
 #   GUEST_POLICY      - 0x30000 (SMT allowed, debug disabled)
-#   VCPU_COUNT        - 1
+#   VCPU_COUNT        - --vcpus (default 1). Each vCPU's VMSA is measured, so
+#                       a different count produces a different launch
+#                       measurement. Verifiers must pin the expected count.
 #   GUEST_FEATURES    - 0x1 (SNP active)
 #
 # CPU and platform:
@@ -44,7 +46,8 @@
 # into the launch digest. The guest treats them as untrusted operator input
 # and strips flags it owns (--db-*, --data-dir, --chain) before use.
 #
-# To compute expected measurement, use snp-digest from snp-tools:
+# To compute expected measurement, use snp-digest from snp-tools (match
+# --vcpus to the count the VM boots with):
 #   cargo build -p snp-tools
 #   ./target/debug/snp-digest --ovmf=OVMF.fd --kernel=vmlinuz --initrd=initrd.img \
 #       --append="console=ttyS0" --vcpus=1 --cpu=epyc-v4 --vmm=qemu --guest-features=0x1
@@ -57,6 +60,7 @@ usage() {
     echo "Usage: $0 --ovmf PATH --kernel PATH --initrd PATH"
     echo "          [--katana-args CSV] [--chain-dir DIR] [--no-start]"
     echo "          [--data-disk PATH] [--luks-uuid UUID] [--sealed] [--unsealed]"
+    echo "          [--vcpus N] [--memory SIZE]"
     echo ""
     echo "Starts a SEV-SNP VM and launches Katana asynchronously via control channel."
     echo "Unsealed storage (plain ext4 on /dev/sda) is the DEFAULT. Opt into sealed"
@@ -111,10 +115,17 @@ usage() {
     echo "  --unsealed            Plain ext4 on /dev/sda (the default). The cmdline does"
     echo "                        NOT carry KATANA_EXPECTED_LUKS_UUID. Accepted explicitly"
     echo "                        for clarity and backward compatibility."
-    echo "  (memory)              Guest RAM size. Env var: KATANA_MEMORY (default: 4G)."
+    echo "  --vcpus N             Guest vCPU count (default: 1). PART OF the launch"
+    echo "                        measurement — each vCPU's VMSA is measured, so a"
+    echo "                        different count produces a different measurement."
+    echo "                        Recompute the expected value with snp-digest --vcpus=N"
+    echo "                        (the exact command is printed at startup)."
+    echo "                        Env var: KATANA_VCPUS"
+    echo "  --memory SIZE         Guest RAM size, e.g. 4G or 2048M (default: 4G)."
     echo "                        The initramfs (incl. the cairo-native katana binary)"
     echo "                        unpacks into guest RAM, so several GB are required."
     echo "                        NOT part of the launch measurement — size freely."
+    echo "                        Env var: KATANA_MEMORY"
     echo "  -h, --help            Show this help"
 }
 
@@ -155,6 +166,19 @@ SEAL_MODE_EXPLICIT=""
 # ride fw_cfg (unmeasured) and port forwards are host networking.
 KATANA_RPC_PORT=5050
 HOST_RPC_PORT="${HOST_RPC_PORT:-15051}"
+
+# VM resources. vCPU count IS part of the launch measurement (each vCPU's VMSA
+# is measured) — overriding --vcpus changes the expected measurement; recompute
+# with snp-digest --vcpus=N (see header). Memory is NOT measured.
+#
+# MEMORY sizing: the initramfs is the guest rootfs and lives entirely in RAM,
+# and the bundled cairo-native katana binary alone is several hundred MB —
+# 512M no longer boots. 4G leaves headroom for katana's working set and the
+# cairo-native AOT compile pool. The memfd backend below uses prealloc=false,
+# so untouched guest pages cost the host nothing until first use (SNP pins
+# pages as they are touched, not up front).
+VCPU_COUNT="${KATANA_VCPUS:-1}"
+MEMORY="${KATANA_MEMORY:-4G}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -255,6 +279,24 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
+        --vcpus)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --vcpus requires a value"
+                exit 1
+            }
+            VCPU_COUNT="$2"
+            shift 2
+            ;;
+
+        --memory)
+            [[ $# -ge 2 ]] || {
+                echo "Error: --memory requires a value"
+                exit 1
+            }
+            MEMORY="$2"
+            shift 2
+            ;;
+
         -h|--help)
             usage
             exit 0
@@ -290,6 +332,15 @@ if (( ${#missing[@]} > 0 )); then
     usage
     exit 1
 fi
+
+[[ "$VCPU_COUNT" =~ ^[0-9]+$ && "$VCPU_COUNT" -ge 1 ]] || {
+    echo "Error: invalid --vcpus (positive integer expected): '$VCPU_COUNT'"
+    exit 1
+}
+[[ "$MEMORY" =~ ^[0-9]+[MG]$ ]] || {
+    echo "Error: invalid --memory (e.g. 4G, 2048M): '$MEMORY'"
+    exit 1
+}
 
 # Unsealed storage is the default; sealed storage is opt-in via --sealed.
 # When sealed, resolve the LUKS UUID. Default: read from ~/.katana/luks-uuid,
@@ -334,23 +385,12 @@ fi
 # above and validated to be non-empty + readable before we get here.
 KERNEL_CMDLINE="console=ttyS0"
 
-# SEV-SNP guest configuration
+# SEV-SNP guest configuration. VCPU_COUNT and MEMORY are initialised with the
+# other defaults above — before flag parsing — so --vcpus / --memory can
+# override them. VCPU_COUNT feeds the measurement; MEMORY does not.
 GUEST_POLICY="0x30000"
-VCPU_COUNT=1
 CBITPOS=51
 REDUCED_PHYS_BITS=1
-
-# VM resources
-#
-# MEMORY sizing: the initramfs is the guest rootfs and lives entirely in RAM,
-# and the bundled cairo-native katana binary alone is several hundred MB —
-# 512M no longer boots. 4G leaves headroom for katana's working set and the
-# cairo-native AOT compile pool. The memfd backend below uses prealloc=false,
-# so untouched guest pages cost the host nothing until first use (SNP pins
-# pages as they are touched, not up front). `-m` is NOT part of the SEV-SNP
-# launch measurement — operators can size freely via KATANA_MEMORY without
-# changing the published measurement.
-MEMORY="${KATANA_MEMORY:-4G}"
 CPU_TYPE="EPYC-v4"
 
 # The RPC networking ports (KATANA_RPC_PORT / HOST_RPC_PORT) are initialised with
