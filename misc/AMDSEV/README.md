@@ -313,7 +313,7 @@ one of options A–C lands, treat a Katana upgrade under `--sealed` as a fresh d
 | Kernel (`vmlinuz`) | Pinned Ubuntu kernel `.deb` | SHA-256 entry in the SEV hashes table (`kernel-hashes=on`) |
 | Initrd (`initrd.img`) | `scripts/build-initrd.sh`, reproducible | SHA-256 entry in the hashes table |
 | Kernel cmdline | `scripts/sealed-cmdline.sh` | SHA-256 entry in the hashes table |
-| vCPU count and model | `start-vm.sh`: 1 × `EPYC-v4` | Each vCPU's initial register state (VMSA) is measured |
+| vCPU count and model | `start-vm.sh`: `--vcpus` (default 1) × `EPYC-v4` | Each vCPU's initial register state (VMSA) is measured — a non-default `--vcpus` produces a different digest; verifiers must pin the expected count |
 | Guest features | `sev-snp-guest` object: `0x1` (SNP active) | Field in the measured VMSA |
 | VMM type | QEMU | VMSA layout differs per VMM |
 
