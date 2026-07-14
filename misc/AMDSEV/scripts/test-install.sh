@@ -94,6 +94,33 @@ check_false "valid_tag rejects a katana release tag"        valid_tag "v1.8.0"
 check_true  "valid_uuid accepts canonical lowercase" valid_uuid "00000000-0000-0000-0000-000000000001"
 check_false "valid_uuid rejects uppercase"           valid_uuid "00000000-0000-0000-0000-00000000000A"
 
+# Gates the pinned prebuilt snp-digest download (SNP_DIGEST_SHA256).
+check_true  "valid_sha256 accepts 64 hex"      valid_sha256 "$(printf 'a%.0s' {1..64})"
+check_false "valid_sha256 rejects 63 hex"      valid_sha256 "$(printf 'a%.0s' {1..63})"
+check_false "valid_sha256 rejects uppercase"   valid_sha256 "$(printf 'A%.0s' {1..64})"
+check_false "valid_sha256 rejects a 404 page"  valid_sha256 "Not Found"
+
+# ---- build-config pin extraction -----------------------------------------------
+# install.sh reads the SNP_DIGEST_RELEASE/SNP_DIGEST_SHA256 pins out of the
+# fetched tag's build-config without sourcing it (data read, not code exec).
+
+BC_FIXTURE="$WORK/build-config"
+cat > "$BC_FIXTURE" <<'EOF'
+# comment
+OVMF_COMMIT="fbe0805b"
+SNP_DIGEST_RELEASE="snp-tools-v0.1.0"
+SNP_DIGEST_SHA256=""
+EOF
+check "build_config_get reads a pinned value" \
+    "snp-tools-v0.1.0" "$(build_config_get "$BC_FIXTURE" SNP_DIGEST_RELEASE)"
+check "build_config_get reads an empty pin as empty" \
+    "" "$(build_config_get "$BC_FIXTURE" SNP_DIGEST_SHA256)"
+check "build_config_get returns nothing for a missing key" \
+    "" "$(build_config_get "$BC_FIXTURE" NO_SUCH_KEY)"
+# The real build-config must stay extractable by this exact parser.
+check_true "real build-config carries the SNP_DIGEST_RELEASE key" \
+    grep -q '^SNP_DIGEST_RELEASE="' "${SCRIPT_DIR}/../build-config"
+
 # ---- Tag URL encoding ----------------------------------------------------------
 
 check "encode_tag percent-encodes '+'" \

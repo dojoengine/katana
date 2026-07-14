@@ -21,8 +21,9 @@
 #      when the host doesn't already have it
 #   6. Recomputes the EXPECTED LAUNCH MEASUREMENT for the chosen config —
 #      vCPU count is part of the SEV-SNP measurement (memory is not), so a
-#      non-default count needs its own expected value (computed with the
-#      release's snp-digest, built from source at the tag)
+#      non-default count needs its own expected value. Computed with
+#      snp-digest: the prebuilt snp-tools release pinned (tag + sha256) in
+#      the tag's build-config when available, else built from source (cargo)
 #   7. Writes config.env + a foreground run.sh and stops there. Persistence
 #      (systemd, tmux, a supervisor) is deliberately the operator's choice:
 #      `install.sh print-systemd` prints a sample unit but never installs it.
@@ -183,6 +184,7 @@ valid_mode()   { [[ "$1" == "sealed" || "$1" == "unsealed" ]]; }
 valid_int()    { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 )); }
 valid_tag()    { [[ "$1" == tee-vm-v* ]]; }
 valid_uuid()   { [[ "$1" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; }
+valid_sha256() { [[ "$1" =~ ^[0-9a-f]{64}$ ]]; }
 
 # True when nothing is listening on 127.0.0.1:$1.
 port_free() {
@@ -208,10 +210,17 @@ parse_metrics_port() {
     printf '%s' "$port"
 }
 
+# Shared curl flags: fail loudly on a stalled network instead of hanging the
+# install (unauthenticated api.github.com in particular can stall when
+# rate-limited). No overall --max-time — the release tarball is hundreds of
+# MB and download time is connection-dependent; the speed floor below kills
+# genuinely dead transfers instead.
+CURL=(curl -fsSL --connect-timeout 15 --retry 2 --speed-limit 1024 --speed-time 60)
+
 # Latest published tee-vm-v* tag (the repo also publishes katana's own
 # vX.Y.Z releases, which carry no VM image).
 resolve_latest_tag() {
-    curl -fsSL "https://api.github.com/repos/${VM_REPO}/releases?per_page=30" \
+    "${CURL[@]}" --max-time 30 "https://api.github.com/repos/${VM_REPO}/releases?per_page=30" \
         | python3 -c 'import json,sys; rs=[r["tag_name"] for r in json.load(sys.stdin) if r["tag_name"].startswith("tee-vm-v")]; print(rs[0] if rs else "")'
 }
 
@@ -321,9 +330,9 @@ preflight() {
     if have cargo; then
         ok "cargo $(cargo --version 2>/dev/null | awk '{print $2}')"
     else
-        bad "cargo not found — needed to build snp-digest for measurement verification"
-        echo "       (not fatal: the wizard offers to install rustup, or the install"
-        echo "        falls back to checksum-only verification)"
+        bad "cargo not found — only needed to build snp-digest when the release"
+        echo "       pins no prebuilt snp-digest (not fatal: the wizard offers"
+        echo "       rustup, or the install falls back to checksum-only verification)"
     fi
 
     (( failures == 0 )) || fail "preflight failed ($failures issue(s)) — fix the items above and re-run"
@@ -343,7 +352,7 @@ fetch_release() {
     else
         log "Downloading katana-tee-vm-${tag}.tar.gz ..."
         mkdir -p "$boot_dir"
-        curl -fsSL -o "$TMP_DIR/release.tar.gz" \
+        "${CURL[@]}" -o "$TMP_DIR/release.tar.gz" \
             "https://github.com/${VM_REPO}/releases/download/${tag_url}/katana-tee-vm-${tag_url}.tar.gz" \
             || fail "could not download release tarball for $tag"
         tar xzf "$TMP_DIR/release.tar.gz" -C "$boot_dir"
@@ -360,7 +369,7 @@ fetch_release() {
         log "Launcher scripts for $tag already present — skipping download"
     else
         log "Fetching launcher scripts at tag $tag ..."
-        curl -fsSL -o "$TMP_DIR/src.tar.gz" \
+        "${CURL[@]}" -o "$TMP_DIR/src.tar.gz" \
             "https://github.com/${VM_REPO}/archive/refs/tags/${tag_url}.tar.gz" \
             || fail "could not download source tarball for tag $tag"
         extract_amdsev_subtree "$TMP_DIR/src.tar.gz" "$src_dir"
@@ -456,7 +465,7 @@ ensure_cargo() {
     log "Installing rustup ..."
     # --default-toolchain none: snp-tools/rust-toolchain.toml pins the exact
     # toolchain and rustup fetches it on first build.
-    curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+    "${CURL[@]}" https://sh.rustup.rs | sh -s -- -y --default-toolchain none
     # shellcheck disable=SC1091
     [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
     have cargo
@@ -469,6 +478,61 @@ build_snp_digest() {
     local src_dir="$1"
     (cd "$src_dir/snp-tools" && cargo build --release >&2)
     find "$src_dir/snp-tools/target" -type f -name snp-digest -perm -u+x 2>/dev/null | head -n1
+}
+
+# Read a KEY="value" assignment out of a build-config file without sourcing
+# it (extraction keeps this a data read, not code execution).
+build_config_get() {
+    sed -n "s/^${2}=\"\(.*\)\"\$/\1/p" "$1" | head -n1
+}
+
+# Fetch the prebuilt snp-digest pinned by the tag's build-config
+# (SNP_DIGEST_RELEASE names a snp-tools-v* release, SNP_DIGEST_SHA256 gates
+# the download — trusted because build-config is versioned in git at the
+# tee-vm tag being installed) and echo its path; non-zero when the tag has no
+# pin (predates it, or pins left empty), the checksum mismatches, or the
+# binary doesn't run — callers fall back to the source build. It lands where
+# verify-build.sh's discovery looks (snp-tools/target/release/), so the
+# release verification step finds it without changes. A convenience copy, not
+# the trust root: auditors build snp-digest from the pinned release's source.
+fetch_prebuilt_snp_digest() {
+    local src_dir="$1" rel sha_expected sha_actual rel_url dest
+    # The prebuilt targets x86_64 Linux — the only SNP host platform. Dry
+    # runs elsewhere (e.g. macOS) use the source-build or no-cargo paths.
+    [[ "$(uname -s)/$(uname -m)" == "Linux/x86_64" ]] || return 1
+    [[ -f "$src_dir/build-config" ]] || return 1
+    rel="$(build_config_get "$src_dir/build-config" SNP_DIGEST_RELEASE)"
+    sha_expected="$(build_config_get "$src_dir/build-config" SNP_DIGEST_SHA256)"
+    [[ -n "$rel" ]] || return 1
+    if ! valid_sha256 "$sha_expected"; then
+        warn "build-config pins SNP_DIGEST_RELEASE=$rel but SNP_DIGEST_SHA256 is not a sha256 — falling back to source build"
+        return 1
+    fi
+    rel_url="$(encode_tag "$rel")"
+    dest="$src_dir/snp-tools/target/release/snp-digest"
+
+    # Reuse an already-downloaded copy when it still matches the pin.
+    if [[ ! -x "$dest" ]] || [[ "$(sha256sum "$dest" | awk '{print $1}')" != "$sha_expected" ]]; then
+        "${CURL[@]}" -o "$TMP_DIR/snp-digest" \
+            "https://github.com/${VM_REPO}/releases/download/${rel_url}/snp-digest-${rel_url}" \
+            || { warn "could not download pinned snp-digest release $rel — falling back to source build"; return 1; }
+        sha_actual="$(sha256sum "$TMP_DIR/snp-digest" | awk '{print $1}')"
+        if [[ "$sha_actual" != "$sha_expected" ]]; then
+            warn "pinned snp-digest checksum mismatch (got $sha_actual, want $sha_expected) — falling back to source build"
+            return 1
+        fi
+        mkdir -p "$(dirname "$dest")"
+        cp "$TMP_DIR/snp-digest" "$dest"
+        chmod +x "$dest"
+    fi
+
+    # Smoke-run: catches a binary the host can't execute (e.g. libc mismatch).
+    if ! "$dest" --help >/dev/null 2>&1; then
+        warn "pinned snp-digest does not run on this host — falling back to source build"
+        rm -f "$dest"
+        return 1
+    fi
+    printf '%s' "$dest"
 }
 
 # Compute the expected launch measurement for the operator's configuration
@@ -514,12 +578,22 @@ compute_expected_measurement() {
 verify_and_measure() {
     local src_dir="$1" boot_dir="$2" snp_digest
 
-    if ! ensure_cargo; then
+    # Prefer the prebuilt verifier release pinned by the tag's build-config;
+    # build from source only when the tag has no pin (or the download fails).
+    snp_digest="$(fetch_prebuilt_snp_digest "$src_dir")" || snp_digest=""
+    if [[ -n "$snp_digest" ]]; then
+        log "Using prebuilt snp-digest $(build_config_get "$src_dir/build-config" SNP_DIGEST_RELEASE) (pinned in build-config, checksum verified)"
+    elif ensure_cargo; then
+        log "No usable prebuilt snp-digest for $TAG — building from source ..."
+        snp_digest="$(build_snp_digest "$src_dir")"
+        [[ -n "$snp_digest" ]] || fail "snp-tools built but no snp-digest binary was found"
+    else
         # Boot artifacts were already checksum-verified against build-info.txt
         # in fetch_release; only the measurement recompute is unavailable.
         rm -f "$TEE_HOME/expected-measurement.txt"
         warn "=================================================================="
-        warn "cargo unavailable — SKIPPING launch-measurement verification."
+        warn "no prebuilt snp-digest for $TAG and cargo unavailable —"
+        warn "SKIPPING launch-measurement verification."
         warn "Artifact checksums were verified, but the expected measurement for"
         warn "your configuration was NOT computed, so remote attestation results"
         warn "cannot be checked against a local expected value."
@@ -529,10 +603,6 @@ verify_and_measure() {
         EXPECTED_MEASUREMENT=""
         return 0
     fi
-
-    log "Building snp-digest from source at $TAG ..."
-    snp_digest="$(build_snp_digest "$src_dir")"
-    [[ -n "$snp_digest" ]] || fail "snp-tools built but no snp-digest binary was found"
 
     # Full release verification: every artifact SHA-256 plus the RECORDED
     # measurement (vcpus=1, canonical sealed UUID — the values the release

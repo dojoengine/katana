@@ -34,12 +34,15 @@ The installer needs no root; `run.sh` invokes `start-vm.sh` via `sudo`
   host has another version (or none), the installer offers to build it from
   source via the release's `scripts/build-qemu.sh` — locally under the
   install root (default) or into `/usr/local`.
-- **Rust (optional but recommended):** `cargo` is needed to build
-  `snp-digest`, which verifies the release's published launch measurement
-  and computes the expected measurement for your configuration. Without it
-  the install still completes (artifact checksums are always verified), but
-  attestation verification has no local expected value until you install
-  Rust and run `install.sh verify`.
+- **Rust (optional):** measurement verification uses `snp-digest`. Each
+  release's `build-config` pins a prebuilt `snp-tools-v*` release (tag +
+  SHA-256) that the installer downloads and checksum-verifies automatically,
+  so `cargo` is only needed as a fallback — for releases predating the pin,
+  or if you prefer building the verifier from source (the prebuilt is a
+  convenience copy, not the trust root). Without either, the install still
+  completes (artifact checksums are always verified), but attestation
+  verification has no local expected value until you run `install.sh verify`
+  with one of them available.
 
 ## What gets installed
 
@@ -155,7 +158,8 @@ a fresh file to keep the old disk recoverable under the old release.
   then reload `kvm_amd` (or reboot). The host kernel must support SNP.
 - **QEMU build fails** — install the build deps first:
   `sudo apt-get install -y build-essential ninja-build pkg-config libglib2.0-dev libpixman-1-dev python3-venv flex bison wget`.
-- **`cargo` missing / measurement not computed** — install Rust
+- **Measurement not computed** — the release pins no prebuilt `snp-digest`
+  (its `build-config` predates the pin) and `cargo` is missing. Install Rust
   (https://rustup.rs), then `~/.katana/tee-vm/install.sh verify`.
 - **vCPUs locked to 1** — the chosen release's launcher predates
   configurable vCPUs; pick a newer `tee-vm-v*` release.

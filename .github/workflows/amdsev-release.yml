@@ -374,22 +374,47 @@ jobs:
             echo "KATANA_ASSET_VARIANT=native"
           } >> output/qemu/build-info.txt
 
-      - name: Build snp-tools
-        # snp-tools binaries are NOT shipped as release artifacts (separate
-        # release stream). We build them here only so the next step can run
-        # snp-digest to compute the published launch measurement.
-        # snp-tools/.cargo/config.toml pins build.target, so the binary lands
-        # under target/<triple>/release; locate it explicitly rather than
-        # hardcoding the triple here.
-        working-directory: misc/AMDSEV/snp-tools
+      - name: Obtain snp-digest
+        # Needed by the next step to compute the published launch measurement.
+        # Preferred source: the snp-tools-v* release pinned in build-config
+        # (SNP_DIGEST_RELEASE + SNP_DIGEST_SHA256, cut by the
+        # amdsev-snp-tools-release workflow), checksum-verified — the same
+        # binary install.sh uses on SNP hosts, so the publisher and the
+        # verifiers run identical code. Empty pins fall back to building the
+        # crate from this checkout (snp-tools/.cargo/config.toml pins
+        # build.target, so the binary lands under target/<triple>/release;
+        # locate it explicitly rather than hardcoding the triple).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cargo build --release
-          SNP_DIGEST="$(find target -type f -name snp-digest -perm -u+x | head -n1)"
-          if [ -z "$SNP_DIGEST" ]; then
-            echo "snp-digest binary not found after build" >&2
-            exit 1
+          . ./build-config
+          if [ -n "${SNP_DIGEST_RELEASE:-}" ]; then
+            if [[ ! "${SNP_DIGEST_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "SNP_DIGEST_RELEASE is pinned but SNP_DIGEST_SHA256 is not a sha256" >&2
+              exit 1
+            fi
+            echo "Downloading pinned snp-digest from ${SNP_DIGEST_RELEASE}"
+            gh release download "$SNP_DIGEST_RELEASE" --repo "$GITHUB_REPOSITORY" \
+              --pattern "snp-digest-${SNP_DIGEST_RELEASE}" --output snp-digest
+            actual="$(sha256sum snp-digest | awk '{print $1}')"
+            if [ "$actual" != "$SNP_DIGEST_SHA256" ]; then
+              echo "pinned snp-digest checksum mismatch: got $actual, want $SNP_DIGEST_SHA256" >&2
+              exit 1
+            fi
+            chmod +x snp-digest
+            ./snp-digest --help >/dev/null
+            echo "SNP_DIGEST=$PWD/snp-digest" >> "$GITHUB_ENV"
+          else
+            echo "No SNP_DIGEST_RELEASE pin in build-config — building snp-tools from source"
+            cd snp-tools
+            cargo build --release
+            SNP_DIGEST="$(find target -type f -name snp-digest -perm -u+x | head -n1)"
+            if [ -z "$SNP_DIGEST" ]; then
+              echo "snp-digest binary not found after build" >&2
+              exit 1
+            fi
+            echo "SNP_DIGEST=$PWD/$SNP_DIGEST" >> "$GITHUB_ENV"
           fi
-          echo "SNP_DIGEST=$PWD/$SNP_DIGEST" >> "$GITHUB_ENV"
 
       - name: Compute sealed launch measurement
         run: |
@@ -444,6 +469,8 @@ jobs:
           tag="${VM_TAG}"
           # shellcheck disable=SC2153
           katana_ver="${KATANA_VER}"
+          # For SNP_DIGEST_RELEASE (the pinned verifier named in the notes).
+          . ./build-config
           # Pull values from build-info.txt for the human-readable summary.
           info_get() {
             awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' output/qemu/build-info.txt
@@ -520,6 +547,17 @@ jobs:
             echo "from \`OVMF.fd\` + \`vmlinuz\` + \`initrd.img\` + the canonical LUKS_UUID. Exits"
             echo "non-zero on any mismatch. For full from-source reproduction, see"
             echo "\`misc/AMDSEV/reproduce-release.sh\`."
+            echo
+            if [ -n "${SNP_DIGEST_RELEASE:-}" ]; then
+              echo "The measurement above was computed with snp-digest from"
+              echo "\`${SNP_DIGEST_RELEASE}\` (pinned in \`misc/AMDSEV/build-config\`) —"
+              echo "hosts running \`misc/AMDSEV/install.sh\` download and checksum-verify"
+              echo "the same pinned binary."
+            else
+              echo "The measurement above was computed with snp-digest built from this"
+              echo "tag's \`misc/AMDSEV/snp-tools\` source (no prebuilt pinned in"
+              echo "\`misc/AMDSEV/build-config\`)."
+            fi
             echo
             echo "## Full build provenance"
             echo

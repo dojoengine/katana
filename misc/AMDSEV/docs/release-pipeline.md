@@ -264,8 +264,41 @@ fetched from the **repo source at the same tag**
 `misc/AMDSEV` tree part of the published interface: renaming `start-vm.sh`,
 its flags/env vars (`KATANA_VCPUS`, `KATANA_MEMORY`, `HOST_RPC_PORT`, ...),
 `scripts/sealed-cmdline.sh`, `verify-build.sh`, the `snp-tools` crate path,
-or the tarball layout changes what installed hosts download on upgrade — the
-installer feature-detects where it can, but treat such renames as breaking.
+the `build-config` pin keys, or the tarball layout changes what installed
+hosts download on upgrade — the installer feature-detects where it can, but
+treat such renames as breaking.
+
+## The snp-tools release stream
+
+`snp-digest` (the measurement calculator) is published on its own release
+line, `snp-tools-v<X.Y.Z>`, cut on demand by the
+[`amdsev-snp-tools-release`](../../../.github/workflows/amdsev-snp-tools-release.yml)
+workflow (assets: `snp-digest-<tag>` for x86_64 Linux + a bare-hex
+`.sha256`). It changes far less often than the VM image, so one snp-tools
+release serves many tee-vm releases instead of being rebuilt per release.
+
+Consumers pin it in `build-config` (`SNP_DIGEST_RELEASE` +
+`SNP_DIGEST_SHA256`):
+
+- **This pipeline** downloads the pinned binary (checksum-verified) to
+  compute the published measurement — no cargo build in the release path.
+- **`install.sh`** reads the pins from the installed tag's `build-config`
+  and downloads the same binary on SNP hosts, so measurement verification
+  needs no Rust toolchain. The checksum is trusted because `build-config` is
+  versioned in git at the consuming tag.
+- **Empty pins** mean both fall back to building `snp-tools` from source
+  (also the behavior for tags predating the pins).
+
+The prebuilt is a plain runner build — a convenience copy, **not** the trust
+root, and not part of the reproducibility story (its checksum stays out of
+`build-info.txt`, so `reproduce-release.sh` is unaffected). Auditors verify
+it by rebuilding from the snp-tools tag's pinned source
+(`rust-toolchain.toml` + `Cargo.lock`).
+
+Runbook for a new snp-tools release: dispatch `amdsev-snp-tools-release`
+with the next version, then open a PR bumping both `build-config` pins to
+the tag + SHA-256 printed in its release notes. Cut one whenever the crate
+changes in a way that affects `snp-digest`'s output or interface.
 
 ## What moves the measurement between releases
 

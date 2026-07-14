@@ -1,0 +1,139 @@
+name: amdsev-snp-tools-release
+
+# Publishes a prebuilt snp-digest as a dedicated `snp-tools-v<X.Y.Z>` GitHub
+# Release. snp-digest changes far less often than the TEE VM image, so it
+# gets its own release stream instead of being rebuilt and re-attached on
+# every tee-vm-v* release; consumers pin ONE snp-tools release:
+#
+#   - misc/AMDSEV/build-config carries SNP_DIGEST_RELEASE + SNP_DIGEST_SHA256.
+#     The tee-vm release pipeline (amdsev-release.yml) downloads that pinned
+#     binary to compute the published launch measurement, and install.sh
+#     downloads it on SNP hosts so measurement verification needs no Rust
+#     toolchain. Empty pins mean both fall back to building from source.
+#
+# Runbook: dispatch this workflow with the new version, then open a PR
+# bumping the two pins in build-config to the new tag + the SHA256 printed
+# in the release notes. The prebuilt is a convenience copy, not the trust
+# root — auditors rebuild snp-digest from the tagged snp-tools source
+# (pinned rust-toolchain.toml + Cargo.lock) rather than trusting the asset.
+#
+# Cut a new release when the snp-tools crate changes in a way that affects
+# snp-digest's output or interface (measurement algorithm inputs, CLI flags),
+# then bump the pins. Runner-only build: snp-digest is pure userspace
+# hashing; no SNP hardware involved.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'snp-tools version to publish (SemVer, no prefix; e.g. 0.1.0)'
+        required: true
+        type: string
+
+concurrency:
+  group: amdsev-snp-tools-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: misc/AMDSEV/snp-tools
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate version and tag availability
+        id: ctx
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "version must be plain SemVer (optionally -rc.N), got: $VERSION" >&2
+            exit 1
+          fi
+          tag="snp-tools-v${VERSION}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $tag already exists" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: misc/AMDSEV/snp-tools
+
+      - name: Test
+        # Same gate as PR CI (amdsev-snp-tools.yml): snp-digest computes the
+        # measurement verifiers pin against — never ship an untested build.
+        run: cargo test --release --locked
+
+      - name: Build snp-digest
+        # snp-tools/.cargo/config.toml pins build.target, so the binary lands
+        # under target/<triple>/release; locate it explicitly rather than
+        # hardcoding the triple here.
+        run: |
+          cargo build --release --locked
+          SNP_DIGEST="$(find target -type f -name snp-digest -perm -u+x | head -n1)"
+          if [ -z "$SNP_DIGEST" ]; then
+            echo "snp-digest binary not found after build" >&2
+            exit 1
+          fi
+          "$SNP_DIGEST" --help >/dev/null
+          echo "SNP_DIGEST=$PWD/$SNP_DIGEST" >> "$GITHUB_ENV"
+
+      - name: Stage release artifacts
+        id: stage
+        env:
+          TAG: ${{ steps.ctx.outputs.tag }}
+        run: |
+          mkdir -p release
+          cp "$SNP_DIGEST" "release/snp-digest-${TAG}"
+          sha="$(sha256sum "release/snp-digest-${TAG}" | awk '{print $1}')"
+          printf '%s\n' "$sha" > "release/snp-digest-${TAG}.sha256"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        env:
+          TAG: ${{ steps.ctx.outputs.tag }}
+          SHA: ${{ steps.stage.outputs.sha }}
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml | head -n1)"
+          {
+            echo "# snp-tools ${TAG}"
+            echo
+            echo "Prebuilt \`snp-digest\` (x86_64 Linux, Rust ${toolchain}, \`--locked\`) — the"
+            echo "SEV-SNP launch-measurement calculator used by the TEE VM release pipeline"
+            echo "and by \`misc/AMDSEV/install.sh\` on SNP hosts."
+            echo
+            echo '```'
+            echo "snp-digest-${TAG} SHA-256: ${SHA}"
+            echo '```'
+            echo
+            echo "To adopt this release, bump both pins in \`misc/AMDSEV/build-config\`:"
+            echo
+            echo '```sh'
+            echo "SNP_DIGEST_RELEASE=\"${TAG}\""
+            echo "SNP_DIGEST_SHA256=\"${SHA}\""
+            echo '```'
+            echo
+            echo "This is a convenience copy, not the trust root: auditors should rebuild"
+            echo "\`snp-digest\` from this tag's \`misc/AMDSEV/snp-tools\` source (pinned"
+            echo "\`rust-toolchain.toml\` + \`Cargo.lock\`)."
+          } > release/release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ctx.outputs.tag }}
+          target_commitish: ${{ steps.ctx.outputs.sha }}
+          prerelease: ${{ contains(inputs.version, '-rc.') }}
+          body_path: misc/AMDSEV/snp-tools/release/release-notes.md
+          files: |
+            misc/AMDSEV/snp-tools/release/snp-digest-*
