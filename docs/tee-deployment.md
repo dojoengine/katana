@@ -264,6 +264,14 @@ The script:
 - Sends `start <args>` over the virtio-serial control channel to launch
   Katana after boot.
 - Forwards Katana's port `5050` to host port `15051`.
+- Gives the guest 4G of RAM by default (override via `KATANA_MEMORY`). The
+  initramfs — including the cairo-native katana binary — unpacks into guest
+  RAM, so several GB are required; `-m` is not part of the launch
+  measurement, so sizing it differently doesn't change attestation.
+
+The embedded katana is the cairo-native release build: adding
+`--enable-native-compilation` to `--katana-args` turns on native execution
+of contract classes inside the enclave (off by default).
 
 Notes:
 

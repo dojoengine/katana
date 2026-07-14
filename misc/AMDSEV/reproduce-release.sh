@@ -10,8 +10,10 @@
 #
 # The script:
 #   1. Downloads the release's build-info.txt (the published provenance).
-#   2. Downloads the exact katana binary the release embedded, verified
-#      against the recorded KATANA_BINARY_SHA256.
+#   2. Downloads the exact katana binary the release embedded (the release
+#      asset variant recorded as KATANA_ASSET_VARIANT — `native` for current
+#      releases, portable for pre-native ones), verified against the recorded
+#      KATANA_BINARY_SHA256.
 #   3. Rebuilds OVMF + kernel + initrd from source with SOURCE_DATE_EPOCH
 #      set to the recorded value (OVMF derives its own epoch from the pinned
 #      OVMF commit — see scripts/build-ovmf.sh).
@@ -29,8 +31,9 @@
 #     OS image can yield a different (but still internally consistent)
 #     OVMF.fd.
 #   - The OVMF build takes ~10 minutes; the full run ~15.
-#   - Docker is needed (static cryptsetup build), plus cargo with the
-#     x86_64-unknown-linux-musl target (snp-derivekey).
+#   - Docker is needed (static cryptsetup + static ld builds — see
+#     scripts/build-cryptsetup.sh and scripts/build-binutils-ld.sh), plus
+#     cargo with the x86_64-unknown-linux-musl target (snp-derivekey).
 #
 # Usage:
 #   ./reproduce-release.sh TAG [--workdir DIR]
@@ -158,11 +161,23 @@ if [[ -n "$RECORDED_KATANA_VER" && "$RECORDED_KATANA_VER" != "$KATANA_VER" ]]; t
     die "katana version mismatch: tag says '$KATANA_VER' but build-info records '$RECORDED_KATANA_VER'"
 fi
 
-log "Downloading katana $KATANA_VER (portable linux_amd64 build)"
-KATANA_TARBALL="$WORKDIR/katana_${KATANA_VER}_linux_amd64.tar.gz"
+# Which release asset variant was embedded. Recorded by amdsev-release.yml
+# as KATANA_ASSET_VARIANT (`native` = the cairo-native build,
+# katana_<ver>_linux_amd64_native.tar.gz). Releases from before the native
+# switch have no such key and embedded the portable build. The recorded
+# KATANA_BINARY_SHA256 below stays the authoritative gate either way.
+RECORDED_VARIANT="$(info_get KATANA_ASSET_VARIANT)"
+case "$RECORDED_VARIANT" in
+    native)      ASSET_SUFFIX="_native" ;;
+    ""|portable) ASSET_SUFFIX="" ;;
+    *)           die "unknown KATANA_ASSET_VARIANT '$RECORDED_VARIANT' in published build-info" ;;
+esac
+
+log "Downloading katana $KATANA_VER (${RECORDED_VARIANT:-portable} linux_amd64 build)"
+KATANA_TARBALL="$WORKDIR/katana_${KATANA_VER}_linux_amd64${ASSET_SUFFIX}.tar.gz"
 curl -fsSL -o "$KATANA_TARBALL" \
-    "https://github.com/${KATANA_REPO}/releases/download/${KATANA_VER}/katana_${KATANA_VER}_linux_amd64.tar.gz" \
-    || die "could not download katana $KATANA_VER from $KATANA_REPO"
+    "https://github.com/${KATANA_REPO}/releases/download/${KATANA_VER}/katana_${KATANA_VER}_linux_amd64${ASSET_SUFFIX}.tar.gz" \
+    || die "could not download katana $KATANA_VER (${RECORDED_VARIANT:-portable}) from $KATANA_REPO"
 
 mkdir -p "$WORKDIR/katana-bin"
 tar -xzf "$KATANA_TARBALL" -C "$WORKDIR/katana-bin"

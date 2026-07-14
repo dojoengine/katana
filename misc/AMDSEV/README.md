@@ -2,6 +2,16 @@
 
 Build scripts for creating TEE (Trusted Execution Environment) components to run Katana inside AMD SEV-SNP confidential VMs.
 
+## Install (run a published release)
+
+Operators standing up a host to *run* the TEE VM (rather than build it) can use the one-command installer. It preflights the SEV-SNP host, downloads and verifies the latest `tee-vm-v*` release together with its matching launcher scripts, builds the pinned QEMU when the host lacks it, walks through vCPU/memory/disk/port configuration, and recomputes the expected launch measurement for the chosen config:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dojoengine/katana/main/misc/AMDSEV/install.sh | bash
+```
+
+See [docs/install.md](docs/install.md) for prerequisites, the wizard walkthrough, non-interactive usage, upgrades, and persistence recipes.
+
 ## Requirements
 
 - **QEMU 10.2.0** - Only tested with this version. Earlier versions may lack required SEV-SNP features.
@@ -24,7 +34,7 @@ Output is written to `output/qemu/`.
 
 ### Katana Binary
 
-`--katana` is required when building the initrd. Download a prebuilt linux-gnu binary from [dojoengine/katana releases](https://github.com/dojoengine/katana/releases) (the `*_linux_amd64.tar.gz` portable build).
+`--katana` is required when building the initrd. Download a prebuilt linux-gnu binary from [dojoengine/katana releases](https://github.com/dojoengine/katana/releases) — release images embed the `*_linux_amd64_native.tar.gz` cairo-native build (the portable `*_linux_amd64.tar.gz` build also works, but the guest then lacks `--enable-native-compilation` support).
 
 For reproducibility, the initrd does not copy glibc or shared libraries from the build host. Instead, `scripts/build-initrd.sh` downloads the exact runtime `.deb` packages listed in `build-config`, verifies their SHA-256 checksums, then copies the ELF interpreter and the shared libraries declared by Katana with `readelf`. If providing a custom dynamic binary with `--katana`, build it against a glibc compatible with the pinned runtime and make sure any extra shared libraries it needs are covered by `GLIBC_RUNTIME_PACKAGES` and `GLIBC_RUNTIME_PACKAGE_SHA256S`.
 
@@ -34,17 +44,20 @@ For reproducibility, the initrd does not copy glibc or shared libraries from the
 |------|-------------|
 | `build.sh` | Orchestrator entry point — builds OVMF, kernel, initrd; writes `build-info.txt` |
 | `start-vm.sh` | Starts a TEE VM with SEV-SNP and launches Katana asynchronously (consumer-facing) |
+| `install.sh` | One-command operator installer: preflight, release download + verification, wizard, run.sh generation — see [docs/install.md](docs/install.md) |
 | `verify-build.sh` | Verifies sha256s + sealed launch measurement of a build / downloaded release |
 | `reproduce-release.sh` | Rebuilds a published release from source and compares it byte-for-byte against the published artifacts |
 | `build-config` | Pinned versions and checksums for reproducible builds |
 | `scripts/build-ovmf.sh` | Builds OVMF firmware from AMD's fork with SEV-SNP support |
 | `scripts/build-kernel.sh` | Downloads and extracts Ubuntu kernel (`vmlinuz`) |
-| `scripts/build-initrd.sh` | Creates minimal initrd with busybox, SEV-SNP modules, snp-derivekey, cryptsetup, and katana |
+| `scripts/build-initrd.sh` | Creates minimal initrd with busybox, SEV-SNP modules, snp-derivekey, cryptsetup, ld (cairo-native runtime linker), and katana |
 | `scripts/build-cryptsetup.sh` | Builds static cryptsetup + mkfs.ext2 in an Alpine container |
+| `scripts/build-binutils-ld.sh` | Builds a static GNU ld in the same Alpine container (cairo-native links AOT-compiled classes with it in-guest) |
 | `scripts/build-qemu.sh` | Builds QEMU 10.2.0 from source with SEV-SNP support (operator host setup, not part of build pipeline) |
 | `scripts/sealed-cmdline.sh` | Single source of truth for the measured kernel cmdline |
 | `scripts/test-initrd.sh` | Isolated initrd boot smoke test in plain QEMU |
 | `scripts/test-snp-e2e.sh` | End-to-end test on SEV-SNP hardware: sealed boot, attestation vs expected measurement, reboot reseal |
+| `scripts/test-install.sh` | Unit tests for install.sh's helpers (no network); full download dry-run under `KATANA_INSTALL_TEST_NETWORK=1` |
 | `snp-tools/` | Cargo crate with `snp-digest`, `snp-report`, `ovmf-metadata`, `snp-derivekey` |
 | `docs/release-pipeline.md` | How releases are built, measured, and published — see [Release Pipeline](docs/release-pipeline.md) |
 
@@ -312,7 +325,7 @@ one of options A–C lands, treat a Katana upgrade under `--sealed` as a fresh d
 | Kernel (`vmlinuz`) | Pinned Ubuntu kernel `.deb` | SHA-256 entry in the SEV hashes table (`kernel-hashes=on`) |
 | Initrd (`initrd.img`) | `scripts/build-initrd.sh`, reproducible | SHA-256 entry in the hashes table |
 | Kernel cmdline | `scripts/sealed-cmdline.sh` | SHA-256 entry in the hashes table |
-| vCPU count and model | `start-vm.sh`: 1 × `EPYC-v4` | Each vCPU's initial register state (VMSA) is measured |
+| vCPU count and model | `start-vm.sh`: `--vcpus` (default 1) × `EPYC-v4` | Each vCPU's initial register state (VMSA) is measured — a non-default `--vcpus` produces a different digest; verifiers must pin the expected count |
 | Guest features | `sev-snp-guest` object: `0x1` (SNP active) | Field in the measured VMSA |
 | VMM type | QEMU | VMSA layout differs per VMM |
 
@@ -320,7 +333,8 @@ Two points deserve emphasis:
 
 - **The initrd hash transitively pins everything inside it**: the katana
   binary, busybox, the glibc runtime, kernel modules, cryptsetup,
-  snp-derivekey, and the init script itself — including init's security
+  snp-derivekey, ld and its libc link inputs, and the init script itself —
+  including init's security
   behavior (pinning `--db-dir`/`--chain`, stripping reserved flags from
   operator input). Because the initrd build is reproducible (see
   [Reproducible Builds](#reproducible-builds)), anyone can rebuild it from

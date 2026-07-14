@@ -18,19 +18,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 STRICT_MODE=0
+NATIVE_MODE=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --strict)
             STRICT_MODE=1
             shift
             ;;
+        --native)
+            NATIVE_MODE=1
+            shift
+            ;;
         -h|--help)
-            echo "Usage: $0 [--strict]"
+            echo "Usage: $0 [--strict] [--native]"
             echo ""
             echo "Build a dynamically linked Katana binary using glibc."
             echo ""
             echo "OPTIONS:"
             echo "  --strict  Require vendored dependencies for reproducible builds"
+            echo "  --native  Add the 'native' cargo feature (cairo-native execution)."
+            echo "            Requires LLVM/MLIR 19 (MLIR_SYS_190_PREFIX etc.)."
             echo "  -h|--help Show this help message"
             exit 0
             ;;
@@ -133,13 +140,36 @@ echo "  OFFLINE_FLAG: ${OFFLINE_FLAG:-<none>}"
 # `tee-mock` enables `--tee mock`, letting operators and tests exercise the
 # TEE RPC surface without SNP hardware. Without it the binary fails with:
 #   "Mock TEE provider requires the 'tee-mock' feature"
+FEATURES="client,init-slot,jemalloc,tee-snp,tee-mock"
+
+# `--native` adds cairo-native execution (the `--enable-native-compilation`
+# runtime flag). This matches the FEATURE SET of the published
+# `_linux_amd64_native` release asset, not its bytes: this script keeps its
+# deterministic RUSTFLAGS (including the `-C link-arg=-s` strip), so the
+# output is functionally equivalent but hashes differently. Used by
+# amdsev-initrd-test.yml to exercise the TEE image's native configuration
+# from PR source.
+if [[ $NATIVE_MODE -eq 1 ]]; then
+    if [[ -z "${MLIR_SYS_190_PREFIX:-}" || -z "${LLVM_SYS_191_PREFIX:-}" ]]; then
+        echo "ERROR: --native requires LLVM/MLIR 19."
+        echo "       Install llvm-19 llvm-19-dev libmlir-19-dev mlir-19-tools libpolly-19-dev"
+        echo "       (see the 'Install LLVM ( Linux )' step in .github/workflows/release.yml"
+        echo "       for the apt.llvm.org recipe), then export:"
+        echo "           MLIR_SYS_190_PREFIX=/usr/lib/llvm-19"
+        echo "           LLVM_SYS_191_PREFIX=/usr/lib/llvm-19"
+        echo "           TABLEGEN_190_PREFIX=/usr/lib/llvm-19"
+        exit 1
+    fi
+    FEATURES="${FEATURES},native"
+fi
+
 cargo build \
     $OFFLINE_FLAG \
     --locked \
     --target x86_64-unknown-linux-gnu \
     --profile performance \
     --no-default-features \
-    --features "client,init-slot,jemalloc,tee-snp,tee-mock" \
+    --features "$FEATURES" \
     --bin katana
 
 BINARY_PATH="$PROJECT_ROOT/target/x86_64-unknown-linux-gnu/performance/katana"

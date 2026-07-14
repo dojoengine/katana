@@ -26,6 +26,12 @@ export CRYPTSETUP_VERSION CRYPTSETUP_SHA256 CRYPTSETUP_BUILDER_IMAGE
 export LVM2_VERSION LVM2_SHA256
 export E2FSPROGS_VERSION E2FSPROGS_SHA256
 export GLIBC_RUNTIME_PACKAGES GLIBC_RUNTIME_PACKAGE_SHA256S
+# Native-compilation support pins. BINUTILS_* is consumed by
+# build-binutils-ld.sh (auto-invoked below when LD_BINARY isn't already
+# supplied); LIBC6_DEV_* is consumed by build-initrd.sh to assemble the
+# -lc link inputs for the bundled ld.
+export BINUTILS_VERSION BINUTILS_SHA256
+export LIBC6_DEV_PKG_VERSION LIBC6_DEV_PKG_SHA256
 # CA certificates bundle — consumed by build-initrd.sh to populate the enclave trust
 # stores (openssl + rustls paths). Without this export the cert step silently skips
 # and the released image ships NO CA bundle (outbound HTTPS fails).
@@ -85,6 +91,11 @@ function usage()
 	echo "  --vrf-bin PATH          Path to a prebuilt vrf-server binary (optional; katana"
 	echo "                          release asset). Bundled into the initrd so the guest"
 	echo "                          supports --vrf. Both-or-neither with --paymaster-bin."
+	echo "  --ld PATH               Path to a static GNU ld binary (optional; auto-built"
+	echo "                          via build-binutils-ld.sh if not provided). Bundled at"
+	echo "                          /bin/ld so the guest supports katana's"
+	echo "                          --enable-native-compilation (cairo-native links each"
+	echo "                          AOT-compiled class with ld at runtime)."
 	echo "  -h|--help               Usage information"
 	echo ""
 	echo "COMPONENTS (if none specified, builds all):"
@@ -147,6 +158,13 @@ while [ -n "$1" ]; do
 	--vrf-bin)
 		[ -z "$2" ] && usage
 		export VRF_BINARY="$2"
+		shift; shift
+		;;
+	--ld)
+		[ -z "$2" ] && usage
+		# Same export rationale as --snp-derivekey: build-initrd.sh runs
+		# as a child process and reads LD_BINARY from the env.
+		export LD_BINARY="$2"
 		shift; shift
 		;;
 	-h|--help)
@@ -277,6 +295,36 @@ if [ $BUILD_INITRD -eq 1 ] \
 	export CRYPTSETUP_BINARY MKFS_EXT2_BINARY
 	echo "Using cryptsetup: $CRYPTSETUP_BINARY"
 	echo "Using mkfs.ext2:  $MKFS_EXT2_BINARY"
+fi
+
+# Build a static GNU ld for in-guest cairo-native AOT linking unless the
+# operator opted out (KATANA_SKIP_LD_BUILD=1) or pre-supplied a path via
+# --ld. Deliberately NOT gated on KATANA_UNSEALED_BUILD: ld is orthogonal
+# to sealed storage — its own opt-out keeps Docker-less hosts and cheap dev
+# iteration working (build-initrd.sh warns instead of dying when LD_BINARY
+# is absent; the resulting image just doesn't support
+# --enable-native-compilation). Cached under output/binutils-static like
+# the cryptsetup outputs.
+if [ $BUILD_INITRD -eq 1 ] \
+   && [ "${KATANA_SKIP_LD_BUILD:-0}" -ne 1 ] \
+   && [ -z "${LD_BINARY:-}" ]; then
+	LD_OUT_DIR="${SCRIPT_DIR}/output/binutils-static"
+	LD_BINARY="${LD_OUT_DIR}/ld"
+
+	if [ ! -x "$LD_BINARY" ]; then
+		echo ""
+		echo "Building static GNU ld (cairo-native runtime linker)..."
+		"${SCRIPT_DIR}/scripts/build-binutils-ld.sh" "$LD_OUT_DIR" || {
+			echo "build-binutils-ld.sh failed"
+			exit 1
+		}
+	fi
+	if [ ! -x "$LD_BINARY" ]; then
+		echo "ERROR: ld binary missing at $LD_BINARY"
+		exit 1
+	fi
+	export LD_BINARY
+	echo "Using ld: $LD_BINARY"
 fi
 
 mkdir -p $INSTALL_DIR

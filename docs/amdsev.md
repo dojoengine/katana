@@ -67,7 +67,7 @@ Three layers of trust, outside-in:
 | **OVMF firmware** (`OVMF.fd`) | `misc/AMDSEV/build-ovmf.sh` → `output/qemu/OVMF.fd` | UEFI firmware. Built from [AMD's OVMF fork](https://github.com/AMDESE/ovmf) (`AmdSevX64.dsc`) which reserves the 1 KB hash-table region SEV-SNP uses to inject kernel/initrd/cmdline digests into the measurement. |
 | **Linux kernel** (`vmlinuz`) | `misc/AMDSEV/build-kernel.sh` → `output/qemu/vmlinuz` | Ubuntu-supplied kernel; SEV-SNP guest-side drivers (`tsm`, `sev-guest`) plus `dm-mod`, `dm-crypt`, `dm-integrity` are loaded from modules shipped inside the initrd. |
 | **initrd** (`initrd.img`) | `misc/AMDSEV/build-initrd.sh` → `output/qemu/initrd.img` | Self-contained root filesystem. Measured at launch. Contains the `init` script and every userspace binary the guest ever runs. See [initrd layout](#initrd-layout) below. |
-| **katana binary** | `scripts/build-gnu.sh` → `target/x86_64-unknown-linux-gnu/performance/katana`, or `scripts/build-reproducible-katana.sh` for the deterministic Docker-pinned build used by `release.yml` | Sequencer itself. Dynamically linked against glibc; the initrd vendors a pinned glibc runtime (`libc.so.6` and its dependencies) under `lib64/` and `usr/lib/x86_64-linux-gnu/`. Runtime package versions are pinned in `misc/AMDSEV/build-config` (`GLIBC_RUNTIME_PACKAGES` / `GLIBC_RUNTIME_PACKAGE_SHA256S`) and recorded in `build-info.txt` as `GLIBC_VERSION`. |
+| **katana binary** | The `katana_<ver>_linux_amd64_native.tar.gz` release asset (built by `release.yml` with `--features native`, LLVM/MLIR 19 statically linked); `scripts/build-gnu.sh --native` builds the same configuration from source | Sequencer itself, cairo-native-enabled (in-guest native execution behind `--enable-native-compilation`, off by default). Dynamically linked against glibc; the initrd vendors a pinned glibc runtime (`libc.so.6` and its dependencies) under `lib64/` and `usr/lib/x86_64-linux-gnu/`. Runtime package versions are pinned in `misc/AMDSEV/build-config` (`GLIBC_RUNTIME_PACKAGES` / `GLIBC_RUNTIME_PACKAGE_SHA256S`) and recorded in `build-info.txt` as `GLIBC_VERSION`. Note: unlike the previously embedded portable build, the native asset is not yet reproducible-from-source — image verification pins it by `KATANA_BINARY_SHA256`. |
 | **`snp-derivekey`** (new) | `crates/tee/src/bin/derivekey.rs` (built with `--features snp`) | Tiny helper the init script runs once at boot to derive the LUKS unseal key from `SNP_GET_DERIVED_KEY`. See [Sealed storage](#sealed-storage). |
 | **`cryptsetup`** (new) | Built from pinned source inside a pinned Alpine container (SECTION 3 of `build-initrd.sh`) | Drives LUKS2 open/format and dm-integrity setup. Static-musl, single binary, no runtime library dependencies. |
 | **`start-vm.sh`** | `misc/AMDSEV/start-vm.sh` | Host-side launcher. Wires OVMF + kernel + initrd + disk + virtio-serial control channel together and invokes QEMU with the correct `-object sev-snp-guest,…,kernel-hashes=on` flags. |
@@ -76,7 +76,7 @@ Three layers of trust, outside-in:
 
 ### initrd layout
 
-The initrd is a gzipped cpio archive with a single-user layout. The helper binaries (busybox, cryptsetup, snp-derivekey) are statically linked; katana is glibc-dynamic, and the initrd vendors a pinned glibc runtime alongside it.
+The initrd is a gzipped cpio archive with a single-user layout. The helper binaries (busybox, cryptsetup, snp-derivekey, ld) are statically linked; katana is glibc-dynamic, and the initrd vendors a pinned glibc runtime alongside it.
 
 ```
 /
@@ -86,7 +86,9 @@ The initrd is a gzipped cpio archive with a single-user layout. The helper binar
 │   ├── mount → busybox    (and tr, grep, mkfifo, mkfs.ext2, etc.)
 │   ├── katana             (glibc-dynamic; needs the runtime under lib64/ + usr/lib/)
 │   ├── snp-derivekey      (static; calls SNP_GET_DERIVED_KEY)
-│   └── cryptsetup         (static; LUKS2 + dm-integrity driver)
+│   ├── cryptsetup         (static; LUKS2 + dm-integrity driver)
+│   └── ld                 (static GNU ld; cairo-native links AOT-compiled classes
+│                           with it at runtime under --enable-native-compilation)
 ├── lib/modules/
 │   ├── tsm.ko             (TSM configfs interface for attestation reports)
 │   ├── sev-guest.ko       (/dev/sev-guest device for SNP ioctls)
@@ -94,9 +96,12 @@ The initrd is a gzipped cpio archive with a single-user layout. The helper binar
 │   ├── dm-crypt.ko        (block-level encryption)
 │   └── dm-integrity.ko    (sector-level authentication)
 ├── lib64/
-│   └── ld-linux-x86-64.so.2   (ELF interpreter; path is the one /bin/katana embeds)
+│   ├── ld-linux-x86-64.so.2   (ELF interpreter; path is the one /bin/katana embeds)
+│   └── libc.so            (generated linker script — resolves ld's `-lc` to the
+│                           vendored libc.so.6 + libc_nonshared.a)
 ├── usr/lib/x86_64-linux-gnu/
 │   ├── libc.so.6, libgcc_s.so.1, libm.so.6, libstdc++.so.6, libz.so.1, liblzma.so.5
+│   ├── libc_nonshared.a   (from the pinned libc6-dev deb; -lc link input)
 │   └── libnss_dns.so.2, libnss_files.so.2, libresolv.so.2  (optional NSS plugins)
 ├── init                   (BusyBox shell script; PID 1)
 ├── dev/, proc/, sys/, tmp/, etc/, mnt/
@@ -116,7 +121,7 @@ flowchart LR
         qemu_b["build-qemu.sh<br/>(QEMU 10.2 from source)"]
         ovmf_b["build-ovmf.sh<br/>(AMD OVMF fork)"]
         kernel_b["build-kernel.sh<br/>(Ubuntu vmlinuz extract)"]
-        katana_b["scripts/build-gnu.sh<br/>(glibc katana)"]
+        katana_b["katana binary<br/>(release _native asset, or<br/>scripts/build-gnu.sh --native)"]
         initrd_b["build-initrd.sh<br/>(cpio assembly)"]
     end
     out["output/qemu/<br/>{OVMF.fd, vmlinuz,<br/>initrd.img, katana,<br/>build-info.txt}"]
@@ -135,10 +140,10 @@ flowchart LR
 
 The `build-initrd.sh` step is the most dependency-heavy:
 
-1. Download pinned `.deb` packages via `apt-get download`: `busybox-static`, `linux-modules`, `linux-modules-extra`, plus the glibc runtime packages (`libc6`, `libgcc-s1`, `libstdc++6`, `zlib1g`, `liblzma5`) when the supplied katana binary is dynamically linked. Verify SHA256.
+1. Download pinned `.deb` packages via `apt-get download`: `busybox-static`, `linux-modules`, `linux-modules-extra`, plus the glibc runtime packages (`libc6`, `libgcc-s1`, `libstdc++6`, `zlib1g`, `liblzma5`) when the supplied katana binary is dynamically linked, and `libc6-dev` (for `libc_nonshared.a`) when a `ld` binary is bundled. Verify SHA256.
 2. Extract them into a staging directory with `dpkg-deb -x`.
-3. **Build a statically-linked `cryptsetup`** inside a pinned Alpine container (`CRYPTSETUP_BUILDER_IMAGE=alpine@sha256:…`). Alpine's musl + `*-static` packages (openssl, popt, argon2, …) produce a single binary with no runtime library dependencies, verified via `ldd`.
-4. Assemble the initrd directory: install busybox + symlinks, install `cryptsetup`, cherry-pick `tsm.ko` / `sev-guest.ko` / `dm-mod.ko` / `dm-crypt.ko` / `dm-integrity.ko`, copy the Katana binary, copy `snp-derivekey`, install the ELF interpreter (`lib64/ld-linux-x86-64.so.2`) and every `NEEDED` shared library walked transitively from `bin/katana` (plus a small set of optional NSS plugins), emit the `init` script.
+3. **Build a statically-linked `cryptsetup`** inside a pinned Alpine container (`CRYPTSETUP_BUILDER_IMAGE=alpine@sha256:…`). Alpine's musl + `*-static` packages (openssl, popt, argon2, …) produce a single binary with no runtime library dependencies, verified via `ldd`. **A statically-linked GNU `ld`** is built from pinned binutils source inside the same container (`scripts/build-binutils-ld.sh`) — cairo-native shells out to it at runtime.
+4. Assemble the initrd directory: install busybox + symlinks, install `cryptsetup`, cherry-pick `tsm.ko` / `sev-guest.ko` / `dm-mod.ko` / `dm-crypt.ko` / `dm-integrity.ko`, copy the Katana binary, copy `snp-derivekey`, install `bin/ld` plus its `-lc` link inputs (`libc_nonshared.a` and a generated `/lib64/libc.so` linker script pointing at the initrd's actual libc paths), install the ELF interpreter (`lib64/ld-linux-x86-64.so.2`) and every `NEEDED` shared library walked transitively from `bin/katana` (plus a small set of optional NSS plugins), emit the `init` script.
 5. Normalize timestamps to `SOURCE_DATE_EPOCH`, create a sorted reproducible cpio archive, gzip with `-n`.
 6. Record the actual glibc version (queried by running the installed `libc.so.6`) into a `glibc-version.txt` sidecar; `build.sh` promotes it into `build-info.txt` as `GLIBC_VERSION`.
 

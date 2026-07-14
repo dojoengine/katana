@@ -28,6 +28,14 @@
 # paths. Decoupling the source build from this script means an unsealed-only
 # initrd run never needs Docker on the host.
 #
+# Native-compilation support similarly consumes a pre-built static `ld`
+# (LD_BINARY, built by `misc/AMDSEV/scripts/build-binutils-ld.sh`, auto-run
+# by build.sh when `--ld` isn't passed): the bundled cairo-native katana
+# shells out to `ld` at runtime to link each AOT-compiled contract class
+# into a dlopen-able .so. The `-lc` link inputs the guest-side ld needs
+# (libc_nonshared.a + a generated /lib64/libc.so linker script) come from
+# the pinned libc6-dev package (LIBC6_DEV_PKG_VERSION/SHA256).
+#
 # Usage:
 #   ./build-initrd.sh KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]
 #
@@ -101,6 +109,16 @@ usage() {
     echo "                                   release asset). Bundled at /bin so the guest"
     echo "                                   supports --vrf. Both-or-neither with"
     echo "                                   PAYMASTER_BINARY."
+    echo "  LD_BINARY                        Path to a pre-built static GNU ld (build via"
+    echo "                                   misc/AMDSEV/scripts/build-binutils-ld.sh)."
+    echo "                                   Installed at /bin/ld; required for katana's"
+    echo "                                   --enable-native-compilation to work in the"
+    echo "                                   guest (cairo-native links each AOT-compiled"
+    echo "                                   class with \`ld ... -lc\` at runtime). When"
+    echo "                                   set, LIBC6_DEV_PKG_VERSION/SHA256 must also"
+    echo "                                   be set (libc_nonshared.a + a generated"
+    echo "                                   /lib64/libc.so give -lc something to"
+    echo "                                   resolve against)."
     echo "  KATANA_UNSEALED_BUILD            Set to 1 to opt OUT of the sealed build."
     echo "                                   Produces an unsealed-only initrd that mounts"
     echo "                                   /dev/sda as plain ext4: no cryptsetup, no"
@@ -203,6 +221,9 @@ echo "  snp-derivekey binary:  ${SNP_DERIVEKEY_BINARY:-<not set>}"
 echo "Sidecar binaries (optional):"
 echo "  paymaster-service:     ${PAYMASTER_BINARY:-<not set>}"
 echo "  vrf-server:            ${VRF_BINARY:-<not set>}"
+echo "Native-compilation support (optional):"
+echo "  ld binary:             ${LD_BINARY:-<not set>}"
+echo "  libc6-dev:             ${LIBC6_DEV_PKG_VERSION:-<not set>}"
 
 if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
     die "SOURCE_DATE_EPOCH must be set for reproducible builds"
@@ -308,6 +329,33 @@ else
     log_warn "PAYMASTER_BINARY/VRF_BINARY not set — image will NOT support --paymaster/--vrf in the guest"
 fi
 
+# Static GNU ld for in-guest cairo-native AOT linking, prebuilt by
+# build-binutils-ld.sh (build.sh --ld / auto-build). Optional: when unset the
+# image builds WITHOUT a linker and katana's --enable-native-compilation flag
+# fails in the guest (cairo-native cannot link AOT-compiled classes). Release
+# builds always supply it (build.sh auto-builds). When set, the pinned
+# libc6-dev package is also required — it provides the -lc link inputs (see
+# the "cairo-native link inputs" install step below).
+LD_BINARY="${LD_BINARY:-}"
+if [[ -n "$LD_BINARY" ]]; then
+    LD_BINARY="$(to_abs_path "$LD_BINARY")"
+    [[ -x "$LD_BINARY" ]] \
+        || die "LD_BINARY=$LD_BINARY does not exist or is not executable"
+    : "${LIBC6_DEV_PKG_VERSION:?LD_BINARY is set but LIBC6_DEV_PKG_VERSION is not (source build-config)}"
+    : "${LIBC6_DEV_PKG_SHA256:?LD_BINARY is set but LIBC6_DEV_PKG_SHA256 is not (source build-config)}"
+    # libc6-dev must move in lockstep with the libc6 runtime pin: the
+    # generated /lib64/libc.so points -lc at the runtime libc.so.6, and a
+    # version skew between libc_nonshared.a and libc.so.6 is a silent ABI
+    # hazard. GLIBC_RUNTIME_PACKAGES is a space-separated name=version list,
+    # so a plain substring match on the exact entry is sufficient.
+    case " ${GLIBC_RUNTIME_PACKAGES:-} " in
+        *" libc6=${LIBC6_DEV_PKG_VERSION} "*) ;;
+        *) die "LIBC6_DEV_PKG_VERSION=${LIBC6_DEV_PKG_VERSION} does not match the libc6 entry in GLIBC_RUNTIME_PACKAGES (${GLIBC_RUNTIME_PACKAGES:-<unset>}) — keep both pins in lockstep" ;;
+    esac
+else
+    log_warn "LD_BINARY not set — image will NOT support --enable-native-compilation in the guest"
+fi
+
 log_ok "Preflight validation complete (sealed-storage build: $([ "$SEALED_STORAGE_BUILD" -eq 1 ] && echo yes || echo no))"
 
 elf_interpreter() {
@@ -324,9 +372,11 @@ fi
 
 # All bundled dynamic ELF executables must share one interpreter — the dynamic
 # runtime installer walks a single pinned-glibc package pool. Static binaries
-# (no interpreter) are fine alongside dynamic ones.
+# (no interpreter) are fine alongside dynamic ones. The canonical ld (musl
+# static) contributes nothing here; an operator-supplied dynamic ld is held
+# to the same single-interpreter rule as everything else.
 RUNTIME_INTERPRETER="$KATANA_INTERPRETER"
-for extra_bin in "$PAYMASTER_BINARY" "$VRF_BINARY"; do
+for extra_bin in "$PAYMASTER_BINARY" "$VRF_BINARY" "$LD_BINARY"; do
     [[ -n "$extra_bin" ]] || continue
     extra_interp="$(elf_interpreter "$extra_bin" || true)"
     [[ -n "$extra_interp" ]] || continue
@@ -593,6 +643,25 @@ if [[ -n "$VRF_BINARY" ]]; then
     cp "$VRF_BINARY" bin/vrf-server
     chmod +x bin/vrf-server
     log_ok "vrf-server installed"
+fi
+
+# ------------------------------------------------------------------------------
+# Install static GNU ld (cairo-native runtime linker, optional)
+# ------------------------------------------------------------------------------
+# cairo-native's AOT path shells out to `ld` (PATH lookup; the init exports
+# PATH=/bin) to link each compiled class into a dlopen-able .so:
+#   ld --hash-style=gnu -shared -L/lib/../lib64 -L/usr/lib/../lib64 -o <so> -lc <o>
+# (argv per cairo-native src/ffi.rs — re-verify when bumping cairo-native.)
+# The -lc input is provided by the generated /lib64/libc.so linker script
+# (see the "cairo-native link inputs" section below).
+if [[ -n "$LD_BINARY" ]]; then
+    log_info "Installing ld from $LD_BINARY"
+    cp "$LD_BINARY" bin/ld
+    chmod +x bin/ld
+    if ! bin/ld --version >/dev/null 2>&1; then
+        die "Installed ld binary is not functional"
+    fi
+    log_ok "ld installed"
 fi
 
 # ------------------------------------------------------------------------------
@@ -925,6 +994,10 @@ log_ok "Katana installed"
 DYNAMIC_ELF_ROOTS=(bin/katana)
 [[ -n "$PAYMASTER_BINARY" ]] && DYNAMIC_ELF_ROOTS+=(bin/paymaster-service)
 [[ -n "$VRF_BINARY" ]] && DYNAMIC_ELF_ROOTS+=(bin/vrf-server)
+# bin/ld is normally static (musl) and walker-neutral — elf_needed yields
+# nothing for it. Listing it means an operator-supplied *dynamic* ld fails
+# loudly here (missing lib in the pinned pool) instead of at runtime.
+[[ -n "$LD_BINARY" ]] && DYNAMIC_ELF_ROOTS+=(bin/ld)
 
 if [[ -n "$RUNTIME_INTERPRETER" ]]; then
     install_dynamic_runtime "$RUNTIME_INTERPRETER"
@@ -948,6 +1021,55 @@ if [[ -n "$RUNTIME_INTERPRETER" ]]; then
             log_warn "Could not parse glibc version from $libc_so"
         fi
     fi
+fi
+
+# ------------------------------------------------------------------------------
+# cairo-native link inputs: libc_nonshared.a + generated /lib64/libc.so
+# ------------------------------------------------------------------------------
+# The bundled ld resolves `-lc` by searching its -L dirs (cairo-native passes
+# -L/lib/../lib64, which resolves to /lib64 at open() time) for libc.so.
+# Ubuntu's real /usr/lib/x86_64-linux-gnu/libc.so is a linker script whose
+# absolute paths (/lib/x86_64-linux-gnu/...) assume a usr-merged filesystem
+# and do not exist in this initrd, so we GENERATE an equivalent script
+# pointing at the initrd's actual paths. libc_nonshared.a comes from the
+# pinned libc6-dev deb (preflight enforces version lockstep with the libc6
+# runtime pin). Both files are read-only inputs to ld — 0644 from the
+# SECTION 4 mode sweep is correct.
+if [[ -n "$LD_BINARY" ]]; then
+    [[ -n "$RUNTIME_INTERPRETER" ]] \
+        || die "LD_BINARY is set but katana is statically linked — no libc.so.6 in the image for -lc to resolve"
+    [[ -n "${libc_so:-}" ]] \
+        || die "LD_BINARY is set but libc.so.6 was not installed by the dynamic runtime walk"
+    LIBC_SO_REL="${libc_so#"$INITRD_DIR"/}"
+
+    log_info "Downloading libc6-dev=${LIBC6_DEV_PKG_VERSION}"
+    LIBC_DEV_WORK="$WORK_DIR/libc6-dev"
+    mkdir -p "$LIBC_DEV_WORK"
+    ( cd "$LIBC_DEV_WORK" && apt-get download "libc6-dev=${LIBC6_DEV_PKG_VERSION}" )
+    LIBC_DEV_DEB="$(find "$LIBC_DEV_WORK" -maxdepth 1 -name 'libc6-dev_*.deb' | head -1)"
+    [[ -f "$LIBC_DEV_DEB" ]] || die "libc6-dev .deb not downloaded"
+    LIBC_DEV_ACTUAL="$(sha256sum "$LIBC_DEV_DEB" | awk '{print $1}')"
+    [[ "$LIBC_DEV_ACTUAL" == "$LIBC6_DEV_PKG_SHA256" ]] || \
+        die "libc6-dev checksum mismatch (expected $LIBC6_DEV_PKG_SHA256, got $LIBC_DEV_ACTUAL)"
+    log_ok "libc6-dev checksum verified"
+    dpkg-deb -x "$LIBC_DEV_DEB" "$LIBC_DEV_WORK/extracted"
+
+    NONSHARED_SRC="$LIBC_DEV_WORK/extracted/usr/lib/x86_64-linux-gnu/libc_nonshared.a"
+    [[ -f "$NONSHARED_SRC" ]] || die "libc_nonshared.a not found in libc6-dev package"
+    NONSHARED_REL="usr/lib/x86_64-linux-gnu/libc_nonshared.a"
+    mkdir -p "$(dirname "$NONSHARED_REL")"
+    cp "$NONSHARED_SRC" "$NONSHARED_REL"
+
+    # Same GROUP shape as Ubuntu's stock script: the shared libc, the
+    # nonshared archive (stack-protector locals etc.), and the dynamic
+    # loader as AS_NEEDED. Deterministic — a pure function of pinned inputs.
+    cat > lib64/libc.so <<LIBC_SO_EOF
+/* GNU ld script generated by build-initrd.sh — paths match this initrd's
+   layout. Lets cairo-native's runtime \`ld ... -lc\` resolve libc. */
+OUTPUT_FORMAT(elf64-x86-64)
+GROUP ( /${LIBC_SO_REL} /${NONSHARED_REL} AS_NEEDED ( ${RUNTIME_INTERPRETER} ) )
+LIBC_SO_EOF
+    log_ok "cairo-native link inputs installed (/lib64/libc.so -> /${LIBC_SO_REL})"
 fi
 
 # ------------------------------------------------------------------------------
@@ -1782,6 +1904,7 @@ find . -type f -exec chmod 0644 {} +
 chmod 0755 bin/busybox bin/katana init
 [[ -n "$PAYMASTER_BINARY" ]] && chmod 0755 bin/paymaster-service
 [[ -n "$VRF_BINARY" ]] && chmod 0755 bin/vrf-server
+[[ -n "$LD_BINARY" ]] && chmod 0755 bin/ld
 if [[ "$SEALED_STORAGE_BUILD" -eq 1 ]]; then
     chmod 0755 bin/cryptsetup bin/mkfs.ext2
     [[ -n "$SNP_DERIVEKEY_BINARY" ]] && chmod 0755 bin/snp-derivekey
