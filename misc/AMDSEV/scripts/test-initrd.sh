@@ -34,6 +34,18 @@
 #   TEST_DISK_SIZE              Ephemeral test disk size (default: 1G)
 #   CHAIN_CONFIG_GENESIS_SIZE   Synthetic genesis size for chain-disk regression
 #                               test (default: 18M, matching production)
+#   QEMU_MEMORY                 Guest RAM (default: 4G). The initramfs unpacks
+#                               into guest RAM; the cairo-native katana binary
+#                               alone is several hundred MB, so this mirrors
+#                               start-vm.sh's default rather than the old 512M.
+#   KATANA_TEST_NATIVE          Set to 1 to exercise cairo-native in the guest:
+#                               boots katana with --enable-native-compilation,
+#                               forces a Sierra class through the executor via
+#                               starknet_call, and fails on any native-compile
+#                               error in the serial log. Requires an initrd
+#                               with /bin/ld and a katana built with the
+#                               'native' feature (an unknown flag kills a
+#                               non-native katana — hence opt-in).
 # ==============================================================================
 
 set -euo pipefail
@@ -57,6 +69,15 @@ CHAIN_CONFIG_GENESIS_SIZE="${CHAIN_CONFIG_GENESIS_SIZE:-18M}"
 # after QEMU starts. virtio-blk + ext2 mount takes <1s in practice; this
 # bound catches a regression long before BOOT_TIMEOUT would.
 CHAIN_MOUNT_TIMEOUT=30
+# Guest RAM. The initramfs (rootfs) lives entirely in guest RAM and the
+# cairo-native katana binary is several hundred MB unstripped, so 512M no
+# longer boots; 4G mirrors start-vm.sh's default and leaves headroom for the
+# AOT-compile working set.
+QEMU_MEMORY="${QEMU_MEMORY:-4G}"
+# Opt-in cairo-native exercise (see header). Bounded wait for the async
+# compile pool after the forcing call.
+KATANA_TEST_NATIVE="${KATANA_TEST_NATIVE:-0}"
+NATIVE_COMPILE_WAIT=30
 
 TEMP_DIR="$(mktemp -d /tmp/katana-amdsev-initrd-test.XXXXXX)"
 SERIAL_LOG="${TEMP_DIR}/serial.log"
@@ -163,6 +184,57 @@ print_serial_output() {
         echo "=== Serial output ===" >&2
         tail -n 200 "$SERIAL_LOG" >&2 || true
     fi
+}
+
+# Exercise the in-guest cairo-native AOT path. A starknet_call against the
+# predeployed OpenZeppelin UDC — a Sierra (Cairo 1) class at a FIXED genesis
+# address — pulls the class through the executor's ClassCache; with
+# --enable-native-compilation every Sierra insert spawns an async cairo-native
+# compile, which in the guest runs the bundled /bin/ld against the generated
+# /lib64/libc.so. The default fee tokens are Legacy (Cairo 0) classes and
+# would NOT trigger a compile, hence the UDC.
+#
+# The call's calldata is shaped validly for deploy_contract
+# (class_hash=0x1, salt, not_from_zero, empty calldata) but targets an
+# undeclared class, so katana answers with a ContractError — that's fine:
+# the ClassCache insert (and thus the native compile) happens when the UDC
+# class is LOADED, before the entrypoint reverts. We assert the RPC layer
+# actually executed something (any JSON-RPC response) and then fail on the
+# executor's compile-failure log line. Compilation is async, so
+# absence-of-error after the bounded wait is a necessary-but-not-sufficient
+# signal — good enough to catch a missing/broken ld, missing libc.so, or a
+# dlopen failure, which all log loudly.
+verify_native_compilation() {
+    # sn_keccak("deploy_contract") — cross-checked against
+    # entry_points_by_type.EXTERNAL in the bundled UDC contract_class.json.
+    local udc_address="0x02ceed65a4bd731034c01113685c831b01c15d7d432f71afb1cf1634b53a2125"
+    local deploy_contract_selector="0x2730079d734ee55315f4f141eaed376bddd8c2133523d223a344c5604e0f7f8"
+
+    log "Native mode: forcing a Sierra class through the executor (starknet_call on UDC)"
+    local response
+    response="$(curl -s --max-time 10 -X POST \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","method":"starknet_call","params":{"request":{"contract_address":"'"$udc_address"'","entry_point_selector":"'"$deploy_contract_selector"'","calldata":["0x1","0x0","0x0","0x0"]},"block_id":"latest"},"id":1}' \
+        "http://127.0.0.1:${HOST_RPC_PORT}" || true)"
+
+    if ! echo "$response" | grep -q '"jsonrpc"'; then
+        print_serial_output
+        die "Native mode: starknet_call produced no JSON-RPC response: '${response:-<none>}'"
+    fi
+    log "Native mode: UDC call answered (compile trigger fired): $response"
+
+    log "Native mode: waiting ${NATIVE_COMPILE_WAIT}s for the async compile pool"
+    local waited
+    for ((waited = 1; waited <= NATIVE_COMPILE_WAIT; waited++)); do
+        assert_qemu_running "Guest died during native compilation"
+        # Fail fast on the executor's error line (cache.rs, tracing::error).
+        if grep -aq "Failed to compile native class" "$SERIAL_LOG"; then
+            print_serial_output
+            die "cairo-native runtime compilation failed in guest (see serial log)"
+        fi
+        sleep 1
+    done
+    log "Native mode: no compile errors in serial log after ${NATIVE_COMPILE_WAIT}s"
 }
 
 assert_qemu_running() {
@@ -406,6 +478,14 @@ run_boot_smoke_test() {
         "--tee" "sev-snp" \
         > "$KATANA_ARGS_FILE"
 
+    # Opt-in: exercise the in-guest cairo-native path (needs a katana built
+    # with the 'native' feature — the flag is unknown to a portable build
+    # and would kill it at startup).
+    if [ "$KATANA_TEST_NATIVE" -eq 1 ]; then
+        printf '%s\n' "--enable-native-compilation" >> "$KATANA_ARGS_FILE"
+        log "Native mode: added --enable-native-compilation to guest args"
+    fi
+
     KVM_OPTS=()
     if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
         KVM_OPTS=(-enable-kvm -cpu host)
@@ -417,7 +497,7 @@ run_boot_smoke_test() {
 
     "$qemu_bin" \
         "${KVM_OPTS[@]}" \
-        -m 512M \
+        -m "$QEMU_MEMORY" \
         -smp 1 \
         -nographic \
         -serial "file:$SERIAL_LOG" \
@@ -476,6 +556,10 @@ run_boot_smoke_test() {
     fi
 
     log "RPC check passed: $response"
+
+    if [ "$KATANA_TEST_NATIVE" -eq 1 ]; then
+        verify_native_compilation
+    fi
 
     # Graceful stop: the guest must acknowledge, run its teardown (visible
     # in the serial log), and power off — which makes QEMU exit. The ack

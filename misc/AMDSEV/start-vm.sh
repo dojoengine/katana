@@ -111,6 +111,10 @@ usage() {
     echo "  --unsealed            Plain ext4 on /dev/sda (the default). The cmdline does"
     echo "                        NOT carry KATANA_EXPECTED_LUKS_UUID. Accepted explicitly"
     echo "                        for clarity and backward compatibility."
+    echo "  (memory)              Guest RAM size. Env var: KATANA_MEMORY (default: 4G)."
+    echo "                        The initramfs (incl. the cairo-native katana binary)"
+    echo "                        unpacks into guest RAM, so several GB are required."
+    echo "                        NOT part of the launch measurement — size freely."
     echo "  -h, --help            Show this help"
 }
 
@@ -337,7 +341,16 @@ CBITPOS=51
 REDUCED_PHYS_BITS=1
 
 # VM resources
-MEMORY="512M"
+#
+# MEMORY sizing: the initramfs is the guest rootfs and lives entirely in RAM,
+# and the bundled cairo-native katana binary alone is several hundred MB —
+# 512M no longer boots. 4G leaves headroom for katana's working set and the
+# cairo-native AOT compile pool. The memfd backend below uses prealloc=false,
+# so untouched guest pages cost the host nothing until first use (SNP pins
+# pages as they are touched, not up front). `-m` is NOT part of the SEV-SNP
+# launch measurement — operators can size freely via KATANA_MEMORY without
+# changing the published measurement.
+MEMORY="${KATANA_MEMORY:-4G}"
 CPU_TYPE="EPYC-v4"
 
 # The RPC networking ports (KATANA_RPC_PORT / HOST_RPC_PORT) are initialised with

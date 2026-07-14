@@ -180,14 +180,20 @@ jobs:
           # step (`latest` is already mapped to a real tag there). katana
           # releases ship several products per tag: katana_*, paymaster-service_*,
           # vrf-server_* — katana with portable (_linux_amd64.tar.gz) and
-          # CPU-tuned (_linux_amd64_native.tar.gz) variants. The `katana_`
+          # cairo-native (_linux_amd64_native.tar.gz) variants. The `katana_`
           # prefix selects the product (the sidecars are fetched by the next
-          # step); the anchored suffix selects the portable build over
-          # `_native`. A looser `*_linux_amd64.tar.gz` matches three tarballs
-          # and breaks the single-file `tar -xzf`.
+          # step); the `_native` suffix selects the cairo-native build
+          # (LLVM/MLIR statically linked; its DT_NEEDED set is covered by the
+          # initrd's GLIBC_RUNTIME_PACKAGES pins) so the guest supports
+          # --enable-native-compilation. The pattern uniquely matches one
+          # asset. NOTE: unlike the portable variant, the native asset is a
+          # plain GH-runner build — NOT reproducible-from-source yet; the
+          # image's verification story bottoms out at this asset's recorded
+          # sha256 (KATANA_BINARY_SHA256 + KATANA_ASSET_VARIANT in
+          # build-info.txt).
           gh release download "$KATANA_VER" \
             --repo dojoengine/katana \
-            --pattern 'katana_*_linux_amd64.tar.gz' \
+            --pattern 'katana_*_linux_amd64_native.tar.gz' \
             --dir .katana-dl/
           tar -xzf .katana-dl/*.tar.gz -C .katana-dl/
           KATANA_BIN="$(find "$PWD/.katana-dl" -type f -name katana -perm -u+x | head -n1)"
@@ -356,10 +362,17 @@ jobs:
         # build-info only records the binary's sha256; pin the human-readable
         # katana release tag too, so the provenance is self-describing and
         # reproduce-release.sh can cross-check it against the +katana- tag
-        # suffix.
+        # suffix. KATANA_ASSET_VARIANT tells reproduce-release.sh which
+        # release asset to fetch (`native` → *_linux_amd64_native.tar.gz);
+        # pre-native releases have no such key and fall back to the portable
+        # asset.
         env:
           KATANA_VER: ${{ steps.ctx.outputs.katana_ver }}
-        run: echo "KATANA_VERSION=${KATANA_VER}" >> output/qemu/build-info.txt
+        run: |
+          {
+            echo "KATANA_VERSION=${KATANA_VER}"
+            echo "KATANA_ASSET_VARIANT=native"
+          } >> output/qemu/build-info.txt
 
       - name: Build snp-tools
         # snp-tools binaries are NOT shipped as release artifacts (separate
@@ -457,7 +470,10 @@ jobs:
           {
             echo "# Katana TEE VM ${tag}"
             echo
-            echo "Sealed-mode SEV-SNP confidential VM image bundling Katana **${katana_ver}**."
+            echo "Sealed-mode SEV-SNP confidential VM image bundling Katana **${katana_ver}**"
+            echo "(cairo-native build — in-guest native execution is available behind katana's"
+            echo "\`--enable-native-compilation\` flag, off by default; deployments opt in via"
+            echo "their fw_cfg \`--katana-args\`)."
             echo
             echo "## Sealed launch measurement (SHA-384)"
             echo
@@ -479,7 +495,7 @@ jobs:
             echo "| \`OVMF.fd\` (guest BIOS firmware) | \`${OVMF_SHA}\` |"
             echo "| \`vmlinuz\` (kernel)              | \`${KERNEL_SHA}\` |"
             echo "| \`initrd.img\`                    | \`${INITRD_SHA}\` |"
-            echo "| \`katana\`                        | \`${KATANA_SHA}\` |"
+            echo "| \`katana\` (cairo-native build)   | \`${KATANA_SHA}\` |"
             echo "| \`paymaster-service\` (embedded in \`initrd.img\`) | \`${PAYMASTER_SHA}\` |"
             echo "| \`vrf-server\` (embedded in \`initrd.img\`)        | \`${VRF_SHA}\` |"
             echo
@@ -489,7 +505,7 @@ jobs:
             echo "|---|---|---|"
             echo "| OVMF (guest BIOS) | [\`${OVMF_GIT_URL}\`](${OVMF_GIT_URL%.git}/tree/${OVMF_COMMIT}) (branch \`${OVMF_BRANCH}\`) | \`${OVMF_COMMIT}\` |"
             echo "| Linux kernel      | Ubuntu \`linux-image-unsigned-${KERNEL_VERSION}-generic\` .deb | sha256 \`$(info_get KERNEL_PKG_SHA256)\` |"
-            echo "| Katana            | [\`dojoengine/katana\`](https://github.com/dojoengine/katana/releases/tag/${katana_ver}) | \`${katana_ver}\` |"
+            echo "| Katana            | [\`dojoengine/katana\`](https://github.com/dojoengine/katana/releases/tag/${katana_ver}) (\`katana_${katana_ver}_linux_amd64_native.tar.gz\`) | \`${katana_ver}\` |"
             echo "| paymaster-service | [\`cartridge-gg/paymaster\`](https://github.com/cartridge-gg/paymaster) (prebuilt \`${katana_ver}\` release asset) | \`${PAYMASTER_REV}\` |"
             echo "| vrf-server        | [\`cartridge-gg/vrf\`](https://github.com/cartridge-gg/vrf) (prebuilt \`${katana_ver}\` release asset) | \`${VRF_REV}\` |"
             echo

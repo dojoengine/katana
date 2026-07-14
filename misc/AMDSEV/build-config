@@ -63,7 +63,30 @@ E2FSPROGS_SHA256="6dcd67ff9d8b13274ba3f088e4318be4f5b71412cd863524423fc49d39a637
 
 # Container image used to build static cryptsetup. Pinned by sha256 digest so
 # the build matches across hosts. Bump when upgrading Alpine.
+# (Also reused by build-binutils-ld.sh — one pinned builder image for all
+# static helper builds.)
 CRYPTSETUP_BUILDER_IMAGE="alpine@sha256:1e42bbe2508154c9126d48c2b8a75420c3544343bf86fd041fb7527e017a4b4a"
+
+# GNU binutils source (static `ld` for in-guest cairo-native AOT linking).
+# The bundled katana is the cairo-native release build; with
+# --enable-native-compilation it AOT-compiles contract classes at runtime and
+# shells out to `ld` to link each one into a dlopen-able .so (see cairo-native
+# src/ffi.rs — the argv contract to re-verify when bumping cairo-native).
+# Built statically inside the pinned Alpine container above
+# (scripts/build-binutils-ld.sh) so it ships with no runtime libc dependency.
+# sha256 of binutils-$VERSION.tar.xz, cross-checked against
+# https://sourceware.org/pub/binutils/releases/sha512.sum.
+BINUTILS_VERSION="2.44"
+BINUTILS_SHA256="ce2017e059d63e67ddb9240e9d4ec49c2893605035cd60e92ad53177f4377237"
+
+# libc6-dev (Ubuntu package). Provides libc_nonshared.a, one of the two inputs
+# behind the generated /lib64/libc.so linker script that lets the bundled ld
+# resolve `-lc` inside the initrd (build-initrd.sh generates the script; the
+# package's own libc.so references usr-merged absolute paths that don't exist
+# in the initrd). MUST stay in version lockstep with the libc6 entry in
+# GLIBC_RUNTIME_PACKAGES above — build-initrd.sh enforces this.
+LIBC6_DEV_PKG_VERSION="2.39-0ubuntu8.7"
+LIBC6_DEV_PKG_SHA256="bbf5a155039042634961a61276650631ee47b9e721f91f8dbb731b0bbe046df3"
 
 # Canonical LUKS UUID used to compute the SEV-SNP launch measurement that is
 # published with each release. This is the LUKS_UUID baked into the published

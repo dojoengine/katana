@@ -7,18 +7,19 @@ name: amdsev-initrd-test
 # virtio-serial control channel, the forwarded RPC endpoint answers
 # starknet_chainId, and the graceful `stop` command powers the guest off.
 #
-# The embedded katana is built FROM THIS REF via scripts/build-gnu.sh — the
-# same script, profile, and TEE feature set as the published portable
-# release binary — so the boot test validates the tree under test end to
-# end (a PR that breaks `--tee sev-snp` fails here, before any release).
+# The embedded katana is built FROM THIS REF via scripts/build-gnu.sh
+# --native — the profile and feature set of the published `_native`
+# linux_amd64 binary (the one amdsev-release.yml embeds) — so the boot test
+# validates the tree under test end to end (a PR that breaks `--tee sev-snp`
+# or the in-guest cairo-native link path fails here, before any release).
 #
 # Runner
 # ------
 # Stock ubuntu-latest. No SEV-SNP hardware is needed: the smoke test boots
 # without OVMF/SEV, and the sealed-mode initrd takes its unsealed mount path
 # (plain ext4 on /dev/sda) when the cmdline carries no
-# KATANA_EXPECTED_LUKS_UUID. Docker (for the static cryptsetup build) and
-# /dev/kvm are both available on ubuntu-latest.
+# KATANA_EXPECTED_LUKS_UUID. Docker (for the static cryptsetup + ld builds)
+# and /dev/kvm are both available on ubuntu-latest.
 
 on:
   push:
@@ -42,7 +43,9 @@ defaults:
 jobs:
   build-katana:
     runs-on: ubuntu-latest-32-cores
-    timeout-minutes: 45
+    # 60 (was 45): the native feature statically links LLVM/MLIR and fat-LTOs
+    # the result — cold-cache builds run well past the old budget.
+    timeout-minutes: 60
     # katana-dev carries the full build toolchain including asdf/scarb for
     # the contract artifacts that katana-contracts embeds at compile time.
     container:
@@ -58,7 +61,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: amdsev-build-katana
+          # -native suffix: the native feature set compiles a very different
+          # dep graph (cairo-native, melior, llvm-sys) — don't thrash caches
+          # from the old portable builds.
+          key: amdsev-build-katana-native
 
       - name: Restore cached contract artifacts
         id: contracts-cache
@@ -74,15 +80,17 @@ jobs:
         working-directory: .
         run: make contracts
 
-      - name: Build katana (portable release configuration)
-        # build-gnu.sh is the script behind the published portable
-        # linux_amd64 binary: performance profile, deterministic RUSTFLAGS,
-        # and the client,init-slot,jemalloc,tee-snp,tee-mock feature set.
-        # ubuntu-latest is noble (glibc 2.39), matching the initrd's pinned
+      - name: Build katana (native release configuration)
+        # build-gnu.sh --native matches the FEATURE SET of the published
+        # `_native` linux_amd64 binary (the asset amdsev-release.yml embeds):
+        # performance profile plus client,init-slot,jemalloc,tee-snp,
+        # tee-mock,native. The katana-dev container ships LLVM/MLIR 19 with
+        # MLIR_SYS_190_PREFIX etc. preset, so no extra install step. The
+        # container is noble-based (glibc 2.39), matching the initrd's pinned
         # GLIBC_RUNTIME_PACKAGES, so the binary's symbol requirements cannot
         # exceed what the guest ships.
         working-directory: .
-        run: ./scripts/build-gnu.sh
+        run: ./scripts/build-gnu.sh --native
 
       - name: Upload katana binary
         uses: actions/upload-artifact@v4
@@ -187,11 +195,15 @@ jobs:
             --paymaster-bin "$PAYMASTER_BIN" --vrf-bin "$VRF_BIN" \
             kernel initrd
 
-      - name: Assert sidecars are bundled in the initrd
+      - name: Assert sidecars and native-linking inputs are bundled in the initrd
         run: |
           zcat output/qemu/initrd.img | cpio -t 2>/dev/null > /tmp/initrd-list
           rc=0
-          for f in bin/paymaster-service bin/vrf-server usr/lib/ssl/cert.pem; do
+          # bin/ld + lib64/libc.so + libc_nonshared.a are the cairo-native
+          # runtime-link inputs (see build-initrd.sh's "cairo-native link
+          # inputs" section).
+          for f in bin/paymaster-service bin/vrf-server usr/lib/ssl/cert.pem \
+                   bin/ld lib64/libc.so usr/lib/x86_64-linux-gnu/libc_nonshared.a; do
             grep -q "^\.\?/\?$f\$" /tmp/initrd-list || { echo "::error::$f missing from initrd"; rc=1; }
           done
           grep -q 'libssl\.so\.3' /tmp/initrd-list || { echo "::error::libssl.so.3 missing from initrd"; rc=1; }
@@ -205,8 +217,8 @@ jobs:
         # SOURCE_DATE_EPOCH, same pins, fresh output dir — any digest drift
         # here means nondeterminism crept into the packaging (unsorted
         # globs, leaked timestamps, host paths). The second build reuses the
-        # already-built static cryptsetup/snp-derivekey, so it only repeats
-        # the deb downloads and cpio packaging.
+        # already-built static cryptsetup/snp-derivekey/ld (skip-if-cached),
+        # so it only repeats the deb downloads and cpio packaging.
         run: |
           first="$(sha256sum output/qemu/initrd.img | awk '{print $1}')"
           ./build.sh --katana "$KATANA_BIN" \
@@ -224,7 +236,11 @@ jobs:
       - name: Boot smoke test
         # --output-dir is required: the script's default resolves relative to
         # scripts/, not the directory where build.sh writes its artifacts.
-        run: ./scripts/test-initrd.sh --output-dir output/qemu --timeout 300
+        # KATANA_TEST_NATIVE=1 boots with --enable-native-compilation and
+        # exercises the in-guest cairo-native link path (bundled /bin/ld +
+        # generated /lib64/libc.so) — valid because the katana under test is
+        # a --native build.
+        run: KATANA_TEST_NATIVE=1 ./scripts/test-initrd.sh --output-dir output/qemu --timeout 300
 
       - name: Upload initrd for debugging
         # Only on failure — the artifact exists to reproduce a failed boot

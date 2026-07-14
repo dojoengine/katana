@@ -24,7 +24,7 @@ Output is written to `output/qemu/`.
 
 ### Katana Binary
 
-`--katana` is required when building the initrd. Download a prebuilt linux-gnu binary from [dojoengine/katana releases](https://github.com/dojoengine/katana/releases) (the `*_linux_amd64.tar.gz` portable build).
+`--katana` is required when building the initrd. Download a prebuilt linux-gnu binary from [dojoengine/katana releases](https://github.com/dojoengine/katana/releases) — release images embed the `*_linux_amd64_native.tar.gz` cairo-native build (the portable `*_linux_amd64.tar.gz` build also works, but the guest then lacks `--enable-native-compilation` support).
 
 For reproducibility, the initrd does not copy glibc or shared libraries from the build host. Instead, `scripts/build-initrd.sh` downloads the exact runtime `.deb` packages listed in `build-config`, verifies their SHA-256 checksums, then copies the ELF interpreter and the shared libraries declared by Katana with `readelf`. If providing a custom dynamic binary with `--katana`, build it against a glibc compatible with the pinned runtime and make sure any extra shared libraries it needs are covered by `GLIBC_RUNTIME_PACKAGES` and `GLIBC_RUNTIME_PACKAGE_SHA256S`.
 
@@ -39,8 +39,9 @@ For reproducibility, the initrd does not copy glibc or shared libraries from the
 | `build-config` | Pinned versions and checksums for reproducible builds |
 | `scripts/build-ovmf.sh` | Builds OVMF firmware from AMD's fork with SEV-SNP support |
 | `scripts/build-kernel.sh` | Downloads and extracts Ubuntu kernel (`vmlinuz`) |
-| `scripts/build-initrd.sh` | Creates minimal initrd with busybox, SEV-SNP modules, snp-derivekey, cryptsetup, and katana |
+| `scripts/build-initrd.sh` | Creates minimal initrd with busybox, SEV-SNP modules, snp-derivekey, cryptsetup, ld (cairo-native runtime linker), and katana |
 | `scripts/build-cryptsetup.sh` | Builds static cryptsetup + mkfs.ext2 in an Alpine container |
+| `scripts/build-binutils-ld.sh` | Builds a static GNU ld in the same Alpine container (cairo-native links AOT-compiled classes with it in-guest) |
 | `scripts/build-qemu.sh` | Builds QEMU 10.2.0 from source with SEV-SNP support (operator host setup, not part of build pipeline) |
 | `scripts/sealed-cmdline.sh` | Single source of truth for the measured kernel cmdline |
 | `scripts/test-initrd.sh` | Isolated initrd boot smoke test in plain QEMU |
@@ -320,7 +321,8 @@ Two points deserve emphasis:
 
 - **The initrd hash transitively pins everything inside it**: the katana
   binary, busybox, the glibc runtime, kernel modules, cryptsetup,
-  snp-derivekey, and the init script itself — including init's security
+  snp-derivekey, ld and its libc link inputs, and the init script itself —
+  including init's security
   behavior (pinning `--db-dir`/`--chain`, stripping reserved flags from
   operator input). Because the initrd build is reproducible (see
   [Reproducible Builds](#reproducible-builds)), anyone can rebuild it from

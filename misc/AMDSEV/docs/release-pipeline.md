@@ -121,17 +121,28 @@ pipeline behaviors follow directly from this:
 `nasm`, `iasl`, `uuid-dev` (EDK2/OVMF build), `musl-tools` (static
 `snp-derivekey`), `zstd`, `cpio` (initrd packaging), plus the
 `x86_64-unknown-linux-musl` Rust target. Docker (for the static cryptsetup
-container build) is preinstalled on the runner.
+and static `ld` container builds) is preinstalled on the runner.
 
 ### 3. Resolve and download katana
 
 The version resolved from the tag (or dispatch input) is downloaded from
 [dojoengine/katana releases](https://github.com/dojoengine/katana/releases)
-with the pattern `katana_*_linux_amd64.tar.gz`. Both anchors matter: the
-`katana_` prefix excludes the `paymaster-service_*` / `vrf-server_*` tarballs
-that newer katana releases ship alongside it, and the anchored suffix excludes
-the CPU-tuned `_native` variant — releases embed the **portable** build, which
-is the one produced by katana's reproducible-build pipeline.
+with the pattern `katana_*_linux_amd64_native.tar.gz`. The `katana_` prefix
+excludes the `paymaster-service_*` / `vrf-server_*` tarballs that katana
+releases ship alongside it; the `_native` suffix selects the **cairo-native**
+build (LLVM/MLIR 19 statically linked), so the guest supports katana's
+`--enable-native-compilation` flag. The embedded variant is recorded in the
+provenance as `KATANA_ASSET_VARIANT=native`.
+
+> **Honesty note on reproducibility.** The portable
+> (`katana_*_linux_amd64.tar.gz`) asset is produced by katana's
+> reproducible-build pipeline; the `_native` asset is **not** — it is a plain
+> GitHub-runner build that cannot yet be independently rebuilt from source.
+> Reproducing the VM image (below) still works byte-for-byte, because
+> reproduction downloads the same release asset and verifies it against the
+> recorded `KATANA_BINARY_SHA256`; what is lost, until the reproducible
+> pipeline learns the `native` feature, is source-level verifiability of the
+> katana binary itself.
 
 ### 4. Reuse OVMF/kernel from the previous release (when pins match)
 
@@ -184,12 +195,18 @@ not satisfied by reuse. All version pins and package checksums come from
   via `readelf`, copied only from the pinned packages — never from the build
   host); embeds the init script; and packs a reproducible cpio (sorted file
   order, normalized modes, `SOURCE_DATE_EPOCH` timestamps, `--reproducible`).
-  Two helper binaries are built on demand for the sealed-storage flow:
-  - static `cryptsetup` + `mkfs.ext2`, compiled from pinned sources inside a
-    digest-pinned Alpine container (`scripts/build-cryptsetup.sh`, needs
-    Docker);
+  Helper binaries are built on demand:
+  - static `cryptsetup` + `mkfs.ext2` (sealed-storage flow), compiled from
+    pinned sources inside a digest-pinned Alpine container
+    (`scripts/build-cryptsetup.sh`, needs Docker);
   - static `snp-derivekey` (musl), from the `snp-tools` crate — it performs
-    the `SNP_GET_DERIVED_KEY` ioctl in-guest to unlock the LUKS data disk.
+    the `SNP_GET_DERIVED_KEY` ioctl in-guest to unlock the LUKS data disk;
+  - static GNU `ld` from pinned binutils source, inside the same
+    digest-pinned Alpine container (`scripts/build-binutils-ld.sh`, needs
+    Docker) — cairo-native shells out to it at runtime to link AOT-compiled
+    contract classes. Its `-lc` link inputs (`libc_nonshared.a` from the
+    pinned `libc6-dev` deb plus a generated `/lib64/libc.so` linker script)
+    are assembled by `build-initrd.sh`.
 
 `build.sh` then writes `build-info.txt`. It **merges** with an existing
 `build-info.txt`, overwriting only the fields of components it actually built
@@ -236,7 +253,7 @@ Key facts:
 
 | Asset | Contents |
 |---|---|
-| `katana-tee-vm-<tag>.tar.gz` | `OVMF.fd`, `vmlinuz`, `initrd.img`, `katana` (the embedded binary, for convenience), `build-info.txt`, `launch-measurement.txt` |
+| `katana-tee-vm-<tag>.tar.gz` | `OVMF.fd`, `vmlinuz`, `initrd.img`, `katana` (the embedded cairo-native binary, for convenience), `build-info.txt`, `launch-measurement.txt` |
 | `build-info-<tag>.txt` | Full provenance: pins, package checksums, artifact SHA-256s, `SOURCE_DATE_EPOCH`, reuse markers, measurement |
 | `launch-measurement-<tag>.txt` | The sealed launch measurement, bare hex, one line |
 
@@ -247,6 +264,7 @@ Key facts:
 | New katana version | Initrd hash changes → new measurement |
 | Any change to `scripts/build-initrd.sh` or the init script | Initrd hash changes → new measurement |
 | Bumping any package pin in `build-config` (busybox, glibc, kernel modules…) | Initrd hash changes → new measurement |
+| Bumping `BINUTILS_VERSION` or `LIBC6_DEV_PKG_VERSION` (cairo-native link toolchain) | Initrd hash changes → new measurement |
 | Bumping `OVMF_COMMIT` | OVMF rebuilt → new measurement |
 | Bumping `KERNEL_VERSION` | Kernel hash changes → new measurement |
 | Changing `KATANA_CANONICAL_LUKS_UUID` | Measured cmdline changes → new measurement |
