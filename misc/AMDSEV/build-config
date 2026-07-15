@@ -113,5 +113,5 @@ KATANA_CANONICAL_LUKS_UUID="00000000-0000-0000-0000-000000000001"
 # Empty pins = build snp-digest from source (the prebuilt is a convenience
 # copy, never the trust root). Bump both together, from the values printed
 # in the snp-tools release notes.
-SNP_DIGEST_RELEASE=""
-SNP_DIGEST_SHA256=""
+SNP_DIGEST_RELEASE="snp-tools-v0.1.0"
+SNP_DIGEST_SHA256="1197dbeafc9526429bdda9a852a15c8265725819c8c02987ba03fcceb73a7417"
