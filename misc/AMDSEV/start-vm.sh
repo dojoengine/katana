@@ -81,7 +81,10 @@ usage() {
     echo "                        they carry --metrics.port PORT (with --metrics.addr"
     echo "                        0.0.0.0), start-vm forwards that metrics port to the"
     echo "                        host. Metrics are on by default; drop --metrics.port"
-    echo "                        to skip the forward."
+    echo "                        to skip the forward. The default args also enable the"
+    echo "                        bundled Cartridge sidecars (--paymaster,"
+    echo "                        --cartridge.paymaster, --vrf); override without them"
+    echo "                        to run a bare sequencer."
     echo "  --chain-dir DIR       Directory with chain config files. Packed into a"
     echo "                        small ext2 image at boot and attached as a read-only"
     echo "                        virtio-blk disk; the guest mounts it and passes the"
@@ -143,7 +146,14 @@ INITRD_FILE=""
 # --metrics.port here is also what drives the host port forward below — drop it
 # (or override via --katana-args) to disable the forward. --metrics.addr must be
 # 0.0.0.0 so the host forward can reach the in-guest server.
-KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,9100"
+#
+# The Cartridge paymaster + VRF sidecars are also on by default
+# (--paymaster,--cartridge.paymaster,--vrf): the release initrd bundles
+# paymaster-service and vrf-server, and katana spawns them from the guest's
+# PATH. Override --katana-args without these flags to run a bare sequencer.
+# Sidecar caveats: the guest needs outbound HTTPS to the Cartridge API, and
+# initrds built without PAYMASTER_BINARY/VRF_BINARY reject the flags at start.
+KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,9100,--paymaster,--cartridge.paymaster,--vrf"
 CHAIN_DIR=""
 AUTO_START_KATANA=1
 DATA_DISK="${KATANA_DATA_DISK:-}"

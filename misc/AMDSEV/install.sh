@@ -77,8 +77,11 @@ INTERACTIVE=0
 SKIP_SNP_CHECK="${KATANA_INSTALL_SKIP_SNP_CHECK:-0}"
 
 # Must match start-vm.sh's default --katana-args (the guest RPC port 5050 is
-# a convention shared with KATANA_RPC_PORT there).
-DEFAULT_KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,9100"
+# a convention shared with KATANA_RPC_PORT there). Includes the Cartridge
+# paymaster + VRF sidecars, on by default since the release initrd bundles
+# them — answer the wizard's args question without those flags for a bare
+# sequencer.
+DEFAULT_KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,9100,--paymaster,--cartridge.paymaster,--vrf"
 DEFAULT_VCPUS=4
 DEFAULT_MEMORY="4G"
 DEFAULT_RPC_PORT=15051

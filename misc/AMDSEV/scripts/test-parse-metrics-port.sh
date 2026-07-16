@@ -48,7 +48,7 @@ check() {
 
 # The script's own default args must carry a metrics port (metrics on by default).
 check "default args carry --metrics.port 9100" \
-    "9100" "$(parse_metrics_port "--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,9100")"
+    "9100" "$(parse_metrics_port "--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,9100,--paymaster,--cartridge.paymaster,--vrf")"
 
 # No metrics flags at all => no port => no forward.
 check "no metrics flags => empty" \
