@@ -82,15 +82,10 @@ check_true  "valid_vcpus accepts 4"           valid_vcpus 4
 check_false "valid_vcpus rejects 0"           valid_vcpus 0
 check_false "valid_vcpus rejects 2.5"         valid_vcpus 2.5
 
-# valid_vcpus_host layers the host core budget (WIZ_MAX_VCPUS) on top, so
-# the wizard can re-prompt on an over-count instead of aborting the install.
-WIZ_MAX_VCPUS=8
-check_true  "valid_vcpus_host accepts count == host cores" valid_vcpus_host 8
-check_true  "valid_vcpus_host accepts count < host cores"  valid_vcpus_host 2
-check_false "valid_vcpus_host rejects count > host cores"  valid_vcpus_host 9
-check_false "valid_vcpus_host still rejects 0"             valid_vcpus_host 0
-WIZ_MAX_VCPUS=0
-check_true  "valid_vcpus_host is unbounded when cores unknown" valid_vcpus_host 128
+# Overcommit (vCPUs > host cores) is deliberately allowed — the host core
+# count is informational (shown in the prompt, warned past) — so plain
+# valid_vcpus is the only gate and it must not encode an upper bound.
+check_true  "valid_vcpus allows overcommit (no upper bound)" valid_vcpus 1024
 
 check_true  "valid_memory accepts 4G"         valid_memory 4G
 check_true  "valid_memory accepts 2048M"      valid_memory 2048M

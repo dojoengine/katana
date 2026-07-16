@@ -79,7 +79,7 @@ SKIP_SNP_CHECK="${KATANA_INSTALL_SKIP_SNP_CHECK:-0}"
 # Must match start-vm.sh's default --katana-args (the guest RPC port 5050 is
 # a convention shared with KATANA_RPC_PORT there).
 DEFAULT_KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,9100"
-DEFAULT_VCPUS=1
+DEFAULT_VCPUS=4
 DEFAULT_MEMORY="4G"
 DEFAULT_RPC_PORT=15051
 DEFAULT_DISK_SIZE_MB=4096
@@ -100,7 +100,7 @@ usage() {
     echo "Options (env var in parentheses):"
     echo "  --tag TAG             Pin a tee-vm-v* release (KATANA_TEE_TAG)"
     echo "                        Default: latest published tee-vm-v* release"
-    echo "  --vcpus N             Guest vCPU count (KATANA_VCPUS). Default: 1."
+    echo "  --vcpus N             Guest vCPU count (KATANA_VCPUS). Default: 4."
     echo "                        PART OF the SEV-SNP launch measurement — the"
     echo "                        expected measurement is recomputed for your value."
     echo "  --memory SIZE         Guest RAM, e.g. 4G or 2048M (KATANA_MEMORY)."
@@ -179,14 +179,10 @@ ask_yn() {
 
 valid_port()   { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
 valid_vcpus()  { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 )); }
-# valid_vcpus plus the host's core budget (WIZ_MAX_VCPUS; 0 = unknown, no
-# upper bound). A separate validator so the wizard re-prompts on an
-# over-count instead of aborting the whole install.
+# Host core count, detected in the wizard (0 = unknown). Informational only:
+# shown in the vCPU prompt, and a count above it warns about overcommit but
+# is allowed — QEMU supports it, and operators may size for burst workloads.
 WIZ_MAX_VCPUS=0
-valid_vcpus_host() {
-    valid_vcpus "$1" || return 1
-    [[ "$WIZ_MAX_VCPUS" == "0" ]] || (( $1 <= WIZ_MAX_VCPUS ))
-}
 valid_memory() { [[ "$1" =~ ^[0-9]+[MG]$ ]]; }
 valid_mode()   { [[ "$1" == "sealed" || "$1" == "unsealed" ]]; }
 valid_int()    { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 )); }
@@ -800,13 +796,15 @@ run_wizard() {
             echo "  vCPU count is PART OF the SEV-SNP launch measurement; the expected"
             echo "  measurement will be recomputed for your value."
             if [[ "$WIZ_MAX_VCPUS" != "0" ]]; then
-                VCPUS="$(ask_validated "vCPUs (host has $WIZ_MAX_VCPUS cores available)" "$WIZ_DEF_VCPUS" valid_vcpus_host)"
+                VCPUS="$(ask_validated "vCPUs (host has $WIZ_MAX_VCPUS cores available)" "$WIZ_DEF_VCPUS" valid_vcpus)"
             else
-                VCPUS="$(ask_validated "vCPUs" "$WIZ_DEF_VCPUS" valid_vcpus_host)"
+                VCPUS="$(ask_validated "vCPUs" "$WIZ_DEF_VCPUS" valid_vcpus)"
             fi
         else
             valid_vcpus "$VCPUS" || fail "invalid --vcpus: '$VCPUS'"
-            valid_vcpus_host "$VCPUS" || fail "vCPUs ($VCPUS) exceeds host CPU count ($WIZ_MAX_VCPUS)"
+        fi
+        if [[ "$WIZ_MAX_VCPUS" != "0" ]] && (( VCPUS > WIZ_MAX_VCPUS )); then
+            warn "vCPUs ($VCPUS) exceeds the host's $WIZ_MAX_VCPUS cores — QEMU allows overcommit, but expect degraded performance"
         fi
     else
         if [[ -n "$VCPUS" && "$VCPUS" != "1" ]]; then

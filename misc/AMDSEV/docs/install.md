@@ -76,7 +76,7 @@ run, then to defaults). Re-runs pre-fill from the existing `config.env`.
 | Question | Default | Flag / env | Notes |
 |---|---|---|---|
 | Release tag | latest `tee-vm-v*` | `--tag` / `KATANA_TEE_TAG` | |
-| vCPUs | 1 | `--vcpus` / `KATANA_VCPUS` | **Part of the launch measurement** — the expected measurement is recomputed for your value. Locked to 1 on releases whose launcher predates configurable vCPUs. |
+| vCPUs | 4 | `--vcpus` / `KATANA_VCPUS` | **Part of the launch measurement** — the expected measurement is recomputed for your value. The prompt shows the host's core count; exceeding it is allowed (QEMU overcommit) with a warning. Locked to 1 on releases whose launcher predates configurable vCPUs. |
 | Memory | 4G | `--memory` / `KATANA_MEMORY` | **Not measured** — size freely. The initramfs (including the katana binary) unpacks into guest RAM; 4G minimum advised. |
 | Data disk path | `<home>/data.img` | `--data-disk` / `KATANA_DATA_DISK` | Created if absent; never touched on upgrade. |
 | Data disk size (MB) | 4096 | `--disk-size-mb` / `KATANA_DISK_SIZE_MB` | Only asked when the disk doesn't exist yet. |
