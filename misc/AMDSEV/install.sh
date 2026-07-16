@@ -82,7 +82,7 @@ DEFAULT_KATANA_ARGS_CSV="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--me
 DEFAULT_VCPUS=1
 DEFAULT_MEMORY="4G"
 DEFAULT_RPC_PORT=15051
-DEFAULT_DISK_SIZE_MB=1024
+DEFAULT_DISK_SIZE_MB=4096
 
 usage() {
     echo "Usage: install.sh [COMMAND] [OPTIONS]"
@@ -110,7 +110,7 @@ usage() {
     echo "  --data-disk PATH      Persistent data disk file (KATANA_DATA_DISK)."
     echo "                        Default: <home>/data.img, created if absent."
     echo "  --disk-size-mb N      Size when creating the data disk"
-    echo "                        (KATANA_DISK_SIZE_MB). Default: 1024."
+    echo "                        (KATANA_DISK_SIZE_MB). Default: 4096."
     echo "  --sealed | --unsealed Storage mode. Default: unsealed. Sealed binds the"
     echo "                        disk key to the launch measurement (re-keys on"
     echo "                        upgrade — see docs/amdsev.md, Sealed storage)."

@@ -79,7 +79,7 @@ run, then to defaults). Re-runs pre-fill from the existing `config.env`.
 | vCPUs | 1 | `--vcpus` / `KATANA_VCPUS` | **Part of the launch measurement** — the expected measurement is recomputed for your value. Locked to 1 on releases whose launcher predates configurable vCPUs. |
 | Memory | 4G | `--memory` / `KATANA_MEMORY` | **Not measured** — size freely. The initramfs (including the katana binary) unpacks into guest RAM; 4G minimum advised. |
 | Data disk path | `<home>/data.img` | `--data-disk` / `KATANA_DATA_DISK` | Created if absent; never touched on upgrade. |
-| Data disk size (MB) | 1024 | `--disk-size-mb` / `KATANA_DISK_SIZE_MB` | Only asked when the disk doesn't exist yet. |
+| Data disk size (MB) | 4096 | `--disk-size-mb` / `KATANA_DISK_SIZE_MB` | Only asked when the disk doesn't exist yet. |
 | Host RPC port | 15051 | `--rpc-port` / `HOST_RPC_PORT` | Forwards to guest port 5050. |
 | Storage mode | unsealed | `--sealed` / `--unsealed` | Sealed = LUKS2 + dm-integrity, key derived in-guest and bound to the launch measurement — an upgrade re-keys the disk. See the README's *Storage sealing* section. |
 | Katana args | `start-vm.sh` default CSV | `--katana-args` | Unmeasured (delivered via fw_cfg). The `--metrics.port` inside it drives the metrics host forward. |
