@@ -35,6 +35,13 @@ VM_REPO="${KATANA_TEE_VM_REPO:-dojoengine/katana}"
 CANONICAL_LUKS_UUID="00000000-0000-0000-0000-000000000001"
 HOST_RPC="http://127.0.0.1:15051"
 BOOT_TIMEOUT=360
+# Explicit Katana args: mirrors start-vm.sh's defaults (incl. the Cartridge
+# paymaster + VRF sidecars, so the E2E boots what operators boot) but pins a
+# TEST-SCOPED metrics port. The default 9100 is node_exporter's port and is
+# occupied on any Prometheus-monitored host — including the shared E2E
+# machine — and QEMU dies at startup when the hostfwd can't bind.
+TEST_METRICS_PORT="${KATANA_TEST_METRICS_PORT:-19100}"
+TEST_KATANA_ARGS="--http.addr,0.0.0.0,--http.port,5050,--tee,sev-snp,--metrics,--metrics.addr,0.0.0.0,--metrics.port,${TEST_METRICS_PORT},--paymaster,--cartridge.paymaster,--vrf"
 TAG=""
 BOOT_DIR=""
 WORKDIR=""
@@ -181,6 +188,10 @@ sleep 2
 if curl -s --max-time 2 -o /dev/null "$HOST_RPC"; then
     fail "port 15051 already in use by a foreign process — refusing to continue on a shared machine"
 fi
+# The metrics forward must bind too — QEMU exits at startup if it can't.
+if (exec 3<>"/dev/tcp/127.0.0.1/$TEST_METRICS_PORT") 2>/dev/null; then
+    fail "metrics port $TEST_METRICS_PORT already in use — override with KATANA_TEST_METRICS_PORT"
+fi
 
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR" "$LOGS"
@@ -279,6 +290,7 @@ launch_vm() {
         --data-disk "$DISK" \
         --sealed \
         --luks-uuid "$CANONICAL_LUKS_UUID" \
+        --katana-args "$TEST_KATANA_ARGS" \
         > "$startlog" 2>&1 & echo $! > "$WORKDIR/wrapper.pid" )
     WRAPPER_PID="$(cat "$WORKDIR/wrapper.pid")"
 }
