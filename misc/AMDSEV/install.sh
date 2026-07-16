@@ -179,6 +179,14 @@ ask_yn() {
 
 valid_port()   { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
 valid_vcpus()  { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 )); }
+# valid_vcpus plus the host's core budget (WIZ_MAX_VCPUS; 0 = unknown, no
+# upper bound). A separate validator so the wizard re-prompts on an
+# over-count instead of aborting the whole install.
+WIZ_MAX_VCPUS=0
+valid_vcpus_host() {
+    valid_vcpus "$1" || return 1
+    [[ "$WIZ_MAX_VCPUS" == "0" ]] || (( $1 <= WIZ_MAX_VCPUS ))
+}
 valid_memory() { [[ "$1" =~ ^[0-9]+[MG]$ ]]; }
 valid_mode()   { [[ "$1" == "sealed" || "$1" == "unsealed" ]]; }
 valid_int()    { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 )); }
@@ -773,7 +781,7 @@ EOF
 # Wizard
 # ------------------------------------------------------------------------------
 run_wizard() {
-    local src_dir="$1" nproc_max
+    local src_dir="$1"
 
     log ""
     log "Configuration (Enter accepts the default; flags/env vars override)"
@@ -785,16 +793,20 @@ run_wizard() {
     grep -q 'KATANA_MEMORY' "$src_dir/start-vm.sh" && LAUNCHER_HAS_MEMORY=1
 
     if [[ "$LAUNCHER_HAS_VCPUS" == "1" ]]; then
+        # nproc on Linux (the real SNP hosts); getconf covers macOS dry runs.
+        WIZ_MAX_VCPUS="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 0)"
+        valid_vcpus "$WIZ_MAX_VCPUS" || WIZ_MAX_VCPUS=0
         if [[ -z "$VCPUS" ]]; then
             echo "  vCPU count is PART OF the SEV-SNP launch measurement; the expected"
             echo "  measurement will be recomputed for your value."
-            nproc_max="$(nproc 2>/dev/null || echo 0)"
-            VCPUS="$(ask_validated "vCPUs" "$WIZ_DEF_VCPUS" valid_vcpus)"
-            if [[ "$nproc_max" != "0" ]] && (( VCPUS > nproc_max )); then
-                fail "vCPUs ($VCPUS) exceeds host CPU count ($nproc_max)"
+            if [[ "$WIZ_MAX_VCPUS" != "0" ]]; then
+                VCPUS="$(ask_validated "vCPUs (host has $WIZ_MAX_VCPUS cores available)" "$WIZ_DEF_VCPUS" valid_vcpus_host)"
+            else
+                VCPUS="$(ask_validated "vCPUs" "$WIZ_DEF_VCPUS" valid_vcpus_host)"
             fi
         else
             valid_vcpus "$VCPUS" || fail "invalid --vcpus: '$VCPUS'"
+            valid_vcpus_host "$VCPUS" || fail "vCPUs ($VCPUS) exceeds host CPU count ($WIZ_MAX_VCPUS)"
         fi
     else
         if [[ -n "$VCPUS" && "$VCPUS" != "1" ]]; then
@@ -834,7 +846,7 @@ run_wizard() {
 
     # --- RPC port ------------------------------------------------------------
     if [[ -z "$RPC_PORT" ]]; then
-        RPC_PORT="$(ask_validated "Host RPC port (forwards to guest 5050)" "$WIZ_DEF_RPC_PORT" valid_port)"
+        RPC_PORT="$(ask_validated "Host RPC port" "$WIZ_DEF_RPC_PORT" valid_port)"
     else
         valid_port "$RPC_PORT" || fail "invalid --rpc-port: '$RPC_PORT'"
     fi
