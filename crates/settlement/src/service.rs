@@ -14,6 +14,7 @@ use katana_primitives::transaction::TxHash;
 use katana_provider::api::block::BlockNumberProvider;
 use katana_provider::api::settlement::{SettlementCheckpointWriter, SettlementProofWriter};
 use katana_provider::{MutableProvider, ProviderFactory};
+use piltover::PiltoverInput;
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
@@ -89,6 +90,7 @@ where
         let worker = Worker {
             cursor,
             piltover,
+            prepared: None,
             backend: self.backend.clone(),
             provider: self.provider.clone(),
             batch_size: self.config.batch_size.max(1) as u64,
@@ -155,8 +157,28 @@ struct Worker<P> {
     idle_flush_interval: tokio::time::Duration,
     /// Last settled block, from Piltover's `get_state()`. `None` = nothing settled yet.
     cursor: Option<BlockNumber>,
+    /// Proving result awaiting on-chain acceptance — see [`PreparedBatch`].
+    prepared: Option<PreparedBatch>,
     metrics: SettlementMetrics,
     proof_metrics: SettlementProofMetrics,
+}
+
+/// A proving result for a settle range that has not yet been accepted on-chain.
+///
+/// Kept across retries so a failed `update_state` submission (fees, nonce, a transient RPC
+/// error) does not trigger a fresh — and, on the SP1 prover network, paid — proving round for
+/// the identical range. The payload stays valid indefinitely for a fixed historical range:
+/// on-chain validation checks the proof against the range-derived commitment (state roots,
+/// block hashes, messages commitment), not any timestamp embedded at proving time.
+///
+/// In-memory only: a node restart clears it, which doubles as the escape hatch in the rare
+/// case a cached proof is invalidated externally (e.g. an on-chain TEE-registry trust-root
+/// rotation between proving and submission).
+struct PreparedBatch {
+    first: BlockNumber,
+    last: BlockNumber,
+    update: PiltoverInput,
+    proof: Option<ProofId>,
 }
 
 /// Persists the settled-block cursor to the durable [`tables::SettlementCheckpoints`] index, read
@@ -398,24 +420,60 @@ where
 
     /// Prove and settle the inclusive block range `[first, last]`.
     ///
+    /// Proving is skipped when a [`PreparedBatch`] for exactly this range is already held from
+    /// a previous attempt whose submission failed — only a successful `update_state` clears it,
+    /// so retries of the same range never re-prove.
+    ///
     /// Returns the settlement-chain transaction hash and a reference to the proof that settled the
     /// batch (`None` for mock / off-network proving).
     async fn settle_batch(
-        &self,
+        &mut self,
         first: BlockNumber,
         last: BlockNumber,
     ) -> Result<(TxHash, Option<ProofId>), SettlementError> {
-        let prev_block = if first == 0 { None } else { Some(first - 1) };
-
-        let proof_start = Instant::now();
-        let (update, proof) = self.backend.prove(prev_block, last).await?;
-        self.proof_metrics.proof_generation_seconds.record(proof_start.elapsed().as_secs_f64());
+        self.prepare_batch(first, last).await?;
+        let prepared = self.prepared.as_ref().expect("prepare_batch always sets it");
 
         let update_start = Instant::now();
-        let tx_hash = self.piltover.update_state(update).await?;
+        let tx_hash = self.piltover.update_state(&prepared.update).await?;
         self.metrics.state_update_seconds.record(update_start.elapsed().as_secs_f64());
 
+        // Only now is the payload spent — a submission failure above returns early and keeps
+        // `self.prepared` for the next attempt.
+        let proof = self.prepared.take().and_then(|p| p.proof);
+
         Ok((tx_hash, proof))
+    }
+
+    /// Ensures `self.prepared` holds the update payload + proof for `[first, last]`, proving
+    /// only if no [`PreparedBatch`] for exactly this range is already held.
+    ///
+    /// A held batch for a *different* range is dead — the settle cursor moved, so that payload
+    /// can never be submitted — and is dropped before proving the new range.
+    async fn prepare_batch(
+        &mut self,
+        first: BlockNumber,
+        last: BlockNumber,
+    ) -> Result<(), SettlementError> {
+        match &self.prepared {
+            Some(batch) if batch.first == first && batch.last == last => {
+                info!(first, last, "Reusing prepared proof for unchanged range.");
+            }
+            _ => {
+                self.prepared = None;
+                let prev_block = if first == 0 { None } else { Some(first - 1) };
+
+                let proof_start = Instant::now();
+                let (update, proof) = self.backend.prove(prev_block, last).await?;
+                self.proof_metrics
+                    .proof_generation_seconds
+                    .record(proof_start.elapsed().as_secs_f64());
+
+                self.prepared = Some(PreparedBatch { first, last, update, proof });
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -476,5 +534,186 @@ mod tests {
     #[test]
     fn idle_elapsed_flushes_partial_batch() {
         assert_eq!(next_action(Some(2), 4, 10, true), Action::Settle { first: 3, last: 4 });
+    }
+
+    mod proof_reuse {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        use async_trait::async_trait;
+        use katana_primitives::block::BlockNumber;
+        use katana_primitives::settlement::ProofId;
+        use katana_provider::DbProviderFactory;
+        use piltover::{PiltoverInput, TEEInput};
+        use starknet::core::types::Felt;
+        use url::Url;
+
+        use crate::backend::ProvingBackend;
+        use crate::error::SettlementError;
+        use crate::metrics::{SettlementMetrics, SettlementProofMetrics};
+        use crate::piltover::{PiltoverClient, PiltoverError};
+        use crate::service::Worker;
+
+        /// Counts `prove` calls; fails when `fail` is set. The proof id encodes the call count
+        /// so tests can tell which proving round produced the held payload.
+        struct CountingBackend {
+            calls: AtomicUsize,
+            fail: bool,
+        }
+
+        impl CountingBackend {
+            fn new(fail: bool) -> Self {
+                Self { calls: AtomicUsize::new(0), fail }
+            }
+        }
+
+        #[async_trait]
+        impl ProvingBackend for CountingBackend {
+            fn name(&self) -> &'static str {
+                "counting"
+            }
+
+            fn proof_type(&self) -> &'static str {
+                "mock"
+            }
+
+            async fn prove(
+                &self,
+                _prev_block: Option<BlockNumber>,
+                block: BlockNumber,
+            ) -> Result<(PiltoverInput, Option<ProofId>), SettlementError> {
+                let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+                if self.fail {
+                    return Err(SettlementError::Piltover(PiltoverError::GetState(
+                        "mock prove failure".into(),
+                    )));
+                }
+
+                let input = PiltoverInput::TeeInput(TEEInput {
+                    sp1_proof: vec![],
+                    prev_state_root: Felt::ZERO,
+                    state_root: Felt::ZERO,
+                    prev_block_hash: Felt::ZERO,
+                    block_hash: Felt::ZERO,
+                    prev_block_number: Felt::ZERO,
+                    block_number: Felt::from(block),
+                    messages_commitment: Felt::ZERO,
+                    messages_to_starknet: vec![],
+                    messages_to_appchain: vec![],
+                    l1_to_l2_msg_hashes: vec![],
+                    katana_tee_config_hash: Felt::ZERO,
+                });
+                Ok((input, Some(ProofId::new(vec![call as u8]))))
+            }
+        }
+
+        fn test_worker(backend: Arc<dyn ProvingBackend>) -> Worker<DbProviderFactory> {
+            // The Piltover client is never used by `prepare_batch`; construction is pure field
+            // storage (no I/O), so a dummy endpoint is fine.
+            let piltover = PiltoverClient::new(
+                Url::parse("http://127.0.0.1:1").unwrap(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Felt::ONE,
+            );
+
+            Worker {
+                piltover,
+                backend: backend.clone(),
+                provider: DbProviderFactory::new_in_memory(),
+                batch_size: 10,
+                idle_flush_interval: tokio::time::Duration::from_secs(120),
+                cursor: None,
+                prepared: None,
+                metrics: SettlementMetrics::default(),
+                proof_metrics: SettlementProofMetrics::new_with_labels(&[("proof_type", "mock")]),
+            }
+        }
+
+        fn held_proof(worker: &Worker<DbProviderFactory>) -> Option<&ProofId> {
+            worker.prepared.as_ref().and_then(|p| p.proof.as_ref())
+        }
+
+        #[tokio::test]
+        async fn retry_of_same_range_does_not_reprove() {
+            let backend = Arc::new(CountingBackend::new(false));
+            let mut worker = test_worker(backend.clone());
+
+            worker.prepare_batch(5, 10).await.unwrap();
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+            let first_proof = held_proof(&worker).cloned();
+
+            // A retry of the identical range (e.g. after a failed submission) reuses the held
+            // payload instead of proving again.
+            worker.prepare_batch(5, 10).await.unwrap();
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+            assert_eq!(held_proof(&worker).cloned(), first_proof);
+        }
+
+        #[tokio::test]
+        async fn range_change_invalidates_held_batch() {
+            let backend = Arc::new(CountingBackend::new(false));
+            let mut worker = test_worker(backend.clone());
+
+            worker.prepare_batch(5, 10).await.unwrap();
+            // The cursor moved (e.g. the tx landed despite a reported error) — the new range
+            // must be proven fresh.
+            worker.prepare_batch(11, 12).await.unwrap();
+
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
+            let held = worker.prepared.as_ref().unwrap();
+            assert_eq!((held.first, held.last), (11, 12));
+        }
+
+        #[tokio::test]
+        async fn cleared_batch_is_reproven() {
+            let backend = Arc::new(CountingBackend::new(false));
+            let mut worker = test_worker(backend.clone());
+
+            worker.prepare_batch(5, 10).await.unwrap();
+            // `settle_batch` takes the payload on successful submission; the next range (even
+            // an identical one, which cannot happen in practice) proves fresh.
+            worker.prepared = None;
+            worker.prepare_batch(5, 10).await.unwrap();
+
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
+        }
+
+        #[tokio::test]
+        async fn failed_submission_keeps_proof_for_retry() {
+            let backend = Arc::new(CountingBackend::new(false));
+            let mut worker = test_worker(backend.clone());
+
+            // The dummy Piltover endpoint refuses connections, so submission fails after
+            // proving succeeds — the production incident shape (e.g. account short on fees).
+            worker.settle_batch(5, 10).await.unwrap_err();
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+            let held = worker.prepared.as_ref().expect("payload kept for retry");
+            assert_eq!((held.first, held.last), (5, 10));
+
+            // The retry fails at submission again but must not prove again.
+            worker.settle_batch(5, 10).await.unwrap_err();
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+            assert!(worker.prepared.is_some());
+        }
+
+        #[tokio::test]
+        async fn prove_failure_holds_nothing() {
+            let backend = Arc::new(CountingBackend::new(true));
+            let mut worker = test_worker(backend.clone());
+
+            // Seed a stale entry for a different range: it must be dropped before the failing
+            // prove, not resurrected after it.
+            worker.prepared = Some(super::super::PreparedBatch {
+                first: 1,
+                last: 2,
+                update: PiltoverInput::LayoutBridgeOutputNoDa(vec![]),
+                proof: None,
+            });
+
+            worker.prepare_batch(5, 10).await.unwrap_err();
+            assert!(worker.prepared.is_none());
+        }
     }
 }

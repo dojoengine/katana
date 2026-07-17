@@ -347,7 +347,12 @@ mentioning the config hash means the chain spec's chain id / fee token doesn't
 match what was pinned at bootstrap; an account error usually means the
 settlement account is out of STRK. The service retries the same batch with
 backoff and re-reads Piltover's cursor before each retry, so it resumes
-cleanly once the cause is fixed.
+cleanly once the cause is fixed. When the failure happens *after* proving
+(e.g. the submission fails on fees), retries reuse the already-generated
+proof for the unchanged range — look for `Reusing prepared proof for
+unchanged range.` — so a submit-blocked loop does not keep paying the SP1
+prover network. The held proof is in-memory only; restarting the node clears
+it and forces a fresh proving round.
 
 **`katana init rollup` fails partway through** — the settlement-chain
 transactions are not idempotent. Inspect the partial `chain-config/`; usually

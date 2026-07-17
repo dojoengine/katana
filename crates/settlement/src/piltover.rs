@@ -106,10 +106,13 @@ impl PiltoverClient {
     }
 
     /// Submits `update_state` and waits for the transaction to be confirmed.
-    pub async fn update_state(&self, update: PiltoverInput) -> Result<TxHash, PiltoverError> {
+    ///
+    /// Takes the input by reference: the settle loop keeps ownership of the prepared payload so
+    /// a failed submission can retry with the same (already-paid-for) proof.
+    pub async fn update_state(&self, update: &PiltoverInput) -> Result<TxHash, PiltoverError> {
         let tx = self
             .contract
-            .update_state(&update)
+            .update_state(update)
             .send()
             .await
             .map_err(|e| PiltoverError::SendTransaction(e.to_string()))?;
