@@ -15,7 +15,7 @@ use katana_primitives::contract::ContractAddress;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
-use katana_primitives::settlement::ProofId;
+use katana_primitives::settlement::{PendingBatchProof, ProofId};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_provider_api::block::{
@@ -734,11 +734,23 @@ impl<Tx1: DbTx> SettlementProofProvider for ForkedProvider<Tx1> {
     fn block_proof(&self, block: BlockNumber) -> ProviderResult<Option<ProofId>> {
         self.local_db.block_proof(block)
     }
+
+    fn pending_batch_proof(&self) -> ProviderResult<Option<PendingBatchProof>> {
+        self.local_db.pending_batch_proof()
+    }
 }
 
 impl<Tx1: DbTxMut> SettlementProofWriter for ForkedProvider<Tx1> {
     fn set_block_proof(&self, block: BlockNumber, proof: ProofId) -> ProviderResult<()> {
         self.local_db.set_block_proof(block, proof)
+    }
+
+    fn set_pending_batch_proof(&self, pending: PendingBatchProof) -> ProviderResult<()> {
+        self.local_db.set_pending_batch_proof(pending)
+    }
+
+    fn clear_pending_batch_proof(&self) -> ProviderResult<()> {
+        self.local_db.clear_pending_batch_proof()
     }
 }
 

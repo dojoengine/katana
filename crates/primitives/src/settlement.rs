@@ -19,3 +19,19 @@ impl ProofId {
         Self(id.into())
     }
 }
+
+/// A reference to a generated-but-not-yet-settled batch proof.
+///
+/// Recorded by the settlement service the moment proving completes — before the `update_state`
+/// submission — so that a node restart can recover the proof from the proving network by its
+/// [`ProofId`] instead of paying for a fresh proving round. Cleared once the batch settles.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
+pub struct PendingBatchProof {
+    /// First block of the unsettled batch (inclusive).
+    pub first: u64,
+    /// Last block of the unsettled batch (inclusive).
+    pub last: u64,
+    /// Reference to the generated proof, resolvable against the proving backend's network.
+    pub proof: ProofId,
+}

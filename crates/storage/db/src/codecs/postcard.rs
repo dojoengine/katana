@@ -1,7 +1,7 @@
 use katana_primitives::contract::GenericContractInfo;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
-use katana_primitives::settlement::ProofId;
+use katana_primitives::settlement::{PendingBatchProof, ProofId};
 use katana_primitives::state::StateUpdates;
 use katana_primitives::Felt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -110,6 +110,7 @@ impl_compress_and_decompress_for_table_values!(
     PruningCheckpoint,
     SettlementCheckpoint,
     ProofId,
+    PendingBatchProof,
     HistoricalStateRetention,
     GenericContractInfo,
     StoredBlockBodyIndices,

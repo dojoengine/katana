@@ -29,6 +29,11 @@ use super::mock;
 /// Maximum time for the entire proof generation pipeline (KDS + registry + SP1).
 const PROOF_GENERATION_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// Maximum time to wait when recovering an already-fulfilled proof from the prover network by its
+/// request id. Deliberately short: a fulfilled proof returns immediately, so anything slower
+/// means the id is unknown/expired and the caller should fall back to fresh proving.
+const PROOF_RECOVERY_TIMEOUT: Duration = Duration::from_secs(60);
+
 #[derive(Debug, thiserror::Error)]
 pub enum TeeProverError {
     #[error("invalid attestation report: {0}")]
@@ -110,6 +115,63 @@ impl TeeProver {
                 let request_id = proof.raw_proof.request_id;
                 let calldata = onchain_proof_to_calldata(&proof)?;
                 Ok((calldata, request_id))
+            }
+        }
+    }
+
+    /// Recovers the `TEEInput.sp1_proof` felts of an already-generated proof from the prover
+    /// network by its request id, without submitting (and paying for) a new proving request.
+    ///
+    /// Returns `Ok(None)` for the mock prover — it has no network to recover from, and mock
+    /// proving is free anyway. `Err` means the network no longer serves the request (expired /
+    /// unknown id) or the fetch failed; the caller falls back to fresh proving.
+    pub async fn recover(
+        &self,
+        proof: &katana_primitives::settlement::ProofId,
+    ) -> Result<Option<Vec<Felt>>, TeeProverError> {
+        match self {
+            Self::Mock => Ok(None),
+
+            Self::Sp1 { prover_key, .. } => {
+                let request_id = B256::try_from(proof.0.as_ref()).map_err(|_| {
+                    TeeProverError::ProofGenerationFailed(format!(
+                        "proof id is not a 32-byte SP1 request id ({} bytes)",
+                        proof.0.len()
+                    ))
+                })?;
+
+                info!(
+                    request_id = %format!("{request_id:#x}"),
+                    "Recovering SP1 proof from the prover network."
+                );
+
+                // Blocking for the same reason as proving: the SDK drives the network client
+                // through its own `block_on`.
+                let prover_key = prover_key.to_string();
+                let proof = tokio::task::spawn_blocking(move || -> Result<_, TeeProverError> {
+                    let sp1_config = SP1ProverConfig {
+                        private_key: Some(prover_key),
+                        rpc_url: None,
+                        prover_mode: Some("network".to_string()),
+                    };
+                    let prover = AmdSevSnpProver::new(SdkProverConfig::sp1_with(sp1_config), None);
+
+                    let raw_proof = prover
+                        .verifier
+                        .recover_proof(request_id, Some(PROOF_RECOVERY_TIMEOUT))
+                        .map_err(|e| TeeProverError::ProofGenerationFailed(e.to_string()))?;
+                    prover
+                        .create_onchain_proof(raw_proof)
+                        .map_err(|e| TeeProverError::ProofGenerationFailed(e.to_string()))
+                })
+                .await
+                .map_err(|e| {
+                    TeeProverError::ProofGenerationFailed(format!(
+                        "SP1 proof recovery task panicked: {e}"
+                    ))
+                })??;
+
+                Ok(Some(onchain_proof_to_calldata(&proof)?))
             }
         }
     }

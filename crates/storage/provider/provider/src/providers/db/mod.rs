@@ -29,7 +29,7 @@ use katana_primitives::contract::{ContractAddress, GenericContractInfo};
 use katana_primitives::env::BlockEnv;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
-use katana_primitives::settlement::ProofId;
+use katana_primitives::settlement::{PendingBatchProof, ProofId};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_provider_api::block::{
@@ -997,15 +997,33 @@ impl<Tx: DbTxMut> SettlementCheckpointWriter for DbProvider<Tx> {
     }
 }
 
+/// At most one settlement batch is ever in flight (settlement is serial), so the pending proof
+/// table is a singleton keyed by this constant.
+pub const PENDING_SETTLEMENT_PROOF_KEY: u64 = 0;
+
 impl<Tx: DbTx> SettlementProofProvider for DbProvider<Tx> {
     fn block_proof(&self, block: BlockNumber) -> ProviderResult<Option<ProofId>> {
         Ok(self.0.get::<tables::SettlementProofs>(block)?)
+    }
+
+    fn pending_batch_proof(&self) -> ProviderResult<Option<PendingBatchProof>> {
+        Ok(self.0.get::<tables::PendingSettlementProofs>(PENDING_SETTLEMENT_PROOF_KEY)?)
     }
 }
 
 impl<Tx: DbTxMut> SettlementProofWriter for DbProvider<Tx> {
     fn set_block_proof(&self, block: BlockNumber, proof: ProofId) -> ProviderResult<()> {
         self.0.put::<tables::SettlementProofs>(block, proof)?;
+        Ok(())
+    }
+
+    fn set_pending_batch_proof(&self, pending: PendingBatchProof) -> ProviderResult<()> {
+        self.0.put::<tables::PendingSettlementProofs>(PENDING_SETTLEMENT_PROOF_KEY, pending)?;
+        Ok(())
+    }
+
+    fn clear_pending_batch_proof(&self) -> ProviderResult<()> {
+        self.0.delete::<tables::PendingSettlementProofs>(PENDING_SETTLEMENT_PROOF_KEY, None)?;
         Ok(())
     }
 }

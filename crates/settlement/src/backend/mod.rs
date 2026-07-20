@@ -45,4 +45,24 @@ pub trait ProvingBackend: Send + Sync {
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
     ) -> Result<(PiltoverInput, Option<ProofId>), SettlementError>;
+
+    /// Rebuilds the `update_state` payload for `(prev_block, block]` from an
+    /// already-generated proof, referenced by the [`ProofId`] the matching
+    /// [`Self::prove`] call returned — without a fresh (on the SP1 network,
+    /// paid) proving round.
+    ///
+    /// Returns `Ok(None)` when the backend cannot recover proofs (e.g. mock
+    /// proving, which has no network to recover from — and no cost to save);
+    /// the caller then falls back to [`Self::prove`]. `Err` means recovery was
+    /// attempted and failed (e.g. the network no longer retains the proof) —
+    /// also a fall-back-to-prove signal, but worth surfacing in logs.
+    async fn recover(
+        &self,
+        prev_block: Option<BlockNumber>,
+        block: BlockNumber,
+        proof: &ProofId,
+    ) -> Result<Option<(PiltoverInput, Option<ProofId>)>, SettlementError> {
+        let _ = (prev_block, block, proof);
+        Ok(None)
+    }
 }

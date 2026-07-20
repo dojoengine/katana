@@ -9,10 +9,12 @@
 use std::sync::Arc;
 
 use katana_primitives::block::BlockNumber;
-use katana_primitives::settlement::ProofId;
+use katana_primitives::settlement::{PendingBatchProof, ProofId};
 use katana_primitives::transaction::TxHash;
 use katana_provider::api::block::BlockNumberProvider;
-use katana_provider::api::settlement::{SettlementCheckpointWriter, SettlementProofWriter};
+use katana_provider::api::settlement::{
+    SettlementCheckpointWriter, SettlementProofProvider, SettlementProofWriter,
+};
 use katana_provider::{MutableProvider, ProviderFactory};
 use piltover::PiltoverInput;
 use tokio::sync::{broadcast, oneshot};
@@ -23,7 +25,7 @@ use tracing::{error, info, warn};
 use crate::backend::ProvingBackend;
 use crate::error::SettlementError;
 use crate::metrics::{SettlementMetrics, SettlementProofMetrics};
-use crate::piltover::PiltoverClient;
+use crate::piltover::{PiltoverClient, PiltoverError};
 use crate::SettlementConfig;
 
 /// Initial retry delay after a failed settlement attempt.
@@ -59,7 +61,7 @@ impl<P, N> SettlementService<P, N> {
 impl<P, N> SettlementService<P, N>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
-    <P as ProviderFactory>::Provider: BlockNumberProvider,
+    <P as ProviderFactory>::Provider: BlockNumberProvider + SettlementProofProvider,
     <P as ProviderFactory>::ProviderMut:
         SettlementCheckpointWriter + SettlementProofWriter + MutableProvider,
     N: Clone + Send + 'static,
@@ -171,9 +173,19 @@ struct Worker<P> {
 /// on-chain validation checks the proof against the range-derived commitment (state roots,
 /// block hashes, messages commitment), not any timestamp embedded at proving time.
 ///
-/// In-memory only: a node restart clears it, which doubles as the escape hatch in the rare
-/// case a cached proof is invalidated externally (e.g. an on-chain TEE-registry trust-root
-/// rotation between proving and submission).
+/// The payload itself is in-memory, but its network reference survives restarts: when proving
+/// yields a [`ProofId`], it is persisted as a [`PendingBatchProof`] record, and a restarted
+/// node recovers the proof from the proving network ([`ProvingBackend::recover`]) instead of
+/// paying for a fresh round. Recovery is best-effort — an expired or unrecoverable reference
+/// falls back to fresh proving.
+///
+/// A payload the settlement chain *rejects in execution* (the `update_state` transaction
+/// reverts — e.g. a TEE-registry trust-root rotation invalidated the proof between proving and
+/// submission) is dropped along with its persisted reference, so the next attempt proves
+/// fresh instead of resubmitting a payload that can never land. Pre-execution failures (fees,
+/// nonce, transport) keep it.
+///
+/// [`PendingBatchProof`]: katana_primitives::settlement::PendingBatchProof
 struct PreparedBatch {
     first: BlockNumber,
     last: BlockNumber,
@@ -218,6 +230,58 @@ where
     }
 }
 
+/// Reads the persisted generated-but-not-yet-settled proof reference. Best-effort: a read
+/// failure only forfeits a potential recovery, so it degrades to `None` with a warning.
+fn read_pending_batch_proof<P>(provider: &P) -> Option<PendingBatchProof>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: SettlementProofProvider,
+{
+    match provider.provider().pending_batch_proof() {
+        Ok(pending) => pending,
+        Err(error) => {
+            warn!(%error, "Failed to read pending batch proof reference.");
+            None
+        }
+    }
+}
+
+/// Records the network reference of a generated-but-not-yet-settled proof, replacing any
+/// previous record — read back by [`read_pending_batch_proof`] after a restart. Best-effort:
+/// a failed write only forfeits a potential recovery, never stalls settlement.
+fn persist_pending_batch_proof<P>(
+    provider: &P,
+    first: BlockNumber,
+    last: BlockNumber,
+    proof: ProofId,
+) where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: SettlementProofWriter + MutableProvider,
+{
+    let db = provider.provider_mut();
+    let result = db
+        .set_pending_batch_proof(PendingBatchProof { first, last, proof })
+        .and_then(|()| db.commit());
+    if let Err(error) = result {
+        warn!(%error, first, last, "Failed to persist pending batch proof reference.");
+    }
+}
+
+/// Clears the pending proof reference once its batch settles. Best-effort: a stale record is
+/// harmless — it can never match a future range (the cursor moved past it), so it is simply
+/// overwritten by the next proving round.
+fn clear_pending_batch_proof<P>(provider: &P)
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: SettlementProofWriter + MutableProvider,
+{
+    let db = provider.provider_mut();
+    let result = db.clear_pending_batch_proof().and_then(|()| db.commit());
+    if let Err(error) = result {
+        warn!(%error, "Failed to clear pending batch proof reference.");
+    }
+}
+
 /// What the settle loop should do next, given the current durable state.
 #[derive(Debug, PartialEq, Eq)]
 enum Action {
@@ -255,7 +319,7 @@ fn next_action(
 impl<P> Worker<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::Provider: BlockNumberProvider,
+    <P as ProviderFactory>::Provider: BlockNumberProvider + SettlementProofProvider,
     <P as ProviderFactory>::ProviderMut:
         SettlementCheckpointWriter + SettlementProofWriter + MutableProvider,
 {
@@ -328,6 +392,26 @@ where
                                 retry_in = ?backoff,
                                 "Failed to settle block range; will retry."
                             );
+
+                            // An on-chain execution revert means the payload itself was
+                            // rejected — reusing (or later recovering) it cannot succeed, so
+                            // drop it and its persisted reference; the retry proves fresh.
+                            // Pre-execution failures (fees, nonce, transport) keep the payload
+                            // for reuse.
+                            if matches!(
+                                error,
+                                SettlementError::Piltover(PiltoverError::TransactionReverted(_))
+                            ) && self.prepared.is_some()
+                            {
+                                warn!(
+                                    first,
+                                    last,
+                                    "Settlement chain rejected the prepared payload; dropping it \
+                                     to prove fresh on retry."
+                                );
+                                self.prepared = None;
+                                clear_pending_batch_proof(&self.provider);
+                            }
 
                             tokio::select! {
                                 _ = &mut shutdown_rx => break,
@@ -439,40 +523,79 @@ where
         self.metrics.state_update_seconds.record(update_start.elapsed().as_secs_f64());
 
         // Only now is the payload spent — a submission failure above returns early and keeps
-        // `self.prepared` for the next attempt.
+        // `self.prepared` (and the persisted pending reference) for the next attempt.
         let proof = self.prepared.take().and_then(|p| p.proof);
+        clear_pending_batch_proof(&self.provider);
 
         Ok((tx_hash, proof))
     }
 
     /// Ensures `self.prepared` holds the update payload + proof for `[first, last]`, proving
-    /// only if no [`PreparedBatch`] for exactly this range is already held.
+    /// only when neither an in-memory [`PreparedBatch`] nor a recoverable persisted
+    /// [`PendingBatchProof`] reference exists for exactly this range.
     ///
     /// A held batch for a *different* range is dead — the settle cursor moved, so that payload
     /// can never be submitted — and is dropped before proving the new range.
+    ///
+    /// [`PendingBatchProof`]: katana_primitives::settlement::PendingBatchProof
     async fn prepare_batch(
         &mut self,
         first: BlockNumber,
         last: BlockNumber,
     ) -> Result<(), SettlementError> {
-        match &self.prepared {
-            Some(batch) if batch.first == first && batch.last == last => {
+        if let Some(batch) = &self.prepared {
+            if batch.first == first && batch.last == last {
                 info!(first, last, "Reusing prepared proof for unchanged range.");
-            }
-            _ => {
-                self.prepared = None;
-                let prev_block = if first == 0 { None } else { Some(first - 1) };
-
-                let proof_start = Instant::now();
-                let (update, proof) = self.backend.prove(prev_block, last).await?;
-                self.proof_metrics
-                    .proof_generation_seconds
-                    .record(proof_start.elapsed().as_secs_f64());
-
-                self.prepared = Some(PreparedBatch { first, last, update, proof });
+                return Ok(());
             }
         }
 
+        self.prepared = None;
+        let prev_block = if first == 0 { None } else { Some(first - 1) };
+
+        // A persisted reference from a previous run (or a pre-crash attempt of this run) lets
+        // the backend recover the already-generated proof from the proving network instead of
+        // paying for a fresh round. Best-effort on every path: recovery failure only means
+        // proving fresh.
+        if let Some(pending) = read_pending_batch_proof(&self.provider) {
+            if pending.first == first && pending.last == last {
+                match self.backend.recover(prev_block, last, &pending.proof).await {
+                    Ok(Some((update, proof))) => {
+                        info!(
+                            first,
+                            last,
+                            proof = ?pending.proof,
+                            "Recovered prepared proof from the proving network."
+                        );
+                        self.prepared = Some(PreparedBatch { first, last, update, proof });
+                        return Ok(());
+                    }
+                    // The backend cannot recover proofs (e.g. mock proving) — prove below.
+                    Ok(None) => {}
+                    Err(error) => {
+                        warn!(
+                            first,
+                            last,
+                            proof = ?pending.proof,
+                            %error,
+                            "Failed to recover prepared proof; proving fresh."
+                        );
+                    }
+                }
+            }
+        }
+
+        let proof_start = Instant::now();
+        let (update, proof) = self.backend.prove(prev_block, last).await?;
+        self.proof_metrics.proof_generation_seconds.record(proof_start.elapsed().as_secs_f64());
+
+        // Record the network reference before attempting submission, so a crash between proving
+        // and settling doesn't strand the (already-paid-for) proof.
+        if let Some(proof) = &proof {
+            persist_pending_batch_proof(&self.provider, first, last, proof.clone());
+        }
+
+        self.prepared = Some(PreparedBatch { first, last, update, proof });
         Ok(())
     }
 }
@@ -554,16 +677,42 @@ mod tests {
         use crate::piltover::{PiltoverClient, PiltoverError};
         use crate::service::Worker;
 
-        /// Counts `prove` calls; fails when `fail` is set. The proof id encodes the call count
-        /// so tests can tell which proving round produced the held payload.
+        /// How the mock backend answers `recover` calls.
+        enum RecoverBehavior {
+            /// Recovery succeeds with a payload (network still retains the proof).
+            Payload,
+            /// The backend cannot recover proofs at all (e.g. mock proving).
+            Unsupported,
+            /// Recovery was attempted and failed (e.g. the network expired the proof).
+            Fail,
+        }
+
+        /// Counts `prove`/`recover` calls; `prove` fails when `fail` is set. The proof id
+        /// encodes the prove-call count so tests can tell which round produced a payload.
         struct CountingBackend {
             calls: AtomicUsize,
+            recover_calls: AtomicUsize,
             fail: bool,
+            recover: RecoverBehavior,
         }
 
         impl CountingBackend {
             fn new(fail: bool) -> Self {
-                Self { calls: AtomicUsize::new(0), fail }
+                Self {
+                    calls: AtomicUsize::new(0),
+                    recover_calls: AtomicUsize::new(0),
+                    fail,
+                    recover: RecoverBehavior::Unsupported,
+                }
+            }
+
+            fn with_recover(recover: RecoverBehavior) -> Self {
+                Self {
+                    calls: AtomicUsize::new(0),
+                    recover_calls: AtomicUsize::new(0),
+                    fail: false,
+                    recover,
+                }
             }
         }
 
@@ -589,25 +738,47 @@ mod tests {
                     )));
                 }
 
-                let input = PiltoverInput::TeeInput(TEEInput {
-                    sp1_proof: vec![],
-                    prev_state_root: Felt::ZERO,
-                    state_root: Felt::ZERO,
-                    prev_block_hash: Felt::ZERO,
-                    block_hash: Felt::ZERO,
-                    prev_block_number: Felt::ZERO,
-                    block_number: Felt::from(block),
-                    messages_commitment: Felt::ZERO,
-                    messages_to_starknet: vec![],
-                    messages_to_appchain: vec![],
-                    l1_to_l2_msg_hashes: vec![],
-                    katana_tee_config_hash: Felt::ZERO,
-                });
-                Ok((input, Some(ProofId::new(vec![call as u8]))))
+                Ok((test_input(block), Some(ProofId::new(vec![call as u8]))))
+            }
+
+            async fn recover(
+                &self,
+                _prev_block: Option<BlockNumber>,
+                block: BlockNumber,
+                proof: &ProofId,
+            ) -> Result<Option<(PiltoverInput, Option<ProofId>)>, SettlementError> {
+                self.recover_calls.fetch_add(1, Ordering::SeqCst);
+                match self.recover {
+                    RecoverBehavior::Payload => Ok(Some((test_input(block), Some(proof.clone())))),
+                    RecoverBehavior::Unsupported => Ok(None),
+                    RecoverBehavior::Fail => Err(SettlementError::Piltover(
+                        PiltoverError::GetState("mock recovery failure".into()),
+                    )),
+                }
             }
         }
 
-        fn test_worker(backend: Arc<dyn ProvingBackend>) -> Worker<DbProviderFactory> {
+        fn test_input(block: BlockNumber) -> PiltoverInput {
+            PiltoverInput::TeeInput(TEEInput {
+                sp1_proof: vec![],
+                prev_state_root: Felt::ZERO,
+                state_root: Felt::ZERO,
+                prev_block_hash: Felt::ZERO,
+                block_hash: Felt::ZERO,
+                prev_block_number: Felt::ZERO,
+                block_number: Felt::from(block),
+                messages_commitment: Felt::ZERO,
+                messages_to_starknet: vec![],
+                messages_to_appchain: vec![],
+                l1_to_l2_msg_hashes: vec![],
+                katana_tee_config_hash: Felt::ZERO,
+            })
+        }
+
+        fn test_worker(
+            backend: Arc<dyn ProvingBackend>,
+            provider: DbProviderFactory,
+        ) -> Worker<DbProviderFactory> {
             // The Piltover client is never used by `prepare_batch`; construction is pure field
             // storage (no I/O), so a dummy endpoint is fine.
             let piltover = PiltoverClient::new(
@@ -621,7 +792,7 @@ mod tests {
             Worker {
                 piltover,
                 backend: backend.clone(),
-                provider: DbProviderFactory::new_in_memory(),
+                provider,
                 batch_size: 10,
                 idle_flush_interval: tokio::time::Duration::from_secs(120),
                 cursor: None,
@@ -638,7 +809,7 @@ mod tests {
         #[tokio::test]
         async fn retry_of_same_range_does_not_reprove() {
             let backend = Arc::new(CountingBackend::new(false));
-            let mut worker = test_worker(backend.clone());
+            let mut worker = test_worker(backend.clone(), DbProviderFactory::new_in_memory());
 
             worker.prepare_batch(5, 10).await.unwrap();
             assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
@@ -654,7 +825,7 @@ mod tests {
         #[tokio::test]
         async fn range_change_invalidates_held_batch() {
             let backend = Arc::new(CountingBackend::new(false));
-            let mut worker = test_worker(backend.clone());
+            let mut worker = test_worker(backend.clone(), DbProviderFactory::new_in_memory());
 
             worker.prepare_batch(5, 10).await.unwrap();
             // The cursor moved (e.g. the tx landed despite a reported error) — the new range
@@ -669,7 +840,7 @@ mod tests {
         #[tokio::test]
         async fn cleared_batch_is_reproven() {
             let backend = Arc::new(CountingBackend::new(false));
-            let mut worker = test_worker(backend.clone());
+            let mut worker = test_worker(backend.clone(), DbProviderFactory::new_in_memory());
 
             worker.prepare_batch(5, 10).await.unwrap();
             // `settle_batch` takes the payload on successful submission; the next range (even
@@ -681,9 +852,63 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn restart_recovers_proof_from_persisted_reference() {
+            let provider = DbProviderFactory::new_in_memory();
+            let backend = Arc::new(CountingBackend::with_recover(RecoverBehavior::Payload));
+
+            // First "run": proving persists the pending network reference.
+            let mut worker = test_worker(backend.clone(), provider.clone());
+            worker.prepare_batch(5, 10).await.unwrap();
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+
+            // "Restart": a fresh worker over the same DB recovers from the reference instead
+            // of proving again.
+            let mut worker = test_worker(backend.clone(), provider);
+            worker.prepare_batch(5, 10).await.unwrap();
+            assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1, "must not prove again");
+            let held = worker.prepared.as_ref().unwrap();
+            assert_eq!((held.first, held.last), (5, 10));
+            assert_eq!(held.proof, Some(ProofId::new(vec![1u8])));
+        }
+
+        #[tokio::test]
+        async fn unrecoverable_reference_falls_back_to_fresh_proving() {
+            for behavior in [RecoverBehavior::Unsupported, RecoverBehavior::Fail] {
+                let provider = DbProviderFactory::new_in_memory();
+                let backend = Arc::new(CountingBackend::with_recover(behavior));
+
+                let mut worker = test_worker(backend.clone(), provider.clone());
+                worker.prepare_batch(5, 10).await.unwrap();
+
+                let mut worker = test_worker(backend.clone(), provider);
+                worker.prepare_batch(5, 10).await.unwrap();
+                assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(backend.calls.load(Ordering::SeqCst), 2, "fallback must prove");
+                assert!(worker.prepared.is_some());
+            }
+        }
+
+        #[tokio::test]
+        async fn stale_reference_for_other_range_skips_recovery() {
+            let provider = DbProviderFactory::new_in_memory();
+            let backend = Arc::new(CountingBackend::with_recover(RecoverBehavior::Payload));
+
+            let mut worker = test_worker(backend.clone(), provider.clone());
+            worker.prepare_batch(5, 10).await.unwrap();
+
+            // The cursor moved while the node was down — the persisted reference no longer
+            // matches the range to settle and must not even be attempted.
+            let mut worker = test_worker(backend.clone(), provider);
+            worker.prepare_batch(11, 12).await.unwrap();
+            assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
+        }
+
+        #[tokio::test]
         async fn failed_submission_keeps_proof_for_retry() {
             let backend = Arc::new(CountingBackend::new(false));
-            let mut worker = test_worker(backend.clone());
+            let mut worker = test_worker(backend.clone(), DbProviderFactory::new_in_memory());
 
             // The dummy Piltover endpoint refuses connections, so submission fails after
             // proving succeeds — the production incident shape (e.g. account short on fees).
@@ -696,12 +921,39 @@ mod tests {
             worker.settle_batch(5, 10).await.unwrap_err();
             assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
             assert!(worker.prepared.is_some());
+
+            // The persisted network reference also survives failed submissions — it is only
+            // spent by a successful settle.
+            use katana_provider::api::settlement::SettlementProofProvider;
+            use katana_provider::ProviderFactory;
+            let pending = worker.provider.provider().pending_batch_proof().unwrap().unwrap();
+            assert_eq!((pending.first, pending.last), (5, 10));
+        }
+
+        #[tokio::test]
+        async fn clearing_pending_reference_spends_it() {
+            let provider = DbProviderFactory::new_in_memory();
+            let backend = Arc::new(CountingBackend::with_recover(RecoverBehavior::Payload));
+
+            let mut worker = test_worker(backend.clone(), provider.clone());
+            worker.prepare_batch(5, 10).await.unwrap();
+            assert!(super::super::read_pending_batch_proof(&provider).is_some());
+
+            // What `settle_batch` does on success.
+            super::super::clear_pending_batch_proof(&provider);
+            assert!(super::super::read_pending_batch_proof(&provider).is_none());
+
+            // With neither payload nor reference, the range proves fresh.
+            let mut worker = test_worker(backend.clone(), provider);
+            worker.prepare_batch(5, 10).await.unwrap();
+            assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
         }
 
         #[tokio::test]
         async fn prove_failure_holds_nothing() {
             let backend = Arc::new(CountingBackend::new(true));
-            let mut worker = test_worker(backend.clone());
+            let mut worker = test_worker(backend.clone(), DbProviderFactory::new_in_memory());
 
             // Seed a stale entry for a different range: it must be dropped before the failing
             // prove, not resurrected after it.

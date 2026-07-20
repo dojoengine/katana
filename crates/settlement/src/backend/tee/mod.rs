@@ -103,6 +103,34 @@ where
 
         Ok((build_tee_input(&attestation, sp1_proof), proof))
     }
+
+    async fn recover(
+        &self,
+        prev_block: Option<BlockNumber>,
+        block: BlockNumber,
+        proof: &ProofId,
+    ) -> Result<Option<(PiltoverInput, Option<ProofId>)>, SettlementError> {
+        // Rebuilding the attestation is local and cheap; only the range-derived fields enter the
+        // payload (the quote's fresh hardware signature does not), so pairing a rebuilt
+        // attestation with the recovered proof yields the same submittable `TeeInput` the
+        // original prove produced — the proof's journal commits to the range-derived
+        // commitment, which is deterministic for historical blocks.
+        let Some(sp1_proof) = self.prover.recover(proof).await? else { return Ok(None) };
+
+        let attestation = {
+            let provider = self.provider.provider();
+            build_block_attestation(
+                &provider,
+                &*self.attester,
+                prev_block,
+                block,
+                None,
+                self.katana_tee_config_hash,
+            )?
+        };
+
+        Ok(Some((build_tee_input(&attestation, sp1_proof), Some(proof.clone()))))
+    }
 }
 
 impl<P> std::fmt::Debug for TeeBackend<P> {

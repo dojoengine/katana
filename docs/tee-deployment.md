@@ -351,8 +351,12 @@ cleanly once the cause is fixed. When the failure happens *after* proving
 (e.g. the submission fails on fees), retries reuse the already-generated
 proof for the unchanged range — look for `Reusing prepared proof for
 unchanged range.` — so a submit-blocked loop does not keep paying the SP1
-prover network. The held proof is in-memory only; restarting the node clears
-it and forces a fresh proving round.
+prover network. The proof's network reference is also persisted, so even a
+node restart recovers the proof from the prover network (`Recovered prepared
+proof from the proving network.`) instead of re-proving; recovery falls back
+to fresh proving if the network no longer retains it. A payload the
+settlement chain rejects in execution (the `update_state` reverts) is
+dropped automatically so the retry proves fresh.
 
 **`katana init rollup` fails partway through** — the settlement-chain
 transactions are not idempotent. Inspect the partial `chain-config/`; usually
