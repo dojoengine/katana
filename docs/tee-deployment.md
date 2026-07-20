@@ -347,16 +347,16 @@ mentioning the config hash means the chain spec's chain id / fee token doesn't
 match what was pinned at bootstrap; an account error usually means the
 settlement account is out of STRK. The service retries the same batch with
 backoff and re-reads Piltover's cursor before each retry, so it resumes
-cleanly once the cause is fixed. When the failure happens *after* proving
-(e.g. the submission fails on fees), retries reuse the already-generated
-proof for the unchanged range — look for `Reusing prepared proof for
-unchanged range.` — so a submit-blocked loop does not keep paying the SP1
-prover network. The proof's network reference is also persisted, so even a
-node restart recovers the proof from the prover network (`Recovered prepared
-proof from the proving network.`) instead of re-proving; recovery falls back
-to fresh proving if the network no longer retains it. A payload the
-settlement chain rejects in execution (the `update_state` reverts) is
-dropped automatically so the retry proves fresh.
+cleanly once the cause is fixed. Proving happens at most once per block
+range: when the failure is in *submission* (e.g. fees), the service retries
+only the `update_state` with the same proof — look for `Failed to submit
+state update; will retry with the same proof.` — so a submit-blocked loop
+does not keep paying the SP1 prover network. The proof's network reference
+is also persisted, so even a node restart recovers the proof from the prover
+network (`Recovered proof from the proving network.`) instead of re-proving;
+recovery falls back to fresh proving if the network no longer retains it. A
+payload the settlement chain rejects in execution (the `update_state`
+reverts) is dropped automatically so the next attempt proves fresh.
 
 **`katana init rollup` fails partway through** — the settlement-chain
 transactions are not idempotent. Inspect the partial `chain-config/`; usually

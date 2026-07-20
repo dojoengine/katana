@@ -35,3 +35,5 @@ url.workspace = true
 
 [dev-dependencies]
 katana-genesis.workspace = true
+# test-util: paused-clock tests of the submission-retry loop (`start_paused`).
+tokio = { workspace = true, features = [ "test-util" ] }
