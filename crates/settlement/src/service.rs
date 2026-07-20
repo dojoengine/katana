@@ -165,7 +165,16 @@ struct Worker<P> {
 #[derive(Debug)]
 enum SettleOutcome {
     /// The batch landed on the settlement chain.
-    Settled { tx_hash: TxHash, proof: Option<ProofId> },
+    Settled {
+        /// The hash of transaction that calls Piltover's update_state function.
+        tx_hash: TxHash,
+
+        /// The proof reference (id).
+        ///
+        /// `None` if no proof is generated for the batch (i.e., mock mode).
+        proof: Option<ProofId>,
+    },
+
     /// Shutdown was requested while retrying the submission.
     ShuttingDown,
 }
@@ -516,6 +525,7 @@ where
                         return Err(error);
                     }
                 };
+
                 self.proof_metrics
                     .proof_generation_seconds
                     .record(proof_start.elapsed().as_secs_f64());
