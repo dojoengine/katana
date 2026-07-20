@@ -51,6 +51,9 @@ pub trait ProvingBackend: Send + Sync {
     /// [`Self::prove`] call returned — without a fresh (on the SP1 network,
     /// paid) proving round.
     ///
+    /// Unlike [`Self::prove`], no proof reference is returned: the caller
+    /// already holds `proof` — it is what recovery resolves.
+    ///
     /// Returns `Ok(None)` when the backend cannot recover proofs (e.g. mock
     /// proving, which has no network to recover from — and no cost to save);
     /// the caller then falls back to [`Self::prove`]. `Err` means recovery was
@@ -61,7 +64,7 @@ pub trait ProvingBackend: Send + Sync {
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
         proof: &ProofId,
-    ) -> Result<Option<(PiltoverInput, Option<ProofId>)>, SettlementError> {
+    ) -> Result<Option<PiltoverInput>, SettlementError> {
         let _ = (prev_block, block, proof);
         Ok(None)
     }

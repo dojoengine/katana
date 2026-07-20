@@ -479,14 +479,16 @@ where
         if let Some(pending) = read_pending_batch_proof(&self.provider) {
             if pending.first == first && pending.last == last {
                 match self.backend.recover(prev_block, last, &pending.proof).await {
-                    Ok(Some(payload)) => {
+                    Ok(Some(update)) => {
                         info!(
                             first,
                             last,
                             proof = ?pending.proof,
                             "Recovered proof from the proving network."
                         );
-                        recovered = Some(payload);
+                        // The reference the payload was recovered from is, by construction,
+                        // the proof that will settle it.
+                        recovered = Some((update, Some(pending.proof)));
                     }
                     // The backend cannot recover proofs (e.g. mock proving) — prove below.
                     Ok(None) => {}
@@ -755,11 +757,11 @@ mod tests {
                 &self,
                 _prev_block: Option<BlockNumber>,
                 block: BlockNumber,
-                proof: &ProofId,
-            ) -> Result<Option<(PiltoverInput, Option<ProofId>)>, SettlementError> {
+                _proof: &ProofId,
+            ) -> Result<Option<PiltoverInput>, SettlementError> {
                 self.recover_calls.fetch_add(1, Ordering::SeqCst);
                 match self.recover {
-                    RecoverBehavior::Payload => Ok(Some((test_input(block), Some(proof.clone())))),
+                    RecoverBehavior::Payload => Ok(Some(test_input(block))),
                     RecoverBehavior::Unsupported => Ok(None),
                     RecoverBehavior::Fail => Err(SettlementError::Piltover(
                         PiltoverError::GetState("mock recovery failure".into()),

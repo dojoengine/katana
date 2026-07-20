@@ -109,7 +109,7 @@ where
         prev_block: Option<BlockNumber>,
         block: BlockNumber,
         proof: &ProofId,
-    ) -> Result<Option<(PiltoverInput, Option<ProofId>)>, SettlementError> {
+    ) -> Result<Option<PiltoverInput>, SettlementError> {
         // Rebuilding the attestation is local and cheap; only the range-derived fields enter the
         // payload (the quote's fresh hardware signature does not), so pairing a rebuilt
         // attestation with the recovered proof yields the same submittable `TeeInput` the
@@ -129,7 +129,7 @@ where
             )?
         };
 
-        Ok(Some((build_tee_input(&attestation, sp1_proof), Some(proof.clone()))))
+        Ok(Some(build_tee_input(&attestation, sp1_proof)))
     }
 }
 
