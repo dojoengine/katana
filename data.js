@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783427579927,
+  "lastUpdate": 1784551241367,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -36586,6 +36586,342 @@ window.BENCHMARK_DATA = {
           {
             "name": "TrieHistoryEntry/decompress",
             "value": 245,
+            "range": "± 10",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3a5405ad78012b66aad9d769d4059f43956be5c",
+          "message": "fix(settlement): reuse the prepared proof when retrying a failed submit (#639)\n\n## Why\n\nWhen `update_state` submission fails after proving succeeded (fees,\nnonce, transient RPC), the settle loop retried the **whole pipeline** —\nincluding a fresh, paid SP1 proving round — every ~60s for the identical\nblock range. Production incident (mainnet enclave, 2026-07-17): the\nsettlement account was short on STRK for the submission fee, and the\nnode burned ~0.4 PROVE per retry (~24 PROVE/hour) re-proving range\n96–105 in a loop that could never succeed. A node restart had the same\ncost: the in-flight proof died with the process even though the prover\nnetwork still held it.\n\n## What\n\n**Prove once, retry the submission** (`Worker::settle_batch`): the\npayload is obtained at most once per attempt and lives as a local scoped\nto it; an inner loop retries only the `update_state` submission (own\nbackoff, failure metrics, cursor-idempotency re-read,\nshutdown-responsive via the run loop's oneshot receiver).\nReuse-while-unchanged, spend-on-success, drop-on-cursor-move, and\ndrop-on-execution-revert are all control flow rather than cache state.\nTerminal conditions (prove failure, execution revert, on-chain cursor\nmoved) return `Err` to the run loop, which backs off and recomputes the\nrange. `PiltoverClient::update_state` takes `&PiltoverInput` (the\ngenerated bindings don't derive `Clone`).\n\n**Recovery across restarts (persisted network reference):** the moment\nproving yields a `ProofId`, it is persisted as a `PendingBatchProof`\n(range + id) in a new singleton `PendingSettlementProofs` table —\n*before* submission — and cleared when the batch settles. On startup of\nan attempt, a matching reference is resolved through the new\n`ProvingBackend::recover`, which fetches the fulfilled proof from the\nprover network (SDK-side: new `Program::recover_proof` — `sp1_sdk`\n`wait_proof` by request id, the same plumbing as `gen_raw_proof` minus\nthe paid request; SDK rev bump to\ncartridge-gg/amd-sev-snp-attestation-sdk@2685854) and rebuilds the\npayload from a freshly built attestation. Only range-derived fields\nenter the payload, so a rebuilt attestation + recovered proof is\nequivalent in everything on-chain validation checks. Mock proving\nreports recovery as unsupported (it's free anyway); recovery failure\n(expired/unknown id) falls back to fresh proving.\n\n**Escape hatch:** an `update_state` that *reverts in execution* (e.g. a\nTEE-registry trust-root rotation invalidated the proof between proving\nand submission) drops the payload **and** its persisted reference, so\nthe next attempt proves fresh — retry-with-same-proof only applies to\npre-execution failures (fees, nonce, transport), the incident class\nwhere it's wanted.\n\nReuse is sound because the payload is validity-stable for a fixed\nhistorical range — `report_data` is a pure function of the settled\nrange, and Piltover validates the proof against the range-derived\ncommitment, not any timestamp embedded at proving time. The\n`PendingSettlementProofs` table addition is version-neutral (same as\n`SettlementProofs` in #631). `proof_generation_seconds` now records only\nactual proving rounds.\n\n**Operator-visible log change:** transient submission failures emit\n`Failed to submit state update; will retry with the same proof.`;\n`Failed to settle block range; will retry.` now marks terminal attempt\nfailures only. Docs updated accordingly.\n\n## Tests\n\nThe `proof_reuse` suite drives `settle_batch`'s real submission-retry\nloop under a paused tokio clock against an unreachable Piltover endpoint\n(the incident shape), shut down after bounded virtual time: one prove\nacross many submission retries with the persisted reference surviving,\nrestart recovery from the reference, unsupported/failed recovery\nfallback to fresh proving, stale-range reference skip, prove-failure\nearly return, and reference clearing.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T08:07:21-04:00",
+          "tree_id": "4124e4c295b009000dead31f125f1e51bce61d0f",
+          "url": "https://github.com/dojoengine/katana/commit/f3a5405ad78012b66aad9d769d4059f43956be5c"
+        },
+        "date": 1784551239330,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "CompiledClass(fixture)/compress",
+            "value": 2638010,
+            "range": "± 131371",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClass(fixture)/decompress",
+            "value": 2803968,
+            "range": "± 15825",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/compress",
+            "value": 30,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ExecutionCheckpoint/decompress",
+            "value": 23,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/compress",
+            "value": 30,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "PruningCheckpoint/decompress",
+            "value": 23,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/compress",
+            "value": 642,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedHeader/decompress",
+            "value": 822,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/compress",
+            "value": 73,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StoredBlockBodyIndices/decompress",
+            "value": 36,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/compress",
+            "value": 138,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "StorageEntry/decompress",
+            "value": 140,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/compress",
+            "value": 138,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractNonceChange/decompress",
+            "value": 233,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/compress",
+            "value": 180,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractClassChange/decompress",
+            "value": 274,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/compress",
+            "value": 150,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractStorageEntry/decompress",
+            "value": 309,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/compress",
+            "value": 133,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "GenericContractInfo/decompress",
+            "value": 102,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/compress",
+            "value": 70,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Felt/decompress",
+            "value": 55,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/compress",
+            "value": 70,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockHash/decompress",
+            "value": 54,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/compress",
+            "value": 70,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxHash/decompress",
+            "value": 53,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/compress",
+            "value": 70,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ClassHash/decompress",
+            "value": 56,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/compress",
+            "value": 70,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "CompiledClassHash/decompress",
+            "value": 54,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/compress",
+            "value": 33,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockNumber/decompress",
+            "value": 23,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/compress",
+            "value": 32,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TxNumber/decompress",
+            "value": 23,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/compress",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "FinalityStatus/decompress",
+            "value": 11,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/compress",
+            "value": 16393,
+            "range": "± 58",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TypedTransactionExecutionInfo/decompress",
+            "value": 3655,
+            "range": "± 102",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/compress",
+            "value": 375,
+            "range": "± 343",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "VersionedContractClass/decompress",
+            "value": 809,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/compress",
+            "value": 139,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "MigratedCompiledClassHash/decompress",
+            "value": 140,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/compress",
+            "value": 1418,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ContractInfoChangeList/decompress",
+            "value": 2084,
+            "range": "± 359",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/compress",
+            "value": 618,
+            "range": "± 70",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "BlockChangeList/decompress",
+            "value": 850,
+            "range": "± 144",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/compress",
+            "value": 30933,
+            "range": "± 1292",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "ReceiptEnvelope/decompress",
+            "value": 5992,
+            "range": "± 197",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/compress",
+            "value": 171,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieDatabaseValue/decompress",
+            "value": 211,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/compress",
+            "value": 297,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "TrieHistoryEntry/decompress",
+            "value": 238,
             "range": "± 10",
             "unit": "ns/iter"
           }
