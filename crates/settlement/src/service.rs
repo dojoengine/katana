@@ -9,10 +9,12 @@
 use std::sync::Arc;
 
 use katana_primitives::block::BlockNumber;
-use katana_primitives::settlement::ProofId;
+use katana_primitives::settlement::{PendingBatchProof, ProofId};
 use katana_primitives::transaction::TxHash;
 use katana_provider::api::block::BlockNumberProvider;
-use katana_provider::api::settlement::{SettlementCheckpointWriter, SettlementProofWriter};
+use katana_provider::api::settlement::{
+    SettlementCheckpointWriter, SettlementProofProvider, SettlementProofWriter,
+};
 use katana_provider::{MutableProvider, ProviderFactory};
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
@@ -22,7 +24,7 @@ use tracing::{error, info, warn};
 use crate::backend::ProvingBackend;
 use crate::error::SettlementError;
 use crate::metrics::{SettlementMetrics, SettlementProofMetrics};
-use crate::piltover::PiltoverClient;
+use crate::piltover::{PiltoverClient, PiltoverError};
 use crate::SettlementConfig;
 
 /// Initial retry delay after a failed settlement attempt.
@@ -58,7 +60,7 @@ impl<P, N> SettlementService<P, N> {
 impl<P, N> SettlementService<P, N>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
-    <P as ProviderFactory>::Provider: BlockNumberProvider,
+    <P as ProviderFactory>::Provider: BlockNumberProvider + SettlementProofProvider,
     <P as ProviderFactory>::ProviderMut:
         SettlementCheckpointWriter + SettlementProofWriter + MutableProvider,
     N: Clone + Send + 'static,
@@ -159,6 +161,24 @@ struct Worker<P> {
     proof_metrics: SettlementProofMetrics,
 }
 
+/// Outcome of a [`Worker::settle_batch`] attempt that did not fail terminally.
+#[derive(Debug)]
+enum SettleOutcome {
+    /// The batch landed on the settlement chain.
+    Settled {
+        /// The hash of transaction that calls Piltover's update_state function.
+        tx_hash: TxHash,
+
+        /// The proof reference (id).
+        ///
+        /// `None` if no proof is generated for the batch (i.e., mock mode).
+        proof: Option<ProofId>,
+    },
+
+    /// Shutdown was requested while retrying the submission.
+    ShuttingDown,
+}
+
 /// Persists the settled-block cursor to the durable [`tables::SettlementCheckpoints`] index, read
 /// back by the `katana_settlementStatus` RPC. Best-effort: the on-chain Piltover cursor is the
 /// authoritative source of progress, so a failed write is logged but never stalls settlement.
@@ -193,6 +213,58 @@ where
         .and_then(|()| db.commit());
     if let Err(error) = result {
         warn!(%error, first, last, "Failed to persist block -> proof mapping.");
+    }
+}
+
+/// Reads the persisted generated-but-not-yet-settled proof reference. Best-effort: a read
+/// failure only forfeits a potential recovery, so it degrades to `None` with a warning.
+fn read_pending_batch_proof<P>(provider: &P) -> Option<PendingBatchProof>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: SettlementProofProvider,
+{
+    match provider.provider().pending_batch_proof() {
+        Ok(pending) => pending,
+        Err(error) => {
+            warn!(%error, "Failed to read pending batch proof reference.");
+            None
+        }
+    }
+}
+
+/// Records the network reference of a generated-but-not-yet-settled proof, replacing any
+/// previous record — read back by [`read_pending_batch_proof`] after a restart. Best-effort:
+/// a failed write only forfeits a potential recovery, never stalls settlement.
+fn persist_pending_batch_proof<P>(
+    provider: &P,
+    first: BlockNumber,
+    last: BlockNumber,
+    proof: ProofId,
+) where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: SettlementProofWriter + MutableProvider,
+{
+    let db = provider.provider_mut();
+    let result = db
+        .set_pending_batch_proof(PendingBatchProof { first, last, proof })
+        .and_then(|()| db.commit());
+    if let Err(error) = result {
+        warn!(%error, first, last, "Failed to persist pending batch proof reference.");
+    }
+}
+
+/// Clears the pending proof reference once its batch settles. Best-effort: a stale record is
+/// harmless — it can never match a future range (the cursor moved past it), so it is simply
+/// overwritten by the next proving round.
+fn clear_pending_batch_proof<P>(provider: &P)
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: SettlementProofWriter + MutableProvider,
+{
+    let db = provider.provider_mut();
+    let result = db.clear_pending_batch_proof().and_then(|()| db.commit());
+    if let Err(error) = result {
+        warn!(%error, "Failed to clear pending batch proof reference.");
     }
 }
 
@@ -233,17 +305,18 @@ fn next_action(
 impl<P> Worker<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::Provider: BlockNumberProvider,
+    <P as ProviderFactory>::Provider: BlockNumberProvider + SettlementProofProvider,
     <P as ProviderFactory>::ProviderMut:
         SettlementCheckpointWriter + SettlementProofWriter + MutableProvider,
 {
     async fn run<N: Clone>(
         mut self,
         mut notify_rx: broadcast::Receiver<N>,
-        shutdown_rx: oneshot::Receiver<()>,
+        // `oneshot::Receiver` is `Unpin`, so it can be polled through a plain `&mut` — both
+        // here and inside `settle_batch`'s submission-retry loop, which borrows it to stay
+        // shutdown-responsive mid-retry.
+        mut shutdown_rx: oneshot::Receiver<()>,
     ) {
-        tokio::pin!(shutdown_rx);
-
         let mut idle_deadline = Instant::now() + self.idle_flush_interval;
         let mut backoff = RETRY_BACKOFF_MIN;
         let mut consecutive_failures: u32 = 0;
@@ -263,8 +336,10 @@ where
             match next_action(self.cursor, head, self.batch_size, idle_elapsed) {
                 Action::Settle { first, last } => {
                     let batch_start = Instant::now();
-                    match self.settle_batch(first, last).await {
-                        Ok((tx_hash, proof)) => {
+                    match self.settle_batch(first, last, &mut shutdown_rx).await {
+                        Ok(SettleOutcome::ShuttingDown) => break,
+
+                        Ok(SettleOutcome::Settled { tx_hash, proof }) => {
                             let blocks = last - first + 1;
                             self.proof_metrics
                                 .settle_batch_seconds
@@ -295,8 +370,12 @@ where
                             // Loop again immediately: drain any remaining backlog.
                         }
 
+                        // A terminal attempt failure: proving failed, the chain rejected the
+                        // payload in execution, or the on-chain cursor moved mid-attempt
+                        // (`settle_batch` already updated it). Transient submission failures
+                        // never surface here — they are retried inside `settle_batch` with
+                        // the same proof.
                         Err(error) => {
-                            self.metrics.settlement_failures_total.increment(1);
                             consecutive_failures += 1;
                             error!(
                                 first,
@@ -312,33 +391,6 @@ where
                                 _ = tokio::time::sleep(backoff) => {}
                             }
                             backoff = (backoff * 2).min(RETRY_BACKOFF_MAX);
-
-                            // The transaction may have landed even though we saw an error (e.g.
-                            // a transient RPC failure while watching the receipt). Re-reading
-                            // the on-chain cursor makes the retry idempotent: if it advanced,
-                            // the loop moves on instead of double-submitting.
-                            match self.piltover.settled_block().await {
-                                Ok(cursor) => {
-                                    if cursor != self.cursor {
-                                        warn!(
-                                            ?cursor,
-                                            previous = ?self.cursor,
-                                            "On-chain settlement cursor advanced despite the \
-                                             error; continuing from it."
-                                        );
-                                        self.cursor = cursor;
-                                        if let Some(settled) = cursor {
-                                            persist_settled_block(&self.provider, settled);
-                                        }
-                                    }
-                                }
-                                Err(error) => {
-                                    error!(
-                                        %error,
-                                        "Failed to re-read on-chain settlement cursor."
-                                    );
-                                }
-                            }
                         }
                     }
                 }
@@ -396,26 +448,168 @@ where
         self.provider.provider().latest_number().map_err(Into::into)
     }
 
-    /// Prove and settle the inclusive block range `[first, last]`.
+    /// Settles the inclusive block range `[first, last]`: prove once, then retry the
+    /// `update_state` submission until it lands or retrying stops making sense.
     ///
-    /// Returns the settlement-chain transaction hash and a reference to the proof that settled the
-    /// batch (`None` for mock / off-network proving).
+    /// The payload is obtained at most once per call — recovered from the proving network when
+    /// a persisted [`PendingBatchProof`] reference from a previous run matches the range,
+    /// otherwise proven fresh (persisting a new reference *first*, so a crash mid-attempt can
+    /// recover the already-paid-for proof). It then lives as a local for exactly the duration
+    /// of the attempt: transient submission failures (fees, nonce, transport) retry with the
+    /// same payload, because on the SP1 prover network every proving round is paid work while
+    /// the payload stays valid indefinitely for its fixed historical range — on-chain
+    /// validation checks the proof against the range-derived commitment (state roots, block
+    /// hashes, messages commitment), not any timestamp embedded at proving time.
+    ///
+    /// Terminal `Err` conditions end the attempt and hand control back to the run loop:
+    ///
+    /// - proving (or recovery followed by proving) failed;
+    /// - the settlement chain *rejected the payload in execution* — the transaction reverted, e.g.
+    ///   a TEE-registry trust-root rotation invalidated the proof between proving and submission.
+    ///   The persisted reference is dropped so the next attempt proves fresh;
+    /// - the on-chain cursor advanced mid-attempt (the transaction landed despite a reported error,
+    ///   or another operator settled): the payload is spent or superseded, and the run loop
+    ///   recomputes the next range from the updated cursor.
+    ///
+    /// [`PendingBatchProof`]: katana_primitives::settlement::PendingBatchProof
     async fn settle_batch(
-        &self,
+        &mut self,
         first: BlockNumber,
         last: BlockNumber,
-    ) -> Result<(TxHash, Option<ProofId>), SettlementError> {
+        shutdown_rx: &mut oneshot::Receiver<()>,
+    ) -> Result<SettleOutcome, SettlementError> {
         let prev_block = if first == 0 { None } else { Some(first - 1) };
 
-        let proof_start = Instant::now();
-        let (update, proof) = self.backend.prove(prev_block, last).await?;
-        self.proof_metrics.proof_generation_seconds.record(proof_start.elapsed().as_secs_f64());
+        // A persisted reference from a previous run lets the backend recover the
+        // already-generated proof from the proving network instead of paying for a fresh
+        // round. Best-effort: a reference for a different range is dead (the cursor moved
+        // past it), and any recovery miss or failure just means proving fresh.
+        let mut recovered = None;
+        if let Some(pending) = read_pending_batch_proof(&self.provider) {
+            if pending.first == first && pending.last == last {
+                match self.backend.recover(prev_block, last, &pending.proof).await {
+                    Ok(Some(update)) => {
+                        info!(
+                            first,
+                            last,
+                            proof = ?pending.proof,
+                            "Recovered proof from the proving network."
+                        );
+                        // The reference the payload was recovered from is, by construction,
+                        // the proof that will settle it.
+                        recovered = Some((update, Some(pending.proof)));
+                    }
+                    // The backend cannot recover proofs (e.g. mock proving) — prove below.
+                    Ok(None) => {}
+                    Err(error) => {
+                        warn!(
+                            first,
+                            last,
+                            proof = ?pending.proof,
+                            %error,
+                            "Failed to recover proof; proving fresh."
+                        );
+                    }
+                }
+            }
+        }
 
-        let update_start = Instant::now();
-        let tx_hash = self.piltover.update_state(update).await?;
-        self.metrics.state_update_seconds.record(update_start.elapsed().as_secs_f64());
+        let (update, proof) = match recovered {
+            Some(payload) => payload,
+            None => {
+                let proof_start = Instant::now();
+                let (update, proof) = match self.backend.prove(prev_block, last).await {
+                    Ok(payload) => payload,
+                    Err(error) => {
+                        self.metrics.settlement_failures_total.increment(1);
+                        return Err(error);
+                    }
+                };
 
-        Ok((tx_hash, proof))
+                self.proof_metrics
+                    .proof_generation_seconds
+                    .record(proof_start.elapsed().as_secs_f64());
+
+                // Record the network reference before attempting submission, so a crash
+                // between proving and settling doesn't strand the proof.
+                if let Some(proof) = &proof {
+                    persist_pending_batch_proof(&self.provider, first, last, proof.clone());
+                }
+
+                (update, proof)
+            }
+        };
+
+        // Submission retry loop: the payload never changes, only the attempt.
+        let mut backoff = RETRY_BACKOFF_MIN;
+        let mut submit_failures: u32 = 0;
+        loop {
+            let update_start = Instant::now();
+            let error = match self.piltover.update_state(&update).await {
+                Ok(tx_hash) => {
+                    self.metrics.state_update_seconds.record(update_start.elapsed().as_secs_f64());
+                    // The payload is spent — and its persisted reference with it.
+                    clear_pending_batch_proof(&self.provider);
+                    return Ok(SettleOutcome::Settled { tx_hash, proof });
+                }
+                Err(error) => error,
+            };
+
+            self.metrics.settlement_failures_total.increment(1);
+            submit_failures += 1;
+
+            // An execution revert means the payload itself was rejected on-chain — retrying
+            // (or ever recovering) it cannot succeed.
+            if matches!(error, PiltoverError::TransactionReverted(_)) {
+                warn!(
+                    first,
+                    last,
+                    "Settlement chain rejected the payload in execution; dropping it to prove \
+                     fresh."
+                );
+                clear_pending_batch_proof(&self.provider);
+                return Err(error.into());
+            }
+
+            error!(
+                first,
+                last,
+                %error,
+                submit_failures,
+                retry_in = ?backoff,
+                "Failed to submit state update; will retry with the same proof."
+            );
+
+            tokio::select! {
+                _ = &mut *shutdown_rx => return Ok(SettleOutcome::ShuttingDown),
+                _ = tokio::time::sleep(backoff) => {}
+            }
+            backoff = (backoff * 2).min(RETRY_BACKOFF_MAX);
+
+            // The transaction may have landed even though we saw an error (e.g. a transient
+            // RPC failure while watching the receipt). Re-reading the on-chain cursor makes
+            // the retry idempotent: if it advanced, this payload is spent (or superseded)
+            // and the run loop recomputes instead of double-submitting.
+            match self.piltover.settled_block().await {
+                Ok(cursor) if cursor != self.cursor => {
+                    warn!(
+                        ?cursor,
+                        previous = ?self.cursor,
+                        "On-chain settlement cursor advanced despite the error; continuing \
+                         from it."
+                    );
+                    self.cursor = cursor;
+                    if let Some(settled) = cursor {
+                        persist_settled_block(&self.provider, settled);
+                    }
+                    return Err(error.into());
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    error!(%error, "Failed to re-read on-chain settlement cursor.");
+                }
+            }
+        }
     }
 }
 
@@ -476,5 +670,270 @@ mod tests {
     #[test]
     fn idle_elapsed_flushes_partial_batch() {
         assert_eq!(next_action(Some(2), 4, 10, true), Action::Settle { first: 3, last: 4 });
+    }
+
+    /// Exercises `settle_batch`'s prove-once semantics through its real submission-retry loop.
+    ///
+    /// The Piltover endpoint is a dummy that refuses connections, so every submission attempt
+    /// fails with a transport error — the incident shape (the payload is fine, the chain is
+    /// unreachable / the account can't pay). The tests run under a paused tokio clock, so the
+    /// retry backoffs elapse instantly, and a virtual-time shutdown timer bounds the loop.
+    mod proof_reuse {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        use async_trait::async_trait;
+        use katana_primitives::block::BlockNumber;
+        use katana_primitives::settlement::ProofId;
+        use katana_provider::DbProviderFactory;
+        use piltover::{PiltoverInput, TEEInput};
+        use starknet::core::types::Felt;
+        use tokio::sync::oneshot;
+        use tokio::time::Duration;
+        use url::Url;
+
+        use crate::backend::ProvingBackend;
+        use crate::error::SettlementError;
+        use crate::metrics::{SettlementMetrics, SettlementProofMetrics};
+        use crate::piltover::{PiltoverClient, PiltoverError};
+        use crate::service::{
+            clear_pending_batch_proof, read_pending_batch_proof, SettleOutcome, Worker,
+        };
+
+        /// How the mock backend answers `recover` calls.
+        enum RecoverBehavior {
+            /// Recovery succeeds with a payload (network still retains the proof).
+            Payload,
+            /// The backend cannot recover proofs at all (e.g. mock proving).
+            Unsupported,
+            /// Recovery was attempted and failed (e.g. the network expired the proof).
+            Fail,
+        }
+
+        /// Counts `prove`/`recover` calls; `prove` fails when `fail` is set. The proof id
+        /// encodes the prove-call count so tests can tell which round produced a payload.
+        struct CountingBackend {
+            calls: AtomicUsize,
+            recover_calls: AtomicUsize,
+            fail: bool,
+            recover: RecoverBehavior,
+        }
+
+        impl CountingBackend {
+            fn new(fail: bool) -> Self {
+                Self {
+                    calls: AtomicUsize::new(0),
+                    recover_calls: AtomicUsize::new(0),
+                    fail,
+                    recover: RecoverBehavior::Unsupported,
+                }
+            }
+
+            fn with_recover(recover: RecoverBehavior) -> Self {
+                Self {
+                    calls: AtomicUsize::new(0),
+                    recover_calls: AtomicUsize::new(0),
+                    fail: false,
+                    recover,
+                }
+            }
+        }
+
+        #[async_trait]
+        impl ProvingBackend for CountingBackend {
+            fn name(&self) -> &'static str {
+                "counting"
+            }
+
+            fn proof_type(&self) -> &'static str {
+                "mock"
+            }
+
+            async fn prove(
+                &self,
+                _prev_block: Option<BlockNumber>,
+                block: BlockNumber,
+            ) -> Result<(PiltoverInput, Option<ProofId>), SettlementError> {
+                let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+                if self.fail {
+                    return Err(SettlementError::Piltover(PiltoverError::GetState(
+                        "mock prove failure".into(),
+                    )));
+                }
+                Ok((test_input(block), Some(ProofId::new(vec![call as u8]))))
+            }
+
+            async fn recover(
+                &self,
+                _prev_block: Option<BlockNumber>,
+                block: BlockNumber,
+                _proof: &ProofId,
+            ) -> Result<Option<PiltoverInput>, SettlementError> {
+                self.recover_calls.fetch_add(1, Ordering::SeqCst);
+                match self.recover {
+                    RecoverBehavior::Payload => Ok(Some(test_input(block))),
+                    RecoverBehavior::Unsupported => Ok(None),
+                    RecoverBehavior::Fail => Err(SettlementError::Piltover(
+                        PiltoverError::GetState("mock recovery failure".into()),
+                    )),
+                }
+            }
+        }
+
+        fn test_input(block: BlockNumber) -> PiltoverInput {
+            PiltoverInput::TeeInput(TEEInput {
+                sp1_proof: vec![],
+                prev_state_root: Felt::ZERO,
+                state_root: Felt::ZERO,
+                prev_block_hash: Felt::ZERO,
+                block_hash: Felt::ZERO,
+                prev_block_number: Felt::ZERO,
+                block_number: Felt::from(block),
+                messages_commitment: Felt::ZERO,
+                messages_to_starknet: vec![],
+                messages_to_appchain: vec![],
+                l1_to_l2_msg_hashes: vec![],
+                katana_tee_config_hash: Felt::ZERO,
+            })
+        }
+
+        fn test_worker(
+            backend: Arc<dyn ProvingBackend>,
+            provider: DbProviderFactory,
+        ) -> Worker<DbProviderFactory> {
+            // The Piltover client's construction is pure field storage (no I/O); the dummy
+            // endpoint makes every submission and cursor read fail with a transport error.
+            let piltover = PiltoverClient::new(
+                Url::parse("http://127.0.0.1:1").unwrap(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Felt::ONE,
+            );
+
+            Worker {
+                piltover,
+                backend: backend.clone(),
+                provider,
+                batch_size: 10,
+                idle_flush_interval: Duration::from_secs(120),
+                cursor: None,
+                metrics: SettlementMetrics::default(),
+                proof_metrics: SettlementProofMetrics::new_with_labels(&[("proof_type", "mock")]),
+            }
+        }
+
+        /// Runs `settle_batch` against the unreachable Piltover endpoint, shutting the
+        /// submission-retry loop down after `virtual_secs` of paused-clock time. Returns the
+        /// outcome (either `ShuttingDown`, or `Err` for pre-submission failures).
+        async fn settle_until_shutdown(
+            worker: &mut Worker<DbProviderFactory>,
+            first: BlockNumber,
+            last: BlockNumber,
+            virtual_secs: u64,
+        ) -> Result<SettleOutcome, SettlementError> {
+            let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(virtual_secs)).await;
+                let _ = shutdown_tx.send(());
+            });
+            worker.settle_batch(first, last, &mut shutdown_rx).await
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn proves_once_across_submission_retries() {
+            let backend = Arc::new(CountingBackend::new(false));
+            let mut worker = test_worker(backend.clone(), DbProviderFactory::new_in_memory());
+
+            // 120 virtual seconds of transport failures spans several backoff cycles
+            // (attempts at ~0s, 5s, 15s, 35s, 75s).
+            let outcome = settle_until_shutdown(&mut worker, 5, 10, 120).await.unwrap();
+            assert!(matches!(outcome, SettleOutcome::ShuttingDown));
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1, "one prove for many submits");
+
+            // The persisted network reference survives failed submissions — it is only spent
+            // by a successful settle (or an execution revert).
+            let pending = read_pending_batch_proof(&worker.provider).unwrap();
+            assert_eq!((pending.first, pending.last), (5, 10));
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn restart_recovers_proof_from_persisted_reference() {
+            let provider = DbProviderFactory::new_in_memory();
+            let backend = Arc::new(CountingBackend::with_recover(RecoverBehavior::Payload));
+
+            // First "run": proving persists the pending network reference.
+            let mut worker = test_worker(backend.clone(), provider.clone());
+            settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap();
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+
+            // "Restart": a fresh worker over the same DB recovers from the reference instead
+            // of proving again.
+            let mut worker = test_worker(backend.clone(), provider);
+            let outcome = settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap();
+            assert!(matches!(outcome, SettleOutcome::ShuttingDown));
+            assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 1, "must not prove again");
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn unrecoverable_reference_falls_back_to_fresh_proving() {
+            for behavior in [RecoverBehavior::Unsupported, RecoverBehavior::Fail] {
+                let provider = DbProviderFactory::new_in_memory();
+                let backend = Arc::new(CountingBackend::with_recover(behavior));
+
+                let mut worker = test_worker(backend.clone(), provider.clone());
+                settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap();
+
+                let mut worker = test_worker(backend.clone(), provider);
+                settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap();
+                assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(backend.calls.load(Ordering::SeqCst), 2, "fallback must prove");
+            }
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn stale_reference_for_other_range_skips_recovery() {
+            let provider = DbProviderFactory::new_in_memory();
+            let backend = Arc::new(CountingBackend::with_recover(RecoverBehavior::Payload));
+
+            let mut worker = test_worker(backend.clone(), provider.clone());
+            settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap();
+
+            // The cursor moved while the node was down — the persisted reference no longer
+            // matches the range to settle and must not even be attempted.
+            let mut worker = test_worker(backend.clone(), provider);
+            settle_until_shutdown(&mut worker, 11, 12, 1).await.unwrap();
+            assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn prove_failure_returns_before_submission() {
+            let backend = Arc::new(CountingBackend::new(true));
+            let mut worker = test_worker(backend.clone(), DbProviderFactory::new_in_memory());
+
+            settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap_err();
+            assert!(read_pending_batch_proof(&worker.provider).is_none());
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn cleared_reference_proves_fresh() {
+            let provider = DbProviderFactory::new_in_memory();
+            let backend = Arc::new(CountingBackend::with_recover(RecoverBehavior::Payload));
+
+            let mut worker = test_worker(backend.clone(), provider.clone());
+            settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap();
+            assert!(read_pending_batch_proof(&provider).is_some());
+
+            // What a successful settle (or an execution revert) does.
+            clear_pending_batch_proof(&provider);
+            assert!(read_pending_batch_proof(&provider).is_none());
+
+            let mut worker = test_worker(backend.clone(), provider);
+            settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap();
+            assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
+        }
     }
 }

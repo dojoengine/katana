@@ -799,7 +799,7 @@ impl Node<ForkProviderFactory> {
 impl<P> Node<P>
 where
     P: ProviderFactory + Clone + Send + Sync + 'static,
-    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::Provider: ProviderRO + SettlementProofProvider,
     <P as ProviderFactory>::ProviderMut: ProviderRW
         + MessagingCheckpointProvider
         + MessagingL1ToL2IndexWriter

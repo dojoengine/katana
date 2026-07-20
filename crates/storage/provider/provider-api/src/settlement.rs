@@ -1,5 +1,5 @@
 use katana_primitives::block::BlockNumber;
-use katana_primitives::settlement::ProofId;
+use katana_primitives::settlement::{PendingBatchProof, ProofId};
 
 use crate::ProviderResult;
 
@@ -24,6 +24,13 @@ pub trait SettlementProofProvider: Send + Sync {
     /// Returns a reference to the proof that settled `block`, or `None` if the block has not been
     /// settled (or was settled without a proof reference, e.g. mock mode).
     fn block_proof(&self, block: BlockNumber) -> ProviderResult<Option<ProofId>>;
+
+    /// Returns the generated-but-not-yet-settled batch proof reference, if one was recorded.
+    ///
+    /// Written by the settlement service the moment proving completes (before `update_state`
+    /// submission), so a restarted node can recover the proof from the proving network instead
+    /// of paying for a fresh proving round.
+    fn pending_batch_proof(&self) -> ProviderResult<Option<PendingBatchProof>>;
 }
 
 /// Write access to the block -> proof mapping recorded by the settlement service.
@@ -31,4 +38,11 @@ pub trait SettlementProofProvider: Send + Sync {
 pub trait SettlementProofWriter: Send + Sync {
     /// Records the proof that settled `block`.
     fn set_block_proof(&self, block: BlockNumber, proof: ProofId) -> ProviderResult<()>;
+
+    /// Records the generated-but-not-yet-settled batch proof reference, replacing any previous
+    /// one (at most one batch is ever in flight — settlement is serial).
+    fn set_pending_batch_proof(&self, pending: PendingBatchProof) -> ProviderResult<()>;
+
+    /// Clears the pending batch proof reference (the batch settled, so the reference is spent).
+    fn clear_pending_batch_proof(&self) -> ProviderResult<()>;
 }

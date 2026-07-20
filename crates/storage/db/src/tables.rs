@@ -2,7 +2,7 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
-use katana_primitives::settlement::ProofId;
+use katana_primitives::settlement::{PendingBatchProof, ProofId};
 use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
@@ -60,7 +60,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 41;
+pub const NUM_TABLES: usize = 42;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -201,7 +201,8 @@ define_tables_enum! {[
     (MessagingCheckpoints, TableType::Table),
     (MessagingL1ToL2, TableType::DupSort),
     (SettlementCheckpoints, TableType::Table),
-    (SettlementProofs, TableType::Table)
+    (SettlementProofs, TableType::Table),
+    (PendingSettlementProofs, TableType::Table)
 ]}
 
 tables! {
@@ -306,7 +307,13 @@ tables! {
 
     /// Maps each settled block to a prover-agnostic reference to the proof that settled it. Every
     /// block in a settled batch maps to that batch's single proof.
-    SettlementProofs: (u64) => ProofId
+    SettlementProofs: (u64) => ProofId,
+
+    /// Reference to a generated-but-not-yet-settled batch proof, recorded before `update_state`
+    /// submission so a restart can recover the proof from the proving network instead of paying
+    /// for a fresh proving round. A singleton, keyed by a constant (see
+    /// `PENDING_SETTLEMENT_PROOF_KEY`); cleared once the batch settles.
+    PendingSettlementProofs: (u64) => PendingBatchProof
 }
 
 impl Trie for ClassesTrie {
@@ -373,6 +380,7 @@ mod tests {
         assert_eq!(Tables::ALL[38].name(), MessagingL1ToL2::NAME);
         assert_eq!(Tables::ALL[39].name(), SettlementCheckpoints::NAME);
         assert_eq!(Tables::ALL[40].name(), SettlementProofs::NAME);
+        assert_eq!(Tables::ALL[41].name(), PendingSettlementProofs::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockStateUpdates.table_type(), TableType::Table);
