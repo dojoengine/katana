@@ -30,8 +30,10 @@ pub struct SettlementConfig {
 
     /// Number of blocks settled per `update_state` transaction.
     pub batch_size: usize,
-    /// Settle a partial batch after this long without a new block.
-    pub idle_flush_interval: Duration,
+    /// Maximum time between settlements while blocks are pending: a batch is settled when it
+    /// reaches `batch_size` blocks or when this much time has elapsed since its first pending
+    /// block, whichever comes first.
+    pub settle_interval: Duration,
 }
 
 /// Proving-system-specific settlement configuration.
@@ -81,7 +83,7 @@ impl SettlementConfig {
             account_address: runtime.account_address,
             account_private_key: runtime.account_private_key,
             batch_size: runtime.batch_size,
-            idle_flush_interval: Duration::from_secs(runtime.idle_flush_secs),
+            settle_interval: Duration::from_secs(runtime.settle_interval_secs),
             prover: ProverConfig::Tee {
                 tee_registry: runtime.tee_registry,
                 prover_key: runtime.prover_key.clone(),

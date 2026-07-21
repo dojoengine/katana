@@ -156,14 +156,14 @@ pub async fn spawn_l3(l2: &L2InProcess, bootstrap: &BootstrapResult) -> L3InProc
 
     // Drives the embedded settlement service. `batch_size: 1` settles every block
     // immediately, so the per-iteration `wait_for_settlement` assertions don't sit
-    // out the idle-flush window.
+    // out the settle-interval window.
     let settlement_runtime = SettlementRuntime {
         account_address: bootstrap.account_address.into(),
         account_private_key: bootstrap.account_private_key,
         tee_registry: bootstrap.tee_registry_address.into(),
         prover_key: None,
         batch_size: 1,
-        idle_flush_secs: 120,
+        settle_interval_secs: 120,
     };
 
     let l3_chain = rollup::ChainSpec {

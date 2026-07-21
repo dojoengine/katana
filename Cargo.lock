@@ -8368,6 +8368,7 @@ dependencies = [
  "garaga_rs",
  "hex",
  "katana-chain-spec",
+ "katana-db",
  "katana-genesis",
  "katana-metrics",
  "katana-primitives",

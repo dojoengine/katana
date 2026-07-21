@@ -34,6 +34,8 @@ tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+# direct table writes to advance the chain head in the settle-interval tests
+katana-db.workspace = true
 katana-genesis.workspace = true
 # test-util: paused-clock tests of the submission-retry loop (`start_paused`).
 tokio = { workspace = true, features = [ "test-util" ] }
