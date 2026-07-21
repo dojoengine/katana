@@ -1,5 +1,4 @@
 use jsonrpsee::core::client::{self, ClientT, Subscription, SubscriptionClientT};
-use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use katana_primitives::block::ConfirmedBlockIdOrTag;
 use katana_primitives::class::ClassHash;
@@ -39,6 +38,8 @@ use katana_rpc_types::{
 use serde::de::DeserializeOwned;
 use url::Url;
 
+use crate::http::HttpClient;
+
 type Result<T> = std::result::Result<T, StarknetRpcClientError>;
 
 // Some blocks can have very large responses (e.g., getBlockWithReceipts for mainnet blocks
@@ -51,6 +52,10 @@ pub struct StarknetRpcClient<C = HttpClient> {
 }
 
 impl StarknetRpcClient<HttpClient> {
+    /// Connect to the given URL over HTTP.
+    ///
+    /// The underlying transport honors the `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
+    /// environment variables. See [`crate::http`] for details.
     pub fn new(url: Url) -> Self {
         HttpClient::builder()
             .max_response_size(MAX_RESPONSE_SIZE)

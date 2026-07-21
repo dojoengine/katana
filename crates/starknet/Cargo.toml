@@ -16,6 +16,7 @@ reqwest.workspace = true
 thiserror.workspace = true
 url.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 alloy-sol-types = { workspace = true, default-features = false, features = [ "json" ] }
@@ -24,3 +25,7 @@ alloy-contract = { workspace = true, default-features = false }
 alloy-network = { workspace = true, default-features = false }
 alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
 alloy-rpc-types-eth = { workspace = true, default-features = false }
+
+[dev-dependencies]
+jsonrpsee = { workspace = true, features = [ "client", "server" ] }
+tokio.workspace = true
