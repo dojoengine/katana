@@ -2,10 +2,10 @@
 
 use http::{HeaderMap, HeaderName, HeaderValue};
 use jsonrpsee::core::{async_trait, ClientError, RpcResult};
-use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::types::error::INTERNAL_ERROR_CODE;
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_rpc_api::paymaster::{PaymasterApiClient, PaymasterApiServer};
+use katana_starknet::http::HttpClient;
 use paymaster_rpc::{
     BuildTransactionRequest, BuildTransactionResponse, ExecuteDirectRequest, ExecuteDirectResponse,
     ExecuteRequest, ExecuteResponse, TokenPrice,
@@ -37,7 +37,7 @@ impl PaymasterProxy {
             HeaderMap::default()
         };
 
-        let client = HttpClientBuilder::default().set_headers(headers).build(url.as_str())?;
+        let client = HttpClient::builder().set_headers(headers).build(url)?;
 
         Ok(Self { upstream_client: client })
     }

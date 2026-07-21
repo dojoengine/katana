@@ -12,6 +12,7 @@
 //! - Contract addresses: <https://docs.starknet.io/learn/cheatsheets/chain-info#important-addresses>
 //! - Solidity implementation: <https://github.com/starkware-libs/cairo-lang/blob/66355d7d99f1962ff9ccba8d0dbacbce3bd79bf8/src/starkware/starknet/solidity/Starknet.sol#L4>
 
+pub mod http;
 pub mod rpc;
 
 use alloy_network::Ethereum;

@@ -199,8 +199,8 @@ where
 
     /// Returns a HTTP client to the JSON-RPC server.
     pub fn starknet_rpc_client(&self) -> katana_starknet::rpc::StarknetRpcClient {
-        let client = self.rpc_http_client();
-        katana_starknet::rpc::StarknetRpcClient::new_with_client(client)
+        let url = Url::parse(&format!("http://{}", self.rpc_addr())).expect("failed to parse url");
+        katana_starknet::rpc::StarknetRpcClient::new(url)
     }
 
     /// Returns the address of the node's gRPC server (if enabled).
