@@ -422,7 +422,9 @@ where
                         _ = &mut shutdown_rx => break,
                         r = notify_rx.recv() => match r {
                             Ok(_) => {
-                                // First block of a fresh batch window: arm the idle flush timer.
+                                // First block of a fresh batch window: the window settles no
+                                // later than `idle_flush_interval` from now, even if the batch
+                                // never fills. Later blocks do not push the deadline back.
                                 idle_deadline = Instant::now() + self.idle_flush_interval;
                             }
                             Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -643,7 +645,7 @@ mod tests {
         assert_eq!(next_action(None, 0, 1, false), Action::Settle { first: 0, last: 0 });
         // Only the genesis block, larger batch → wait for more blocks (or the idle flush).
         assert_eq!(next_action(None, 0, 10, false), Action::WaitForBatch);
-        // A few blocks present, batch not yet full → wait unless idle.
+        // A few blocks present, batch not yet full → wait unless the idle deadline elapsed.
         assert_eq!(next_action(None, 2, 10, false), Action::WaitForBatch);
         assert_eq!(next_action(None, 2, 10, true), Action::Settle { first: 0, last: 2 });
     }
@@ -712,15 +714,15 @@ mod tests {
 
         /// Counts `prove`/`recover` calls; `prove` fails when `fail` is set. The proof id
         /// encodes the prove-call count so tests can tell which round produced a payload.
-        struct CountingBackend {
-            calls: AtomicUsize,
+        pub(super) struct CountingBackend {
+            pub(super) calls: AtomicUsize,
             recover_calls: AtomicUsize,
             fail: bool,
             recover: RecoverBehavior,
         }
 
         impl CountingBackend {
-            fn new(fail: bool) -> Self {
+            pub(super) fn new(fail: bool) -> Self {
                 Self {
                     calls: AtomicUsize::new(0),
                     recover_calls: AtomicUsize::new(0),
@@ -797,7 +799,7 @@ mod tests {
             })
         }
 
-        fn test_worker(
+        pub(super) fn test_worker(
             backend: Arc<dyn ProvingBackend>,
             provider: DbProviderFactory,
         ) -> Worker<DbProviderFactory> {
@@ -934,6 +936,109 @@ mod tests {
             settle_until_shutdown(&mut worker, 5, 10, 1).await.unwrap();
             assert_eq!(backend.recover_calls.load(Ordering::SeqCst), 0);
             assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
+        }
+    }
+
+    /// Exercises the run loop's time-based trigger under a paused tokio clock: a partial
+    /// batch settles once `idle_flush_interval` elapses, measured from when the batch window
+    /// opens — blocks arriving mid-window must not push the deadline back, so the interval
+    /// is the maximum time between settlements while blocks are pending.
+    ///
+    /// The Piltover endpoint is unreachable, so "settled" is observed at the proving layer
+    /// (a `CountingBackend` prove call) and via the persisted pending-proof range, not a
+    /// landed transaction.
+    mod idle_flush {
+        use std::sync::atomic::Ordering;
+        use std::sync::Arc;
+
+        use katana_db::abstraction::{Database, DbTx, DbTxMut};
+        use katana_db::tables;
+        use katana_primitives::block::BlockNumber;
+        use katana_primitives::Felt;
+        use katana_provider::DbProviderFactory;
+        use tokio::sync::{broadcast, oneshot};
+        use tokio::time::{Duration, Instant};
+
+        use super::proof_reuse::{test_worker, CountingBackend};
+        use crate::service::read_pending_batch_proof;
+
+        /// Advances the local chain head as the block producer would, by recording the
+        /// block's hash — `latest_number` reads the last `BlockHashes` entry.
+        fn insert_block(provider: &DbProviderFactory, number: BlockNumber) {
+            let tx = provider.db().tx_mut().unwrap();
+            tx.put::<tables::BlockHashes>(number, Felt::from(number)).unwrap();
+            tx.commit().unwrap();
+        }
+
+        /// Polls (in virtual time) until the backend has proven at least `count` batches.
+        async fn wait_for_prove(backend: &CountingBackend, count: usize) {
+            for _ in 0..600 {
+                if backend.calls.load(Ordering::SeqCst) >= count {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            panic!("prove was never attempted");
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn partial_batch_settles_once_interval_elapses() {
+            let provider = DbProviderFactory::new_in_memory();
+            insert_block(&provider, 0);
+
+            let backend = Arc::new(CountingBackend::new(false));
+            let mut worker = test_worker(backend.clone(), provider.clone());
+            worker.idle_flush_interval = Duration::from_secs(60);
+
+            let (notify_tx, notify_rx) = broadcast::channel::<()>(8);
+            let (shutdown_tx, shutdown_rx) = oneshot::channel();
+            let handle = tokio::spawn(worker.run(notify_rx, shutdown_rx));
+
+            // One pending block out of a batch of 10: just short of the deadline,
+            // nothing settles.
+            tokio::time::sleep(Duration::from_secs(59)).await;
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+
+            // Once the interval elapses, the lone pending block is settled.
+            wait_for_prove(&backend, 1).await;
+            let pending = read_pending_batch_proof(&provider).unwrap();
+            assert_eq!((pending.first, pending.last), (0, 0));
+
+            drop(notify_tx);
+            let _ = shutdown_tx.send(());
+            handle.await.unwrap();
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn mid_window_blocks_do_not_postpone_settlement() {
+            let provider = DbProviderFactory::new_in_memory();
+            insert_block(&provider, 0);
+
+            let backend = Arc::new(CountingBackend::new(false));
+            let mut worker = test_worker(backend.clone(), provider.clone());
+            worker.idle_flush_interval = Duration::from_secs(60);
+
+            let (notify_tx, notify_rx) = broadcast::channel::<()>(8);
+            let (shutdown_tx, shutdown_rx) = oneshot::channel();
+            let start = Instant::now();
+            let handle = tokio::spawn(worker.run(notify_rx, shutdown_rx));
+
+            // A second block lands 50s into the 60s window.
+            tokio::time::sleep(Duration::from_secs(50)).await;
+            assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+            insert_block(&provider, 1);
+            notify_tx.send(()).unwrap();
+
+            // Both blocks settle at the original deadline (~60s from the window opening),
+            // not a fresh interval from the second block (110s).
+            wait_for_prove(&backend, 1).await;
+            assert!(start.elapsed() < Duration::from_secs(70), "deadline was pushed back");
+            let pending = read_pending_batch_proof(&provider).unwrap();
+            assert_eq!((pending.first, pending.last), (0, 1));
+
+            drop(notify_tx);
+            let _ = shutdown_tx.send(());
+            handle.await.unwrap();
         }
     }
 }

@@ -30,7 +30,9 @@ pub struct SettlementConfig {
 
     /// Number of blocks settled per `update_state` transaction.
     pub batch_size: usize,
-    /// Settle a partial batch after this long without a new block.
+    /// Maximum time between settlements while blocks are pending: a batch is settled when it
+    /// reaches `batch_size` blocks or when this much time has elapsed since its first pending
+    /// block, whichever comes first.
     pub idle_flush_interval: Duration,
 }
 

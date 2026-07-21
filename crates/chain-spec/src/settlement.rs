@@ -67,7 +67,10 @@ pub struct SettlementRuntime {
     #[serde(default = "default_settlement_batch_size")]
     pub batch_size: usize,
 
-    /// Settle a partial batch after this many seconds without a new block.
+    /// Maximum seconds between settlements while blocks are pending.
+    ///
+    /// A batch is settled when it reaches `batch_size` blocks or when this many
+    /// seconds have elapsed since its first pending block — whichever comes first.
     #[serde(default = "default_settlement_idle_flush_secs")]
     pub idle_flush_secs: u64,
 }
