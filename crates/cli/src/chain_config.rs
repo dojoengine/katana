@@ -448,7 +448,7 @@ mod tests {
                 tee_registry: ContractAddress::from(felt!("0x789")),
                 prover_key: Some("sp1_dummy".to_string()),
                 batch_size: 3,
-                settle_interval_secs: 7,
+                idle_flush_secs: 7,
             }),
         };
 
@@ -456,40 +456,6 @@ mod tests {
         let (_, read_settlement) = read(&chain_spec.id()).unwrap();
 
         assert_eq!(Some(settlement), read_settlement);
-    }
-
-    /// Configs written before the rename still parse: the old `idle-flush-secs` key
-    /// deserializes into `settle_interval_secs` via its serde alias.
-    #[test]
-    fn settlement_interval_old_key_still_parses() {
-        let config = r#"
-kind = "rollup"
-
-[id]
-Id = "0x4b4154414e41"
-
-[fee-contract]
-strk = "0x0"
-
-[settlement.layer.starknet]
-rpc_url = "http://localhost:5050/"
-core_contract = "0x0"
-block = 0
-proof_kind = "tee"
-
-[settlement.layer.starknet.id]
-Id = "0x4b4154414e41"
-
-[settlement.runtime]
-account-address = "0x123"
-account-private-key = "0x456"
-tee-registry = "0x789"
-idle-flush-secs = 7
-"#;
-
-        let parsed: super::ChainConfigFile = toml::from_str(config).expect("old key parses");
-        let runtime = parsed.settlement.expect("settlement present").runtime.expect("runtime");
-        assert_eq!(runtime.settle_interval_secs, 7);
     }
 
     /// A settlement section with no `[settlement.runtime]` parses with `runtime: None`; a config

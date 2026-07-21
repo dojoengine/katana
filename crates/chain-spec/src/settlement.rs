@@ -71,15 +71,15 @@ pub struct SettlementRuntime {
     ///
     /// A batch is settled when it reaches `batch_size` blocks or when this many
     /// seconds have elapsed since its first pending block — whichever comes first.
-    #[serde(default = "default_settle_interval_secs", alias = "idle-flush-secs")]
-    pub settle_interval_secs: u64,
+    #[serde(default = "default_settlement_idle_flush_secs")]
+    pub idle_flush_secs: u64,
 }
 
 fn default_settlement_batch_size() -> usize {
     10
 }
 
-fn default_settle_interval_secs() -> u64 {
+fn default_settlement_idle_flush_secs() -> u64 {
     120
 }
 

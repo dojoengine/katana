@@ -94,7 +94,7 @@ where
             backend: self.backend.clone(),
             provider: self.provider.clone(),
             batch_size: self.config.batch_size.max(1) as u64,
-            settle_interval: self.config.settle_interval,
+            idle_flush_interval: self.config.idle_flush_interval,
             metrics: SettlementMetrics::default(),
             proof_metrics: SettlementProofMetrics::new_with_labels(&[(
                 "proof_type",
@@ -154,7 +154,7 @@ struct Worker<P> {
     backend: Arc<dyn ProvingBackend>,
     piltover: PiltoverClient,
     batch_size: u64,
-    settle_interval: tokio::time::Duration,
+    idle_flush_interval: tokio::time::Duration,
     /// Last settled block, from Piltover's `get_state()`. `None` = nothing settled yet.
     cursor: Option<BlockNumber>,
     metrics: SettlementMetrics,
@@ -273,7 +273,7 @@ where
 enum Action {
     /// Settle this inclusive block range now.
     Settle { first: BlockNumber, last: BlockNumber },
-    /// Blocks are pending but the batch is partial — wait for more blocks or the settle deadline.
+    /// Blocks are pending but the batch is partial — wait for more blocks or the idle deadline.
     WaitForBatch,
     /// Fully caught up — wait for a new block.
     Idle,
@@ -286,7 +286,7 @@ fn next_action(
     cursor: Option<BlockNumber>,
     head: BlockNumber,
     batch_size: u64,
-    interval_elapsed: bool,
+    idle_elapsed: bool,
 ) -> Action {
     let next = cursor.map(|c| c + 1).unwrap_or(0);
 
@@ -295,7 +295,7 @@ fn next_action(
     }
 
     let pending = head - next + 1;
-    if pending >= batch_size || interval_elapsed {
+    if pending >= batch_size || idle_elapsed {
         Action::Settle { first: next, last: head.min(next + batch_size - 1) }
     } else {
         Action::WaitForBatch
@@ -317,7 +317,7 @@ where
         // shutdown-responsive mid-retry.
         mut shutdown_rx: oneshot::Receiver<()>,
     ) {
-        let mut settle_deadline = Instant::now() + self.settle_interval;
+        let mut idle_deadline = Instant::now() + self.idle_flush_interval;
         let mut backoff = RETRY_BACKOFF_MIN;
         let mut consecutive_failures: u32 = 0;
 
@@ -331,9 +331,9 @@ where
                 }
             };
 
-            let interval_elapsed = Instant::now() >= settle_deadline;
+            let idle_elapsed = Instant::now() >= idle_deadline;
 
-            match next_action(self.cursor, head, self.batch_size, interval_elapsed) {
+            match next_action(self.cursor, head, self.batch_size, idle_elapsed) {
                 Action::Settle { first, last } => {
                     let batch_start = Instant::now();
                     match self.settle_batch(first, last, &mut shutdown_rx).await {
@@ -364,7 +364,7 @@ where
                             if let Some(proof) = proof {
                                 persist_block_proofs(&self.provider, first, last, proof);
                             }
-                            settle_deadline = Instant::now() + self.settle_interval;
+                            idle_deadline = Instant::now() + self.idle_flush_interval;
                             backoff = RETRY_BACKOFF_MIN;
                             consecutive_failures = 0;
                             // Loop again immediately: drain any remaining backlog.
@@ -398,7 +398,7 @@ where
                 Action::WaitForBatch => {
                     tokio::select! {
                         _ = &mut shutdown_rx => break,
-                        _ = tokio::time::sleep_until(settle_deadline) => {}
+                        _ = tokio::time::sleep_until(idle_deadline) => {}
                         r = notify_rx.recv() => match r {
                             // New block mined — re-evaluate. The payload is irrelevant; the
                             // provider is re-read on the next iteration.
@@ -423,9 +423,9 @@ where
                         r = notify_rx.recv() => match r {
                             Ok(_) => {
                                 // First block of a fresh batch window: the window settles no
-                                // later than `settle_interval` from now, even if the batch
+                                // later than `idle_flush_interval` from now, even if the batch
                                 // never fills. Later blocks do not push the deadline back.
-                                settle_deadline = Instant::now() + self.settle_interval;
+                                idle_deadline = Instant::now() + self.idle_flush_interval;
                             }
                             Err(broadcast::error::RecvError::Lagged(_)) => {}
                             Err(broadcast::error::RecvError::Closed) => {
@@ -643,9 +643,9 @@ mod tests {
     fn nothing_settled() {
         // Only the genesis block present, batch of 1 → settle block 0 immediately.
         assert_eq!(next_action(None, 0, 1, false), Action::Settle { first: 0, last: 0 });
-        // Only the genesis block, larger batch → wait for more blocks (or the settle deadline).
+        // Only the genesis block, larger batch → wait for more blocks (or the idle flush).
         assert_eq!(next_action(None, 0, 10, false), Action::WaitForBatch);
-        // A few blocks present, batch not yet full → wait unless the interval elapsed.
+        // A few blocks present, batch not yet full → wait unless the idle deadline elapsed.
         assert_eq!(next_action(None, 2, 10, false), Action::WaitForBatch);
         assert_eq!(next_action(None, 2, 10, true), Action::Settle { first: 0, last: 2 });
     }
@@ -670,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn interval_elapsed_settles_partial_batch() {
+    fn idle_elapsed_flushes_partial_batch() {
         assert_eq!(next_action(Some(2), 4, 10, true), Action::Settle { first: 3, last: 4 });
     }
 
@@ -818,7 +818,7 @@ mod tests {
                 backend: backend.clone(),
                 provider,
                 batch_size: 10,
-                settle_interval: Duration::from_secs(120),
+                idle_flush_interval: Duration::from_secs(120),
                 cursor: None,
                 metrics: SettlementMetrics::default(),
                 proof_metrics: SettlementProofMetrics::new_with_labels(&[("proof_type", "mock")]),
@@ -940,13 +940,14 @@ mod tests {
     }
 
     /// Exercises the run loop's time-based trigger under a paused tokio clock: a partial
-    /// batch settles once `settle_interval` elapses, measured from when the batch window
-    /// opens — blocks arriving mid-window must not push the deadline back.
+    /// batch settles once `idle_flush_interval` elapses, measured from when the batch window
+    /// opens — blocks arriving mid-window must not push the deadline back, so the interval
+    /// is the maximum time between settlements while blocks are pending.
     ///
     /// The Piltover endpoint is unreachable, so "settled" is observed at the proving layer
     /// (a `CountingBackend` prove call) and via the persisted pending-proof range, not a
     /// landed transaction.
-    mod settle_interval {
+    mod idle_flush {
         use std::sync::atomic::Ordering;
         use std::sync::Arc;
 
@@ -987,7 +988,7 @@ mod tests {
 
             let backend = Arc::new(CountingBackend::new(false));
             let mut worker = test_worker(backend.clone(), provider.clone());
-            worker.settle_interval = Duration::from_secs(60);
+            worker.idle_flush_interval = Duration::from_secs(60);
 
             let (notify_tx, notify_rx) = broadcast::channel::<()>(8);
             let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -1015,7 +1016,7 @@ mod tests {
 
             let backend = Arc::new(CountingBackend::new(false));
             let mut worker = test_worker(backend.clone(), provider.clone());
-            worker.settle_interval = Duration::from_secs(60);
+            worker.idle_flush_interval = Duration::from_secs(60);
 
             let (notify_tx, notify_rx) = broadcast::channel::<()>(8);
             let (shutdown_tx, shutdown_rx) = oneshot::channel();

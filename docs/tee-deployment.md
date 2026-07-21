@@ -129,9 +129,9 @@ operator-local half you add by hand:
 account-address = "<DEPLOYER_ADDRESS>"
 account-private-key = "<SEPOLIA_DEPLOYER_PRIVATE_KEY>"
 tee-registry = "<TEE_REGISTRY_ADDRESS>"
-batch-size = 1            # blocks per settlement tx; raise for prod
-settle-interval-secs = 30 # settle pending blocks at most this many seconds apart
-                          # (batch-size or this, whichever comes first)
+batch-size = 1        # blocks per settlement tx; raise for prod
+idle-flush-secs = 30  # settle pending blocks at most this many seconds apart
+                      # (batch-size or this, whichever comes first)
 # prover-key is omitted: with a mock attester no SP1 proving happens.
 ```
 
@@ -238,8 +238,8 @@ account-address = "<DEPLOYER_ADDRESS>"
 account-private-key = "<SEPOLIA_DEPLOYER_PRIVATE_KEY>"
 tee-registry = "<TEE_REGISTRY_ADDRESS>"
 prover-key = "<SP1_PROVER_NETWORK_KEY>"
-batch-size = 32           # amortize settlement gas; tune to throughput
-settle-interval-secs = 60 # max seconds between settlements while blocks are pending
+batch-size = 32       # amortize settlement gas; tune to throughput
+idle-flush-secs = 60  # max seconds between settlements while blocks are pending
 ```
 
 Commit `chain-config/` (minus the `[settlement-runtime]` secrets, if you
