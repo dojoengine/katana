@@ -708,3 +708,34 @@ jobs:
 
             - name: Run database compatibility check
               run: KATANA_BIN=./katana cargo run -p db-compat-test
+
+    tee-db-forward-compat:
+        # A newer TEE-VM release must be able to open the database a PREVIOUS
+        # TEE-VM release wrote. Unsealed storage is the default (docs/amdsev.md),
+        # so the VM's data disk is a plain katana DB and the VM neither encrypts
+        # nor reshapes it — this is therefore a pure katana-db forward-compat
+        # check: the current binary (built from this ref) opens the DB written by
+        # the katana bundled in the latest published TEE-VM release. No QEMU/SEV.
+        # The script lives under misc/AMDSEV (it is release-artifact-aware); the
+        # job lives here so it runs on the rust/db changes that actually regress
+        # forward-compat, not only on misc/AMDSEV edits.
+        needs: [detect-changes, fmt, clippy, build-katana-binary-ubuntu]
+        runs-on: ubuntu-latest
+        if: |
+            needs.detect-changes.outputs.broader-rust == 'true' &&
+            (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Download Katana binary (current ref)
+              uses: actions/download-artifact@v5
+              with:
+                  name: binary-ubuntu
+
+            - name: Setup Katana binary
+              run: chmod +x ./katana
+
+            - name: Current katana opens the latest TEE-VM release's database
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: KATANA_BIN="$PWD/katana" ./misc/AMDSEV/scripts/test-db-forward-compat.sh
