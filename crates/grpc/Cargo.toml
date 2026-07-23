@@ -42,10 +42,16 @@ num-bigint.workspace = true
 tower-service.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 hex = "0.4"
 katana-starknet.workspace = true
 katana-utils = { workspace = true, features = [ "node" ] }
+rand.workspace = true
 tokio = { workspace = true, features = [ "macros", "rt-multi-thread" ] }
 
 [build-dependencies]
 tonic-build.workspace = true
+
+[[bench]]
+harness = false
+name = "payload"
