@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use alloy_network::Ethereum;
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, B256, U256};
 use alloy_provider::{Provider, RootProvider};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, FilterSet, Log, Topic};
 use alloy_sol_types::{sol, SolEvent};
@@ -20,7 +20,7 @@ use katana_primitives::utils::transaction::{
     compute_l1_to_l2_message_hash, compute_l2_to_l1_message_hash,
 };
 use katana_primitives::{ContractAddress, Felt};
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 use url::Url;
 
 use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
@@ -140,7 +140,9 @@ impl MessageCollector for EthereumCollector {
 
                 debug!(target: LOG_TARGET, block, tx_index, "Converting log into L1HandlerTx.");
 
-                if let Ok(tx) = l1_handler_tx_from_log(log.clone(), chain_id) {
+                if let Some(tx) =
+                    l1_handler_tx_from_log_or_warn(log, chain_id, block, tx_index, l1_tx_hash)
+                {
                     messages.push(OrderedMessage { block, tx_index, l1_tx_hash: l1_tx_hash.0, tx });
                 }
             }
@@ -151,6 +153,29 @@ impl MessageCollector for EthereumCollector {
 }
 
 // --- Conversion functions ---
+
+fn l1_handler_tx_from_log_or_warn(
+    log: &Log,
+    chain_id: ChainId,
+    block: u64,
+    tx_index: u64,
+    transaction_hash: B256,
+) -> Option<L1HandlerTx> {
+    match l1_handler_tx_from_log(log.clone(), chain_id) {
+        Ok(tx) => Some(tx),
+        Err(error) => {
+            warn!(
+                target: LOG_TARGET,
+                block,
+                tx_index,
+                %transaction_hash,
+                %error,
+                "Skipping malformed settlement chain message."
+            );
+            None
+        }
+    }
+}
 
 fn l1_handler_tx_from_log(
     log: Log,
@@ -231,6 +256,7 @@ mod tests {
     use katana_primitives::felt;
     use katana_primitives::utils::transaction::compute_l1_to_l2_message_hash;
     use starknet::macros::selector;
+    use tracing_test::traced_test;
 
     use super::*;
 
@@ -315,5 +341,26 @@ mod tests {
             )
             .unwrap()
         );
+    }
+
+    #[test]
+    #[traced_test]
+    fn malformed_log_is_logged_before_it_is_skipped() {
+        let transaction_hash =
+            b256!("db80dd488acf86d17c747445b0eabb5d57c541d3bd7b6b87af987858e5066b2b");
+        let log = Log {
+            block_number: Some(17),
+            transaction_index: Some(3),
+            transaction_hash: Some(transaction_hash),
+            ..Default::default()
+        };
+
+        let tx = l1_handler_tx_from_log_or_warn(&log, ChainId::default(), 17, 3, transaction_hash);
+
+        assert!(tx.is_none());
+        assert!(logs_contain("Skipping malformed settlement chain message."));
+        assert!(logs_contain("block=17"));
+        assert!(logs_contain("tx_index=3"));
+        assert!(logs_contain("decode LogMessageToL2 log"));
     }
 }

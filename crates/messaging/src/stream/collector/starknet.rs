@@ -11,7 +11,7 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::event::{EmittedEvent, EventFilter};
 use katana_starknet::rpc::{StarknetRpcClient, StarknetRpcClientError};
 use starknet::macros::selector;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 use url::Url;
 
 use crate::stream::collector::{GatherResult, MessageCollector, OrderedMessage};
@@ -128,7 +128,7 @@ impl MessageCollector for StarknetCollector {
 
                 debug!(target: LOG_TARGET, block, tx_index, "Converting event into L1HandlerTx.");
 
-                if let Ok(tx) = l1_handler_tx_from_event(e, chain_id) {
+                if let Some(tx) = l1_handler_tx_from_event_or_warn(e, chain_id, block, tx_index) {
                     messages.push(OrderedMessage {
                         block,
                         tx_index,
@@ -144,6 +144,28 @@ impl MessageCollector for StarknetCollector {
 }
 
 // --- Conversion functions ---
+
+fn l1_handler_tx_from_event_or_warn(
+    event: &EmittedEvent,
+    chain_id: ChainId,
+    block: u64,
+    tx_index: u64,
+) -> Option<L1HandlerTx> {
+    match l1_handler_tx_from_event(event, chain_id) {
+        Ok(tx) => Some(tx),
+        Err(error) => {
+            warn!(
+                target: LOG_TARGET,
+                block,
+                tx_index,
+                transaction_hash = %event.transaction_hash,
+                %error,
+                "Skipping malformed settlement chain message."
+            );
+            None
+        }
+    }
+}
 
 fn l1_handler_tx_from_event(
     event: &EmittedEvent,
@@ -211,6 +233,7 @@ mod tests {
     use katana_primitives::utils::transaction::compute_l1_handler_tx_hash;
     use katana_rpc_types::event::RawEvent;
     use starknet::macros::felt;
+    use tracing_test::traced_test;
 
     use super::*;
 
@@ -340,5 +363,27 @@ mod tests {
         let err = l1_handler_tx_from_event(&event, ChainId::default()).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("expected 4 keys"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    #[traced_test]
+    fn malformed_event_is_logged_before_it_is_skipped() {
+        let event = EmittedEvent {
+            from_address: ContractAddress::default(),
+            event: RawEvent { keys: vec![], data: vec![] },
+            block_hash: Some(Felt::ZERO),
+            block_number: Some(17),
+            transaction_hash: Felt::ONE,
+            transaction_index: 0,
+            event_index: 0,
+        };
+
+        let tx = l1_handler_tx_from_event_or_warn(&event, ChainId::default(), 17, 3);
+
+        assert!(tx.is_none());
+        assert!(logs_contain("Skipping malformed settlement chain message."));
+        assert!(logs_contain("block=17"));
+        assert!(logs_contain("tx_index=3"));
+        assert!(logs_contain("expected 4 keys"));
     }
 }
